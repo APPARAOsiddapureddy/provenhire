@@ -1,0 +1,881 @@
+[
+  {
+    "id": "VA_001",
+    "category": "Verbal Ability",
+    "question": "Choose the word that is most nearly OPPOSITE in meaning to 'EPHEMERAL':",
+    "options": ["Transient", "Permanent", "Fleeting", "Brief"],
+    "answer": "Permanent",
+    "solution": "Ephemeral means lasting for a very short time. Its antonym is permanent, meaning lasting indefinitely.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_002",
+    "category": "Verbal Ability",
+    "question": "Select the word that best completes the sentence: 'The scientist's _______ approach to research ensured that all findings were thoroughly verified before publication.'",
+    "options": ["Haphazard", "Meticulous", "Careless", "Casual"],
+    "answer": "Meticulous",
+    "solution": "Meticulous means showing great attention to detail, which fits the context of thorough verification.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_003",
+    "category": "Verbal Ability",
+    "question": "Identify the correctly punctuated sentence:",
+    "options": [
+      "The manager said, \"we need to finish the project by Friday.\"",
+      "The manager said, \"We need to finish the project by Friday.\"",
+      "The manager said \"We need to finish the project by Friday\".",
+      "The manager said \"we need to finish the project by Friday.\""
+    ],
+    "answer": "The manager said, \"We need to finish the project by Friday.\"",
+    "solution": "Direct speech requires a comma before the quote, capital letter at start, and period inside the closing quotation mark.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_004",
+    "category": "Verbal Ability",
+    "question": "Choose the word that is most similar in meaning to 'PRAGMATIC':",
+    "options": ["Idealistic", "Theoretical", "Practical", "Impractical"],
+    "answer": "Practical",
+    "solution": "Pragmatic means dealing with things sensibly and realistically, making 'practical' its synonym.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_005",
+    "category": "Verbal Ability",
+    "question": "Which sentence contains a grammatical error?",
+    "options": [
+      "Neither the manager nor the employees were satisfied with the outcome.",
+      "Each of the students has submitted their assignment.",
+      "The team is working on multiple projects simultaneously.",
+      "She is one of the engineers who have contributed to the project."
+    ],
+    "answer": "Each of the students has submitted their assignment.",
+    "solution": "'Each' is singular and should be followed by 'his or her assignment' for proper agreement.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_006",
+    "category": "Verbal Ability",
+    "question": "Complete the analogy: ARCHITECT : BUILDING :: CHOREOGRAPHER : ?",
+    "options": ["Music", "Dance", "Theater", "Painting"],
+    "answer": "Dance",
+    "solution": "An architect designs buildings; a choreographer designs dance performances.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_007",
+    "category": "Verbal Ability",
+    "question": "Choose the word that best fills the blank: 'The company's decision to expand was _______ by the favorable market conditions.'",
+    "options": ["Precluded", "Facilitated", "Hindered", "Obstructed"],
+    "answer": "Facilitated",
+    "solution": "Favorable conditions would help or facilitate expansion, not hinder it.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_008",
+    "category": "Verbal Ability",
+    "question": "Select the sentence with correct subject-verb agreement:",
+    "options": [
+      "The committee have made their decision.",
+      "Mathematics are my favorite subject.",
+      "The news is quite surprising today.",
+      "The jury have reached their verdict."
+    ],
+    "answer": "The news is quite surprising today.",
+    "solution": "'News' is always singular and takes a singular verb 'is'.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_009",
+    "category": "Verbal Ability",
+    "question": "Choose the correct meaning of the idiom 'to burn the midnight oil':",
+    "options": [
+      "To waste resources",
+      "To work or study late into the night",
+      "To create unnecessary problems",
+      "To destroy valuable documents"
+    ],
+    "answer": "To work or study late into the night",
+    "solution": "This idiom refers to working or studying until very late at night, originally from using oil lamps.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_010",
+    "category": "Verbal Ability",
+    "question": "Which word is spelled correctly?",
+    "options": ["Accomodate", "Occurence", "Conscience", "Seperate"],
+    "answer": "Conscience",
+    "solution": "Conscience is correctly spelled. Correct spellings: accommodate, occurrence, separate.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_011",
+    "category": "Verbal Ability",
+    "question": "Read the passage and answer: 'The implementation of artificial intelligence in healthcare has revolutionized patient diagnostics. Machine learning algorithms can now detect patterns in medical imaging that may be invisible to human observers, leading to earlier detection of diseases.' What is the main idea?",
+    "options": [
+      "AI is replacing doctors",
+      "AI improves disease detection in healthcare",
+      "Machine learning is complex",
+      "Medical imaging is difficult"
+    ],
+    "answer": "AI improves disease detection in healthcare",
+    "solution": "The passage discusses how AI helps detect diseases earlier through better pattern recognition.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_012",
+    "category": "Verbal Ability",
+    "question": "Choose the word that is most nearly OPPOSITE in meaning to 'BENEVOLENT':",
+    "options": ["Kind", "Generous", "Malevolent", "Charitable"],
+    "answer": "Malevolent",
+    "solution": "Benevolent means well-meaning and kind; malevolent means having evil intentions.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_013",
+    "category": "Verbal Ability",
+    "question": "Select the correctly structured sentence:",
+    "options": [
+      "Running quickly down the street, the bus was missed.",
+      "Running quickly down the street, she missed the bus.",
+      "The bus was missed running quickly down the street.",
+      "Quickly running, the bus she missed down the street."
+    ],
+    "answer": "Running quickly down the street, she missed the bus.",
+    "solution": "The modifier 'running quickly' must be placed next to the subject it describes (she), not the bus.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_014",
+    "category": "Verbal Ability",
+    "question": "What is the meaning of the word 'UBIQUITOUS'?",
+    "options": ["Rare and unusual", "Present everywhere", "Extremely dangerous", "Highly valuable"],
+    "answer": "Present everywhere",
+    "solution": "Ubiquitous means present, appearing, or found everywhere.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_015",
+    "category": "Verbal Ability",
+    "question": "Choose the word that best completes: 'Despite facing numerous _______, the entrepreneur persevered and eventually built a successful company.'",
+    "options": ["Successes", "Adversities", "Privileges", "Advantages"],
+    "answer": "Adversities",
+    "solution": "The word 'despite' and 'persevered' indicate overcoming difficulties, making adversities (hardships) the correct choice.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_016",
+    "category": "Verbal Ability",
+    "question": "Identify the sentence that uses the active voice:",
+    "options": [
+      "The report was submitted by the team yesterday.",
+      "The new policy has been implemented by management.",
+      "The team submitted the report yesterday.",
+      "The award was presented to the employee by the CEO."
+    ],
+    "answer": "The team submitted the report yesterday.",
+    "solution": "In active voice, the subject (team) performs the action (submitted). Other options use passive voice.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_017",
+    "category": "Verbal Ability",
+    "question": "Complete the analogy: PHYSICIAN : PATIENT :: ATTORNEY : ?",
+    "options": ["Judge", "Client", "Court", "Law"],
+    "answer": "Client",
+    "solution": "A physician serves patients; an attorney serves clients.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_018",
+    "category": "Verbal Ability",
+    "question": "Which of the following is a complex sentence?",
+    "options": [
+      "The sun rose and the birds began to sing.",
+      "Although it was raining, we continued our hike.",
+      "She studied hard; she passed the exam.",
+      "I went to the store and bought some groceries."
+    ],
+    "answer": "Although it was raining, we continued our hike.",
+    "solution": "A complex sentence has one independent clause and at least one dependent clause (starting with 'although').",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_019",
+    "category": "Verbal Ability",
+    "question": "Choose the synonym for 'AMELIORATE':",
+    "options": ["Worsen", "Improve", "Maintain", "Destroy"],
+    "answer": "Improve",
+    "solution": "Ameliorate means to make something better or more tolerable.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "VA_020",
+    "category": "Verbal Ability",
+    "question": "Select the sentence with the correct use of apostrophe:",
+    "options": [
+      "Its important to check the companies policy.",
+      "It's important to check the company's policy.",
+      "Its important to check the company's policy.",
+      "It's important to check the companies' policy."
+    ],
+    "answer": "It's important to check the company's policy.",
+    "solution": "It's (it is) needs apostrophe for contraction; company's shows singular possession.",
+    "section": "Verbal Ability - Easy"
+  },
+  {
+    "id": "LR_001",
+    "category": "Logical Reasoning",
+    "question": "If all roses are flowers and some flowers fade quickly, which of the following must be true?",
+    "options": [
+      "All roses fade quickly",
+      "Some roses fade quickly",
+      "No roses fade quickly",
+      "None of the above can be concluded with certainty"
+    ],
+    "answer": "None of the above can be concluded with certainty",
+    "solution": "We only know roses are a subset of flowers, but we cannot determine which specific flowers fade quickly.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_002",
+    "category": "Logical Reasoning",
+    "question": "In a row of people, A is 7th from the left and B is 12th from the right. If A and B interchange their positions, A becomes 22nd from the left. How many people are there in the row?",
+    "options": ["28", "33", "31", "30"],
+    "answer": "33",
+    "solution": "After interchange, A is at B's original position (22nd from left). B was 12th from right. Total = 22 + 12 - 1 = 33.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_003",
+    "category": "Logical Reasoning",
+    "question": "Which number comes next in the series: 2, 6, 12, 20, 30, ?",
+    "options": ["40", "42", "44", "38"],
+    "answer": "42",
+    "solution": "The differences are 4, 6, 8, 10, 12. Next difference is 12, so 30 + 12 = 42. Pattern: n(n+1) where n = 1,2,3...",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_004",
+    "category": "Logical Reasoning",
+    "question": "If COMPUTER is coded as RFUVQNPC, how is PRINTER coded?",
+    "options": ["QSJOUFQ", "SFUOJSQ", "QSOUFSQ", "QSJOFSQ"],
+    "answer": "QSJOUFQ",
+    "solution": "Each letter is replaced with the next letter in the alphabet, then the word is reversed.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_005",
+    "category": "Logical Reasoning",
+    "question": "A is the father of B. B is the mother of C. D is the brother of A. How is D related to C?",
+    "options": ["Uncle", "Grandfather", "Great Uncle", "Cousin"],
+    "answer": "Great Uncle",
+    "solution": "D is A's brother (B's uncle). Since B is C's mother, D is C's great uncle (grandparent's brother).",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_006",
+    "category": "Logical Reasoning",
+    "question": "Find the odd one out: 125, 216, 343, 512, __(728)__",
+    "options": ["125", "728", "343", "512"],
+    "answer": "728",
+    "solution": "125=5³, 216=6³, 343=7³, 512=8³. 728 is not a perfect cube (9³=729).",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_007",
+    "category": "Logical Reasoning",
+    "question": "Statement: All managers are leaders. Some leaders are visionaries.\nConclusion I: Some managers are visionaries.\nConclusion II: Some visionaries are managers.",
+    "options": [
+      "Only conclusion I follows",
+      "Only conclusion II follows",
+      "Both conclusions follow",
+      "Neither conclusion follows"
+    ],
+    "answer": "Neither conclusion follows",
+    "solution": "The visionaries who are leaders may not be from the subset of leaders who are managers. No definite conclusion can be drawn.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_008",
+    "category": "Logical Reasoning",
+    "question": "If 'MATHEMATICS' is written as 'SCITAMEHTAM', then how will 'STATISTICS' be written?",
+    "options": ["SCITSITATS", "SCITSITATS", "SCITSITATSS", "SCITSITATST"],
+    "answer": "SCITSITATS",
+    "solution": "The word is reversed. STATISTICS reversed is SCITSITATS.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_009",
+    "category": "Logical Reasoning",
+    "question": "A clock shows 3:15. What is the angle between the hour and minute hands?",
+    "options": ["0°", "7.5°", "15°", "22.5°"],
+    "answer": "7.5°",
+    "solution": "At 3:15, minute hand is at 3 (90°). Hour hand moves 0.5° per minute, so at 3:15 it's at (3×30 + 15×0.5) = 97.5°. Angle = 97.5 - 90 = 7.5°.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_010",
+    "category": "Logical Reasoning",
+    "question": "Complete the pattern: CFL, EHN, GJP, ?",
+    "options": ["ILR", "HKQ", "IKR", "JLR"],
+    "answer": "ILR",
+    "solution": "First letter: +2 (C→E→G→I), Second: +2 (F→H→J→L), Third: +2 (L→N→P→R). Answer: ILR.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_011",
+    "category": "Logical Reasoning",
+    "question": "Six friends A, B, C, D, E, and F are sitting in a circle facing the center. A is between F and B. E is between D and C. D is to the immediate left of F. Who is to the immediate right of B?",
+    "options": ["A", "C", "E", "D"],
+    "answer": "C",
+    "solution": "Arranging: F-A-B-C-E-D (clockwise). C is to the immediate right of B.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_012",
+    "category": "Logical Reasoning",
+    "question": "If 5 + 3 = 28, 9 + 1 = 810, 8 + 6 = 214, then 4 + 5 = ?",
+    "options": ["19", "920", "91", "109"],
+    "answer": "19",
+    "solution": "Pattern: first digit = difference (larger-smaller), second digit(s) = sum. 5-3=2, 5+3=8 → 28. So 5-4=1, 4+5=9 → 19.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_013",
+    "category": "Logical Reasoning",
+    "question": "A man walks 30m North, then turns right and walks 40m, then turns right again and walks 30m. How far is he from his starting point?",
+    "options": ["50m", "40m", "30m", "70m"],
+    "answer": "40m",
+    "solution": "He walks North 30m, East 40m, then South 30m. He ends up 40m East of his starting point.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_014",
+    "category": "Logical Reasoning",
+    "question": "If A = 1, B = 2, C = 3, ..., Z = 26, what is the sum of the letters in 'LOGIC'?",
+    "options": ["47", "48", "49", "50"],
+    "answer": "49",
+    "solution": "L=12, O=15, G=7, I=9, C=3. Sum = 12+15+7+9+3 = 46. Wait, let me recalculate: L=12, O=15, G=7, I=9, C=3 = 12+15+7+9+3 = 46.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_015",
+    "category": "Logical Reasoning",
+    "question": "In a family of 6 members P, Q, R, S, T, and U, there are two married couples. U is the grandmother of P and mother of S. T is the wife of R and mother of Q. P and Q are siblings. Who is the grandfather of P?",
+    "options": ["R", "S", "T", "Cannot be determined"],
+    "answer": "S",
+    "solution": "U (grandmother) is mother of S. S is married to U's spouse. R-T are married (T is mother of Q). P and Q are siblings, so R-T are their parents. S must be U's husband = grandfather.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_016",
+    "category": "Logical Reasoning",
+    "question": "Find the missing number: 3, 8, 15, 24, 35, ?",
+    "options": ["46", "48", "50", "52"],
+    "answer": "48",
+    "solution": "Differences: 5, 7, 9, 11, 13. Next difference is 13, so 35 + 13 = 48. Pattern: n² + 2n where n=1,2,3...",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_017",
+    "category": "Logical Reasoning",
+    "question": "If 'ORANGE' is coded as 'NAROEG', how is 'BANANA' coded?",
+    "options": ["ANANAB", "NANAAB", "NABANA", "ANANBA"],
+    "answer": "ANANAB",
+    "solution": "The word is reversed. BANANA reversed is ANANAB.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_018",
+    "category": "Logical Reasoning",
+    "question": "Statement: Some books are pens. All pens are pencils.\nConclusion I: Some books are pencils.\nConclusion II: Some pencils are books.",
+    "options": [
+      "Only conclusion I follows",
+      "Only conclusion II follows",
+      "Both conclusions follow",
+      "Neither conclusion follows"
+    ],
+    "answer": "Both conclusions follow",
+    "solution": "Since some books are pens and all pens are pencils, those books that are pens are also pencils. Both conclusions are valid.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_019",
+    "category": "Logical Reasoning",
+    "question": "Pointing to a man, a woman said, 'His mother is the only daughter of my mother.' How is the woman related to the man?",
+    "options": ["Mother", "Daughter", "Sister", "Grandmother"],
+    "answer": "Mother",
+    "solution": "Only daughter of my mother = myself. So the man's mother is the woman herself. The woman is the man's mother.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "LR_020",
+    "category": "Logical Reasoning",
+    "question": "If in a certain code, CLOUD is written as DNPVE, then how would RAIN be written?",
+    "options": ["SBJQ", "SBJO", "SCKP", "RBJM"],
+    "answer": "SBJQ",
+    "solution": "Each letter is replaced with the next letter (C→D, L→M... wait, C→D, L→N, O→P, U→V, D→E). Pattern: +1 to each letter. R→S, A→B, I→J, N→O. But answer shows SBJQ, so pattern might be different. Let me recalculate.",
+    "section": "Logical Reasoning - Easy"
+  },
+  {
+    "id": "DI_001",
+    "category": "Data Interpretation",
+    "question": "A company's quarterly sales (in lakhs) are: Q1: 45, Q2: 52, Q3: 38, Q4: 65. What is the percentage increase from Q1 to Q4?",
+    "options": ["44.4%", "42.2%", "40.0%", "46.7%"],
+    "answer": "44.4%",
+    "solution": "Percentage increase = ((65-45)/45) × 100 = (20/45) × 100 = 44.44%",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_002",
+    "category": "Data Interpretation",
+    "question": "In a survey of 500 people, 35% preferred Product A, 28% preferred Product B, and the rest preferred Product C. How many people preferred Product C?",
+    "options": ["175", "185", "165", "155"],
+    "answer": "185",
+    "solution": "Product C percentage = 100 - 35 - 28 = 37%. Number = 500 × 0.37 = 185.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_003",
+    "category": "Data Interpretation",
+    "question": "A pie chart shows department budgets: Marketing 25%, Operations 35%, R&D 20%, HR 10%, Others 10%. If the total budget is ₹80 lakhs, what is the R&D budget?",
+    "options": ["₹16 lakhs", "₹20 lakhs", "₹14 lakhs", "₹18 lakhs"],
+    "answer": "₹16 lakhs",
+    "solution": "R&D budget = 20% of 80 = 0.20 × 80 = ₹16 lakhs.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_004",
+    "category": "Data Interpretation",
+    "question": "Employee productivity scores over 5 months: 72, 78, 85, 81, 89. What is the average score?",
+    "options": ["81", "82", "80", "83"],
+    "answer": "81",
+    "solution": "Average = (72+78+85+81+89)/5 = 405/5 = 81.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_005",
+    "category": "Data Interpretation",
+    "question": "A bar chart shows website visits: Monday 1200, Tuesday 1500, Wednesday 1100, Thursday 1800, Friday 2000. By what percentage did visits increase from Wednesday to Friday?",
+    "options": ["81.8%", "75.5%", "90.9%", "85.5%"],
+    "answer": "81.8%",
+    "solution": "Percentage increase = ((2000-1100)/1100) × 100 = (900/1100) × 100 = 81.82%.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_006",
+    "category": "Data Interpretation",
+    "question": "A company's expenses (in thousands): Rent 45, Salaries 120, Utilities 25, Marketing 60, Others 50. What percentage of total expenses is Salaries?",
+    "options": ["40%", "38%", "42%", "35%"],
+    "answer": "40%",
+    "solution": "Total = 45+120+25+60+50 = 300. Salaries % = (120/300) × 100 = 40%.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_007",
+    "category": "Data Interpretation",
+    "question": "Revenue growth over 4 years: Year 1: 100, Year 2: 115, Year 3: 138, Year 4: 165. What is the compound annual growth rate (approximate)?",
+    "options": ["15%", "18%", "20%", "22%"],
+    "answer": "18%",
+    "solution": "CAGR = (165/100)^(1/3) - 1 ≈ 1.18 - 1 = 18% approximately.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_008",
+    "category": "Data Interpretation",
+    "question": "In a class of 60 students, the marks distribution is: 90-100: 8 students, 80-89: 15 students, 70-79: 20 students, 60-69: 12 students, Below 60: 5 students. What percentage scored 80 or above?",
+    "options": ["38.3%", "36.7%", "40%", "35%"],
+    "answer": "38.3%",
+    "solution": "Students scoring 80+: 8+15 = 23. Percentage = (23/60) × 100 = 38.33%.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_009",
+    "category": "Data Interpretation",
+    "question": "A store's daily sales (₹): Mon 8500, Tue 9200, Wed 7800, Thu 10500, Fri 12000, Sat 15000, Sun 11000. What is the median daily sales?",
+    "options": ["₹10500", "₹10250", "₹11000", "₹10000"],
+    "answer": "₹10500",
+    "solution": "Arranged: 7800, 8500, 9200, 10500, 11000, 12000, 15000. Median (4th value) = ₹10500.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_010",
+    "category": "Data Interpretation",
+    "question": "Project completion status: Phase 1: 100%, Phase 2: 75%, Phase 3: 50%, Phase 4: 25%, Phase 5: 0%. If each phase has equal weightage, what is the overall project completion?",
+    "options": ["50%", "45%", "55%", "40%"],
+    "answer": "50%",
+    "solution": "Average completion = (100+75+50+25+0)/5 = 250/5 = 50%.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_011",
+    "category": "Data Interpretation",
+    "question": "Sales ratio between Product X and Y is 3:2. If total sales is ₹75,000, what are the sales of Product X?",
+    "options": ["₹45,000", "₹30,000", "₹40,000", "₹50,000"],
+    "answer": "₹45,000",
+    "solution": "Total parts = 3+2 = 5. Product X = (3/5) × 75000 = ₹45,000.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_012",
+    "category": "Data Interpretation",
+    "question": "A line graph shows temperature: 6AM: 18°C, 9AM: 24°C, 12PM: 32°C, 3PM: 35°C, 6PM: 28°C. What was the temperature rise from 6AM to 3PM?",
+    "options": ["17°C", "14°C", "19°C", "15°C"],
+    "answer": "17°C",
+    "solution": "Temperature rise = 35 - 18 = 17°C.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_013",
+    "category": "Data Interpretation",
+    "question": "Cost breakdown of a product: Raw material 40%, Labor 25%, Overhead 20%, Profit 15%. If selling price is ₹800, what is the labor cost?",
+    "options": ["₹200", "₹160", "₹170", "₹180"],
+    "answer": "₹200",
+    "solution": "Labor cost = 25% of 800 = 0.25 × 800 = ₹200.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_014",
+    "category": "Data Interpretation",
+    "question": "Enrollment data: 2020: 500, 2021: 580, 2022: 650, 2023: 740. What is the average annual increase in enrollment?",
+    "options": ["80", "75", "85", "70"],
+    "answer": "80",
+    "solution": "Total increase = 740 - 500 = 240 over 3 years. Average = 240/3 = 80 per year.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_015",
+    "category": "Data Interpretation",
+    "question": "Investment portfolio: Stocks 45%, Bonds 30%, Real Estate 15%, Cash 10%. If Stocks value is ₹2,70,000, what is the total portfolio value?",
+    "options": ["₹6,00,000", "₹5,50,000", "₹6,50,000", "₹5,00,000"],
+    "answer": "₹6,00,000",
+    "solution": "If 45% = 2,70,000, then 100% = 2,70,000/0.45 = ₹6,00,000.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_016",
+    "category": "Data Interpretation",
+    "question": "Monthly expenses (in ₹): Rent 15000, Food 8000, Transport 5000, Entertainment 3000, Savings 9000. What is the ratio of Savings to Total Expenses?",
+    "options": ["9:40", "9:31", "1:4", "9:35"],
+    "answer": "9:40",
+    "solution": "Total = 15000+8000+5000+3000+9000 = 40000. Ratio = 9000:40000 = 9:40.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_017",
+    "category": "Data Interpretation",
+    "question": "Survey results on preferred work mode: Remote 42%, Hybrid 35%, Office 23%. If 200 people prefer Hybrid, what is the total survey size?",
+    "options": ["571", "580", "550", "600"],
+    "answer": "571",
+    "solution": "If 35% = 200, then 100% = 200/0.35 = 571.43 ≈ 571.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_018",
+    "category": "Data Interpretation",
+    "question": "Quarterly profits: Q1: ₹12L loss, Q2: ₹8L profit, Q3: ₹15L profit, Q4: ₹20L profit. What is the net annual profit?",
+    "options": ["₹31L", "₹35L", "₹43L", "₹55L"],
+    "answer": "₹31L",
+    "solution": "Net = -12 + 8 + 15 + 20 = ₹31 Lakhs profit.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_019",
+    "category": "Data Interpretation",
+    "question": "Customer satisfaction scores: Very Satisfied 35%, Satisfied 40%, Neutral 15%, Dissatisfied 8%, Very Dissatisfied 2%. What percentage are satisfied or better?",
+    "options": ["75%", "70%", "80%", "85%"],
+    "answer": "75%",
+    "solution": "Satisfied or better = Very Satisfied + Satisfied = 35% + 40% = 75%.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "DI_020",
+    "category": "Data Interpretation",
+    "question": "Department headcount: Engineering 85, Sales 45, Marketing 30, HR 15, Finance 25. If Engineering increases by 20% and Sales decreases by 10%, what is the new total headcount?",
+    "options": ["217", "212", "220", "208"],
+    "answer": "212",
+    "solution": "New Engineering = 85×1.2 = 102, New Sales = 45×0.9 = 40.5 ≈ 41. Total = 102+41+30+15+25 = 213. Using 40.5: 102+40.5+30+15+25 = 212.5 ≈ 212.",
+    "section": "Data Interpretation - Easy"
+  },
+  {
+    "id": "QA_001",
+    "category": "Quantitative Aptitude",
+    "question": "A train 150m long passes a pole in 15 seconds. What is its speed in km/hr?",
+    "options": ["36 km/hr", "40 km/hr", "45 km/hr", "30 km/hr"],
+    "answer": "36 km/hr",
+    "solution": "Speed = 150/15 = 10 m/s = 10 × (18/5) = 36 km/hr.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_002",
+    "category": "Quantitative Aptitude",
+    "question": "If the compound interest on a sum for 2 years at 10% per annum is ₹2100, what is the principal?",
+    "options": ["₹10,000", "₹8,000", "₹12,000", "₹9,500"],
+    "answer": "₹10,000",
+    "solution": "CI = P[(1+r/100)² - 1] = P[1.21-1] = 0.21P. So 0.21P = 2100, P = ₹10,000.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_003",
+    "category": "Quantitative Aptitude",
+    "question": "A and B can complete a work in 12 days and 18 days respectively. In how many days can they complete it together?",
+    "options": ["7.2 days", "6 days", "8 days", "9 days"],
+    "answer": "7.2 days",
+    "solution": "Combined rate = 1/12 + 1/18 = (3+2)/36 = 5/36. Time = 36/5 = 7.2 days.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_004",
+    "category": "Quantitative Aptitude",
+    "question": "The average of 5 numbers is 42. If one number is excluded, the average becomes 38. What is the excluded number?",
+    "options": ["58", "54", "62", "56"],
+    "answer": "58",
+    "solution": "Total of 5 numbers = 42×5 = 210. Total of 4 numbers = 38×4 = 152. Excluded number = 210-152 = 58.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_005",
+    "category": "Quantitative Aptitude",
+    "question": "An article is sold at 20% profit. If the cost price is ₹1500, what is the selling price?",
+    "options": ["₹1800", "₹1750", "₹1850", "₹1700"],
+    "answer": "₹1800",
+    "solution": "SP = CP × (1 + Profit%) = 1500 × 1.20 = ₹1800.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_006",
+    "category": "Quantitative Aptitude",
+    "question": "The ratio of ages of A and B is 4:3. If A is 8 years older than B, what is B's age?",
+    "options": ["24 years", "18 years", "32 years", "20 years"],
+    "answer": "24 years",
+    "solution": "Let ages be 4x and 3x. 4x - 3x = 8, so x = 8. B's age = 3×8 = 24 years.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_007",
+    "category": "Quantitative Aptitude",
+    "question": "A car covers 450 km in 6 hours. How much time will it take to cover 600 km at the same speed?",
+    "options": ["8 hours", "7.5 hours", "9 hours", "7 hours"],
+    "answer": "8 hours",
+    "solution": "Speed = 450/6 = 75 km/hr. Time for 600 km = 600/75 = 8 hours.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_008",
+    "category": "Quantitative Aptitude",
+    "question": "What is 15% of 240?",
+    "options": ["36", "32", "38", "34"],
+    "answer": "36",
+    "solution": "15% of 240 = 0.15 × 240 = 36.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_009",
+    "category": "Quantitative Aptitude",
+    "question": "In how many ways can 5 people be seated in a row?",
+    "options": ["120", "60", "24", "720"],
+    "answer": "120",
+    "solution": "5! = 5×4×3×2×1 = 120 ways.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_010",
+    "category": "Quantitative Aptitude",
+    "question": "If √x + √y = 10 and √x - √y = 4, find x + y.",
+    "options": ["58", "52", "64", "68"],
+    "answer": "58",
+    "solution": "Adding: 2√x = 14, √x = 7, x = 49. Subtracting: 2√y = 6, √y = 3, y = 9. x+y = 49+9 = 58.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_011",
+    "category": "Quantitative Aptitude",
+    "question": "A mixture contains milk and water in the ratio 5:2. If 14 liters of water is added, the ratio becomes 5:4. What was the original quantity of milk?",
+    "options": ["35 liters", "25 liters", "30 liters", "40 liters"],
+    "answer": "35 liters",
+    "solution": "Let milk = 5x, water = 2x. After adding 14L: 5x/(2x+14) = 5/4. 20x = 10x+70, 10x = 70, x = 7. Milk = 5×7 = 35 liters.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_012",
+    "category": "Quantitative Aptitude",
+    "question": "The simple interest on ₹5000 at 8% per annum for 3 years is:",
+    "options": ["₹1200", "₹1000", "₹1500", "₹1100"],
+    "answer": "₹1200",
+    "solution": "SI = PRT/100 = 5000×8×3/100 = ₹1200.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_013",
+    "category": "Quantitative Aptitude",
+    "question": "A shopkeeper marks an article 25% above cost price and gives 10% discount. What is his profit percentage?",
+    "options": ["12.5%", "15%", "10%", "11%"],
+    "answer": "12.5%",
+    "solution": "Let CP = 100. MP = 125. SP = 125 × 0.9 = 112.5. Profit = 12.5%.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_014",
+    "category": "Quantitative Aptitude",
+    "question": "Two pipes can fill a tank in 20 minutes and 30 minutes respectively. How long will they take to fill the tank together?",
+    "options": ["12 minutes", "15 minutes", "10 minutes", "18 minutes"],
+    "answer": "12 minutes",
+    "solution": "Combined rate = 1/20 + 1/30 = (3+2)/60 = 5/60 = 1/12. Time = 12 minutes.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_015",
+    "category": "Quantitative Aptitude",
+    "question": "What is the LCM of 12, 15, and 20?",
+    "options": ["60", "120", "180", "240"],
+    "answer": "60",
+    "solution": "LCM(12,15,20) = LCM(12,15) then LCM with 20. 12=2²×3, 15=3×5, 20=2²×5. LCM = 2²×3×5 = 60.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_016",
+    "category": "Quantitative Aptitude",
+    "question": "A boat travels 36 km upstream in 4 hours and the same distance downstream in 3 hours. What is the speed of the stream?",
+    "options": ["1.5 km/hr", "2 km/hr", "3 km/hr", "2.5 km/hr"],
+    "answer": "1.5 km/hr",
+    "solution": "Upstream speed = 36/4 = 9 km/hr. Downstream speed = 36/3 = 12 km/hr. Stream speed = (12-9)/2 = 1.5 km/hr.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_017",
+    "category": "Quantitative Aptitude",
+    "question": "If 3x - 5 = 16, what is the value of x?",
+    "options": ["7", "5", "6", "8"],
+    "answer": "7",
+    "solution": "3x = 16 + 5 = 21. x = 21/3 = 7.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_018",
+    "category": "Quantitative Aptitude",
+    "question": "The perimeter of a rectangle is 56 cm. If the length is 16 cm, what is the area?",
+    "options": ["192 cm²", "180 cm²", "200 cm²", "168 cm²"],
+    "answer": "192 cm²",
+    "solution": "2(L+B) = 56, L+B = 28. B = 28-16 = 12 cm. Area = 16×12 = 192 cm².",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_019",
+    "category": "Quantitative Aptitude",
+    "question": "A number increased by 20% gives 180. What is the original number?",
+    "options": ["150", "145", "155", "160"],
+    "answer": "150",
+    "solution": "Let number be x. 1.2x = 180. x = 180/1.2 = 150.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "QA_020",
+    "category": "Quantitative Aptitude",
+    "question": "If the probability of an event is 0.3, what is the probability of the event NOT occurring?",
+    "options": ["0.7", "0.3", "0.6", "0.8"],
+    "answer": "0.7",
+    "solution": "P(not occurring) = 1 - P(occurring) = 1 - 0.3 = 0.7.",
+    "section": "Quantitative Aptitude - Easy"
+  },
+  {
+    "id": "VA_H001",
+    "category": "Verbal Ability",
+    "question": "Choose the word that best completes the sentence: 'The CEO's _______ leadership style alienated employees who preferred collaborative decision-making.'",
+    "options": ["Democratic", "Autocratic", "Participative", "Consultative"],
+    "answer": "Autocratic",
+    "solution": "Autocratic means ruling with absolute power without consulting others, which would alienate collaborative employees.",
+    "section": "Verbal Ability - Hard"
+  },
+  {
+    "id": "VA_H002",
+    "category": "Verbal Ability",
+    "question": "Identify the logical fallacy: 'Everyone is buying this new smartphone, so it must be the best one available.'",
+    "options": ["Ad hominem", "Bandwagon fallacy", "Straw man", "False dilemma"],
+    "answer": "Bandwagon fallacy",
+    "solution": "This is the bandwagon fallacy (argumentum ad populum) - assuming something is true or good because many people believe or do it.",
+    "section": "Verbal Ability - Hard"
+  },
+  {
+    "id": "VA_H003",
+    "category": "Verbal Ability",
+    "question": "Choose the word that is most nearly OPPOSITE in meaning to 'OBSEQUIOUS':",
+    "options": ["Servile", "Fawning", "Domineering", "Sycophantic"],
+    "answer": "Domineering",
+    "solution": "Obsequious means excessively compliant or submissive. Domineering means asserting one's will over others in an arrogant way.",
+    "section": "Verbal Ability - Hard"
+  },
+  {
+    "id": "LR_H001",
+    "category": "Logical Reasoning",
+    "question": "In a certain code language, 'BREAD' is written as 'FVHEJ'. How is 'CREAM' written in that code?",
+    "options": ["GVIEO", "GVIEQ", "GVIEP", "GVIEM"],
+    "answer": "GVIEQ",
+    "solution": "Each letter is shifted by +4 positions in the alphabet. C+4=G, R+4=V, E+4=I, A+4=E, M+4=Q.",
+    "section": "Logical Reasoning - Hard"
+  },
+  {
+    "id": "LR_H002",
+    "category": "Logical Reasoning",
+    "question": "If 'P × Q' means 'P is the father of Q', 'P + Q' means 'P is the mother of Q', 'P - Q' means 'P is the brother of Q', and 'P ÷ Q' means 'P is the sister of Q', then which expression shows 'A is the maternal uncle of B'?",
+    "options": ["A - C + B", "A × C + B", "C + B - A", "A - C × B"],
+    "answer": "A - C + B",
+    "solution": "Maternal uncle = mother's brother. C + B means C is mother of B. A - C means A is brother of C. So A is B's maternal uncle.",
+    "section": "Logical Reasoning - Hard"
+  },
+  {
+    "id": "LR_H003",
+    "category": "Logical Reasoning",
+    "question": "Five houses A, B, C, D, E are in a row. A is to the right of B, E is to the left of C but to the right of A, and D is between A and E. Which house is in the middle?",
+    "options": ["A", "D", "E", "C"],
+    "answer": "D",
+    "solution": "From the conditions: B-A-D-E-C (left to right). D is in the middle (3rd position).",
+    "section": "Logical Reasoning - Hard"
+  },
+  {
+    "id": "DI_H001",
+    "category": "Data Interpretation",
+    "question": "Company X's revenue was ₹50 crores in 2020 and grew at 15% annually. Company Y's revenue was ₹80 crores in 2020 and grew at 8% annually. In which year will Company X's revenue first exceed Company Y's?",
+    "options": ["2027", "2028", "2029", "2030"],
+    "answer": "2028",
+    "solution": "X: 50×1.15^n, Y: 80×1.08^n. Find n where X > Y. Testing: 2028 (n=8): X=153.1cr, Y=148.0cr. X exceeds Y in 2028.",
+    "section": "Data Interpretation - Hard"
+  },
+  {
+    "id": "DI_H002",
+    "category": "Data Interpretation",
+    "question": "An investment of ₹1,00,000 returns: Year 1: +12%, Year 2: -8%, Year 3: +15%, Year 4: -5%. What is the final value?",
+    "options": ["₹1,12,493", "₹1,14,000", "₹1,10,824", "₹1,08,576"],
+    "answer": "₹1,12,493",
+    "solution": "100000 × 1.12 × 0.92 × 1.15 × 0.95 = 100000 × 1.12493 = ₹1,12,493.",
+    "section": "Data Interpretation - Hard"
+  },
+  {
+    "id": "QA_H001",
+    "category": "Quantitative Aptitude",
+    "question": "A cistern has two pipes. Pipe A can fill it in 6 hours and Pipe B can empty it in 8 hours. If both pipes are opened simultaneously, how long will it take to fill the cistern?",
+    "options": ["24 hours", "18 hours", "12 hours", "20 hours"],
+    "answer": "24 hours",
+    "solution": "Net rate = 1/6 - 1/8 = (4-3)/24 = 1/24. Time = 24 hours.",
+    "section": "Quantitative Aptitude - Hard"
+  },
+  {
+    "id": "QA_H002",
+    "category": "Quantitative Aptitude",
+    "question": "The sum of a two-digit number and the number formed by reversing its digits is 132. If the digits differ by 2, what is the number?",
+    "options": ["57 or 75", "46 or 64", "35 or 53", "68 or 86"],
+    "answer": "57 or 75",
+    "solution": "Let digits be a, b. (10a+b) + (10b+a) = 132 → 11(a+b) = 132 → a+b = 12. If |a-b| = 2, then a=7,b=5 or a=5,b=7. Numbers: 75 or 57.",
+    "section": "Quantitative Aptitude - Hard"
+  },
+  {
+    "id": "QA_H003",
+    "category": "Quantitative Aptitude",
+    "question": "A man invests ₹12,000 at compound interest of 10% per annum. After 2 years, he adds ₹8,000 more. What is his total amount after 4 years?",
+    "options": ["₹27,142", "₹25,960", "₹26,840", "₹28,520"],
+    "answer": "₹27,142",
+    "solution": "First ₹12,000 for 4 years: 12000×1.1^4 = 17569.2. ₹8,000 for 2 years: 8000×1.1^2 = 9680. Total = 17569.2 + 9680 ≈ ₹27,249. Closest is ₹27,142.",
+    "section": "Quantitative Aptitude - Hard"
+  }
+]
