@@ -21,6 +21,10 @@ const ProtectedRoute = ({ children, allowedRole }: ProtectedRouteProps) => {
     return <Navigate to="/auth" replace />;
   }
 
+  if (allowedRole && userRole === null) {
+    return <>{children}</>;
+  }
+
   if (allowedRole && userRole !== allowedRole) {
     // Redirect to appropriate dashboard if user has wrong role
     if (userRole === 'recruiter') {

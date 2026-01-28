@@ -46,6 +46,7 @@ const Auth = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [resetUserEmail, setResetUserEmail] = useState("");
   const [resetUpdating, setResetUpdating] = useState(false);
+  const [authInfo, setAuthInfo] = useState("");
 
   const { signUp, signIn, user, userRole, loading, resetPassword, updatePassword } = useAuth();
   const navigate = useNavigate();
@@ -65,6 +66,10 @@ const Auth = () => {
       setSignInEmail(emailFromUrl);
     }
   }, [emailFromUrl]);
+
+  useEffect(() => {
+    setAuthInfo("");
+  }, [authMode]);
 
   useEffect(() => {
     if (!isReset) return;
@@ -122,7 +127,13 @@ const Auth = () => {
 
     try {
       await signIn(signInEmail, signInPassword);
-    } catch (error) {
+    } catch (error: any) {
+      const message = String(error?.message || "").toLowerCase();
+      if (message.includes("invalid login credentials")) {
+        setEmail(signInEmail);
+        setAuthMode("signup");
+        setAuthInfo("No account found. Please complete signup to continue.");
+      }
       // Error handled in context
     }
   };
@@ -138,7 +149,6 @@ const Auth = () => {
     try {
       const tempPassword = crypto.randomUUID();
       await signUp(email, tempPassword, fullName, role, role === 'recruiter' ? companyName : undefined, referralCodeFromUrl || undefined);
-      toast.success("Check your email to set your password.");
       setAuthMode('login');
     } catch (error) {
       // Error handled in context
@@ -456,6 +466,16 @@ const Auth = () => {
                   : "Enter your email to receive a password setup link"}
               </p>
             </div>
+            {authInfo && (
+              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                {authInfo}
+              </div>
+            )}
+            {!isLogin && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Use the same email you tried to sign in with. We’ll send a password setup link.
+              </div>
+            )}
             {isLogin && resetSuccess && (
               <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
                 Password updated successfully. Please sign in to continue.

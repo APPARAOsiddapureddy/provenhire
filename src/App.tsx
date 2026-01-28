@@ -17,6 +17,7 @@ import RecruiterOnboarding from "./pages/dashboard/RecruiterOnboarding";
 import JobSeekerDashboard from "./pages/dashboard/JobSeekerDashboard";
 import PostJob from "./pages/dashboard/PostJob";
 import CandidateSearch from "./pages/dashboard/CandidateSearch";
+import AssignmentAIDocs from "./pages/dashboard/AssignmentAIDocs";
 import VerificationFlow from "./pages/verification/VerificationFlow";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -75,6 +76,14 @@ const App = () => (
               } 
             />
             <Route 
+              path="/dashboard/recruiter/assignmentai" 
+              element={
+                <ProtectedRoute allowedRole="recruiter">
+                  <AssignmentAIDocs />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
               path="/dashboard/recruiter/onboarding" 
               element={
                 <ProtectedRoute allowedRole="recruiter">
@@ -107,7 +116,7 @@ const App = () => (
               } 
             />
             <Route 
-              path="/candidates" 
+              path="/candidate-search" 
               element={
                 <ProtectedRoute allowedRole="recruiter">
                   <CandidateSearch />

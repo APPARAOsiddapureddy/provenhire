@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Briefcase, Users, TrendingUp, Settings, LogOut, Plus, Eye, Edit, Trash2, MapPin, Clock, Building2, Mail, Phone, Globe, UserCheck, BarChart3, Calendar, Search, Bell, ChevronRight } from "lucide-react";
+import { Briefcase, Users, TrendingUp, Settings, LogOut, Plus, Eye, Edit, Trash2, MapPin, Clock, Building2, Mail, Phone, Globe, UserCheck, BarChart3, Calendar, Search, Bell, ChevronRight, BookOpen } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
@@ -463,6 +463,14 @@ const RecruiterDashboard = () => {
                 >
                   <Search className="h-5 w-5 mr-3" />
                   Search Candidates
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start h-12"
+                  onClick={() => navigate('/dashboard/recruiter/assignmentai')}
+                >
+                  <BookOpen className="h-5 w-5 mr-3" />
+                  AssignmentAI Docs
                 </Button>
                 <Button 
                   variant="outline" 

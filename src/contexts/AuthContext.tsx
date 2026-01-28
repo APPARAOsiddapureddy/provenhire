@@ -125,27 +125,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) throw error;
 
       if (data.user) {
-        // Create user role
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .insert({ user_id: data.user.id, role: role! });
-
-        if (roleError) throw roleError;
-
-        // Create user profile with company name for recruiters
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            user_id: data.user.id,
-            full_name: fullName,
-            email: email,
-            company_name: companyName || null,
-            referred_by_code: referralCode || null
-          });
-
-        if (profileError) throw profileError;
-
-        // If there's a referral code, trigger the referral notification
+        // Profile creation is handled by a DB trigger to avoid RLS violations.
         if (referralCode && referralCode.startsWith('PH-')) {
           try {
             await supabase.functions.invoke('send-referral-notification', {
