@@ -11,7 +11,7 @@ interface AuthContextType {
   session: Session | null;
   userRole: UserRole;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string, role: UserRole, companyName?: string, referralCode?: string) => Promise<void>;
+  signUp: (email: string, password: string, role: UserRole, fullName?: string, companyName?: string, referralCode?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
@@ -66,9 +66,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          setTimeout(() => {
-            fetchUserRole(session.user.id);
-          }, 0);
+          fetchUserRole(session.user.id);
         } else {
           setUserRole(null);
         }
@@ -106,7 +104,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const signUp = async (email: string, password: string, fullName: string, role: UserRole, companyName?: string, referralCode?: string) => {
+  const signUp = async (email: string, password: string, role: UserRole, fullName?: string, companyName?: string, referralCode?: string) => {
     try {
       setLoading(true);
       const redirectUrl = `${window.location.origin}/auth?mode=reset&email=${encodeURIComponent(email)}`;
@@ -117,7 +115,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         options: {
           emailRedirectTo: redirectUrl,
           data: {
-            full_name: fullName
+            full_name: fullName || null,
+            company_name: companyName || null,
+            role: role || null
           }
         }
       });
@@ -176,6 +176,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           .maybeSingle();
 
         const role = roleData?.role as UserRole;
+        setUserRole(role ?? null);
         
         toast.success('Signed in successfully!');
         
@@ -187,8 +188,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       }
     } catch (error: any) {
+      const message = String(error?.message || "");
       console.error('Sign in error:', error);
-      toast.error(error.message || 'Failed to sign in');
+      if (!message.toLowerCase().includes("invalid login credentials")) {
+        toast.error(error.message || 'Failed to sign in');
+      }
       throw error;
     } finally {
       setLoading(false);

@@ -839,6 +839,10 @@ export type Database = {
       }
     }
     Functions: {
+      email_login_status: {
+        Args: { email: string }
+        Returns: Json
+      }
       get_user_id_from_referral_code: {
         Args: { code: string }
         Returns: string

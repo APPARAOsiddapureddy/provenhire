@@ -31,7 +31,6 @@ const Auth = () => {
   const [signInPassword, setSignInPassword] = useState("");
 
   // Register State
-  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -47,17 +46,18 @@ const Auth = () => {
   const [resetUserEmail, setResetUserEmail] = useState("");
   const [resetUpdating, setResetUpdating] = useState(false);
   const [authInfo, setAuthInfo] = useState("");
+  const [loginStep, setLoginStep] = useState<"email" | "password">("email");
+  const [loginError, setLoginError] = useState("");
 
   const { signUp, signIn, user, userRole, loading, resetPassword, updatePassword } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user && userRole && authMode !== 'reset') {
-      if (userRole === "recruiter") {
-        navigate("/dashboard/recruiter");
-      } else {
-        navigate("/dashboard/jobseeker");
-      }
+    if (!user || authMode === 'reset') return;
+    if (userRole === "recruiter") {
+      navigate("/dashboard/recruiter");
+    } else if (userRole === "jobseeker") {
+      navigate("/dashboard/jobseeker");
     }
   }, [user, userRole, navigate, authMode]);
 
@@ -69,6 +69,11 @@ const Auth = () => {
 
   useEffect(() => {
     setAuthInfo("");
+    setLoginError("");
+    if (authMode === "login") {
+      setLoginStep("email");
+      setSignInPassword("");
+    }
   }, [authMode]);
 
   useEffect(() => {
@@ -120,19 +125,64 @@ const Auth = () => {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!signInEmail || !signInPassword) {
-      toast.error("Please fill in all fields");
-      return;
-    }
-
     try {
+      setLoginError("");
+      setAuthInfo("");
+      if (!signInEmail) {
+        toast.error("Please enter your email");
+        return;
+      }
+
+      if (loginStep === "email") {
+        let emailExists: boolean | null = null;
+        let isActive: boolean | null = null;
+        let hasPassword: boolean | null = null;
+        try {
+          const { data, error } = await supabase.rpc('email_login_status', {
+            email: signInEmail
+          });
+          const status = data as { exists?: boolean; is_active?: boolean; has_password?: boolean } | null;
+          if (!error && status) {
+            if (typeof status.exists === "boolean") emailExists = status.exists;
+            if (typeof status.is_active === "boolean") isActive = status.is_active;
+            if (typeof status.has_password === "boolean") hasPassword = status.has_password;
+          }
+        } catch (rpcError) {
+          console.warn("Email existence check failed:", rpcError);
+        }
+
+        if (emailExists === false) {
+          setEmail(signInEmail);
+          setAuthMode("signup");
+          setAuthInfo("No account found. Please complete signup to continue.");
+          return;
+        }
+
+        if (emailExists === true && isActive === false) {
+          setLoginError("This account is inactive. Please contact support.");
+          return;
+        }
+
+        if (emailExists === true && hasPassword === false) {
+          setLoginError("Account pending activation. Please check your email to set a password.");
+          return;
+        }
+
+        setLoginStep("password");
+        return;
+      }
+
+      if (!signInPassword) {
+        toast.error("Please enter your password");
+        return;
+      }
+
       await signIn(signInEmail, signInPassword);
     } catch (error: any) {
       const message = String(error?.message || "").toLowerCase();
       if (message.includes("invalid login credentials")) {
-        setEmail(signInEmail);
-        setAuthMode("signup");
-        setAuthInfo("No account found. Please complete signup to continue.");
+        setLoginError("Invalid email or password. Please try again.");
+        return;
       }
       // Error handled in context
     }
@@ -141,14 +191,25 @@ const Auth = () => {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!fullName || !email) {
-      toast.error("Please fill in all required fields");
+    if (!email) {
+      toast.error("Please enter your email address");
+      return;
+    }
+    if (role === "recruiter" && !companyName) {
+      toast.error("Please enter your company name");
       return;
     }
 
     try {
       const tempPassword = crypto.randomUUID();
-      await signUp(email, tempPassword, fullName, role, role === 'recruiter' ? companyName : undefined, referralCodeFromUrl || undefined);
+      await signUp(
+        email,
+        tempPassword,
+        role,
+        undefined,
+        role === 'recruiter' ? companyName : undefined,
+        referralCodeFromUrl || undefined
+      );
       setAuthMode('login');
     } catch (error) {
       // Error handled in context
@@ -315,9 +376,9 @@ const Auth = () => {
               <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center mb-4">
                 <Lock className="h-8 w-8 text-primary" />
               </div>
-              <h1 className="text-2xl font-bold text-foreground">Set New Password</h1>
+              <h1 className="text-2xl font-bold text-foreground">Create Your Password</h1>
               <p className="text-muted-foreground mt-2">
-                Enter your new password below.
+                Create a new password to activate your account.
               </p>
             </div>
 
@@ -462,7 +523,7 @@ const Auth = () => {
               </h1>
               <p className="text-muted-foreground mt-1">
                 {isLogin
-                  ? "Sign in to access your account"
+                  ? "Enter your email to continue"
                   : "Enter your email to receive a password setup link"}
               </p>
             </div>
@@ -471,9 +532,14 @@ const Auth = () => {
                 {authInfo}
               </div>
             )}
-            {!isLogin && (
+            {isLogin && loginError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {loginError}
+              </div>
+            )}
+            {authInfo && (
               <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Use the same email you tried to sign in with. We’ll send a password setup link.
+                {authInfo}
               </div>
             )}
             {isLogin && resetSuccess && (
@@ -486,26 +552,6 @@ const Auth = () => {
               onSubmit={isLogin ? handleSignIn : handleSignUp}
               className="space-y-4"
             >
-              {/* Simplified Registration - Just Name */}
-              {isSignup && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">
-                    Full Name *
-                  </label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder="e.g. John Doe"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      required
-                      className="w-full pl-10 pr-4 py-3 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                    />
-                  </div>
-                </div>
-              )}
-
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">
                   Email *
@@ -527,7 +573,7 @@ const Auth = () => {
                 </div>
               </div>
 
-              {isLogin && (
+              {isLogin && loginStep === "password" && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">
                     Password *
@@ -553,7 +599,7 @@ const Auth = () => {
                 </div>
               )}
 
-              {isLogin && (
+              {isLogin && loginStep === "password" && (
                 <div className="flex items-center justify-between text-sm">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -658,8 +704,10 @@ const Auth = () => {
                 {loading
                   ? "Processing..."
                   : isLogin
-                  ? "Sign In"
-                  : "Send Password Setup Link"}
+                  ? loginStep === "email"
+                    ? "Continue"
+                    : "Sign In"
+                  : "Send Password Link"}
               </button>
             </form>
 

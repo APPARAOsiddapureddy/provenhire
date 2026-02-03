@@ -60,6 +60,31 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Local resume parser (optional)
+
+For stronger resume auto-fill, you can run the local Qwen-based parser and point the frontend to it.
+
+### Setup
+
+```sh
+cd local-resume-parser
+python -m venv env
+source env/bin/activate  # Windows: env\\Scripts\\activate
+pip install -r requirements.txt
+python download_model.py qwen
+python main.py
+```
+
+### Frontend config
+
+Set this in your `.env` (see `.env.example`):
+
+```
+VITE_LOCAL_RESUME_PARSER_URL="http://127.0.0.1:8000"
+```
+
+The app will call the local parser first, then fall back to the Supabase `analyze-resume` function and heuristics.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/5d8775cc-c07d-451f-af48-df935df5da9e) and click on Share -> Publish.

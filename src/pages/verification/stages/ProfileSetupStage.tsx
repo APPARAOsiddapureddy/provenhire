@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +44,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [resumeApplied, setResumeApplied] = useState(false);
   const [formData, setFormData] = useState({
     // Personal Details
     full_name: "",
@@ -87,6 +89,311 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
   const [hobbyInput, setHobbyInput] = useState("");
   const [certInput, setCertInput] = useState("");
   const [langInput, setLangInput] = useState("");
+
+  const normalizeList = (value: unknown): string[] => {
+    const items: string[] = [];
+    const pushValue = (val: unknown) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        val.forEach(pushValue);
+        return;
+      }
+      if (typeof val === "string") {
+        val
+          .split(/[,;\n]/)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .forEach((entry) => items.push(entry));
+        return;
+      }
+      if (typeof val === "object") {
+        Object.values(val as Record<string, unknown>).forEach(pushValue);
+      }
+    };
+
+    pushValue(value);
+    return Array.from(new Set(items));
+  };
+
+  const preferExisting = (current: string, incoming?: string | null) => {
+    if (current?.trim()) return current;
+    return incoming || current;
+  };
+
+  const preferExistingList = (current: string[], incoming?: unknown) => {
+    if (current?.length) return current;
+    const normalized = normalizeList(incoming);
+    return normalized.length ? normalized : current;
+  };
+
+  const preferExistingBoolean = (current: boolean, incoming?: boolean | null) => {
+    if (current) return current;
+    return incoming ?? current;
+  };
+
+  const fallbackParseFromText = (text: string) => {
+    const normalizedText = text.replace(/\s+/g, " ").trim();
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    const phoneMatch = text.match(/(\+?\d[\d\s\-().]{8,}\d)/);
+    const linkedinMatch = text.match(/https?:\/\/(www\.)?linkedin\.com\/[^\s)]+/i);
+    const githubMatch = text.match(/https?:\/\/(www\.)?github\.com\/[^\s)]+/i);
+    const portfolioMatch = linkedinMatch ? githubMatch : text.match(/https?:\/\/(www\.)?[^\s)]+/i);
+
+    const sectionHeadings = [
+      { key: "skills", match: /^(skills?|technical skills?|tech stack)$/i },
+      { key: "experience", match: /^experience$/i },
+      { key: "education", match: /^education$/i },
+      { key: "projects", match: /^projects?$/i },
+      { key: "certifications", match: /^certifications?$/i },
+      { key: "languages", match: /^languages?$/i },
+      { key: "interests", match: /^(interests|hobbies)$/i },
+    ];
+
+    const sections: Record<string, string[]> = {};
+    let currentSection: string | null = null;
+
+    lines.forEach((line) => {
+      const heading = sectionHeadings.find((item) => item.match.test(line));
+      if (heading) {
+        currentSection = heading.key;
+        sections[currentSection] = [];
+        return;
+      }
+      if (currentSection) {
+        sections[currentSection].push(line);
+      }
+    });
+
+    const grabSection = (label: string) => {
+      const regex = new RegExp(`${label}\\s*[:\\-]?\\s*(.*?)\\s*(education|experience|projects|certifications|languages|interests|hobbies|skills|technical skills|tech stack|$)`, "i");
+      const match = normalizedText.match(regex);
+      return match?.[1] || "";
+    };
+
+    const sanitizeSkillLine = (line: string) => {
+      if (/(education|experience|project|certification|language|hobbies|interest)/i.test(line)) {
+        return "";
+      }
+      return line
+        .replace(/^skills?\b[:\-]?\s*/i, "")
+        .replace(/^technical skills?\b[:\-]?\s*/i, "")
+        .replace(/^tech stack\b[:\-]?\s*/i, "")
+        .trim();
+    };
+
+    const skillsText = [
+      ...(sections.skills || []).map(sanitizeSkillLine),
+      sanitizeSkillLine(grabSection("skills")),
+      sanitizeSkillLine(grabSection("technical skills")),
+      sanitizeSkillLine(grabSection("tech stack")),
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    const certificationsText = (sections.certifications || []).join(", ");
+    const languagesText = (sections.languages || []).join(", ");
+    const hobbiesText = (sections.interests || []).join(", ");
+
+    const educationText = [grabSection("education"), ...(sections.education || [])].join(" ");
+    const experienceText = [grabSection("experience"), ...(sections.experience || [])].join(" ");
+
+    const collegeMatch = educationText.match(
+      /(Institute|University|College|School)[^,\n]*/i
+    );
+    const degreeMatch = educationText.match(
+      /(Bachelor|B\.Tech|B\.E|B\.Sc|Master|M\.Tech|M\.E|M\.Sc|MBA|Ph\.D|Diploma)[^,\n]*/i
+    );
+    const fieldMatch = educationText.match(/\bin\s+([A-Za-z &]+)(?=,|\d|$)/i);
+    const gradYearMatches = educationText.match(/\b(20\d{2}|19\d{2})\b/g) || [];
+    const gradYearMatch = gradYearMatches.length ? gradYearMatches[gradYearMatches.length - 1] : "";
+
+    const roleMatch = experienceText.match(
+      /(Software Engineer|Developer|Analyst|Associate|Manager|Consultant|Intern|Lead|Designer)[^,\n]*/i
+    );
+    const companyMatch = experienceText.match(
+      /(at|@)\s+([A-Z][A-Za-z0-9 &.-]{2,})/i
+    );
+    const expYearsMatch = text.match(/\b(\d+(?:\.\d+)?)\+?\s+years?\b/i);
+
+    const possibleName =
+      lines.find((line) => {
+        const normalized = line.toLowerCase();
+        if (normalized.includes("resume") || normalized.includes("curriculum vitae")) return false;
+        if (/@/.test(line) || /\d/.test(line)) return false;
+        return line.split(" ").length >= 2;
+      }) || "";
+
+    const summaryParts = [
+      roleMatch?.[0] || "",
+      companyMatch?.[2] ? `at ${companyMatch?.[2]}` : "",
+      normalizeList(skillsText).slice(0, 4).join(", "),
+    ].filter(Boolean);
+    const bioText = summaryParts.length
+      ? `Professional with experience as ${summaryParts[0]} ${summaryParts[1] ? summaryParts[1] : ""}. Skilled in ${summaryParts[2] || "relevant tools and technologies"}.`
+      : "";
+
+    return {
+      full_name: possibleName,
+      email: emailMatch?.[0] || "",
+      phone: phoneMatch?.[0] || "",
+      linkedin_url: linkedinMatch?.[0] || "",
+      portfolio_url: portfolioMatch?.[0] || "",
+      college: collegeMatch?.[0] || "",
+      degree: degreeMatch?.[0] || "",
+      field_of_study: fieldMatch?.[1]?.trim() || "",
+      graduation_year: gradYearMatch || "",
+      current_role: roleMatch?.[0] || "",
+      current_company: companyMatch?.[2] || "",
+      experience_years: expYearsMatch?.[1] || "",
+      skills: normalizeList(skillsText),
+      certifications: normalizeList(certificationsText),
+      languages: normalizeList(languagesText),
+      hobbies: normalizeList(hobbiesText),
+      projects: normalizeList(sections.projects || []),
+      bio: bioText,
+    };
+  };
+
+  const mergeResumeData = (fallbackData: any, aiData: any) => {
+    if (!aiData) return fallbackData;
+    const result = { ...fallbackData };
+    const setIfPresent = (key: string, value: any) => {
+      if (value === null || value === undefined) return;
+      if (typeof value === "string") {
+        if (value.trim().length === 0) return;
+        result[key] = value;
+        return;
+      }
+      if (Array.isArray(value)) {
+        if (value.length === 0) return;
+        result[key] = value;
+        return;
+      }
+      result[key] = value;
+    };
+
+    Object.entries(aiData).forEach(([key, value]) => setIfPresent(key, value));
+
+    const fallbackYear = Number(fallbackData?.graduation_year || 0);
+    const aiYear = Number(aiData?.graduation_year || 0);
+    if (fallbackYear || aiYear) {
+      result.graduation_year = Math.max(fallbackYear, aiYear);
+    }
+    return result;
+  };
+
+  const callLocalResumeParser = async (resumeText: string) => {
+    const localParserUrl = import.meta.env.VITE_LOCAL_RESUME_PARSER_URL;
+    if (!localParserUrl) return null;
+    const baseUrl = localParserUrl.replace(/\/$/, "");
+    const response = await fetch(`${baseUrl}/parse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resumeText }),
+    });
+    if (!response.ok) {
+      throw new Error(`Local parser failed (${response.status})`);
+    }
+    const data = await response.json();
+    return data?.data || data || null;
+  };
+
+  const applyResumeData = (data: any) => {
+    if (!data) return;
+    setFormData((prev) => ({
+      ...prev,
+      full_name: data.full_name?.trim() || prev.full_name,
+      email: data.email?.trim() || prev.email,
+      phone: data.phone?.trim() || prev.phone,
+      location: data.location?.trim() || prev.location,
+      linkedin_url: data.linkedin_url?.trim() || prev.linkedin_url,
+      portfolio_url: data.portfolio_url?.trim() || prev.portfolio_url,
+      bio: data.bio?.trim() || prev.bio,
+      college: data.college?.trim() || prev.college,
+      degree: data.degree?.trim() || prev.degree,
+      field_of_study: data.field_of_study?.trim() || prev.field_of_study,
+      graduation_year: data.graduation_year?.toString() || prev.graduation_year,
+      cgpa: data.cgpa?.trim() || prev.cgpa,
+      experience_years: data.experience_years?.toString() || prev.experience_years,
+      current_company: data.current_company?.trim() || prev.current_company,
+      current_role: data.current_role?.trim() || prev.current_role,
+      notice_period: data.notice_period?.trim() || prev.notice_period,
+      expected_salary: data.expected_salary?.trim() || prev.expected_salary,
+      skills: normalizeList(data.skills).length ? normalizeList(data.skills) : prev.skills,
+      actively_looking_roles: normalizeList(data.actively_looking_roles).length
+        ? normalizeList(data.actively_looking_roles)
+        : prev.actively_looking_roles,
+      projects: normalizeList(data.projects).length ? normalizeList(data.projects) : prev.projects,
+      hobbies: normalizeList(data.hobbies).length ? normalizeList(data.hobbies) : prev.hobbies,
+      certifications: normalizeList(data.certifications).length ? normalizeList(data.certifications) : prev.certifications,
+      languages: normalizeList(data.languages).length ? normalizeList(data.languages) : prev.languages,
+    }));
+    setResumeApplied(true);
+  };
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user?.id || profileLoaded) return;
+      try {
+        const [{ data: profileData }, { data: jobSeekerData }] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("full_name,email,phone")
+            .eq("user_id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("job_seeker_profiles")
+            .select("*")
+            .eq("user_id", user.id)
+            .maybeSingle(),
+        ]);
+
+        if ((profileData || jobSeekerData) && !resumeApplied) {
+          setFormData((prev) => ({
+            ...prev,
+            full_name: preferExisting(prev.full_name, profileData?.full_name),
+            email: preferExisting(prev.email, profileData?.email),
+            phone: preferExisting(prev.phone, profileData?.phone),
+            location: preferExisting(prev.location, jobSeekerData?.location),
+            linkedin_url: preferExisting(prev.linkedin_url, jobSeekerData?.linkedin_url),
+            portfolio_url: preferExisting(prev.portfolio_url, jobSeekerData?.portfolio_url),
+            bio: preferExisting(prev.bio, jobSeekerData?.bio),
+            college: preferExisting(prev.college, jobSeekerData?.college),
+            degree: preferExisting(prev.degree, jobSeekerData?.degree),
+            field_of_study: preferExisting(prev.field_of_study, jobSeekerData?.field_of_study),
+            graduation_year: preferExisting(prev.graduation_year, jobSeekerData?.graduation_year?.toString()),
+            cgpa: preferExisting(prev.cgpa, jobSeekerData?.cgpa),
+            experience_years: preferExisting(prev.experience_years, jobSeekerData?.experience_years?.toString()),
+            current_company: preferExisting(prev.current_company, jobSeekerData?.current_company),
+            current_role: preferExisting(prev.current_role, jobSeekerData?.current_role),
+            notice_period: preferExisting(prev.notice_period, jobSeekerData?.notice_period),
+            expected_salary: preferExisting(prev.expected_salary, jobSeekerData?.expected_salary),
+            current_salary: preferExisting(prev.current_salary, jobSeekerData?.current_salary),
+            join_date: preferExisting(prev.join_date, jobSeekerData?.join_date),
+            currently_working: preferExistingBoolean(prev.currently_working, jobSeekerData?.currently_working),
+            resume_url: preferExisting(prev.resume_url, jobSeekerData?.resume_url),
+            skills: preferExistingList(prev.skills, jobSeekerData?.skills),
+            actively_looking_roles: preferExistingList(prev.actively_looking_roles, jobSeekerData?.actively_looking_roles),
+            projects: preferExistingList(prev.projects, jobSeekerData?.projects),
+            hobbies: preferExistingList(prev.hobbies, jobSeekerData?.hobbies),
+            certifications: preferExistingList(prev.certifications, jobSeekerData?.certifications),
+            languages: preferExistingList(prev.languages, jobSeekerData?.languages),
+          }));
+        }
+      } catch (error) {
+        console.error("Failed to load profile data:", error);
+      } finally {
+        setProfileLoaded(true);
+      }
+    };
+
+    loadProfile();
+  }, [user?.id, profileLoaded]);
 
   const formatFileSize = (size: number) => {
     if (!size) return "0 KB";
@@ -159,40 +466,47 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
       
       console.log('Extracted text length:', text.length);
       
-      const { data, error } = await supabase.functions.invoke('analyze-resume', {
-        body: { resumeText: text }
-      });
+      let extractedData: any = null;
+      const fallbackData = fallbackParseFromText(text);
+      try {
+        const localData = await callLocalResumeParser(text);
+        if (localData) {
+          extractedData = mergeResumeData(fallbackData, localData);
+        }
+      } catch (localError) {
+        console.warn("Local resume parser failed. Falling back to edge function.", localError);
+      }
 
-      if (error) throw error;
+      if (!extractedData) {
+      try {
+        const { data, error } = await supabase.functions.invoke('analyze-resume', {
+          body: { resumeText: text }
+        });
+        if (error) throw error;
+        const aiData = data?.data || null;
+        extractedData = mergeResumeData(fallbackData, aiData);
+      } catch (functionError) {
+        console.warn("Analyze-resume failed. Using local fallback parsing.", functionError);
+        extractedData = fallbackData;
+      }
+      }
 
-      if (data?.data) {
-        const extractedData = data.data;
-        setFormData(prev => ({
-          ...prev,
-          full_name: extractedData.full_name || prev.full_name,
-          email: extractedData.email || prev.email,
-          phone: extractedData.phone || prev.phone,
-          location: extractedData.location || prev.location,
-          linkedin_url: extractedData.linkedin_url || prev.linkedin_url,
-          portfolio_url: extractedData.portfolio_url || prev.portfolio_url,
-          bio: extractedData.bio || prev.bio,
-          college: extractedData.college || prev.college,
-          degree: extractedData.degree || prev.degree,
-          field_of_study: extractedData.field_of_study || prev.field_of_study,
-          graduation_year: extractedData.graduation_year?.toString() || prev.graduation_year,
-          cgpa: extractedData.cgpa || prev.cgpa,
-          experience_years: extractedData.experience_years?.toString() || prev.experience_years,
-          current_company: extractedData.current_company || prev.current_company,
-          current_role: extractedData.current_role || prev.current_role,
-          notice_period: extractedData.notice_period || prev.notice_period,
-          expected_salary: extractedData.expected_salary || prev.expected_salary,
-          skills: extractedData.skills || prev.skills,
-          actively_looking_roles: extractedData.actively_looking_roles || prev.actively_looking_roles,
-          projects: extractedData.projects || prev.projects,
-          hobbies: extractedData.hobbies || prev.hobbies,
-          certifications: extractedData.certifications || prev.certifications,
-          languages: extractedData.languages || prev.languages,
-        }));
+      if (extractedData) {
+        const normalizedSkills = normalizeList(extractedData.skills);
+        const normalizedRoles = normalizeList(extractedData.actively_looking_roles);
+        const normalizedProjects = normalizeList(extractedData.projects);
+        const normalizedHobbies = normalizeList(extractedData.hobbies);
+        const normalizedCerts = normalizeList(extractedData.certifications);
+        const normalizedLanguages = normalizeList(extractedData.languages);
+        applyResumeData({
+          ...extractedData,
+          skills: normalizedSkills.length ? normalizedSkills : extractedData.skills,
+          actively_looking_roles: normalizedRoles.length ? normalizedRoles : extractedData.actively_looking_roles,
+          projects: normalizedProjects.length ? normalizedProjects : extractedData.projects,
+          hobbies: normalizedHobbies.length ? normalizedHobbies : extractedData.hobbies,
+          certifications: normalizedCerts.length ? normalizedCerts : extractedData.certifications,
+          languages: normalizedLanguages.length ? normalizedLanguages : extractedData.languages,
+        });
 
         toast({
           title: "✨ Resume analyzed with AI!",

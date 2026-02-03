@@ -202,15 +202,17 @@ export const checkCooldownStatus = async (
     const table = testType === 'aptitude' ? 'aptitude_test_results' : 'dsa_round_results';
     
     // Get the most recent invalidated test for this user
-    const { data: invalidatedTest } = await supabase
+    const { data, error } = await supabase
       .from(table)
       .select('invalidated_at')
       .eq('user_id', userId)
       .eq('is_invalidated', true)
       .order('invalidated_at', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(1);
 
+    if (error) throw error;
+
+    const invalidatedTest = data?.[0];
     if (!invalidatedTest?.invalidated_at) {
       return { inCooldown: false };
     }
