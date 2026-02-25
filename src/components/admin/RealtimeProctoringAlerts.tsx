@@ -39,39 +39,45 @@ const RealtimeProctoringAlerts = () => {
     // Fetch existing alerts
     fetchAlerts();
 
-    // Subscribe to realtime alerts
-    const channel = supabase
-      .channel('proctoring-alerts')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'proctoring_alerts',
-        },
-        (payload) => {
-          const newAlert = payload.new as ProctoringAlert;
-          setAlerts(prev => [newAlert, ...prev].slice(0, 50));
-          setUnreadCount(prev => prev + 1);
-          
-          // Show toast notification
-          if (newAlert.severity === 'high') {
-            toast.error(`High-risk alert: ${newAlert.message}`, {
-              duration: 10000,
-            });
-            // Play sound if enabled
-            if (soundEnabled) {
-              playAlertSound();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    // Defer subscription so we don't open WebSocket if component unmounts quickly (avoids "closed before connection established" console error)
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      channel = supabase
+        .channel('proctoring-alerts')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'proctoring_alerts',
+          },
+          (payload) => {
+            const newAlert = payload.new as ProctoringAlert;
+            setAlerts(prev => [newAlert, ...prev].slice(0, 50));
+            setUnreadCount(prev => prev + 1);
+
+            if (newAlert.severity === 'high') {
+              toast.error(`High-risk alert: ${newAlert.message}`, {
+                duration: 10000,
+              });
+              if (soundEnabled) {
+                playAlertSound();
+              }
+            } else {
+              toast.warning(`Proctoring alert: ${newAlert.message}`);
             }
-          } else {
-            toast.warning(`Proctoring alert: ${newAlert.message}`);
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    }, 150);
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [soundEnabled]);
 

@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -5,8 +7,20 @@ import { Link } from "react-router-dom";
 import { CheckCircle, Sparkles, Shield, Users, Target, Clock, ArrowRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { useAuth } from "@/contexts/AuthContext";
 
 const ForEmployers = () => {
+  const { user, userRole } = useAuth();
+  const navigate = useNavigate();
+
+  // Job seeker: employers page is for recruiters; redirect to job seeker experience
+  useEffect(() => {
+    if (user && userRole === 'jobseeker') {
+      navigate('/jobs', { replace: true });
+      return;
+    }
+  }, [user, userRole, navigate]);
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />

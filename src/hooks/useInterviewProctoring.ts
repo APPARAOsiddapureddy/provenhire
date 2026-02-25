@@ -43,6 +43,7 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
   });
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const subscribeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Broadcast alert to realtime channel for admins
   const broadcastAlert = useCallback(async (
@@ -196,22 +197,29 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
 
   // Start monitoring
   const startMonitoring = useCallback(() => {
-    // Set up realtime channel for broadcasting
-    channelRef.current = supabase.channel(`interview-proctoring-${sessionId}`, {
+    // Clear any pending subscribe from a previous start
+    if (subscribeTimerRef.current) {
+      clearTimeout(subscribeTimerRef.current);
+      subscribeTimerRef.current = null;
+    }
+
+    const ch = supabase.channel(`interview-proctoring-${sessionId}`, {
       config: {
         broadcast: { self: false },
       },
     });
-    
-    channelRef.current.subscribe();
+    channelRef.current = ch;
 
-    // Add event listeners
+    // Defer subscribe to avoid WebSocket "closed before connection established" if stop is called immediately
+    subscribeTimerRef.current = setTimeout(() => {
+      subscribeTimerRef.current = null;
+      if (channelRef.current === ch) ch.subscribe();
+    }, 150);
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     setState(prev => ({ ...prev, isMonitoring: true }));
-    
-    console.log('Interview proctoring started');
   }, [sessionId, handleVisibilityChange, handleFullscreenChange]);
 
   // Stop monitoring
@@ -219,14 +227,16 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     document.removeEventListener('fullscreenchange', handleFullscreenChange);
 
+    if (subscribeTimerRef.current) {
+      clearTimeout(subscribeTimerRef.current);
+      subscribeTimerRef.current = null;
+    }
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
     }
 
     setState(prev => ({ ...prev, isMonitoring: false }));
-    
-    console.log('Interview proctoring stopped');
   }, [handleVisibilityChange, handleFullscreenChange]);
 
   // Reset state
@@ -245,8 +255,13 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      if (subscribeTimerRef.current) {
+        clearTimeout(subscribeTimerRef.current);
+        subscribeTimerRef.current = null;
+      }
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
       }
     };
   }, [handleVisibilityChange, handleFullscreenChange]);

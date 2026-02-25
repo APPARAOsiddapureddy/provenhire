@@ -31,8 +31,43 @@ const PostJob = () => {
     salary_range: "",
     experience_required: 0,
     required_skills: [] as string[],
+    job_track: "tech" as "tech" | "non_technical",
+    role_category: "",
+    company_context: "",
+    assignment_threshold: 60,
   });
   const [skillInput, setSkillInput] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const getSubmitErrorMessage = (error: any): string => {
+    if (!error) return 'Something went wrong. Please check the form and try again.';
+    const msg = typeof error.message === 'string' ? error.message : '';
+    const code = error.code;
+
+    if (code === '23503') {
+      return "Your account isn't linked to a recruiter profile. Please complete recruiter onboarding from the dashboard, or sign in with a full account.";
+    }
+    if (code === '23502') {
+      if (msg.includes('title')) return 'Please enter the Job title.';
+      if (msg.includes('company')) return 'Please enter the Company name.';
+      if (msg.includes('description')) return 'Please enter the Job description.';
+      if (msg.includes('recruiter_id')) return "Recruiter account not found. Please sign in again or complete your profile.";
+      return 'A required field is missing. Please fill in Job title, Company name, and Job description.';
+    }
+    if (msg.includes('null value') && msg.includes('column')) {
+      if (msg.includes('title')) return 'Please enter the Job title.';
+      if (msg.includes('company')) return 'Please enter the Company name.';
+      if (msg.includes('description')) return 'Please enter the Job description.';
+    }
+    if (msg.includes('row-level security') || msg.includes('policy')) {
+      return "You don't have permission to post jobs with this account. Please complete your recruiter profile and try again.";
+    }
+    if (msg.includes('invalid input syntax for type uuid') || msg.includes('bypass-')) {
+      return "You're signed in with a test account. Test accounts can't save jobs to the database. Sign up or sign in with a full recruiter account to post jobs.";
+    }
+    if (msg && msg.length < 200) return msg;
+    return 'Couldn\'t save the job. Please check that Job title, Company name, and Job description are filled, then try again.';
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -125,16 +160,36 @@ const PostJob = () => {
     });
   };
 
+  const isTestAccount = user?.id?.startsWith?.('bypass-');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    setFieldErrors({});
+
     if (!user) {
       toast.error('Please sign in to post a job');
       return;
     }
 
-    if (!formData.title || !formData.company || !formData.description) {
-      toast.error('Please fill in all required fields');
+    if (isTestAccount) {
+      const msg = "You're signed in with a test account. Test accounts can't save jobs to the database. Sign up or sign in with a full recruiter account to post jobs.";
+      toast.error(msg);
+      setFieldErrors({ form: msg });
+      return;
+    }
+
+    const errors: Record<string, string> = {};
+    if (!formData.title?.trim()) errors.title = 'Please enter the job title.';
+    if (!formData.company?.trim()) errors.company = 'Please enter the company name.';
+    if (!formData.description?.trim()) errors.description = 'Please enter the job description.';
+    if (formData.job_track === 'non_technical' && !formData.company_context?.trim()) {
+      errors.company_context = 'Company context is required for non-technical jobs (used for assignment generation).';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const first = Object.values(errors)[0];
+      toast.error(first);
       return;
     }
 
@@ -144,15 +199,19 @@ const PostJob = () => {
         .from('jobs')
         .insert({
           recruiter_id: user.id,
-          title: formData.title,
-          company: formData.company,
-          description: formData.description,
-          location: formData.location,
-          job_type: formData.job_type,
-          salary_range: formData.salary_range,
+          title: formData.title.trim(),
+          company: formData.company.trim(),
+          description: formData.description.trim(),
+          location: formData.location || null,
+          job_type: formData.job_type || null,
+          salary_range: formData.salary_range || null,
           experience_required: formData.experience_required,
           required_skills: formData.required_skills,
-          status: 'active'
+          status: 'active',
+          job_track: formData.job_track,
+          role_category: formData.job_track === 'non_technical' ? formData.role_category || null : null,
+          company_context: formData.job_track === 'non_technical' ? formData.company_context || null : null,
+          assignment_threshold: formData.job_track === 'non_technical' ? formData.assignment_threshold : null,
         })
         .select()
         .single();
@@ -184,7 +243,9 @@ const PostJob = () => {
       navigate('/dashboard/recruiter');
     } catch (error: any) {
       console.error('Error posting job:', error);
-      toast.error('Failed to post job');
+      const friendlyMessage = getSubmitErrorMessage(error);
+      toast.error(friendlyMessage);
+      setFieldErrors({ form: friendlyMessage });
     } finally {
       setLoading(false);
     }
@@ -310,15 +371,28 @@ const PostJob = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {isTestAccount && (
+                <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200" role="alert">
+                  You're signed in with a <strong>test account</strong>. You can try the form, but jobs won't be saved to the database. Sign up or sign in with a full recruiter account to post jobs.
+                </div>
+              )}
+              {fieldErrors.form && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+                  {fieldErrors.form}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="title">Job Title *</Label>
                 <Input
                   id="title"
                   placeholder="e.g. Senior Frontend Developer"
                   value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, title: e.target.value }); setFieldErrors((prev) => ({ ...prev, title: '', form: '' })); }}
+                  className={fieldErrors.title ? 'border-destructive focus-visible:ring-destructive' : ''}
                   required
                 />
+                {fieldErrors.title && <p className="text-sm text-destructive">{fieldErrors.title}</p>}
               </div>
 
               <div className="space-y-2">
@@ -327,10 +401,70 @@ const PostJob = () => {
                   id="company"
                   placeholder="e.g. TechCorp Inc"
                   value={formData.company}
-                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, company: e.target.value }); setFieldErrors((prev) => ({ ...prev, company: '', form: '' })); }}
+                  className={fieldErrors.company ? 'border-destructive focus-visible:ring-destructive' : ''}
                   required
                 />
+                {fieldErrors.company && <p className="text-sm text-destructive">{fieldErrors.company}</p>}
               </div>
+
+              <div className="space-y-2">
+                <Label>Job track (PRD v4.1) *</Label>
+                <Select value={formData.job_track} onValueChange={(v: "tech" | "non_technical") => setFormData({ ...formData, job_track: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tech">Technical</SelectItem>
+                    <SelectItem value="non_technical">Non-Technical</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Technical: expert-verified candidates. Non-technical: non-tech verified + per-job assignment.</p>
+              </div>
+
+              {formData.job_track === 'non_technical' && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Role category *</Label>
+                    <Select value={formData.role_category} onValueChange={(v) => setFormData({ ...formData, role_category: v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Marketing">Marketing</SelectItem>
+                        <SelectItem value="Sales">Sales</SelectItem>
+                        <SelectItem value="Finance/Accounting">Finance / Accounting</SelectItem>
+                        <SelectItem value="Operations/Business Analyst">Operations / Business Analyst</SelectItem>
+                        <SelectItem value="Human Resources">Human Resources</SelectItem>
+                        <SelectItem value="Content/Copywriting">Content / Copywriting</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="company_context">Company context *</Label>
+                    <Textarea
+                      id="company_context"
+                      placeholder="Brief description of what the company does (used for assignment generation)"
+                      value={formData.company_context}
+                      onChange={(e) => { setFormData({ ...formData, company_context: e.target.value }); setFieldErrors((prev) => ({ ...prev, company_context: '', form: '' })); }}
+                      rows={2}
+                      className={fieldErrors.company_context ? 'border-destructive focus-visible:ring-destructive' : ''}
+                    />
+                    {fieldErrors.company_context && <p className="text-sm text-destructive">{fieldErrors.company_context}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Assignment score threshold (%)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={formData.assignment_threshold}
+                      onChange={(e) => setFormData({ ...formData, assignment_threshold: parseInt(e.target.value) || 60 })}
+                    />
+                    <p className="text-xs text-muted-foreground">Min AI score to show assignment to recruiter (default 60).</p>
+                  </div>
+                </>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="description">Job Description *</Label>
@@ -338,10 +472,12 @@ const PostJob = () => {
                   id="description"
                   placeholder="Describe the role, responsibilities, and requirements..."
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, description: e.target.value }); setFieldErrors((prev) => ({ ...prev, description: '', form: '' })); }}
                   rows={6}
+                  className={fieldErrors.description ? 'border-destructive focus-visible:ring-destructive' : ''}
                   required
                 />
+                {fieldErrors.description && <p className="text-sm text-destructive">{fieldErrors.description}</p>}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

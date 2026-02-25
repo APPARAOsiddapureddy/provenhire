@@ -42,25 +42,33 @@ const NotificationInbox = () => {
 
     fetchMessages();
 
-    // Subscribe to new messages
-    const channel = supabase
-      .channel("notifications")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "admin_messages",
-          filter: `recipient_id=eq.${user.id}`,
-        },
-        (payload) => {
-          setMessages((prev) => [payload.new as Message, ...prev.slice(0, 9)]);
-        }
-      )
-      .subscribe();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    // Defer subscription to avoid WebSocket "closed before connection established" when component unmounts quickly
+    const timer = window.setTimeout(() => {
+      if (cancelled || !user) return;
+      channel = supabase
+        .channel("notifications")
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "admin_messages",
+            filter: `recipient_id=eq.${user.id}`,
+          },
+          (payload) => {
+            setMessages((prev) => [payload.new as Message, ...prev.slice(0, 9)]);
+          }
+        )
+        .subscribe();
+    }, 150);
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [user]);
 

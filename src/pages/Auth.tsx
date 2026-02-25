@@ -29,12 +29,17 @@ const Auth = () => {
   // Login State
   const [signInEmail, setSignInEmail] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
+  const [loginRole, setLoginRole] = useState<"jobseeker" | "recruiter" | "admin" | "expert_interviewer">(
+    roleFromUrl === 'recruiter' ? 'recruiter' : 'jobseeker'
+  );
 
   // Register State
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<"jobseeker" | "recruiter">(roleFromUrl === 'recruiter' ? 'recruiter' : 'jobseeker');
+  // Job seeker track (PRD v4.1: Technical vs Non-Technical)
+  const [jobSeekerTrack, setJobSeekerTrack] = useState<"tech" | "non_tech">("tech");
   // Recruiter specific fields (minimal)
   const [companyName, setCompanyName] = useState("");
   const [companySize, setCompanySize] = useState("");
@@ -45,19 +50,24 @@ const Auth = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [resetUserEmail, setResetUserEmail] = useState("");
   const [resetUpdating, setResetUpdating] = useState(false);
-  const [authInfo, setAuthInfo] = useState("");
-  const [loginStep, setLoginStep] = useState<"email" | "password">("email");
-  const [loginError, setLoginError] = useState("");
 
   const { signUp, signIn, user, userRole, loading, resetPassword, updatePassword } = useAuth();
   const navigate = useNavigate();
 
+  // When user is set but role is still loading, show redirecting state so we don't flash the login form
+  const isRedirecting = Boolean(user && userRole === null && authMode !== 'reset' && !isReset);
+
   useEffect(() => {
     if (!user || authMode === 'reset') return;
-    if (userRole === "recruiter") {
-      navigate("/dashboard/recruiter");
+    // Only redirect when role is known so ProtectedRoute doesn't show a full-screen loader
+    if (userRole === "admin") {
+      navigate("/admin/dashboard", { replace: true });
+    } else if (userRole === "recruiter") {
+      navigate("/dashboard/recruiter", { replace: true });
+    } else if (userRole === "expert_interviewer") {
+      navigate("/dashboard/expert", { replace: true });
     } else if (userRole === "jobseeker") {
-      navigate("/dashboard/jobseeker");
+      navigate("/dashboard/jobseeker", { replace: true });
     }
   }, [user, userRole, navigate, authMode]);
 
@@ -66,15 +76,6 @@ const Auth = () => {
       setSignInEmail(emailFromUrl);
     }
   }, [emailFromUrl]);
-
-  useEffect(() => {
-    setAuthInfo("");
-    setLoginError("");
-    if (authMode === "login") {
-      setLoginStep("email");
-      setSignInPassword("");
-    }
-  }, [authMode]);
 
   useEffect(() => {
     if (!isReset) return;
@@ -124,67 +125,24 @@ const Auth = () => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    if (!signInEmail?.trim()) {
+      toast.error("Please enter your email");
+      return;
+    }
+    const isDemo = searchParams.get('demo') === '1';
+    if (!isDemo && !signInPassword?.trim()) {
+      toast.error("Please enter your password");
+      return;
+    }
     try {
-      setLoginError("");
-      setAuthInfo("");
-      if (!signInEmail) {
-        toast.error("Please enter your email");
-        return;
+      if (isDemo) {
+        await signIn(signInEmail.trim(), signInPassword || "any", loginRole);
+      } else {
+        await signIn(signInEmail.trim(), signInPassword || "");
       }
-
-      if (loginStep === "email") {
-        let emailExists: boolean | null = null;
-        let isActive: boolean | null = null;
-        let hasPassword: boolean | null = null;
-        try {
-          const { data, error } = await supabase.rpc('email_login_status', {
-            email: signInEmail
-          });
-          const status = data as { exists?: boolean; is_active?: boolean; has_password?: boolean } | null;
-          if (!error && status) {
-            if (typeof status.exists === "boolean") emailExists = status.exists;
-            if (typeof status.is_active === "boolean") isActive = status.is_active;
-            if (typeof status.has_password === "boolean") hasPassword = status.has_password;
-          }
-        } catch (rpcError) {
-          console.warn("Email existence check failed:", rpcError);
-        }
-
-        if (emailExists === false) {
-          setEmail(signInEmail);
-          setAuthMode("signup");
-          setAuthInfo("No account found. Please complete signup to continue.");
-          return;
-        }
-
-        if (emailExists === true && isActive === false) {
-          setLoginError("This account is inactive. Please contact support.");
-          return;
-        }
-
-        if (emailExists === true && hasPassword === false) {
-          setLoginError("Account pending activation. Please check your email to set a password.");
-          return;
-        }
-
-        setLoginStep("password");
-        return;
-      }
-
-      if (!signInPassword) {
-        toast.error("Please enter your password");
-        return;
-      }
-
-      await signIn(signInEmail, signInPassword);
-    } catch (error: any) {
-      const message = String(error?.message || "").toLowerCase();
-      if (message.includes("invalid login credentials")) {
-        setLoginError("Invalid email or password. Please try again.");
-        return;
-      }
-      // Error handled in context
+    } catch (err: any) {
+      const msg = err?.message ?? "Sign in failed";
+      toast.error(msg.includes("Invalid") ? "Invalid email or password." : msg);
     }
   };
 
@@ -201,6 +159,11 @@ const Auth = () => {
     }
 
     try {
+      if (role === "jobseeker") {
+        try {
+          localStorage.setItem("ph_signup_track", jobSeekerTrack);
+        } catch (_) {}
+      }
       const tempPassword = crypto.randomUUID();
       await signUp(
         email,
@@ -281,17 +244,21 @@ const Auth = () => {
         return;
       }
 
-      await updatePassword(newPassword);
+      const role = await updatePassword(newPassword);
       const emailForLogin = resetUserEmail || emailFromUrl || "";
       if (emailForLogin) {
         setSignInEmail(emailForLogin);
       }
-      const resetParams = new URLSearchParams();
-      if (emailForLogin) {
-        resetParams.set("email", emailForLogin);
+      // Navigate straight to dashboard so the app doesn't sit on /auth waiting for refresh
+      if (role === "admin") {
+        navigate("/admin/dashboard", { replace: true });
+      } else if (role === "recruiter") {
+        navigate("/dashboard/recruiter", { replace: true });
+      } else if (role === "expert_interviewer") {
+        navigate("/dashboard/expert", { replace: true });
+      } else {
+        navigate("/dashboard/jobseeker", { replace: true });
       }
-      resetParams.set("reset", "1");
-      navigate(`/auth?${resetParams.toString()}`);
     } catch (error: any) {
       toast.error(error?.message || "Failed to update password");
     } finally {
@@ -361,6 +328,19 @@ const Auth = () => {
           </div>
         </div>
         <Footer />
+      </div>
+    );
+  }
+
+  // Redirecting to dashboard (user set, role still loading) — avoids flash of login form and ensures dashboard gets role before mount
+  if (isRedirecting) {
+    return (
+      <div className="auth-page auth-login-mode min-h-screen flex items-center justify-center bg-gradient-subtle">
+        <Navbar />
+        <div className="flex flex-col items-center gap-4 text-muted-foreground">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm font-medium">Taking you to your dashboard...</p>
+        </div>
       </div>
     );
   }
@@ -523,25 +503,12 @@ const Auth = () => {
               </h1>
               <p className="text-muted-foreground mt-1">
                 {isLogin
-                  ? "Enter your email to continue"
+                  ? (searchParams.get('demo') === '1'
+                      ? "Demo: choose your dashboard after sign in"
+                      : "Sign in to your account. You’ll be taken to your dashboard.")
                   : "Enter your email to receive a password setup link"}
               </p>
             </div>
-            {authInfo && (
-              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                {authInfo}
-              </div>
-            )}
-            {isLogin && loginError && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-                {loginError}
-              </div>
-            )}
-            {authInfo && (
-              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                {authInfo}
-              </div>
-            )}
             {isLogin && resetSuccess && (
               <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
                 Password updated successfully. Please sign in to continue.
@@ -573,82 +540,158 @@ const Auth = () => {
                 </div>
               </div>
 
-              {isLogin && loginStep === "password" && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">
-                    Password *
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <input
-                      type="password"
-                      placeholder="••••••••"
-                      value={signInPassword}
-                      onChange={(e) => setSignInPassword(e.target.value)}
-                      required
-                      minLength={6}
-                      className="w-full pl-10 pr-4 py-3 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                    />
+              {isLogin && (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">
+                      Password *
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={signInPassword}
+                        onChange={(e) => setSignInPassword(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                      />
+                    </div>
                   </div>
-                </div>
+                  {searchParams.get('demo') === '1' && (
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-foreground">
+                        Go to dashboard (demo only)
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setLoginRole("jobseeker")}
+                          className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-sm ${
+                            loginRole === "jobseeker"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <User className="h-5 w-5" />
+                          <span className="font-medium">Job Seeker</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLoginRole("recruiter")}
+                          className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-sm ${
+                            loginRole === "recruiter"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <Briefcase className="h-5 w-5" />
+                          <span className="font-medium">Recruiter</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLoginRole("expert_interviewer")}
+                          className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-sm ${
+                            loginRole === "expert_interviewer"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <Award className="h-5 w-5" />
+                          <span className="font-medium">Expert</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLoginRole("admin")}
+                          className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-sm ${
+                            loginRole === "admin"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <Shield className="h-5 w-5" />
+                          <span className="font-medium">Admin</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-end text-sm">
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode('forgot')}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                </>
               )}
 
               {isSignup && (
-                <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-lg p-3">
-                  We will email you a secure link to set your password.
-                </div>
-              )}
-
-              {isLogin && loginStep === "password" && (
-                <div className="flex items-center justify-between text-sm">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20"
-                    />
-                    <span className="text-muted-foreground">Remember me</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode('forgot')}
-                    className="text-primary hover:underline font-medium"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-              )}
-
-              {isSignup && (
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-foreground">
-                    I am a...
-                  </label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setRole("jobseeker")}
-                      className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                        role === "jobseeker"
-                          ? "border-primary bg-primary/5 text-primary"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      <User className="h-6 w-6" />
-                      <span className="font-medium">Job Seeker</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRole("recruiter")}
-                      className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                        role === "recruiter"
-                          ? "border-primary bg-primary/5 text-primary"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      <Briefcase className="h-6 w-6" />
-                      <span className="font-medium">Recruiter</span>
-                    </button>
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium text-foreground">
+                      I am a...
+                    </label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <button
+                        type="button"
+                        onClick={() => setRole("jobseeker")}
+                        className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
+                          role === "jobseeker"
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <User className="h-6 w-6" />
+                        <span className="font-medium">Job Seeker</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRole("recruiter")}
+                        className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
+                          role === "recruiter"
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <Briefcase className="h-6 w-6" />
+                        <span className="font-medium">Recruiter</span>
+                      </button>
+                    </div>
                   </div>
+                  {role === "jobseeker" && (
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-foreground">
+                        Verification track (PRD v4.1)
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setJobSeekerTrack("tech")}
+                          className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-sm ${
+                            jobSeekerTrack === "tech"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <span className="font-medium">Technical</span>
+                          <span className="text-xs text-muted-foreground">5 stages, Skill Passport</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setJobSeekerTrack("non_tech")}
+                          className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-sm ${
+                            jobSeekerTrack === "non_tech"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <span className="font-medium">Non-Technical</span>
+                          <span className="text-xs text-muted-foreground">2 stages + assignments</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -704,9 +747,7 @@ const Auth = () => {
                 {loading
                   ? "Processing..."
                   : isLogin
-                  ? loginStep === "email"
-                    ? "Continue"
-                    : "Sign In"
+                  ? "Sign In"
                   : "Send Password Link"}
               </button>
             </form>
@@ -718,7 +759,9 @@ const Auth = () => {
                   What happens next?
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  After signing up, you'll complete our 3-stage verification to earn your ProvenHire Skill Passport. Only 18% pass!
+                  {jobSeekerTrack === "tech"
+                    ? "Technical track: Profile → Aptitude → DSA → AI Interview → Human Expert. Get your Skill Passport (Expert Verified)."
+                    : "Non-Technical track: Profile → Role AI Interview. Then per-job assignments. Get your Non-Tech Verified badge."}
                 </p>
               </div>
             )}

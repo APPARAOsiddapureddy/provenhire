@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Clock, CheckCircle2, XCircle, ArrowRight, Code, Lightbulb, Play, AlertTriangle, Camera, Monitor, Shield, Video, AlertCircle, Loader2, Terminal, RotateCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import { toast } from "sonner";
 import { generateDSATest, DSAQuestion, ProgrammingLanguage, supportedLanguages, getLanguageIcon } from "@/data/dsaQuestions";
 import { uploadScreenRecording } from "@/utils/recordingUpload";
@@ -109,6 +110,10 @@ const DSARoundStage = ({ onComplete }: DSARoundStageProps) => {
   // Fetch user's experience
   useEffect(() => {
     const fetchExperience = async () => {
+      if (skipSupabaseRequests()) {
+        setExperienceYears(0);
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data } = await supabase
@@ -363,6 +368,11 @@ const DSARoundStage = ({ onComplete }: DSARoundStageProps) => {
     });
 
     try {
+      if (skipSupabaseRequests()) {
+        setStage("result");
+        setLoading(false);
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const testId = crypto.randomUUID();

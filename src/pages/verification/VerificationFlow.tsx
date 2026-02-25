@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -12,7 +13,9 @@ import ProfileSetupStage from "./stages/ProfileSetupStage";
 import AptitudeTestStage from "./stages/AptitudeTestStage";
 import DSARoundStage from "./stages/DSARoundStage";
 import ExpertInterviewStage from "./stages/ExpertInterviewStage";
+import HumanExpertInterviewStage from "./stages/HumanExpertInterviewStage";
 import { checkInvalidatedTests, checkCooldownStatus, RETAKE_COOLDOWN_HOURS } from "@/utils/recordingUpload";
+import { runShortlisting, getShortlistStatus, type ShortlistResult } from "@/lib/shortlisting";
 
 type StageStatus = 'locked' | 'in_progress' | 'completed' | 'failed';
 
@@ -39,8 +42,28 @@ const VerificationFlow = () => {
     aptitude: { inCooldown: false },
     dsa: { inCooldown: false }
   });
+  const [shortlistResult, setShortlistResult] = useState<ShortlistResult | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const stageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
+  // PRD v3.0: 5-stage pipeline (Stage 4 = AI interview, Stage 5 = Human expert interview)
+  const stageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
+  // Insert only these 4 into DB to avoid 400 (check constraint). UI still shows 5 via mergeStagesWithOrder.
+  const STAGE_NAMES_FOR_INSERT = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
+  const LOAD_TIMEOUT_MS = 30000;
+
+  const STAGE_LABELS: Record<string, string> = {
+    profile_setup: 'Profile & Resume',
+    aptitude_test: 'Aptitude Test',
+    dsa_round: 'DSA Round',
+    expert_interview: 'AI Expert Interview',
+    human_expert_interview: 'Human Expert Interview',
+  };
+  const getStageLabel = (stageName: string) => STAGE_LABELS[stageName] ?? stageName.split('_').join(' ');
+
+  const mergeStagesWithOrder = (data: VerificationStage[]): VerificationStage[] =>
+    stageOrder.map(
+      (name) => data.find((s) => s.stage_name === name) ?? { stage_name: name, status: 'locked' as StageStatus }
+    );
 
   useEffect(() => {
     if (!user) {
@@ -54,6 +77,10 @@ const VerificationFlow = () => {
 
   const checkCooldowns = async () => {
     if (!user) return;
+    if (skipSupabaseRequests()) {
+      setCooldownInfo({ aptitude: { inCooldown: false }, dsa: { inCooldown: false } });
+      return;
+    }
     const [aptitudeCooldown, dsaCooldown] = await Promise.all([
       checkCooldownStatus(user.id, 'aptitude'),
       checkCooldownStatus(user.id, 'dsa'),
@@ -66,43 +93,125 @@ const VerificationFlow = () => {
 
   const checkForInvalidatedTests = async () => {
     if (!user) return;
+    if (skipSupabaseRequests()) {
+      setInvalidatedTests({ aptitude: false, dsa: false });
+      return;
+    }
     const result = await checkInvalidatedTests(user.id);
     setInvalidatedTests(result);
   };
 
   const loadVerificationStages = async () => {
+    setLoadError(null);
     try {
-      const { data, error } = await supabase
-        .from('verification_stages')
-        .select('*')
-        .eq('user_id', user?.id);
+      if (skipSupabaseRequests()) {
+        const mockStages: VerificationStage[] = stageOrder.map((stage, index) => ({
+          stage_name: stage,
+          status: index === 0 ? 'in_progress' : 'locked'
+        }));
+        setStages(mockStages);
+        setCurrentStage(stageOrder[0]);
+        setLoading(false);
+        return;
+      }
 
-      if (error) throw error;
+      const loadWithTimeout = async () => {
+        const { data, error } = await supabase
+          .from('verification_stages')
+          .select('*')
+          .eq('user_id', user?.id);
 
-      if (!data || data.length === 0) {
-        await initializeStages();
-      } else {
-        setStages(data as VerificationStage[]);
-        const firstInProgress = data.find(s => s.status === 'in_progress');
-        const firstLocked = data.find(s => s.status === 'locked');
-        if (firstInProgress) {
-          setCurrentStage(firstInProgress.stage_name);
-        } else if (firstLocked) {
-          setCurrentStage(firstLocked.stage_name);
-        } else {
-          const lastCompleted = data.filter(s => s.status === 'completed').pop();
-          if (lastCompleted) {
-            const nextIndex = stageOrder.indexOf(lastCompleted.stage_name) + 1;
-            if (nextIndex < stageOrder.length) {
-              setCurrentStage(stageOrder[nextIndex]);
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+          await initializeStages();
+          return;
+        }
+
+        // Ensure new stages added in later releases exist for this user (e.g., PRD v3 Stage 5)
+        const existingStageNames = new Set(data.map((s) => s.stage_name));
+        const missingStages = stageOrder.filter((s) => !existingStageNames.has(s));
+        if (missingStages.length > 0) {
+          const missingRows = missingStages
+            .filter((stage) => STAGE_NAMES_FOR_INSERT.includes(stage))
+            .map((stage) => ({
+              user_id: user?.id,
+              stage_name: stage,
+              status: 'locked' as StageStatus,
+            }));
+          if (missingRows.length > 0) {
+            const { error: insertErr } = await supabase
+              .from('verification_stages')
+              .insert(missingRows);
+            if (insertErr) {
+              if (insertErr.code === '23505') {
+                // Race: rows exist now, continue with current data
+              } else {
+                throw insertErr;
+              }
             }
           }
+          const combined = [
+            ...(data as VerificationStage[]),
+            ...missingRows.map((r) => ({ stage_name: r.stage_name, status: r.status } as VerificationStage)),
+          ];
+          const stagesList = mergeStagesWithOrder(combined);
+          setStages(stagesList);
+          const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
+          const firstLocked = stagesList.find((s) => s.status === 'locked');
+          if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
+          else if (firstLocked) setCurrentStage(firstLocked.stage_name);
+          else {
+            const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
+            if (lastCompleted) {
+              const nextIndex = stageOrder.indexOf(lastCompleted.stage_name) + 1;
+              if (nextIndex < stageOrder.length) setCurrentStage(stageOrder[nextIndex]);
+            }
+          }
+          return;
         }
-      }
+
+        let stagesList = mergeStagesWithOrder(data as VerificationStage[]);
+        setStages(stagesList);
+        const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
+        const firstLocked = stagesList.find((s) => s.status === 'locked');
+        if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
+        else if (firstLocked) setCurrentStage(firstLocked.stage_name);
+        else {
+          const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
+          if (lastCompleted) {
+            const nextIndex = stageOrder.indexOf(lastCompleted.stage_name) + 1;
+            if (nextIndex < stageOrder.length) setCurrentStage(stageOrder[nextIndex]);
+          }
+        }
+
+        const expertDone = data.find((s) => s.stage_name === 'expert_interview' && s.status === 'completed');
+        if (expertDone) {
+          getShortlistStatus(user!.id).then((sl) => {
+            setShortlistResult(sl ?? null);
+            if (sl && !sl.shortlisted) {
+              setStages((prev) =>
+                prev.map((s) =>
+                  s.stage_name === 'human_expert_interview' ? { ...s, status: 'locked' as StageStatus } : s
+                )
+              );
+            }
+          });
+        } else {
+          setShortlistResult(null);
+        }
+      };
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Loading timed out. Please try again.')), LOAD_TIMEOUT_MS)
+      );
+      await Promise.race([loadWithTimeout(), timeoutPromise]);
     } catch (error: any) {
+      const message = error?.message ?? 'Failed to load verification status';
+      setLoadError(message);
       toast({
         title: "Error loading verification status",
-        description: error.message,
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -112,24 +221,40 @@ const VerificationFlow = () => {
 
   const initializeStages = async () => {
     try {
-      const initialStages = stageOrder.map((stage, index) => ({
+      if (skipSupabaseRequests()) {
+        const mockStages: VerificationStage[] = stageOrder.map((stage, index) => ({
+          stage_name: stage,
+          status: index === 0 ? 'in_progress' : 'locked'
+        }));
+        setStages(mockStages);
+        setCurrentStage(stageOrder[0]);
+        setLoading(false);
+        return;
+      }
+      const initialStages = STAGE_NAMES_FOR_INSERT.map((stage, index) => ({
         user_id: user?.id,
         stage_name: stage,
-        status: index === 0 ? 'in_progress' : 'locked'
+        status: (index === 0 ? 'in_progress' : 'locked') as StageStatus,
       }));
 
-      const { error } = await supabase
-        .from('verification_stages')
-        .upsert(initialStages, { onConflict: 'user_id,stage_name' });
-
-      if (error) throw error;
-      await loadVerificationStages();
+      const { error } = await supabase.from('verification_stages').insert(initialStages);
+      if (error) {
+        if (error.code === '23505') {
+          await loadVerificationStages();
+          return;
+        }
+        throw error;
+      }
+      const asStages: VerificationStage[] = initialStages.map(({ stage_name, status }) => ({ stage_name, status }));
+      setStages(mergeStagesWithOrder(asStages));
+      setCurrentStage('profile_setup');
     } catch (error: any) {
       toast({
         title: "Error initializing verification",
         description: error.message,
         variant: "destructive",
       });
+      throw error;
     }
   };
 
@@ -172,6 +297,16 @@ const VerificationFlow = () => {
       const currentIndex = stageOrder.indexOf(stageName);
       if (currentIndex < 0) return;
 
+      if (skipSupabaseRequests()) {
+        setStages(prev => prev.map((s, i) => ({
+          ...s,
+          status: i < currentIndex ? 'completed' : i === currentIndex ? 'in_progress' : 'locked'
+        })));
+        setCurrentStage(stageName);
+        toast({ title: "Retry enabled", description: "This step is active again (demo)." });
+        return;
+      }
+
       await Promise.all(
         stageOrder.map((stage, index) => {
           if (index < currentIndex) return Promise.resolve();
@@ -209,6 +344,16 @@ const VerificationFlow = () => {
         ? stageOrder[currentIndex + 1]
         : null;
 
+      if (skipSupabaseRequests()) {
+        setStages(prev => prev.map((s, i) => ({
+          ...s,
+          status: i < currentIndex ? 'completed' : i === currentIndex ? 'completed' : i === currentIndex + 1 ? 'in_progress' : 'locked'
+        })));
+        if (nextStage) setCurrentStage(nextStage);
+        toast({ title: "Stage completed", description: nextStage ? "Proceeding to the next stage (demo)." : "Verification complete (demo)." });
+        return;
+      }
+
       const { error: completeErr } = await supabase
         .from('verification_stages')
         .update({ status: 'completed', completed_at: new Date().toISOString() })
@@ -216,14 +361,53 @@ const VerificationFlow = () => {
         .eq('stage_name', stageName);
       if (completeErr) throw completeErr;
 
-      if (nextStage) {
+      if (stageName === 'expert_interview' && nextStage === 'human_expert_interview') {
+        let sl: ShortlistResult;
+        try {
+          sl = await runShortlisting(user.id);
+        } catch (shortlistErr: any) {
+          sl = {
+            shortlisted: false,
+            combined_score_pct: 0,
+            stage_2_score_pct: null,
+            stage_3_score_pct: null,
+            stage_4_score_pct: null,
+            threshold_pct: 65,
+          };
+          toast({
+            title: "Shortlist check skipped",
+            description: shortlistErr?.message ?? "Could not compute shortlist. You can retry or continue from dashboard.",
+            variant: "destructive",
+          });
+        }
+        setShortlistResult(sl);
+        if (!sl.shortlisted) {
+          toast({
+            title: "Stage 4 (AI Expert Interview) complete",
+            description: `Combined score ${sl.combined_score_pct.toFixed(1)}% (threshold ${sl.threshold_pct}%). Not shortlisted for Stage 5. You can retry Stage 4 when attempts allow.`,
+          });
+        } else {
+          toast({
+            title: "Shortlisted for Stage 5",
+            description: "You can now schedule your Human Expert Interview.",
+          });
+        }
+      } else if (nextStage) {
         const { error: unlockErr } = await supabase
           .from('verification_stages')
           .update({ status: 'in_progress' })
           .eq('user_id', user.id)
           .eq('stage_name', nextStage);
         if (unlockErr) throw unlockErr;
-      } else {
+      }
+
+      // Update lifecycle status (schema allows: pending, in_progress, verified, rejected)
+      if (stageName === 'dsa_round' || stageName === 'expert_interview') {
+        await supabase
+          .from('job_seeker_profiles')
+          .update({ verification_status: 'in_progress' })
+          .eq('user_id', user.id);
+      } else if (stageName === 'human_expert_interview') {
         await supabase
           .from('job_seeker_profiles')
           .update({ verification_status: 'verified' })
@@ -342,31 +526,48 @@ const VerificationFlow = () => {
         return (
           <div className="space-y-6">
             <ExpertInterviewStage
-              onComplete={() => loadVerificationStages()}
+              onComplete={() => completeAndAdvanceStage('expert_interview')}
               onReturnToDashboard={handleReturnToDashboard}
             />
             {stages.find(s => s.stage_name === 'expert_interview')?.status === 'completed' && (
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6 text-center">
-                <div className="w-16 h-16 mx-auto bg-green-100 dark:bg-green-800 rounded-full flex items-center justify-center mb-4">
-                  <CheckCircle className="h-8 w-8 text-green-600 dark:text-green-400" />
+              <>
+                {shortlistResult && !shortlistResult.shortlisted ? (
+                  <Alert className="border-amber-500/50 bg-amber-500/10">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <AlertTitle>Not shortlisted for Stage 5</AlertTitle>
+                    <AlertDescription>
+                      Combined score: {shortlistResult.combined_score_pct.toFixed(1)}% (threshold {shortlistResult.threshold_pct}%). Stage 5 is only for shortlisted candidates. Retry Stage 4 when attempts allow or explore non-tech jobs.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+              <div className="bg-success-muted border border-success-border rounded-xl p-6 text-center">
+                <div className="w-16 h-16 mx-auto bg-success-muted rounded-full flex items-center justify-center mb-4">
+                  <CheckCircle className="h-8 w-8 text-success" />
                 </div>
-                <h3 className="text-xl font-bold text-green-700 dark:text-green-300 mb-2">
-                  Verification Complete!
-                </h3>
-                <p className="text-green-600 dark:text-green-400 mb-4">
-                  Congratulations! You have successfully completed all verification stages.
+                <h3 className="text-xl font-bold text-success mb-2">AI Interview Verified</h3>
+                <p className="text-muted-foreground mb-4">
+                  {shortlistResult?.shortlisted ? "You're shortlisted. Schedule your Human Expert Interview (Stage 5)." : "Great job. You can now schedule your Human Expert Interview (Stage 5)."}
                 </p>
-                <div className="bg-white dark:bg-background p-4 rounded-lg border border-green-200 dark:border-green-700">
+                <div className="bg-background p-4 rounded-lg border border-success-border">
                   <p className="text-foreground font-medium">
-                    🎉 Within 12-24 hours, our team will review your profile and reach out to you with next steps.
+                    Next step: book a live 30–45 minute session with a domain expert.
                   </p>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Please ensure your contact details are up to date. You'll receive an email confirmation shortly.
+                    Choose a slot that works for you. You’ll receive confirmation after booking.
                   </p>
                 </div>
               </div>
+                )}
+              </>
             )}
           </div>
+        );
+      case 'human_expert_interview':
+        return (
+          <HumanExpertInterviewStage
+            onComplete={() => completeAndAdvanceStage('human_expert_interview')}
+            onReturnToDashboard={handleReturnToDashboard}
+          />
         );
       case 'verification_complete':
       default:
@@ -377,6 +578,27 @@ const VerificationFlow = () => {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-gradient-subtle p-4 flex items-center justify-center">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Could not load verification
+            </CardTitle>
+            <CardDescription>{loadError}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => { setLoadError(null); setLoading(true); loadVerificationStages(); }}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -405,7 +627,7 @@ const VerificationFlow = () => {
           </CardHeader>
           <CardContent>
             <Progress value={calculateProgress()} className="h-3 mb-6" />
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               {stageOrder.map((stage) => (
                 <div
                   key={stage}
@@ -415,12 +637,12 @@ const VerificationFlow = () => {
                 >
                   <div className="flex items-center gap-2 mb-2">
                     {getStageIcon(getStageStatus(stage))}
-                    <span className="text-sm font-medium capitalize">
-                      {stage.replace('_', ' ')}
+                    <span className="text-sm font-medium">
+                      {getStageLabel(stage)}
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground capitalize">
-                    {getStageStatus(stage).replace('_', ' ')}
+                    {getStageStatus(stage).split('_').join(' ')}
                   </p>
                 </div>
               ))}

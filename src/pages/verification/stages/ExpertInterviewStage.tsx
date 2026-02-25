@@ -617,19 +617,19 @@ const ExpertInterviewStage = ({ onComplete, onReturnToDashboard }: ExpertIntervi
             .eq('user_id', user?.id)
             .eq('stage_name', 'expert_interview');
           
-          // Update profile verification status
+          // Update profile verification status (schema: pending | in_progress | verified | rejected)
           await supabase
             .from('job_seeker_profiles')
-            .update({ verification_status: 'verified' })
+            .update({ verification_status: 'in_progress' })
             .eq('user_id', user?.id);
         }
         
-        // Get candidate profile for email notification
+        // Get candidate profile for email notification (maybeSingle: profile may not exist yet)
         const { data: profile } = await supabase
           .from('profiles')
           .select('full_name, email')
           .eq('user_id', user?.id)
-          .single();
+          .maybeSingle();
         
         // Send email notification
         try {

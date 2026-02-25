@@ -1,20 +1,18 @@
+import { memo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { PageLoaderFullScreen } from '@/components/PageLoader';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRole?: 'recruiter' | 'jobseeker';
+  allowedRole?: 'recruiter' | 'jobseeker' | 'expert_interviewer';
 }
 
-const ProtectedRoute = ({ children, allowedRole }: ProtectedRouteProps) => {
+const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole }: ProtectedRouteProps) {
   const { user, userRole, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <PageLoaderFullScreen />;
   }
 
   if (!user) {
@@ -22,23 +20,23 @@ const ProtectedRoute = ({ children, allowedRole }: ProtectedRouteProps) => {
   }
 
   if (allowedRole && userRole === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <PageLoaderFullScreen />;
   }
 
   if (allowedRole && userRole !== allowedRole) {
-    // Redirect to appropriate dashboard if user has wrong role
+    if (userRole === 'admin') {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
     if (userRole === 'recruiter') {
       return <Navigate to="/dashboard/recruiter" replace />;
-    } else {
-      return <Navigate to="/dashboard/jobseeker" replace />;
     }
+    if (userRole === 'expert_interviewer') {
+      return <Navigate to="/dashboard/expert" replace />;
+    }
+    return <Navigate to="/dashboard/jobseeker" replace />;
   }
 
   return <>{children}</>;
-};
+});
 
 export default ProtectedRoute;

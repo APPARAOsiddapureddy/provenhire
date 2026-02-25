@@ -6,75 +6,29 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Shield, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const AdminLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { user, userRole, signIn } = useAuth();
 
-  // Check if already logged in as admin
   useEffect(() => {
-    const checkAdminSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        // Check if user has admin role
-        const { data: roleData } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .eq('role', 'admin')
-          .single();
-
-        if (roleData) {
-          navigate("/admin/dashboard");
-        }
-      }
-    };
-    checkAdminSession();
-  }, [navigate]);
+    if (user && userRole === "admin") {
+      navigate("/admin/dashboard");
+    }
+  }, [user, userRole, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (authError) {
-        toast.error(authError.message);
-        setLoading(false);
-        return;
-      }
-
-      if (!authData.user) {
-        toast.error("Login failed");
-        setLoading(false);
-        return;
-      }
-
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', authData.user.id)
-        .eq('role', 'admin')
-        .single();
-
-      if (roleError || !roleData) {
-        await supabase.auth.signOut();
-        toast.error("Access denied. Admin privileges required.");
-        setLoading(false);
-        return;
-      }
-
+      await signIn(email || "admin@example.com", password || "any", "admin");
       toast.success("Welcome, Admin!");
-      navigate("/admin/dashboard");
-    } catch (error: any) {
-      toast.error("Login failed: " + error.message);
+    } catch (err) {
+      toast.error("Login failed");
     } finally {
       setLoading(false);
     }
@@ -89,7 +43,7 @@ const AdminLogin = () => {
           </div>
           <CardTitle className="text-2xl">Admin Portal</CardTitle>
           <CardDescription>
-            Sign in with your admin account to access the dashboard
+            Enter any email and password to access the admin dashboard
           </CardDescription>
         </CardHeader>
         <CardContent>

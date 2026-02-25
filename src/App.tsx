@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,21 +7,26 @@ import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-ro
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ScrollToTop from "./components/ScrollToTop";
+import { PageLoaderFullScreen } from "./components/PageLoader";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Jobs from "./pages/Jobs";
 import About from "./pages/About";
 import ForEmployers from "./pages/ForEmployers";
-import RecruiterDashboard from "./pages/dashboard/RecruiterDashboard";
-import RecruiterOnboarding from "./pages/dashboard/RecruiterOnboarding";
-import JobSeekerDashboard from "./pages/dashboard/JobSeekerDashboard";
-import PostJob from "./pages/dashboard/PostJob";
-import CandidateSearch from "./pages/dashboard/CandidateSearch";
-import AssignmentAIDocs from "./pages/dashboard/AssignmentAIDocs";
-import VerificationFlow from "./pages/verification/VerificationFlow";
-import AdminLogin from "./pages/admin/AdminLogin";
-import AdminDashboard from "./pages/admin/AdminDashboard";
 import NotFound from "./pages/NotFound";
+
+// Eager-load dashboards so /dashboard/jobseeker, /dashboard/recruiter, /dashboard/expert render instantly
+import JobSeekerDashboard from "./pages/dashboard/JobSeekerDashboard";
+import RecruiterDashboard from "./pages/dashboard/RecruiterDashboard";
+import ExpertDashboard from "./pages/dashboard/ExpertDashboard";
+
+const RecruiterOnboarding = lazy(() => import("./pages/dashboard/RecruiterOnboarding"));
+const PostJob = lazy(() => import("./pages/dashboard/PostJob"));
+const CandidateSearch = lazy(() => import("./pages/dashboard/CandidateSearch"));
+const AssignmentAIDocs = lazy(() => import("./pages/dashboard/AssignmentAIDocs"));
+const VerificationFlow = lazy(() => import("./pages/verification/VerificationFlow"));
+const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 
 // Create QueryClient instance outside component to ensure stability
 const queryClient = new QueryClient({
@@ -59,73 +64,82 @@ const App = () => (
         <AuthHashRedirect />
         <ScrollToTop />
         <AuthProvider>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/jobs" element={<Jobs />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/for-employers" element={<ForEmployers />} />
-            <Route path="/admin" element={<AdminLogin />} />
-            <Route path="/admin/dashboard" element={<AdminDashboard />} />
-            <Route 
-              path="/dashboard/recruiter" 
-              element={
-                <ProtectedRoute allowedRole="recruiter">
-                  <RecruiterDashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/dashboard/recruiter/assignmentai" 
-              element={
-                <ProtectedRoute allowedRole="recruiter">
-                  <AssignmentAIDocs />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/dashboard/recruiter/onboarding" 
-              element={
-                <ProtectedRoute allowedRole="recruiter">
-                  <RecruiterOnboarding />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/dashboard/jobseeker" 
-              element={
-                <ProtectedRoute allowedRole="jobseeker">
-                  <JobSeekerDashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/verification" 
-              element={
-                <ProtectedRoute allowedRole="jobseeker">
-                  <VerificationFlow />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/post-job" 
-              element={
-                <ProtectedRoute allowedRole="recruiter">
-                  <PostJob />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/candidate-search" 
-              element={
-                <ProtectedRoute allowedRole="recruiter">
-                  <CandidateSearch />
-                </ProtectedRoute>
-              } 
-            />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <Suspense fallback={<PageLoaderFullScreen />}>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/jobs" element={<Jobs />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/for-employers" element={<ForEmployers />} />
+              <Route path="/admin" element={<AdminLogin />} />
+              <Route path="/admin/dashboard" element={<AdminDashboard />} />
+              <Route 
+                path="/dashboard/recruiter" 
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <RecruiterDashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/recruiter/assignmentai" 
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <AssignmentAIDocs />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/recruiter/onboarding" 
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <RecruiterOnboarding />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/jobseeker" 
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <JobSeekerDashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/expert" 
+                element={
+                  <ProtectedRoute allowedRole="expert_interviewer">
+                    <ExpertDashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/verification" 
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <VerificationFlow />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/post-job" 
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <PostJob />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/candidate-search" 
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <CandidateSearch />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

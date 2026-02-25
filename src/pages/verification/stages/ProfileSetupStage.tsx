@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,6 +90,9 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
   const [hobbyInput, setHobbyInput] = useState("");
   const [certInput, setCertInput] = useState("");
   const [langInput, setLangInput] = useState("");
+  // PRD v4.1: track from signup (localStorage); role_category for non-tech
+  const [track, setTrack] = useState<"tech" | "non_tech">("tech");
+  const [roleCategory, setRoleCategory] = useState<string>("");
 
   const normalizeList = (value: unknown): string[] => {
     const items: string[] = [];
@@ -129,6 +133,14 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
   const preferExistingBoolean = (current: boolean, incoming?: boolean | null) => {
     if (current) return current;
     return incoming ?? current;
+  };
+
+  const normalizeDateForInput = (value: string | null | undefined): string => {
+    if (!value || typeof value !== "string") return "";
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    const iso = trimmed.indexOf("T") >= 0 ? trimmed.slice(0, trimmed.indexOf("T")) : trimmed;
+    return iso.length >= 10 ? iso.slice(0, 10) : trimmed;
   };
 
   const fallbackParseFromText = (text: string) => {
@@ -259,6 +271,16 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
     };
   };
 
+  const mergeList = (fallback: string[], ai: string[] | undefined): string[] => {
+    const aiList = Array.isArray(ai) ? ai.filter(Boolean).map((s) => String(s).trim()).filter(Boolean) : [];
+    const fallbackList = Array.isArray(fallback) ? fallback : [];
+    const combined = [...fallbackList];
+    aiList.forEach((item) => {
+      if (item && !combined.some((f) => f.toLowerCase() === item.toLowerCase())) combined.push(item);
+    });
+    return Array.from(new Set(combined));
+  };
+
   const mergeResumeData = (fallbackData: any, aiData: any) => {
     if (!aiData) return fallbackData;
     const result = { ...fallbackData };
@@ -266,12 +288,13 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
       if (value === null || value === undefined) return;
       if (typeof value === "string") {
         if (value.trim().length === 0) return;
-        result[key] = value;
+        result[key] = value.trim();
         return;
       }
       if (Array.isArray(value)) {
-        if (value.length === 0) return;
-        result[key] = value;
+        const cleaned = value.map((x) => (typeof x === "object" && x !== null ? JSON.stringify(x) : String(x).trim())).filter(Boolean);
+        if (cleaned.length === 0) return;
+        result[key] = Array.from(new Set(cleaned));
         return;
       }
       result[key] = value;
@@ -282,25 +305,87 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
     const fallbackYear = Number(fallbackData?.graduation_year || 0);
     const aiYear = Number(aiData?.graduation_year || 0);
     if (fallbackYear || aiYear) {
-      result.graduation_year = Math.max(fallbackYear, aiYear);
+      result.graduation_year = String(Math.max(fallbackYear, aiYear));
     }
+    result.skills = mergeList(fallbackData?.skills || [], aiData?.skills);
+    result.certifications = mergeList(fallbackData?.certifications || [], aiData?.certifications);
+    result.languages = mergeList(fallbackData?.languages || [], aiData?.languages);
+    result.hobbies = mergeList(fallbackData?.hobbies || [], aiData?.hobbies);
+    result.projects = mergeList(fallbackData?.projects || [], aiData?.projects);
     return result;
   };
 
-  const callLocalResumeParser = async (resumeText: string) => {
+  const mapResumeParserOutputToForm = (raw: any): any => {
+    if (!raw) return null;
+    if (raw.full_name !== undefined || raw.email !== undefined) return raw;
+    const c = raw.contact_info || {};
+    const work = Array.isArray(raw.work_output) ? raw.work_output[0] : null;
+    const edu = Array.isArray(raw.education) ? raw.education[0] : null;
+    const personalUrls = c.personal_urls || [];
+    let linkedin_url = "";
+    let portfolio_url = "";
+    personalUrls.forEach((u: string) => {
+      if (typeof u !== "string") return;
+      if (/linkedin\.com/i.test(u)) linkedin_url = u;
+      else if (u && !portfolio_url) portfolio_url = u;
+    });
+    return {
+      full_name: raw.candidate_name ?? "",
+      email: c.email_address ?? "",
+      phone: c.phone_number ?? "",
+      location: c.location ?? "",
+      bio: raw.bio ?? "",
+      linkedin_url: linkedin_url || raw.linkedin_url,
+      portfolio_url: portfolio_url || raw.portfolio_url,
+      current_company: work?.company_name ?? raw.current_company ?? "",
+      current_role: work?.job_title ?? raw.job_title ?? raw.current_role ?? "",
+      college: edu?.establishment ?? raw.college ?? "",
+      degree: edu?.qualification ?? raw.degree ?? "",
+      graduation_year: edu?.year ?? raw.graduation_year ?? "",
+      skills: Array.isArray(raw.skills) ? raw.skills : raw.skills ?? [],
+      certifications: Array.isArray(raw.professional_development) ? raw.professional_development : raw.certifications ?? [],
+      languages: Array.isArray(raw.languages) ? raw.languages : raw.languages ?? [],
+      hobbies: Array.isArray(raw.other_info) ? raw.other_info : raw.hobbies ?? [],
+      projects: Array.isArray(raw.projects) ? raw.projects : raw.projects ?? [],
+      actively_looking_roles: raw.job_title ? [raw.job_title] : (raw.actively_looking_roles ?? []),
+    };
+  };
+
+  const PARSER_TIMEOUT_MS = 60000;
+
+  const callLocalResumeParser = async (resumeText: string, file?: File | null) => {
     const localParserUrl = import.meta.env.VITE_LOCAL_RESUME_PARSER_URL;
     if (!localParserUrl) return null;
     const baseUrl = localParserUrl.replace(/\/$/, "");
-    const response = await fetch(`${baseUrl}/parse`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resumeText }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PARSER_TIMEOUT_MS);
+    let response: Response;
+    try {
+      if (file && file.size > 0) {
+        const form = new FormData();
+        form.append("file", file);
+        response = await fetch(`${baseUrl}/parse`, {
+          method: "POST",
+          body: form,
+          signal: controller.signal,
+        });
+      } else {
+        response = await fetch(`${baseUrl}/parse`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resumeText }),
+          signal: controller.signal,
+        });
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!response.ok) {
       throw new Error(`Local parser failed (${response.status})`);
     }
     const data = await response.json();
-    return data?.data || data || null;
+    const raw = data?.data || data || null;
+    return raw ? mapResumeParserOutputToForm(raw) : null;
   };
 
   const applyResumeData = (data: any) => {
@@ -336,6 +421,14 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
     setResumeApplied(true);
   };
 
+  // PRD v4.1: read track from signup (localStorage)
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem("ph_signup_track");
+      if (t === "non_tech" || t === "tech") setTrack(t);
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
     const loadProfile = async () => {
       if (!user?.id || profileLoaded) return;
@@ -352,6 +445,10 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
             .eq("user_id", user.id)
             .maybeSingle(),
         ]);
+
+        const js = jobSeekerData as { track?: string; role_category?: string } | null;
+        if (js?.track) setTrack(js.track === "non_tech" ? "non_tech" : "tech");
+        if (js?.role_category) setRoleCategory(js.role_category);
 
         if ((profileData || jobSeekerData) && !resumeApplied) {
           setFormData((prev) => ({
@@ -374,7 +471,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
             notice_period: preferExisting(prev.notice_period, jobSeekerData?.notice_period),
             expected_salary: preferExisting(prev.expected_salary, jobSeekerData?.expected_salary),
             current_salary: preferExisting(prev.current_salary, jobSeekerData?.current_salary),
-            join_date: preferExisting(prev.join_date, jobSeekerData?.join_date),
+            join_date: preferExisting(prev.join_date, normalizeDateForInput(jobSeekerData?.join_date)),
             currently_working: preferExistingBoolean(prev.currently_working, jobSeekerData?.currently_working),
             resume_url: preferExisting(prev.resume_url, jobSeekerData?.resume_url),
             skills: preferExistingList(prev.skills, jobSeekerData?.skills),
@@ -422,18 +519,22 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
       const fileExt = file.name.split('.').pop();
       const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('resumes')
-        .upload(fileName, file);
+      if (!skipSupabaseRequests()) {
+        const { error: uploadError } = await supabase.storage
+          .from('resumes')
+          .upload(fileName, file);
 
-      if (uploadError) throw uploadError;
+        if (uploadError) throw uploadError;
 
-      setFormData(prev => ({ ...prev, resume_url: fileName }));
+        setFormData(prev => ({ ...prev, resume_url: fileName }));
 
-      if (user?.id) {
-        await supabase
-          .from('job_seeker_profiles')
-          .upsert({ user_id: user.id, resume_url: fileName }, { onConflict: 'user_id' });
+        if (user?.id) {
+          await supabase
+            .from('job_seeker_profiles')
+            .upsert({ user_id: user.id, resume_url: fileName }, { onConflict: 'user_id' });
+        }
+      } else {
+        setFormData(prev => ({ ...prev, resume_url: `demo/${file.name}` }));
       }
 
       await analyzeResume(file);
@@ -469,7 +570,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
       let extractedData: any = null;
       const fallbackData = fallbackParseFromText(text);
       try {
-        const localData = await callLocalResumeParser(text);
+        const localData = await callLocalResumeParser(text, file);
         if (localData) {
           extractedData = mergeResumeData(fallbackData, localData);
         }
@@ -478,17 +579,21 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
       }
 
       if (!extractedData) {
-      try {
-        const { data, error } = await supabase.functions.invoke('analyze-resume', {
-          body: { resumeText: text }
-        });
-        if (error) throw error;
-        const aiData = data?.data || null;
-        extractedData = mergeResumeData(fallbackData, aiData);
-      } catch (functionError) {
-        console.warn("Analyze-resume failed. Using local fallback parsing.", functionError);
-        extractedData = fallbackData;
-      }
+        if (!skipSupabaseRequests()) {
+          try {
+            const { data, error } = await supabase.functions.invoke('analyze-resume', {
+              body: { resumeText: text }
+            });
+            if (error) throw error;
+            const aiData = data?.data || null;
+            extractedData = mergeResumeData(fallbackData, aiData);
+          } catch (functionError) {
+            console.warn("Analyze-resume failed. Using local fallback parsing.", functionError);
+            extractedData = fallbackData;
+          }
+        } else {
+          extractedData = fallbackData;
+        }
       }
 
       if (extractedData) {
@@ -604,7 +709,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
     try {
       setSavingProfile(true);
       let resumeUrl = formData.resume_url;
-      if (resumeFile && !resumeUrl) {
+      if (!skipSupabaseRequests() && resumeFile && !resumeUrl) {
         const fileExt = resumeFile.name.split('.').pop();
         const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
         const { error: uploadError } = await supabase.storage
@@ -612,71 +717,84 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
           .upload(fileName, resumeFile);
         if (uploadError) throw uploadError;
         resumeUrl = fileName;
+      } else if (skipSupabaseRequests() && resumeFile && !resumeUrl) {
+        resumeUrl = `demo/${resumeFile.name}`;
       }
 
-      // Update profiles table with name and email
-      await supabase
-        .from('profiles')
-        .upsert({
-          user_id: user?.id,
-          full_name: formData.full_name,
-          email: formData.email,
-          phone: formData.phone,
-        });
+      if (!skipSupabaseRequests()) {
+        const { error: profileUpdateError } = await supabase
+          .from('profiles')
+          .upsert(
+            {
+              user_id: user?.id,
+              full_name: formData.full_name,
+              email: formData.email,
+              phone: formData.phone,
+            },
+            { onConflict: 'user_id' }
+          );
+        if (profileUpdateError) throw profileUpdateError;
+      }
+
+      const graduationYear = formData.graduation_year ? parseInt(formData.graduation_year, 10) : null;
+      const experienceYears = formData.experience_years ? parseInt(formData.experience_years, 10) : null;
+      const joinDateValue = formData.join_date?.trim() || null;
 
       const baseProfilePayload = {
         user_id: user?.id,
-        college: formData.college,
-        graduation_year: parseInt(formData.graduation_year),
-        experience_years: formData.experience_years ? parseInt(formData.experience_years) : null,
+        college: formData.college || null,
+        graduation_year: Number.isNaN(graduationYear) ? null : graduationYear,
+        experience_years: Number.isNaN(experienceYears) ? null : experienceYears,
         skills: formData.skills,
         actively_looking_roles: formData.actively_looking_roles,
         projects: formData.projects,
         hobbies: formData.hobbies,
-        bio: formData.bio,
-        phone: formData.phone,
-        location: formData.location,
-        resume_url: resumeUrl,
+        bio: formData.bio || null,
+        phone: formData.phone || null,
+        location: formData.location || null,
+        resume_url: resumeUrl || null,
         verification_status: 'in_progress',
       };
 
       const extendedProfilePayload = {
         ...baseProfilePayload,
-        degree: formData.degree,
-        field_of_study: formData.field_of_study,
-        cgpa: formData.cgpa,
+        degree: formData.degree || null,
+        field_of_study: formData.field_of_study || null,
+        cgpa: formData.cgpa || null,
         certifications: formData.certifications,
         languages: formData.languages,
-        linkedin_url: formData.linkedin_url,
-        portfolio_url: formData.portfolio_url,
-        current_company: formData.current_company,
-        current_role: formData.current_role,
-        notice_period: formData.notice_period,
-        expected_salary: formData.expected_salary,
-        current_salary: formData.current_salary,
-        join_date: formData.join_date || null,
+        linkedin_url: formData.linkedin_url || null,
+        portfolio_url: formData.portfolio_url || null,
+        current_company: formData.current_company || null,
+        current_role: formData.current_role || null,
+        notice_period: formData.notice_period || null,
+        expected_salary: formData.expected_salary || null,
+        current_salary: formData.current_salary || null,
+        join_date: joinDateValue,
         currently_working: formData.currently_working,
       };
 
-      const { error: profileError } = await supabase
-        .from('job_seeker_profiles')
-        .upsert(extendedProfilePayload, { onConflict: 'user_id' });
+      if (!skipSupabaseRequests()) {
+        const { error: profileError } = await supabase
+          .from('job_seeker_profiles')
+          .upsert(extendedProfilePayload, { onConflict: 'user_id' });
 
-      if (profileError) {
-        const message = profileError.message?.toLowerCase() || '';
-        const isSchemaCache = message.includes('schema cache') || message.includes('column');
-        if (isSchemaCache) {
-          const { error: fallbackError } = await supabase
-            .from('job_seeker_profiles')
-            .upsert(baseProfilePayload, { onConflict: 'user_id' });
-          if (fallbackError) throw fallbackError;
-        } else {
-          throw profileError;
+        if (profileError) {
+          const message = profileError.message?.toLowerCase() || '';
+          const isColumnError = message.includes('schema cache') || message.includes('column') || message.includes('track');
+          if (isColumnError) {
+            const { error: fallbackError } = await supabase
+              .from('job_seeker_profiles')
+              .upsert(baseProfilePayload, { onConflict: 'user_id' });
+            if (fallbackError) throw fallbackError;
+          } else {
+            throw profileError;
+          }
         }
       }
 
       toast({
-        title: "Profile saved",
+        title: skipSupabaseRequests() ? "Profile saved (demo)" : "Profile saved",
         description: "Review your details, then continue to verification when you're ready.",
       });
 
@@ -703,27 +821,29 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
       return;
     }
     try {
-      const { error: stageError } = await supabase
-        .from('verification_stages')
-        .update({ 
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
-        .eq('user_id', user?.id)
-        .eq('stage_name', 'profile_setup');
+      if (!skipSupabaseRequests()) {
+        const { error: stageError } = await supabase
+          .from('verification_stages')
+          .update({ 
+            status: 'completed',
+            completed_at: new Date().toISOString()
+          })
+          .eq('user_id', user?.id)
+          .eq('stage_name', 'profile_setup');
 
-      if (stageError) throw stageError;
+        if (stageError) throw stageError;
 
-      const { error: nextStageError } = await supabase
-        .from('verification_stages')
-        .update({ status: 'in_progress' })
-        .eq('user_id', user?.id)
-        .eq('stage_name', 'aptitude_test');
+        const { error: nextStageError } = await supabase
+          .from('verification_stages')
+          .update({ status: 'in_progress' })
+          .eq('user_id', user?.id)
+          .eq('stage_name', 'aptitude_test');
 
-      if (nextStageError) throw nextStageError;
+        if (nextStageError) throw nextStageError;
+      }
 
       toast({
-        title: "Ready for verification",
+        title: skipSupabaseRequests() ? "Ready for verification (demo)" : "Ready for verification",
         description: "Starting the aptitude test.",
       });
 
@@ -820,6 +940,25 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification }: ProfileSetu
                 rows={3}
               />
             </div>
+            {track === "non_tech" && (
+              <div>
+                <Label>Role category (Non-Technical) *</Label>
+                <Select value={roleCategory} onValueChange={setRoleCategory} required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your domain" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Marketing">Marketing</SelectItem>
+                    <SelectItem value="Sales">Sales</SelectItem>
+                    <SelectItem value="Finance/Accounting">Finance / Accounting</SelectItem>
+                    <SelectItem value="Operations/Business Analyst">Operations / Business Analyst</SelectItem>
+                    <SelectItem value="Human Resources">Human Resources</SelectItem>
+                    <SelectItem value="Content/Copywriting">Content / Copywriting</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">Used for your Stage 2 role-specific AI interview.</p>
+              </div>
+            )}
           </div>
         );
 

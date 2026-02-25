@@ -7,6 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Clock, CheckCircle2, XCircle, ArrowRight, ArrowLeft, AlertTriangle, Monitor, Camera, Shield, AlertCircle, Video, Loader2, User, Scan, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import { toast } from "sonner";
 import { generateTestQuestions, getQuestionCategory, AptitudeQuestion } from "@/data/aptitudeQuestions";
 import { uploadScreenRecording } from "@/utils/recordingUpload";
@@ -98,6 +99,11 @@ const AptitudeTestStage = ({ onComplete }: AptitudeTestStageProps) => {
   // Fetch user's experience to determine difficulty
   useEffect(() => {
     const fetchExperience = async () => {
+      if (skipSupabaseRequests()) {
+        setExperienceYears(0);
+        setDifficulty("Easy");
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data } = await supabase
@@ -313,6 +319,11 @@ const AptitudeTestStage = ({ onComplete }: AptitudeTestStageProps) => {
     });
 
     try {
+      if (skipSupabaseRequests()) {
+        setStage("result");
+        setLoading(false);
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         // Generate a test ID for the recording

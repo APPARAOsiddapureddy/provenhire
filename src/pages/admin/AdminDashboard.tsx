@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -61,6 +62,7 @@ interface Job {
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
+  const { user: authUser, userRole, signOut } = useAuth();
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [jobSeekers, setJobSeekers] = useState<JobSeeker[]>([]);
@@ -91,14 +93,19 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     const checkAdminAccess = async () => {
+      if (authUser && userRole === "admin") {
+        setCurrentUser(authUser);
+        fetchAllData();
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (!session) {
+        setLoading(false);
         navigate("/admin");
         return;
       }
 
-      // Check if user has admin role
       const { data: roleData, error: roleError } = await supabase
         .from('user_roles')
         .select('role')
@@ -107,6 +114,7 @@ const AdminDashboard = () => {
         .single();
 
       if (roleError || !roleData) {
+        setLoading(false);
         toast.error("Access denied. Admin privileges required.");
         await supabase.auth.signOut();
         navigate("/admin");
@@ -119,48 +127,55 @@ const AdminDashboard = () => {
 
     checkAdminAccess();
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (authUser && userRole === "admin") return;
       if (event === 'SIGNED_OUT' || !session) {
         navigate("/admin");
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, authUser, userRole]);
 
   const fetchAllData = async () => {
+    const FETCH_TIMEOUT_MS = 20000;
     setLoading(true);
     try {
-      // Fetch job seekers with their profiles
-      const { data: seekerData } = await supabase
-        .from("job_seeker_profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const fetchPromise = (async () => {
+        const { data: seekerData } = await supabase
+          .from("job_seeker_profiles")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      // Fetch recruiters (profiles with recruiter role)
-      const { data: recruiterRoles } = await supabase
-        .from("user_roles")
-        .select("user_id")
-        .eq("role", "recruiter");
+        const { data: recruiterRoles } = await supabase
+          .from("user_roles")
+          .select("user_id")
+          .eq("role", "recruiter");
 
-      const recruiterUserIds = recruiterRoles?.map((r) => r.user_id) || [];
+        const recruiterUserIds = recruiterRoles?.map((r) => r.user_id) || [];
 
-      const { data: recruiterProfiles } = await supabase
-        .from("profiles")
-        .select("*")
-        .in("user_id", recruiterUserIds);
+        const { data: recruiterProfiles } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("user_id", recruiterUserIds);
 
-      // Fetch jobs
-      const { data: jobsData } = await supabase
-        .from("jobs")
-        .select("*")
-        .order("created_at", { ascending: false });
+        const { data: jobsData } = await supabase
+          .from("jobs")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      // Fetch subscribers count
-      const { count: subscriberCount } = await supabase
-        .from("newsletter_subscribers")
-        .select("*", { count: "exact", head: true });
+        const { count: subscriberCount } = await supabase
+          .from("newsletter_subscribers")
+          .select("*", { count: "exact", head: true });
+
+        return { seekerData, recruiterProfiles, jobsData, subscriberCount };
+      })();
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Dashboard request timed out. Check your connection and try again.')), FETCH_TIMEOUT_MS)
+      );
+
+      const { seekerData, recruiterProfiles, jobsData, subscriberCount } = await Promise.race([fetchPromise, timeoutPromise]);
 
       setJobSeekers(seekerData || []);
       setRecruiters(
@@ -181,16 +196,16 @@ const AdminDashboard = () => {
         totalSubscribers: subscriberCount || 0,
         totalJobs: jobsData?.length || 0,
       });
-    } catch (error: any) {
-      toast.error("Failed to fetch data: " + error.message);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to fetch data";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/admin");
+    await signOut();
   };
 
   const formatDate = (dateString: string) => {
@@ -297,8 +312,8 @@ const AdminDashboard = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="h-10 w-10 rounded-full border-2 border-primary border-t-transparent animate-spin" style={{ animationDuration: "0.6s" }} />
       </div>
     );
   }

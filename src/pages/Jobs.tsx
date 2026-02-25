@@ -22,10 +22,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
 import JobDetailsDialog from "@/components/JobDetailsDialog";
+import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import JobComparisonDialog from "@/components/JobComparisonDialog";
 import SkillGapAnalysis from "@/components/SkillGapAnalysis";
 import JobAlertSettings from "@/components/JobAlertSettings";
 import VerifiedBenefitsBanner from "@/components/VerifiedBenefitsBanner";
+import PremiumBadge from "@/components/PremiumBadge";
 
 interface Job {
   id: string;
@@ -39,6 +41,8 @@ interface Job {
   experience_required: number | null;
   created_at: string;
   isPremium?: boolean;
+  /** PRD v4.1: tech = expert-verified gate; non_technical = nontech-verified gate */
+  job_track?: 'tech' | 'non_technical';
 }
 
 const MOCK_JOBS: Job[] = [
@@ -53,7 +57,8 @@ const MOCK_JOBS: Job[] = [
     job_type: 'Full-time',
     experience_required: 7,
     created_at: new Date().toISOString(),
-    isPremium: true
+    isPremium: true,
+    job_track: 'tech',
   },
   {
     id: 'mock-2',
@@ -105,7 +110,8 @@ const MOCK_JOBS: Job[] = [
     job_type: 'Full-time',
     experience_required: 5,
     created_at: new Date().toISOString(),
-    isPremium: true
+    isPremium: true,
+    job_track: 'non_technical',
   },
   {
     id: 'mock-6',
@@ -330,8 +336,15 @@ const Jobs = () => {
     isLoading: verificationLoading, 
     verificationProgress, 
     currentStage,
-    requiresVerification 
+    requiresVerification,
+    isExpertVerified,
+    isNonTechVerified,
   } = useVerificationGate();
+
+  const isJobLocked = (job: Job) => {
+    if (job.job_track === 'non_technical') return !isNonTechVerified;
+    return Boolean(job.isPremium && !isExpertVerified);
+  };
 
   // Search States
   const [keyword, setKeyword] = useState('');
@@ -376,7 +389,16 @@ const Jobs = () => {
     }
   }, [searchParams]);
 
+  // Recruiter: job listing is for job seekers; redirect to recruiter experience
   useEffect(() => {
+    if (user && userRole === 'recruiter') {
+      navigate('/for-employers', { replace: true });
+      return;
+    }
+  }, [user, userRole, navigate]);
+
+  useEffect(() => {
+    if (user && userRole === 'recruiter') return;
     loadJobs();
     if (user && userRole === 'jobseeker') {
       loadSavedJobs();
@@ -417,22 +439,21 @@ const Jobs = () => {
 
   const loadJobs = async () => {
     try {
-      // Use the secure jobs_public view that excludes recruiter_id
-      // This enforces privacy at the database level, not just application level
       const { data, error } = await supabase
         .from('jobs_public' as any)
         .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      // Cast to Job[] since the view returns the same fields (minus recruiter_id)
-      const jobsData = (data || []) as unknown as Job[];
-      const normalizedJobs = jobsData.map(job => ({ ...job, isPremium: false }));
-      // Combine database jobs with mock jobs
-      setJobs([...normalizedJobs, ...MOCK_JOBS]);
+      const jobsData = (data || []) as unknown as (Job & { job_track?: string; verification_required?: string })[];
+      const normalizedJobs = jobsData.map(job => ({
+        ...job,
+        job_track: (job.job_track === 'non_technical' ? 'non_technical' : 'tech') as 'tech' | 'non_technical',
+        isPremium: job.job_track !== 'non_technical' && (job as any).verification_required === 'premium',
+      }));
+      setJobs(normalizedJobs.length > 0 ? [...normalizedJobs, ...MOCK_JOBS] : MOCK_JOBS);
     } catch (error: any) {
       console.error('Error loading jobs:', error);
-      // Fallback to mock data on error
       setJobs(MOCK_JOBS);
     } finally {
       setLoading(false);
@@ -481,7 +502,8 @@ const Jobs = () => {
     return 'Senior Level';
   };
 
-  const filteredJobs = jobs.filter((job) => {
+  const jobsToShow = jobs.length > 0 ? jobs : MOCK_JOBS;
+  const filteredJobs = jobsToShow.filter((job) => {
     const matchesKeyword = !keyword ||
       job.title.toLowerCase().includes(keyword.toLowerCase()) ||
       job.company?.toLowerCase().includes(keyword.toLowerCase());
@@ -503,12 +525,12 @@ const Jobs = () => {
   });
 
   const displayedJobs = filteredJobs.slice(0, displayLimit);
-  const lockedJobsCount = filteredJobs.filter(job => job.isPremium && !isVerified).length;
+  const lockedJobsCount = filteredJobs.filter(job => isJobLocked(job)).length;
 
   const handleToggleCompare = (jobId: string) => {
-    const job = jobs.find(j => j.id === jobId);
-    if (job?.isPremium && !isVerified) {
-      toast('Verify your profile to compare premium roles', { icon: '🔒' });
+    const job = jobsToShow.find(j => j.id === jobId);
+    if (job && isJobLocked(job)) {
+      toast(job.job_track === 'non_technical' ? 'Complete non-tech verification to compare' : 'Verify your profile to compare premium roles', { icon: '🔒' });
       setShowVerificationDialog(true);
       return;
     }
@@ -537,7 +559,7 @@ const Jobs = () => {
   };
 
   const handleApplyFromCompare = (jobId: string) => {
-    const job = jobs.find(j => j.id === jobId);
+    const job = jobsToShow.find(j => j.id === jobId);
     if (job) {
       setSelectedJob(job);
       setShowCompareDialog(false);
@@ -546,12 +568,12 @@ const Jobs = () => {
   };
 
   const getCompareJobs = () => {
-    return jobs.filter(job => compareJobs.has(job.id));
+    return jobsToShow.filter(job => compareJobs.has(job.id));
   };
 
   const handleViewJobDetails = (job: Job) => {
-    if (job.isPremium && !isVerified) {
-      toast('This role is available after verification', { icon: '🔒' });
+    if (isJobLocked(job)) {
+      toast(job.job_track === 'non_technical' ? 'Complete non-tech verification to apply' : 'This role is available after verification', { icon: '🔒' });
       setShowVerificationDialog(true);
       return;
     }
@@ -614,7 +636,7 @@ const Jobs = () => {
   };
 
   const handleApplyNow = async (jobId: string) => {
-    const job = jobs.find(j => j.id === jobId);
+    const job = jobsToShow.find(j => j.id === jobId);
     if (job) {
       handleViewJobDetails(job);
     }
@@ -685,9 +707,9 @@ const Jobs = () => {
       return;
     }
 
-    const job = jobs.find(j => j.id === jobId);
-    if (job?.isPremium && !isVerified) {
-      toast('Verify your profile to save premium roles', { icon: '🔒' });
+    const job = jobsToShow.find(j => j.id === jobId);
+    if (job && isJobLocked(job)) {
+      toast(job.job_track === 'non_technical' ? 'Complete non-tech verification to save' : 'Verify your profile to save premium roles', { icon: '🔒' });
       setShowVerificationDialog(true);
       return;
     }
@@ -696,6 +718,21 @@ const Jobs = () => {
 
     // For mock jobs, just toggle locally
     if (jobId.startsWith('mock-')) {
+      setSavedJobs(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(jobId)) {
+          newSet.delete(jobId);
+          toast.success('Job removed from saved');
+        } else {
+          newSet.add(jobId);
+          toast.success('Job saved!');
+        }
+        return newSet;
+      });
+      return;
+    }
+
+    if (skipSupabaseRequests()) {
       setSavedJobs(prev => {
         const newSet = new Set(prev);
         if (newSet.has(jobId)) {
@@ -731,10 +768,14 @@ const Jobs = () => {
   };
 
 
-  if (loading) {
+  if (loading && jobs.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex flex-col bg-secondary">
+        <Navbar />
+        <div className="flex-1 pt-24 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+        <Footer />
       </div>
     );
   }
@@ -905,7 +946,7 @@ const Jobs = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {displayedJobs.map((job) => {
-                  const isPremiumLocked = job.isPremium && !isVerified;
+                  const isPremiumLocked = isJobLocked(job);
                   return (
                   <div key={job.id} className={`job-card bg-card rounded-xl p-6 shadow-sm border transition-all relative ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${isPremiumLocked ? 'opacity-70' : ''}`}>
                     {/* Compare Toggle */}
@@ -925,10 +966,14 @@ const Jobs = () => {
                         <Scale className="h-4 w-4" />
                       )}
                     </button>
-                    {job.isPremium && (
-                      <Badge className="absolute top-3 left-3 bg-amber-500/20 text-amber-700 border-amber-400/30">
-                        Premium
-                      </Badge>
+                    {(job.isPremium || job.job_track === 'non_technical') && (
+                      <span className="absolute top-3 left-3 flex items-center gap-1.5">
+                        {job.job_track === 'non_technical' ? (
+                          <Badge className="bg-amber-500/20 text-amber-700 border-amber-400/30">Non-Tech</Badge>
+                        ) : (
+                          <PremiumBadge />
+                        )}
+                      </span>
                     )}
                     <div className="flex items-start gap-4 mb-4">
                       <div className="w-12 h-12 rounded-xl bg-gradient-hero flex items-center justify-center text-white font-bold text-lg shrink-0">
@@ -1012,7 +1057,7 @@ const Jobs = () => {
                     </div>
                     {isPremiumLocked && (
                       <div className="mt-3 bg-secondary/70 border border-border rounded-lg p-3 text-sm text-muted-foreground flex items-center justify-between gap-3">
-                        <span>Verify to unlock this premium role.</span>
+                        <span>{job.job_track === 'non_technical' ? 'Complete non-tech verification to apply.' : 'Verify to unlock this premium role.'}</span>
                         <Button size="sm" onClick={() => navigate(user ? '/verification' : '/auth')}>
                           Get Verified
                         </Button>

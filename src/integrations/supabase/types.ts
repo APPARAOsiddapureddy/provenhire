@@ -265,6 +265,181 @@ export type Database = {
         }
         Relationships: []
       }
+      expert_interviewers: {
+        Row: {
+          created_at: string
+          domain: string | null
+          id: string
+          linkedin_url: string | null
+          name: string | null
+          nda_signed_at: string | null
+          public_id: string | null
+          rating: number | null
+          status: string
+          total_interviews_conducted: number
+          updated_at: string
+          user_id: string | null
+          verified_by_admin: boolean
+          years_of_experience: number | null
+        }
+        Insert: {
+          created_at?: string
+          domain?: string | null
+          id?: string
+          linkedin_url?: string | null
+          name?: string | null
+          nda_signed_at?: string | null
+          public_id?: string | null
+          rating?: number | null
+          status?: string
+          total_interviews_conducted?: number
+          updated_at?: string
+          user_id?: string | null
+          verified_by_admin?: boolean
+          years_of_experience?: number | null
+        }
+        Update: {
+          created_at?: string
+          domain?: string | null
+          id?: string
+          linkedin_url?: string | null
+          name?: string | null
+          nda_signed_at?: string | null
+          public_id?: string | null
+          rating?: number | null
+          status?: string
+          total_interviews_conducted?: number
+          updated_at?: string
+          user_id?: string | null
+          verified_by_admin?: boolean
+          years_of_experience?: number | null
+        }
+        Relationships: []
+      }
+      interviewer_slots: {
+        Row: {
+          booked_user_id: string | null
+          created_at: string
+          domain: string | null
+          ends_at: string | null
+          id: string
+          interviewer_id: string
+          public_id: string | null
+          starts_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          booked_user_id?: string | null
+          created_at?: string
+          domain?: string | null
+          ends_at?: string | null
+          id?: string
+          interviewer_id: string
+          public_id?: string | null
+          starts_at: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          booked_user_id?: string | null
+          created_at?: string
+          domain?: string | null
+          ends_at?: string | null
+          id?: string
+          interviewer_id?: string
+          public_id?: string | null
+          starts_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interviewer_slots_interviewer_id_fkey"
+            columns: ["interviewer_id"]
+            isOneToOne: false
+            referencedRelation: "expert_interviewers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      human_interview_sessions: {
+        Row: {
+          admin_review_status: string
+          completed_at: string | null
+          created_at: string
+          fraud_flag: boolean
+          fraud_notes: string | null
+          id: string
+          interviewer_id: string
+          interviewer_notes: string | null
+          public_id: string | null
+          recording_url: string | null
+          role_type: string | null
+          scheduled_at: string | null
+          score_breakdown: Json | null
+          status: string
+          transcript: string | null
+          updated_at: string
+          user_id: string
+          verification_level: string | null
+          verification_tier: string | null
+          weighted_score: number | null
+        }
+        Insert: {
+          admin_review_status?: string
+          completed_at?: string | null
+          created_at?: string
+          fraud_flag?: boolean
+          fraud_notes?: string | null
+          id?: string
+          interviewer_id: string
+          interviewer_notes?: string | null
+          public_id?: string | null
+          recording_url?: string | null
+          role_type?: string | null
+          scheduled_at?: string | null
+          score_breakdown?: Json | null
+          status?: string
+          transcript?: string | null
+          updated_at?: string
+          user_id: string
+          verification_level?: string | null
+          verification_tier?: string | null
+          weighted_score?: number | null
+        }
+        Update: {
+          admin_review_status?: string
+          completed_at?: string | null
+          created_at?: string
+          fraud_flag?: boolean
+          fraud_notes?: string | null
+          id?: string
+          interviewer_id?: string
+          interviewer_notes?: string | null
+          public_id?: string | null
+          recording_url?: string | null
+          role_type?: string | null
+          scheduled_at?: string | null
+          score_breakdown?: Json | null
+          status?: string
+          transcript?: string | null
+          updated_at?: string
+          user_id?: string
+          verification_level?: string | null
+          verification_tier?: string | null
+          weighted_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "human_interview_sessions_interviewer_id_fkey"
+            columns: ["interviewer_id"]
+            isOneToOne: false
+            referencedRelation: "expert_interviewers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_alert_subscriptions: {
         Row: {
           created_at: string
@@ -384,7 +559,11 @@ export type Database = {
           skills: string[] | null
           updated_at: string | null
           user_id: string
+          verification_level: string | null
+          verification_public_id: string | null
+          verification_public_url: string | null
           verification_status: string | null
+          verification_tier: string | null
         }
         Insert: {
           actively_looking_roles?: string[] | null
@@ -417,7 +596,11 @@ export type Database = {
           skills?: string[] | null
           updated_at?: string | null
           user_id: string
+          verification_level?: string | null
+          verification_public_id?: string | null
+          verification_public_url?: string | null
           verification_status?: string | null
+          verification_tier?: string | null
         }
         Update: {
           actively_looking_roles?: string[] | null
@@ -450,7 +633,11 @@ export type Database = {
           skills?: string[] | null
           updated_at?: string | null
           user_id?: string
+          verification_level?: string | null
+          verification_public_id?: string | null
+          verification_public_url?: string | null
           verification_status?: string | null
+          verification_tier?: string | null
         }
         Relationships: []
       }
@@ -469,6 +656,7 @@ export type Database = {
           status: string | null
           title: string
           updated_at: string | null
+          verification_required: string | null
         }
         Insert: {
           company: string
@@ -484,6 +672,7 @@ export type Database = {
           status?: string | null
           title: string
           updated_at?: string | null
+          verification_required?: string | null
         }
         Update: {
           company?: string
@@ -499,6 +688,7 @@ export type Database = {
           status?: string | null
           title?: string
           updated_at?: string | null
+          verification_required?: string | null
         }
         Relationships: []
       }
@@ -871,7 +1061,7 @@ export type Database = {
       is_recruiter: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
-      app_role: "recruiter" | "jobseeker" | "admin"
+      app_role: "recruiter" | "jobseeker" | "admin" | "expert_interviewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -999,7 +1189,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["recruiter", "jobseeker", "admin"],
+      app_role: ["recruiter", "jobseeker", "admin", "expert_interviewer"],
     },
   },
 } as const

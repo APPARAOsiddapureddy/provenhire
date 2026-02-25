@@ -1,19 +1,15 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Briefcase, Users, TrendingUp, Settings, LogOut, Plus, Eye, Edit, Trash2, MapPin, Clock, Building2, Mail, Phone, Globe, UserCheck, BarChart3, Calendar, Search, Bell, ChevronRight, BookOpen } from "lucide-react";
+import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LogOut, LayoutGrid, ChevronRight, FileText, Lock, CheckCircle2 } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -31,7 +27,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -39,6 +34,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { skipSupabaseRequests } from "@/lib/skipSupabase";
+import DashboardShell from "@/components/DashboardShell";
 
 interface Job {
   id: string;
@@ -81,11 +80,24 @@ interface RecruiterProfile {
   onboarding_completed: boolean | null;
 }
 
+interface TalentCandidate {
+  id: string;
+  user_id: string;
+  full_name?: string | null;
+  current_role: string | null;
+  experience_years: number | null;
+  verification_status: string | null;
+  skills: string[] | null;
+  actively_looking_roles: string[] | null;
+  resume_url: string | null;
+}
+
 const RecruiterDashboard = () => {
   const { user, signOut, changePassword } = useAuth();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [candidates, setCandidates] = useState<TalentCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<RecruiterProfile | null>(null);
   const [stats, setStats] = useState({
@@ -95,6 +107,18 @@ const RecruiterDashboard = () => {
     hiredCount: 0,
     profileViews: 0,
   });
+  const [activeTab, setActiveTab] = useState<'discover' | 'jobs' | 'pipeline'>('discover');
+  const [domainFilter, setDomainFilter] = useState<Record<string, boolean>>({
+    'Software Engineering': true,
+    'Data Science': false,
+    'Product Management': false,
+  });
+  const [tierFilter, setTierFilter] = useState<Record<string, boolean>>({
+    'A': true,
+    'B': true,
+    'C': false,
+  });
+  const [talentSort, setTalentSort] = useState<string>('highest_score');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [showJobDetails, setShowJobDetails] = useState(false);
   const [jobToDelete, setJobToDelete] = useState<string | null>(null);
@@ -104,7 +128,14 @@ const RecruiterDashboard = () => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const isTestAccount = user?.id?.startsWith?.('bypass-');
+
   const handleChangePassword = async () => {
+    if (isTestAccount) {
+      toast.info("Test accounts don't have a password to change. Sign in with a full account to use this.");
+      setShowPasswordDialog(false);
+      return;
+    }
     if (!currentPassword || !newPassword || !confirmNewPassword) {
       toast.error("Please fill in all password fields");
       return;
@@ -134,14 +165,50 @@ const RecruiterDashboard = () => {
   });
 
   useEffect(() => {
-    if (user) {
-      loadDashboardData();
+    if (!user) {
+      setLoading(false);
+      return;
     }
+    loadDashboardData();
   }, [user]);
 
   const loadDashboardData = async () => {
+    const FETCH_TIMEOUT_MS = 20000;
     try {
-      const [jobsResult, profileResult] = await Promise.all([
+      if (skipSupabaseRequests()) {
+        setJobs([]);
+        setProfile(null);
+        setApplications([]);
+        setCandidates([]);
+        setStats({ activeJobs: 0, totalApplicants: 0, interviewsScheduled: 0, hiredCount: 0, profileViews: 0 });
+        setLoading(false);
+        return;
+      }
+
+      const isBypass = user?.id?.startsWith?.('bypass-');
+      if (isBypass) {
+        setJobs([]);
+        setProfile(null);
+        setApplications([]);
+        setStats({ activeJobs: 0, totalApplicants: 0, interviewsScheduled: 0, hiredCount: 0, profileViews: 0 });
+        const { data: candidatesData } = await supabase
+          .from('job_seeker_profiles')
+          .select('id, user_id, current_role, experience_years, verification_status, skills, actively_looking_roles, resume_url')
+          .in('verification_status', ['verified', 'expert_verified'])
+          .order('created_at', { ascending: false });
+        if (candidatesData?.length) {
+          const userIds = [...new Set(candidatesData.map((c: { user_id: string }) => c.user_id))];
+          const { data: profilesData } = await supabase.from('profiles').select('user_id, full_name').in('user_id', userIds);
+          const nameMap = new Map((profilesData || []).map((p: { user_id: string; full_name: string | null }) => [p.user_id, p.full_name]));
+          setCandidates(candidatesData.map((c: Record<string, unknown>) => ({ ...c, full_name: nameMap.get(c.user_id as string) ?? null })) as TalentCandidate[]);
+        } else {
+          setCandidates([]);
+        }
+        setLoading(false);
+        return;
+      }
+
+      const fetchPromise = Promise.all([
         supabase
           .from('jobs')
           .select('*')
@@ -153,6 +220,10 @@ const RecruiterDashboard = () => {
           .eq('user_id', user?.id)
           .maybeSingle()
       ]);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Dashboard request timed out. Check your connection and try again.')), FETCH_TIMEOUT_MS)
+      );
+      const [jobsResult, profileResult] = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (jobsResult.error) throw jobsResult.error;
 
@@ -198,9 +269,31 @@ const RecruiterDashboard = () => {
           profileViews: 0,
         });
       }
-    } catch (error) {
+
+      // Fetch verified talent pool (job seeker profiles with verified status)
+      const { data: candidatesData } = await supabase
+        .from('job_seeker_profiles')
+        .select('id, user_id, current_role, experience_years, verification_status, skills, actively_looking_roles, resume_url')
+        .in('verification_status', ['verified', 'expert_verified'])
+        .order('created_at', { ascending: false });
+      if (candidatesData?.length) {
+        const userIds = [...new Set(candidatesData.map((c: { user_id: string }) => c.user_id))];
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('user_id, full_name')
+          .in('user_id', userIds);
+        const nameMap = new Map((profilesData || []).map((p: { user_id: string; full_name: string | null }) => [p.user_id, p.full_name]));
+        setCandidates(candidatesData.map((c: Record<string, unknown>) => ({
+          ...c,
+          full_name: nameMap.get(c.user_id as string) ?? null,
+        })) as TalentCandidate[]);
+      } else {
+        setCandidates([]);
+      }
+    } catch (error: unknown) {
       console.error('Error loading dashboard data:', error);
-      toast.error('Failed to load dashboard data');
+      const msg = error instanceof Error ? error.message : 'Failed to load dashboard data';
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -209,18 +302,25 @@ const RecruiterDashboard = () => {
   const handleViewJobDetails = async (job: Job) => {
     setSelectedJob(job);
     setShowJobDetails(true);
-    
+    if (skipSupabaseRequests()) {
+      setJobApplications([]);
+      return;
+    }
     const { data } = await supabase
       .from('job_applications')
       .select('*')
       .eq('job_id', job.id)
       .order('applied_at', { ascending: false });
-    
     setJobApplications(data || []);
   };
 
   const handleToggleJobStatus = async (jobId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'closed' : 'active';
+    if (skipSupabaseRequests()) {
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
+      toast.success(`Job ${newStatus === 'active' ? 'activated' : 'closed'} (demo)`);
+      return;
+    }
     try {
       const { error } = await supabase
         .from('jobs')
@@ -239,7 +339,12 @@ const RecruiterDashboard = () => {
 
   const handleDeleteJob = async () => {
     if (!jobToDelete) return;
-    
+    if (skipSupabaseRequests()) {
+      setJobs(prev => prev.filter(j => j.id !== jobToDelete));
+      setJobToDelete(null);
+      toast.success('Job deleted (demo)');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('jobs')
@@ -258,6 +363,12 @@ const RecruiterDashboard = () => {
   };
 
   const handleUpdateApplicationStatus = async (applicationId: string, newStatus: string) => {
+    if (skipSupabaseRequests()) {
+      setApplications(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
+      setJobApplications(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
+      toast.success('Application status updated (demo)');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('job_applications')
@@ -268,7 +379,7 @@ const RecruiterDashboard = () => {
 
       const application = applications.find(a => a.id === applicationId);
       
-      if (application && application.jobs) {
+      if (!skipSupabaseRequests() && application && application.jobs) {
         try {
           await supabase.functions.invoke('send-status-notification', {
             body: {
@@ -295,6 +406,17 @@ const RecruiterDashboard = () => {
   };
 
   const handleUpdateProfile = async () => {
+    if (isTestAccount) {
+      toast.info('Test accounts can\'t save profile changes. Sign in with a full account to update your profile.');
+      setShowProfileEdit(false);
+      return;
+    }
+    if (skipSupabaseRequests()) {
+      setProfile(prev => prev ? { ...prev, ...editedProfile } : null);
+      setShowProfileEdit(false);
+      toast.success('Profile updated (demo)');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('profiles')
@@ -312,16 +434,31 @@ const RecruiterDashboard = () => {
       toast.success('Profile updated successfully');
     } catch (error: any) {
       console.error('Error updating profile:', error);
-      toast.error('Failed to update profile');
+      toast.error(error?.message || 'Failed to update profile');
     }
   };
 
   const statsDisplay = [
-    { label: "Active Jobs", value: stats.activeJobs.toString(), icon: Briefcase, color: "text-primary", bgColor: "bg-primary/10" },
-    { label: "Total Applicants", value: stats.totalApplicants.toString(), icon: Users, color: "text-accent", bgColor: "bg-accent/10" },
-    { label: "Interviews", value: stats.interviewsScheduled.toString(), icon: Calendar, color: "text-blue-500", bgColor: "bg-blue-500/10" },
-    { label: "Hired", value: stats.hiredCount.toString(), icon: UserCheck, color: "text-green-500", bgColor: "bg-green-500/10" },
+    { label: "Active Jobs", value: stats.activeJobs.toString(), icon: Briefcase },
+    { label: "Verified Applicants", value: stats.totalApplicants.toString(), icon: Users },
+    { label: "Interviews Scheduled", value: stats.interviewsScheduled.toString(), icon: Calendar },
+    { label: "Hires This Month", value: stats.hiredCount.toString(), icon: UserCheck },
   ];
+
+  const filteredCandidates = useMemo(() => {
+    let list = [...candidates];
+    const activeDomains = Object.entries(domainFilter).filter(([, v]) => v).map(([k]) => k);
+    if (activeDomains.length > 0) {
+      list = list.filter(c => {
+        const roles = c.actively_looking_roles || [];
+        const roleStr = (c.current_role || '') + (roles.join(' '));
+        return activeDomains.some(d => roleStr.toLowerCase().includes(d.toLowerCase().replace(/\s/g, '')) || (c.skills || []).some(s => s.toLowerCase().includes(d.split(' ')[0].toLowerCase())));
+      });
+    }
+    if (talentSort === 'highest_score') list = [...list].sort((a, b) => (b.experience_years ?? 0) - (a.experience_years ?? 0));
+    if (talentSort === 'newest') list = [...list];
+    return list;
+  }, [candidates, domainFilter, talentSort]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -348,408 +485,247 @@ const RecruiterDashboard = () => {
     return Math.round((stats.hiredCount / stats.totalApplicants) * 100);
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-subtle">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading your dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  const sidebarSections = [
+    {
+      sectionLabel: "Recruiter",
+      items: [
+        { label: "Talent Pool", active: activeTab === 'discover', onClick: () => setActiveTab('discover'), icon: <Users className="w-[18px] h-[18px]" /> },
+        { label: "My Jobs", active: activeTab === 'jobs', onClick: () => setActiveTab('jobs'), icon: <Briefcase className="w-[18px] h-[18px]" /> },
+        { label: "Pipeline & Tracking", active: activeTab === 'pipeline', onClick: () => setActiveTab('pipeline'), icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
+        { label: "Log out", onClick: () => signOut(), icon: <LogOut className="w-[18px] h-[18px]" /> },
+      ],
+    },
+  ];
+  const userName = profile?.full_name || user?.email || 'Recruiter';
+  const userInitials = (profile?.full_name || user?.email || 'R').toString().split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-gradient-subtle">
-      {/* Header */}
-      <header className="bg-background/95 backdrop-blur-md border-b border-border sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-gradient-hero rounded-lg flex items-center justify-center shadow-glow">
-              <Building2 className="h-5 w-5 text-white" />
+    <div className="min-h-screen">
+      <DashboardShell
+        sidebarSections={sidebarSections}
+        user={{ name: userName, role: profile?.company_name || 'Recruiter', initials: userInitials }}
+      >
+        {loading && (
+          <div className="dashboard-section-content space-y-6">
+            <div className="dashboard-stat-cards">
+              {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
             </div>
-            <div>
-              <h1 className="text-lg font-bold bg-gradient-hero bg-clip-text text-transparent">
-                ProvenHire Recruiter
-              </h1>
-              <p className="text-xs text-muted-foreground">{profile?.company_name || 'Your Company'}</p>
-            </div>
+            <Skeleton className="h-64 w-full rounded-xl" />
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-destructive rounded-full text-[10px] text-white flex items-center justify-center">
-                {applications.filter(a => a.status === 'applied').length}
-              </span>
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => setShowProfileEdit(true)} title="Edit Profile">
-              <Settings className="h-5 w-5" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowPasswordDialog(true)}>
-              Reset Password
-            </Button>
-            <Separator orientation="vertical" className="h-8" />
-            <div className="hidden md:flex items-center gap-3">
-              <Avatar className="h-9 w-9">
-                <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                  {profile?.full_name?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || 'R'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="hidden lg:block">
-                <p className="text-sm font-medium">{profile?.full_name || 'Recruiter'}</p>
-                <p className="text-xs text-muted-foreground">{user?.email}</p>
+        )}
+        {!loading && (
+          <>
+            <div className="dashboard-section-header flex-wrap gap-4">
+              <div>
+                <h1>Talent Discovery</h1>
+                <p>Discover and hire verified talent</p>
               </div>
-            </div>
-            <Button variant="outline" size="sm" onClick={signOut}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Sign Out
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-foreground mb-1">
-            Welcome back, {profile?.full_name?.split(' ')[0] || 'Recruiter'}! 👋
-          </h2>
-          <p className="text-muted-foreground">
-            Here's what's happening with your job postings today.
-          </p>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {statsDisplay.map((stat, index) => (
-            <Card key={index} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">{stat.label}</p>
-                    <p className="text-2xl font-bold">{stat.value}</p>
-                  </div>
-                  <div className={`w-12 h-12 rounded-xl ${stat.bgColor} flex items-center justify-center`}>
-                    <stat.icon className={`h-6 w-6 ${stat.color}`} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Two Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Left Column - Quick Actions & Progress */}
-          <div className="space-y-6">
-            {/* Quick Actions */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button 
-                  className="w-full justify-start h-12 bg-gradient-hero hover:opacity-90"
-                  onClick={() => navigate('/post-job')}
-                >
-                  <Plus className="h-5 w-5 mr-3" />
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowProfileEdit(true)}><Edit className="h-4 w-4 mr-1" /> Edit profile</Button>
+                <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowPasswordDialog(true)}>Reset password</Button>
+                <Button className="dashboard-btn-gold" onClick={() => navigate('/post-job')}>
+                  <Plus className="h-4 w-4 mr-2" />
                   Post New Job
                 </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start h-12"
-                  onClick={() => navigate('/candidate-search')}
-                >
-                  <Search className="h-5 w-5 mr-3" />
-                  Search Candidates
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start h-12"
-                  onClick={() => navigate('/dashboard/recruiter/assignmentai')}
-                >
-                  <BookOpen className="h-5 w-5 mr-3" />
-                  AssignmentAI Docs
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start h-12"
-                  asChild
-                >
-                  <Link to="/jobs">
-                    <Eye className="h-5 w-5 mr-3" />
-                    View All Jobs
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
+                <Button className="dashboard-btn-ghost" size="sm" onClick={() => signOut()}><LogOut className="h-4 w-4 mr-1" /> Log out</Button>
+              </div>
+            </div>
 
-            {/* Hiring Progress */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Hiring Progress</CardTitle>
-                <CardDescription>Your hiring funnel overview</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-muted-foreground">Conversion Rate</span>
-                    <span className="font-medium">{getHiringProgress()}%</span>
-                  </div>
-                  <Progress value={getHiringProgress()} className="h-2" />
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Applied</span>
-                    <span className="font-medium">{applications.filter(a => a.status === 'applied').length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Reviewing</span>
-                    <span className="font-medium">{applications.filter(a => a.status === 'reviewing').length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Interview</span>
-                    <span className="font-medium">{stats.interviewsScheduled}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Hired</span>
-                    <span className="font-medium text-green-600">{stats.hiredCount}</span>
+            <div className="dashboard-stat-cards">
+              {statsDisplay.map((stat, idx) => (
+                <div key={idx} className="dashboard-stat-card">
+                  <div className="dashboard-stat-card-label">{stat.label}</div>
+                  <div className="dashboard-stat-card-value">{stat.value}</div>
+                  <div className="dashboard-stat-card-icon">
+                    <stat.icon className="h-5 w-5" />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              ))}
+            </div>
 
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Recruitment Analytics</CardTitle>
-                <CardDescription>Snapshot of your hiring funnel</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Active Jobs</span>
-                  <span className="font-medium">{stats.activeJobs}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Profile Views</span>
-                  <span className="font-medium">{stats.profileViews}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Applicants</span>
-                  <span className="font-medium">{stats.totalApplicants}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Interviews Scheduled</span>
-                  <span className="font-medium">{stats.interviewsScheduled}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Hired</span>
-                  <span className="font-medium text-green-600">{stats.hiredCount}</span>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="dashboard-tab-bar">
+              <button type="button" className={`dashboard-tab ${activeTab === 'discover' ? 'active' : ''}`} onClick={() => setActiveTab('discover')}>
+                Discover Verified Talent
+              </button>
+              <button type="button" className={`dashboard-tab ${activeTab === 'jobs' ? 'active' : ''}`} onClick={() => setActiveTab('jobs')}>
+                My Active Jobs ({jobs.length})
+              </button>
+              <button type="button" className={`dashboard-tab ${activeTab === 'pipeline' ? 'active' : ''}`} onClick={() => setActiveTab('pipeline')}>
+                Pipeline & Tracking
+              </button>
+            </div>
 
-            {/* Company Profile Card */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Company Profile</CardTitle>
-                  <Button variant="ghost" size="sm" onClick={() => setShowProfileEdit(true)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
+            {activeTab === 'discover' && (
+              <div className="dashboard-recruiter-layout">
+                <div className="dashboard-filter-panel">
+                  <div className="dashboard-filter-panel-title">Domain / Role</div>
+                  {(['Software Engineering', 'Data Science', 'Product Management'] as const).map((d) => (
+                    <label key={d}>
+                      <input type="checkbox" checked={domainFilter[d] ?? false} onChange={() => setDomainFilter(prev => ({ ...prev, [d]: !prev[d] }))} />
+                      <span>{d}</span>
+                    </label>
+                  ))}
+                  <div className="dashboard-filter-panel-title" style={{ marginTop: 20 }}>Verification Tier</div>
+                  <label><input type="checkbox" checked={tierFilter['A'] ?? false} onChange={() => setTierFilter(prev => ({ ...prev, 'A': !prev['A'] }))} /><span>Level A (Top 5%)</span></label>
+                  <label><input type="checkbox" checked={tierFilter['B'] ?? false} onChange={() => setTierFilter(prev => ({ ...prev, 'B': !prev['B'] }))} /><span>Level B (Top 15%)</span></label>
+                  <label><input type="checkbox" checked={tierFilter['C'] ?? false} onChange={() => setTierFilter(prev => ({ ...prev, 'C': !prev['C'] }))} /><span>Level C (Top 30%)</span></label>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{profile?.company_name || 'Add company name'}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{user?.email}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{profile?.phone || 'Add phone number'}</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right Column - Jobs & Applications */}
-          <div className="lg:col-span-2">
-            <Tabs defaultValue="jobs" className="space-y-4">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="jobs" className="flex items-center gap-2">
-                  <Briefcase className="h-4 w-4" />
-                  Jobs ({jobs.length})
-                </TabsTrigger>
-                <TabsTrigger value="applications" className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Applications ({applications.length})
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="jobs">
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>Your Job Postings</CardTitle>
-                        <CardDescription>Manage and track your open positions</CardDescription>
-                      </div>
-                      <Button onClick={() => navigate('/post-job')} size="sm">
-                        <Plus className="h-4 w-4 mr-2" />
-                        New Job
-                      </Button>
+                <div className="dashboard-talent-content">
+                  <div className="dashboard-talent-header">
+                    <h2 className="dashboard-talent-title">Verified Talent Pool</h2>
+                    <select className="dashboard-sort-select" value={talentSort} onChange={(e) => setTalentSort(e.target.value)}>
+                      <option value="highest_score">Sort by: Highest Score</option>
+                      <option value="newest">Sort by: Newest</option>
+                    </select>
+                  </div>
+                  {filteredCandidates.length === 0 ? (
+                    <div className="text-center py-16 text-[var(--dash-text-muted)]">
+                      <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>No verified candidates match your filters. Try adjusting filters or check back later.</p>
+                      <Button className="dashboard-btn-gold mt-4" asChild><Link to="/candidate-search">Search all candidates</Link></Button>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    {jobs.length === 0 ? (
-                      <div className="text-center py-12">
-                        <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-                          <Briefcase className="h-8 w-8 text-muted-foreground" />
-                        </div>
-                        <h3 className="font-semibold mb-2">No jobs posted yet</h3>
-                        <p className="text-muted-foreground text-sm mb-4">Create your first job posting to start receiving applications</p>
-                        <Button onClick={() => navigate('/post-job')}>
-                          <Plus className="h-4 w-4 mr-2" />
-                          Post Your First Job
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {jobs.map((job) => (
-                          <div
-                            key={job.id}
-                            className="flex items-center justify-between p-4 border border-border rounded-xl hover:bg-accent/50 transition-colors cursor-pointer group"
-                            onClick={() => handleViewJobDetails(job)}
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3 className="font-semibold truncate">{job.title}</h3>
-                                <Badge className={getStatusColor(job.status || 'active')}>
-                                  {job.status || 'active'}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <span className="flex items-center gap-1">
-                                  <Building2 className="h-3 w-3" />
-                                  {job.company}
-                                </span>
-                                {job.location && (
-                                  <span className="flex items-center gap-1">
-                                    <MapPin className="h-3 w-3" />
-                                    {job.location}
-                                  </span>
-                                )}
-                                {job.job_type && (
-                                  <Badge variant="outline" className="text-xs">{job.job_type}</Badge>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleToggleJobStatus(job.id, job.status || 'active');
-                                }}
-                              >
-                                {job.status === 'active' ? 'Close' : 'Activate'}
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setJobToDelete(job.id);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <ChevronRight className="h-5 w-5 text-muted-foreground ml-2" />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="applications">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Applications</CardTitle>
-                    <CardDescription>Review and manage candidate applications</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {applications.length === 0 ? (
-                      <div className="text-center py-12">
-                        <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-                          <Users className="h-8 w-8 text-muted-foreground" />
-                        </div>
-                        <h3 className="font-semibold mb-2">No applications yet</h3>
-                        <p className="text-muted-foreground text-sm">Applications will appear here once candidates apply to your jobs</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {applications.slice(0, 10).map((app) => (
-                          <div
-                            key={app.id}
-                            className="flex items-center justify-between p-4 border border-border rounded-xl hover:bg-accent/50 transition-colors"
-                          >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <Avatar className="h-10 w-10">
-                                <AvatarFallback className="bg-primary/10 text-primary">
-                                  {app.job_seeker_id.charAt(0).toUpperCase()}
+                  ) : (
+                    <div className="dashboard-candidates-grid">
+                      {filteredCandidates.map((c) => (
+                        <div key={c.id} className="dashboard-candidate-card">
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <Avatar className="h-12 w-12 rounded-full shrink-0 border-2 border-[var(--dash-navy-border)]">
+                                <AvatarFallback className="bg-[var(--dash-navy-light)] text-[var(--dash-gold)] text-sm font-semibold">
+                                  {(c.full_name || c.user_id).toString().slice(0, 2).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               <div className="min-w-0">
-                                <h3 className="font-medium truncate">{app.jobs?.title || 'Unknown Position'}</h3>
-                                <p className="text-sm text-muted-foreground">
-                                  {app.jobs?.company} • Applied {new Date(app.applied_at).toLocaleDateString()}
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-white truncate block">{c.full_name || 'Verified Candidate'}</span>
+                                  <CheckCircle2 className="h-4 w-4 text-[var(--dash-gold)] shrink-0" />
+                                </div>
+                                <p className="text-sm text-[var(--dash-text-muted)] truncate">
+                                  {c.current_role || 'Engineer'} • {c.experience_years ?? 0} Years Exp.
                                 </p>
                               </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                              <Select
-                                value={app.status}
-                                onValueChange={(value) => handleUpdateApplicationStatus(app.id, value)}
-                              >
-                                <SelectTrigger className="w-[140px]">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="applied">Applied</SelectItem>
-                                  <SelectItem value="reviewing">Reviewing</SelectItem>
-                                  <SelectItem value="interview_scheduled">Interview</SelectItem>
-                                  <SelectItem value="rejected">Rejected</SelectItem>
-                                  <SelectItem value="hired">Hired</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              {app.resume_url && (
-                                <ResumeViewButton 
-                                  resumeUrl={app.resume_url}
-                                  label="Resume"
-                                  showIcon={false}
-                                />
-                              )}
+                            <div className="flex flex-wrap gap-1.5 justify-end">
+                              <span className="dashboard-badge-a text-sm font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
+                                <Lock className="h-3 w-3" /> Level A Verified
+                              </span>
+                              <span className="dashboard-verified-pill inline-flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" /> AI + Human Validated
+                              </span>
                             </div>
                           </div>
-                        ))}
+                          <div className="grid grid-cols-2 gap-2 text-sm font-medium mb-4">
+                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">HUMAN EXPERT</span> <strong className="text-white">—</strong>/100</div>
+                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">DSA ROUND</span> <strong className="text-white">—</strong>/100</div>
+                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">AI INTERVIEW</span> <strong className="text-white">—</strong>/100</div>
+                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">APTITUDE</span> <strong className="text-white">—</strong>th %ile</div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" className="dashboard-btn-ghost flex-1" asChild>
+                              <Link to="/candidate-search"><FileText className="h-3.5 w-3 mr-1" /> View Skill Passport</Link>
+                            </Button>
+                            <Button size="sm" className="dashboard-btn-gold flex-1" onClick={() => navigate('/post-job')}>
+                              <Briefcase className="h-3.5 w-3 mr-1" /> Invite to Job
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'jobs' && (
+              <div className="dashboard-section-content">
+                {jobs.length === 0 ? (
+                  <div className="text-center py-16 text-[var(--dash-text-muted)]">
+                    <Briefcase className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="font-medium text-white mb-2">No jobs posted yet</p>
+                    <p className="text-sm mb-4">Create your first job posting to start receiving applications</p>
+                    <Button className="dashboard-btn-gold" onClick={() => navigate('/post-job')}><Plus className="h-4 w-4 mr-2" /> Post Your First Job</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {jobs.map((job) => (
+                      <div
+                        key={job.id}
+                        className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-xl hover:bg-white/5 transition-colors cursor-pointer group"
+                        onClick={() => handleViewJobDetails(job)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold text-white truncate">{job.title}</h3>
+                            <Badge className={job.status === 'active' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-white/10 text-gray-300 border-white/10'}>
+                              {job.status || 'active'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-[var(--dash-text-muted)]">
+                            <span className="flex items-center gap-1"><Building2 className="h-3 w-3" />{job.company}</span>
+                            {job.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{job.location}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button className="dashboard-btn-ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleToggleJobStatus(job.id, job.status || 'active'); }}>
+                            {job.status === 'active' ? 'Close' : 'Activate'}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-red-400 hover:bg-red-500/10" onClick={(e) => { e.stopPropagation(); setJobToDelete(job.id); }}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <ChevronRight className="h-5 w-5 text-[var(--dash-text-muted)] ml-2" />
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </div>
-        </div>
-      </main>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'pipeline' && (
+              <div className="dashboard-section-content">
+                {applications.length === 0 ? (
+                  <div className="text-center py-16 text-[var(--dash-text-muted)]">
+                    <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="font-medium text-white mb-2">No applications yet</p>
+                    <p className="text-sm">Applications will appear here once candidates apply to your jobs</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {applications.slice(0, 20).map((app) => (
+                      <div key={app.id} className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-xl hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarFallback className="bg-[var(--dash-navy-light)] text-[var(--dash-gold)]">{app.job_seeker_id.slice(0, 1).toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <h3 className="font-medium text-white truncate">{app.jobs?.title || 'Unknown Position'}</h3>
+                            <p className="text-sm text-[var(--dash-text-muted)]">{app.jobs?.company} • Applied {new Date(app.applied_at).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Select value={app.status} onValueChange={(v) => handleUpdateApplicationStatus(app.id, v)}>
+                            <SelectTrigger className="w-[140px] bg-[var(--dash-navy-light)] border-[var(--dash-navy-border)] text-white">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="applied">Applied</SelectItem>
+                              <SelectItem value="reviewing">Reviewing</SelectItem>
+                              <SelectItem value="interview_scheduled">Interview</SelectItem>
+                              <SelectItem value="rejected">Rejected</SelectItem>
+                              <SelectItem value="hired">Hired</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {app.resume_url && <ResumeViewButton resumeUrl={app.resume_url} label="Resume" showIcon={false} />}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </DashboardShell>
 
       {/* Job Details Dialog */}
       <Dialog open={showJobDetails} onOpenChange={setShowJobDetails}>
@@ -817,7 +793,7 @@ const RecruiterDashboard = () => {
                     <div key={app.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <p className="text-sm font-medium">Applicant ID: {app.job_seeker_id.slice(0, 8)}...</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-sm text-muted-foreground">
                           Applied {new Date(app.applied_at).toLocaleDateString()}
                         </p>
                       </div>
@@ -849,6 +825,11 @@ const RecruiterDashboard = () => {
             <DialogTitle>Edit Company Profile</DialogTitle>
             <DialogDescription>Update your company and contact information</DialogDescription>
           </DialogHeader>
+          {isTestAccount && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+              Test accounts can't save profile changes. Sign in with a full account to update your profile.
+            </p>
+          )}
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="full_name">Your Name</Label>
@@ -896,6 +877,11 @@ const RecruiterDashboard = () => {
             <DialogTitle>Reset Password</DialogTitle>
             <DialogDescription>Enter your current password to set a new one.</DialogDescription>
           </DialogHeader>
+          {isTestAccount && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+              Test accounts don't have a password to change. Sign in with a full account to use this.
+            </p>
+          )}
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Current Password</Label>

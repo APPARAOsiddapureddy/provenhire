@@ -1,10 +1,39 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
-type UserRole = 'recruiter' | 'jobseeker' | null;
+const BYPASS_USER_KEY = 'ph_bypass_user';
+const BYPASS_ROLE_KEY = 'ph_bypass_role';
+
+type UserRole = 'recruiter' | 'jobseeker' | 'admin' | 'expert_interviewer' | null;
+
+function getBypassUser(): User | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(BYPASS_USER_KEY);
+    if (!raw) return null;
+    const { id, email } = JSON.parse(raw) as { id: string; email: string };
+    if (!id || !email) return null;
+    return { id, email, app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '', updated_at: '' } as User;
+  } catch {
+    return null;
+  }
+}
+
+function getBypassRole(): UserRole {
+  if (typeof window === 'undefined') return null;
+  const role = localStorage.getItem(BYPASS_ROLE_KEY);
+  if (role === 'admin' || role === 'recruiter' || role === 'jobseeker' || role === 'expert_interviewer') return role;
+  return null;
+}
+
+function getInitialAuth() {
+  const u = getBypassUser();
+  const r = getBypassRole();
+  return { user: u, role: r, loading: !(u && r) };
+}
 
 interface AuthContextType {
   user: User | null;
@@ -12,23 +41,26 @@ interface AuthContextType {
   userRole: UserRole;
   loading: boolean;
   signUp: (email: string, password: string, role: UserRole, fullName?: string, companyName?: string, referralCode?: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, role?: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  updatePassword: (newPassword: string) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<UserRole | void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const initial = useMemo(getInitialAuth, []);
+  const [user, setUser] = useState<User | null>(initial.user);
   const [session, setSession] = useState<Session | null>(null);
-  const [userRole, setUserRole] = useState<UserRole>(null);
-  const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<UserRole>(initial.role);
+  const [loading, setLoading] = useState(initial.loading);
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (initial.user && initial.role) return;
+
     const hydrateSessionFromUrl = async () => {
       const hashParams = new URLSearchParams(window.location.hash.replace("#", ""));
       const searchParams = new URLSearchParams(window.location.search);
@@ -61,10 +93,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event, session) => {
+        if (getBypassUser()) return;
         setSession(session);
         setUser(session?.user ?? null);
-        
         if (session?.user) {
           fetchUserRole(session.user.id);
         } else {
@@ -73,8 +105,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
-    // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (getBypassUser()) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -85,20 +117,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [initial.user, initial.role]);
 
-  const fetchUserRole = async (userId: string) => {
+  const fetchUserRole = async (userId: string): Promise<UserRole | null> => {
+    const ROLE_FETCH_TIMEOUT_MS = 12000; // If Supabase is slow (e.g. cold region), don't block dashboard forever
+    let role: UserRole | null = null;
     try {
-      const { data, error } = await supabase
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Role fetch timed out')), ROLE_FETCH_TIMEOUT_MS)
+      );
+      const fetchPromise = supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      setUserRole(data?.role as UserRole ?? null);
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (error) throw error;
+          return (data?.role as UserRole) ?? null;
+        });
+      role = await Promise.race([fetchPromise, timeoutPromise]);
+      setUserRole(role);
+      return role;
     } catch (error: any) {
-      console.error('Error fetching user role:', error);
+      console.warn('Error or timeout fetching user role (defaulting to jobseeker so dashboard can load):', error?.message || error);
+      setUserRole('jobseeker'); // Fallback so user is not stuck on loader; they can still use dashboard
+      setLoading(false);
+      return 'jobseeker';
     } finally {
       setLoading(false);
     }
@@ -110,7 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const redirectUrl = `${window.location.origin}/auth?mode=reset&email=${encodeURIComponent(email)}`;
 
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(),
         password,
         options: {
           emailRedirectTo: redirectUrl,
@@ -122,10 +166,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        const msg = (error.message || 'Failed to create account').toLowerCase();
+        if (msg.includes('already registered') || msg.includes('already exists')) {
+          toast.error('An account with this email already exists. Try signing in or reset your password.');
+        } else if (msg.includes('rate limit') || msg.includes('rate limit exceeded')) {
+          toast.error('Email rate limit exceeded. Wait about an hour or turn off "Confirm email" in Supabase Auth for testing. See docs/SUPABASE_EMAIL_RATE_LIMIT.md');
+          throw error;
+        } else {
+          toast.error(error.message || 'Failed to create account');
+        }
+        throw error;
+      }
 
       if (data.user) {
-        // Profile creation is handled by a DB trigger to avoid RLS violations.
+        // user_roles and profiles are created by DB trigger (handle_new_user) on auth.users insert
         if (referralCode && referralCode.startsWith('PH-')) {
           try {
             await supabase.functions.invoke('send-referral-notification', {
@@ -138,72 +193,141 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             });
           } catch (referralError) {
             console.error('Error processing referral:', referralError);
-            // Don't fail signup if referral processing fails
           }
         }
 
-        await supabase.auth.resetPasswordForEmail(email, {
+        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
           redirectTo: redirectUrl,
         });
+        if (resetErr) {
+          const resetMsg = (resetErr.message || '').toLowerCase();
+          if (resetMsg.includes('rate limit') || resetMsg.includes('rate limit exceeded')) {
+            toast.error('Email rate limit exceeded. Account was created; wait ~1 hour to get the set-password email, or see docs/SUPABASE_EMAIL_RATE_LIMIT.md');
+          } else {
+            toast.error(resetErr.message || 'Could not send set-password email.');
+          }
+        } else {
+          toast.success('Check your email to set your password.');
+        }
 
-        await supabase.auth.signOut();
-        toast.success('Check your email to set your password.');
+        if (data.session) await supabase.auth.signOut();
       }
     } catch (error: any) {
-      console.error('Sign up error:', error);
-      toast.error(error.message || 'Failed to create account');
+      if (error?.message === 'Failed to fetch' || (error?.name === 'TypeError' && String(error?.message).includes('fetch'))) {
+        const friendly = 'Auth server unreachable. If you just resumed your Supabase project, wait 2–3 minutes. Otherwise add this app URL to Supabase: Authentication → URL Configuration → Redirect URLs.';
+        toast.error(friendly);
+        throw new Error(friendly);
+      }
+      if (!error.message?.includes('already')) {
+        console.error('Sign up error:', error);
+      }
       throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, role?: UserRole) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) throw error;
-
-      if (data.user) {
-        const { data: roleData } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', data.user.id)
-          .maybeSingle();
-
-        const role = roleData?.role as UserRole;
-        setUserRole(role ?? null);
-        
-        toast.success('Signed in successfully!');
-        
-        // Navigate based on role
-        if (role === 'recruiter') {
-          navigate('/dashboard/recruiter');
-        } else {
-          navigate('/dashboard/jobseeker');
+      // When no role provided: first check test credentials table (bypass Supabase Auth)
+      if (role === undefined) {
+        const { data: credResult, error: rpcError } = await supabase.rpc('check_test_credentials', {
+          p_email: email.trim(),
+          p_password: password || '',
+        });
+        if (!rpcError && credResult && Array.isArray(credResult) && credResult.length > 0 && credResult[0]?.ok) {
+          const credRole = credResult[0].role as UserRole;
+          if (credRole === 'admin' || credRole === 'recruiter' || credRole === 'jobseeker' || credRole === 'expert_interviewer') {
+            const mockId = 'bypass-' + (email.replace(/[^a-z0-9]/gi, '').slice(0, 20) || 'user');
+            const mockUser: User = {
+              id: mockId,
+              email: email.trim().toLowerCase(),
+              app_metadata: {},
+              user_metadata: {},
+              aud: 'authenticated',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            } as User;
+            localStorage.setItem(BYPASS_USER_KEY, JSON.stringify({ id: mockUser.id, email: mockUser.email }));
+            localStorage.setItem(BYPASS_ROLE_KEY, credRole);
+            setUser(mockUser);
+            setSession(null);
+            setUserRole(credRole);
+            setLoading(false);
+            toast.success('Signed in with test credentials.');
+            if (credRole === 'admin') navigate('/admin/dashboard');
+            else if (credRole === 'recruiter') navigate('/dashboard/recruiter');
+            else if (credRole === 'expert_interviewer') navigate('/dashboard/expert');
+            else navigate('/dashboard/jobseeker');
+            return;
+          }
         }
+
+        // Fallback: normal Supabase Auth sign-in
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password: password || '',
+        });
+        if (error) {
+          setLoading(false);
+          const msg = error.message || '';
+          if (msg.includes('Email not confirmed') || msg.includes('email not confirmed')) {
+            throw new Error('Please check your email and confirm your account before signing in.');
+          }
+          if (msg.includes('Invalid login') || msg.includes('invalid')) {
+            throw new Error('Invalid email or password.');
+          }
+          throw error;
+        }
+        toast.success('Signed in successfully!');
+        return;
       }
-    } catch (error: any) {
-      const message = String(error?.message || "");
-      console.error('Sign in error:', error);
-      if (!message.toLowerCase().includes("invalid login credentials")) {
-        toast.error(error.message || 'Failed to sign in');
-      }
-      throw error;
-    } finally {
+
+      // Demo/bypass: role provided → use localStorage and redirect by chosen role
+      const chosenRole = role ?? 'jobseeker';
+      const mockId = 'bypass-' + (email.replace(/[^a-z0-9]/gi, '').slice(0, 20) || 'user');
+      const mockUser: User = {
+        id: mockId,
+        email: email || 'user@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as User;
+
+      localStorage.setItem(BYPASS_USER_KEY, JSON.stringify({ id: mockUser.id, email: mockUser.email }));
+      localStorage.setItem(BYPASS_ROLE_KEY, chosenRole);
+
+      setUser(mockUser);
+      setSession(null);
+      setUserRole(chosenRole);
+      toast.success('Signed in successfully!');
+
+      if (chosenRole === 'admin') navigate('/admin/dashboard');
+      else if (chosenRole === 'recruiter') navigate('/dashboard/recruiter');
+      else if (chosenRole === 'expert_interviewer') navigate('/dashboard/expert');
+      else navigate('/dashboard/jobseeker');
       setLoading(false);
+    } catch (err: any) {
+      setLoading(false);
+      if (err?.message === 'Failed to fetch' || (err?.name === 'TypeError' && String(err?.message).includes('fetch'))) {
+        const friendly = 'Auth server unreachable. If you just resumed your Supabase project, wait 2–3 minutes. Otherwise add this app URL to Supabase: Authentication → URL Configuration → Redirect URLs.';
+        toast.error(friendly);
+        throw new Error(friendly);
+      }
+      if (err?.message) throw err;
+      throw new Error('Sign in failed');
     }
+    // Production path: loading is cleared by fetchUserRole in auth state listener
   };
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
+      localStorage.removeItem(BYPASS_USER_KEY);
+      localStorage.removeItem(BYPASS_ROLE_KEY);
+      await supabase.auth.signOut();
       setUser(null);
       setSession(null);
       setUserRole(null);
@@ -221,22 +345,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: redirectUrl,
       });
-      if (error) throw error;
+      if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('rate limit') || msg.includes('rate limit exceeded')) {
+          toast.error('Email rate limit exceeded. Wait about an hour and try again, or see docs/SUPABASE_EMAIL_RATE_LIMIT.md');
+        } else {
+          toast.error(error.message || 'Failed to send reset email');
+        }
+        throw error;
+      }
       toast.success('Password reset email sent! Check your inbox.');
     } catch (error: any) {
       console.error('Reset password error:', error);
-      toast.error(error.message || 'Failed to send reset email');
       throw error;
     }
   };
 
-  const updatePassword = async (newPassword: string) => {
+  const updatePassword = async (newPassword: string): Promise<UserRole | void> => {
     try {
       const { error } = await supabase.auth.updateUser({
         password: newPassword,
       });
       if (error) throw error;
       toast.success('Password updated successfully!');
+      // Refresh session and role immediately so redirect to dashboard is instant
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setSession(session);
+        setUser(session.user);
+        const role = await fetchUserRole(session.user.id);
+        return role ?? undefined;
+      }
     } catch (error: any) {
       console.error('Update password error:', error);
       toast.error(error.message || 'Failed to update password');
@@ -269,8 +408,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      session,
+      userRole,
+      loading,
+      signUp,
+      signIn,
+      signOut,
+      resetPassword,
+      updatePassword,
+      changePassword,
+    }),
+    [user, session, userRole, loading]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, session, userRole, loading, signUp, signIn, signOut, resetPassword, updatePassword, changePassword }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

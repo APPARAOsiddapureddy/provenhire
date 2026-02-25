@@ -1,0 +1,803 @@
+/* Dashboard UI — dark theme (Deep Navy + Gold). Typography matches home page: Manrope + IBM Plex Mono */
+
+:root {
+  /* Use same fonts as home page (index.css) for consistent look across app */
+  --dash-font-sans: 'Manrope', sans-serif;
+  --dash-font-serif: 'Manrope', sans-serif;
+  --dash-font-mono: 'IBM Plex Mono', monospace;
+  --dash-navy: #0B1C2D;
+  --dash-navy-mid: #102236;
+  --dash-navy-light: #162D45;
+  --dash-navy-border: #1E3A52;
+  --dash-gold: #D4AF37;
+  --dash-gold-light: #E8CB5A;
+  --dash-gold-dim: rgba(212, 175, 55, 0.15);
+  --dash-gold-dim2: rgba(212, 175, 55, 0.08);
+  --dash-slate: #2E3A46;
+  --dash-bg: #0d2137;
+  --dash-bg2: #102236;
+  --dash-emerald: #1FA971;
+  --dash-emerald-light: rgba(31, 169, 113, 0.15);
+  --dash-text-primary: #f0f4f8;
+  --dash-text-secondary: #b8c5d4;
+  --dash-text-muted: #8496A4;
+  --dash-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --dash-shadow-md: 0 8px 32px rgba(0, 0, 0, 0.25);
+  --dash-shadow-gold: 0 8px 32px rgba(212, 175, 55, 0.2);
+}
+
+/* App shell */
+.dashboard-shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+  background: var(--dash-navy);
+}
+
+@media (max-width: 1024px) {
+  .dashboard-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-sidebar {
+  background: var(--dash-navy);
+  border-right: 1px solid var(--dash-navy-border);
+  padding: 28px 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  font-family: var(--dash-font-sans);
+}
+
+.dashboard-sidebar-section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--dash-text-muted);
+  padding: 0 24px 10px;
+}
+
+.dashboard-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 24px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 1rem;
+  font-weight: 500;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+
+.dashboard-sidebar-item:hover {
+  background: var(--dash-navy-light);
+  color: white;
+}
+
+.dashboard-sidebar-item.active {
+  background: var(--dash-gold);
+  color: var(--dash-navy);
+  font-weight: 600;
+}
+
+.dashboard-sidebar-item.active::before {
+  display: none;
+}
+
+.dashboard-sidebar-divider {
+  height: 1px;
+  background: var(--dash-navy-border);
+  margin: 16px 24px;
+}
+
+.dashboard-main {
+  padding: 0;
+  overflow-y: auto;
+  background: var(--dash-bg);
+  font-family: var(--dash-font-sans);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--dash-text-primary);
+}
+
+/* Section header — dark */
+.dashboard-section-header {
+  padding: 36px 48px 28px;
+  border-bottom: 1px solid var(--dash-navy-border);
+  background: var(--dash-navy);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.dashboard-section-header h1 {
+  font-family: var(--dash-font-sans);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: white;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+}
+
+.dashboard-section-header p {
+  font-size: 1rem;
+  color: var(--dash-text-muted);
+  margin-top: 6px;
+  font-weight: 500;
+}
+
+.dashboard-section-content {
+  padding: 36px 48px;
+  background: var(--dash-bg);
+}
+
+@media (max-width: 768px) {
+  .dashboard-section-header,
+  .dashboard-section-content {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+
+/* Stage header card (candidate) */
+.dashboard-stage-header-card {
+  background: linear-gradient(135deg, var(--dash-navy) 0%, var(--dash-slate) 100%);
+  border-radius: 16px;
+  padding: 36px 40px;
+  margin-bottom: 28px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-stage-header-card::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle, rgba(212, 175, 55, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.dashboard-stage-greeting {
+  font-size: 1rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 6px;
+}
+
+.dashboard-stage-name {
+  font-family: var(--dash-font-sans);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: white;
+  letter-spacing: -0.5px;
+}
+
+.dashboard-stage-name span {
+  color: var(--dash-gold);
+}
+
+.dashboard-stage-time-badge {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 12px 20px;
+  text-align: right;
+}
+
+.dashboard-stage-time-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.dashboard-stage-time-value {
+  font-family: var(--dash-font-mono);
+  font-size: 1.375rem;
+  font-weight: 600;
+  color: var(--dash-gold);
+}
+
+/* Progress bar (5 stages) */
+.dashboard-stage-progress-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  margin-top: 28px;
+}
+
+.dashboard-stage-progress-step {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.dashboard-stage-progress-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 0;
+}
+
+.dashboard-stage-progress-step.done:not(:last-child)::after {
+  background: var(--dash-gold);
+}
+
+.dashboard-stage-progress-step.active:not(:last-child)::after {
+  background: linear-gradient(90deg, var(--dash-gold) 0%, rgba(255, 255, 255, 0.1) 100%);
+}
+
+.dashboard-stage-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: all 0.3s;
+  margin: 0 auto 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-stage-dot.done {
+  background: var(--dash-gold);
+  color: var(--dash-navy);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.25);
+}
+
+.dashboard-stage-dot.active {
+  background: var(--dash-navy-light);
+  border: 2px solid var(--dash-gold);
+  color: var(--dash-gold);
+  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2), 0 0 16px rgba(212, 175, 55, 0.3);
+  animation: dashboard-pulse-gold 2s ease-in-out infinite;
+}
+
+.dashboard-stage-dot.locked {
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes dashboard-pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2), 0 0 16px rgba(212, 175, 55, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(212, 175, 55, 0.15), 0 0 24px rgba(212, 175, 55, 0.4); }
+}
+
+.dashboard-stage-dot-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  font-weight: 600;
+  max-width: 80px;
+  line-height: 1.35;
+}
+
+.dashboard-stage-dot.done + .dashboard-stage-dot-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dashboard-stage-dot.active + .dashboard-stage-dot-label {
+  color: var(--dash-gold);
+}
+
+/* Stage cards grid */
+.dashboard-stages-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-stages-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-stage-card {
+  background: var(--dash-navy-light);
+  border: 1px solid var(--dash-navy-border);
+  border-radius: 12px;
+  padding: 28px;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+  font-family: var(--dash-font-sans);
+}
+
+.dashboard-stage-card:hover {
+  box-shadow: var(--dash-shadow-md);
+  transform: translateY(-2px);
+}
+
+.dashboard-stage-card.completed {
+  border-color: rgba(31, 169, 113, 0.35);
+  background: linear-gradient(135deg, rgba(31, 169, 113, 0.08) 0%, var(--dash-navy-light) 60%);
+}
+
+.dashboard-stage-card.active-stage {
+  border-color: rgba(212, 175, 55, 0.45);
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, var(--dash-navy-light) 60%);
+  box-shadow: 0 4px 20px rgba(212, 175, 55, 0.15);
+}
+
+.dashboard-stage-card.locked-stage {
+  opacity: 0.75;
+}
+
+.dashboard-stage-card.full-width {
+  grid-column: 1 / -1;
+}
+
+/* Stage card typography — readable sizes matching home page */
+.dashboard-stage-card-title {
+  font-family: var(--dash-font-sans);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.dashboard-stage-card-desc {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--dash-text-muted);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.dashboard-stage-pill {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.dashboard-stage-num {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--dash-font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.dashboard-stage-num.done-num {
+  background: var(--dash-emerald-light);
+  color: var(--dash-emerald);
+}
+
+.dashboard-stage-num.active-num {
+  background: var(--dash-gold-dim);
+  color: var(--dash-gold);
+}
+
+.dashboard-stage-num.locked-num {
+  background: var(--dash-bg2);
+  color: var(--dash-text-muted);
+}
+
+.dashboard-pill-verified {
+  background: var(--dash-emerald-light);
+  color: var(--dash-emerald);
+}
+
+.dashboard-pill-active {
+  background: var(--dash-gold-dim);
+  color: var(--dash-gold-light);
+}
+
+.dashboard-pill-locked {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--dash-text-muted);
+}
+
+.dashboard-trust-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--dash-navy-border);
+  border-radius: 20px;
+  font-size: 0.8125rem;
+  color: var(--dash-text-secondary);
+  font-weight: 600;
+  margin-right: 6px;
+  margin-top: 6px;
+}
+
+.dashboard-score-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.dashboard-score-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--dash-emerald) 0%, #2DD4A4 100%);
+}
+
+.dashboard-score-text {
+  font-family: var(--dash-font-mono);
+  font-size: 0.875rem;
+  color: var(--dash-emerald);
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+/* Buttons */
+.dashboard-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--dash-navy-border);
+  color: rgba(255, 255, 255, 0.8);
+  padding: 9px 20px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: var(--dash-font-sans);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dashboard-btn-gold {
+  background: linear-gradient(135deg, var(--dash-gold) 0%, var(--dash-gold-light) 100%);
+  border: none;
+  color: var(--dash-navy);
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: var(--dash-font-sans);
+  cursor: pointer;
+  letter-spacing: 0.1px;
+  transition: all 0.2s;
+  box-shadow: var(--dash-shadow-gold);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.dashboard-btn-gold:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 40px rgba(212, 175, 55, 0.35);
+}
+
+/* Proc indicator */
+.dashboard-proc-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--dash-navy-border);
+  border-radius: 6px;
+  color: var(--dash-text-secondary);
+}
+
+.dashboard-rec-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #E85555;
+  animation: dashboard-blink-rec 1.5s ease-in-out infinite;
+}
+
+@keyframes dashboard-blink-rec {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Tabs */
+.dashboard-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--dash-navy-border);
+  margin-bottom: 0;
+  padding: 0 48px;
+  background: var(--dash-navy);
+  flex-wrap: wrap;
+}
+
+.dashboard-tab {
+  padding: 14px 22px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--dash-text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.15s;
+  font-family: var(--dash-font-sans);
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+
+.dashboard-tab:hover {
+  color: white;
+}
+
+.dashboard-tab.active {
+  color: var(--dash-gold);
+  border-bottom-color: var(--dash-gold);
+  font-weight: 600;
+}
+
+/* Filter bar */
+.dashboard-filter-bar {
+  background: var(--dash-navy-light);
+  border: 1px solid var(--dash-navy-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.dashboard-filter-chip {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--dash-navy-border);
+  background: transparent;
+  font-size: 13px;
+  font-family: var(--dash-font-sans);
+  color: var(--dash-text-secondary);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.dashboard-filter-chip:hover {
+  border-color: var(--dash-gold);
+  color: var(--dash-gold);
+}
+
+.dashboard-filter-chip.selected {
+  background: var(--dash-gold);
+  border-color: var(--dash-gold);
+  color: var(--dash-navy);
+}
+
+.dashboard-filter-chip.gold-chip.selected {
+  background: linear-gradient(135deg, var(--dash-gold), var(--dash-gold-light));
+  border-color: var(--dash-gold);
+  color: var(--dash-navy);
+  font-weight: 700;
+}
+
+/* Candidate cards (recruiter) */
+.dashboard-candidates-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-candidates-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-candidate-card {
+  background: var(--dash-navy-light);
+  border: 1px solid var(--dash-navy-border);
+  border-radius: 12px;
+  padding: 24px;
+  transition: all 0.2s;
+  cursor: pointer;
+  color: var(--dash-text-primary);
+}
+
+.dashboard-candidate-card:hover {
+  box-shadow: var(--dash-shadow-md);
+  border-color: rgba(212, 175, 55, 0.3);
+  transform: translateY(-2px);
+}
+
+.dashboard-badge-a {
+  background: linear-gradient(135deg, var(--dash-gold) 0%, var(--dash-gold-light) 100%);
+  color: var(--dash-navy);
+  box-shadow: 0 2px 8px rgba(212, 175, 55, 0.3);
+}
+
+.dashboard-badge-b {
+  background: rgba(168, 184, 200, 0.12);
+  border: 1px solid rgba(168, 184, 200, 0.35);
+  color: #6B849A;
+}
+
+.dashboard-badge-c {
+  background: rgba(138, 155, 170, 0.1);
+  border: 1px solid rgba(138, 155, 170, 0.25);
+  color: #7B8E9A;
+}
+
+.dashboard-verified-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--dash-emerald-light);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: var(--dash-font-sans);
+  color: var(--dash-emerald);
+}
+
+/* Cards inside dashboard main — dark theme, same typography as rest of app */
+.dashboard-main .rounded-lg.border {
+  background: var(--dash-navy-light);
+  border-color: var(--dash-navy-border);
+  color: var(--dash-text-primary);
+  font-family: var(--dash-font-sans);
+  font-size: 1rem;
+  font-weight: 500;
+}
+.dashboard-main .rounded-lg.border .text-muted-foreground {
+  color: var(--dash-text-muted);
+}
+.dashboard-main .rounded-lg.border h3,
+.dashboard-main .rounded-lg.border .font-semibold {
+  color: var(--dash-text-primary);
+  font-weight: 600;
+}
+.dashboard-main .rounded-lg.border h3 {
+  font-size: 1.25rem;
+}
+
+/* Recruiter stat cards row */
+.dashboard-stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  padding: 0 48px 24px;
+  background: var(--dash-navy);
+}
+.dashboard-stat-card {
+  background: var(--dash-navy-light);
+  border: 1px solid var(--dash-navy-border);
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.2s;
+}
+.dashboard-stat-card:hover {
+  border-color: rgba(212, 175, 55, 0.25);
+}
+.dashboard-stat-card-label {
+  font-size: 0.875rem;
+  color: var(--dash-text-muted);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.dashboard-stat-card-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: white;
+  font-family: var(--dash-font-sans);
+}
+.dashboard-stat-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(212, 175, 55, 0.12);
+  color: var(--dash-gold);
+  margin-top: 12px;
+}
+
+/* Recruiter filter panel (left of talent pool) */
+.dashboard-recruiter-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 0;
+  min-height: 400px;
+}
+@media (max-width: 900px) {
+  .dashboard-recruiter-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.dashboard-filter-panel {
+  background: var(--dash-navy-light);
+  border-right: 1px solid var(--dash-navy-border);
+  padding: 24px 20px;
+  font-family: var(--dash-font-sans);
+}
+.dashboard-filter-panel-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--dash-text-muted);
+  margin-bottom: 14px;
+}
+.dashboard-filter-panel label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--dash-text-secondary);
+}
+.dashboard-filter-panel label:hover {
+  color: white;
+}
+.dashboard-filter-panel input[type="checkbox"] {
+  accent-color: var(--dash-gold);
+  width: 18px;
+  height: 18px;
+}
+.dashboard-talent-content {
+  padding: 24px 32px 32px;
+  overflow-y: auto;
+}
+.dashboard-talent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.dashboard-talent-title {
+  font-family: var(--dash-font-sans);
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: white;
+}
+.dashboard-sort-select {
+  background: var(--dash-navy-light);
+  border: 1px solid var(--dash-navy-border);
+  color: var(--dash-text-primary);
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: var(--dash-font-sans);
+}
+.dashboard-sort-select option {
+  background: var(--dash-navy-mid);
+  color: white;
+}

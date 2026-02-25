@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert } from "lucide-react";
+import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
@@ -23,6 +23,19 @@ import SkillPassport from "@/components/SkillPassport";
 import ReferAFriend from "@/components/ReferAFriend";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
+import { Skeleton } from "@/components/ui/skeleton";
+import { preloadVerificationFlow } from "@/preloads";
+import { skipSupabaseRequests } from "@/lib/skipSupabase";
+import DashboardShell from "@/components/DashboardShell";
+
+const STAGE_ORDER = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'] as const;
+const STAGE_LABELS: Record<string, string> = {
+  profile_setup: 'Profile Setup',
+  aptitude_test: 'Aptitude Test',
+  dsa_round: 'DSA Round',
+  expert_interview: 'AI Expert Interview',
+  human_expert_interview: 'Human Expert Interview',
+};
 
 const JobSeekerDashboard = () => {
   const { user, signOut, changePassword } = useAuth();
@@ -53,8 +66,28 @@ const JobSeekerDashboard = () => {
     skills: [] as string[],
   });
   const [skillInput, setSkillInput] = useState('');
-  
-  const { 
+  const [loadError, setLoadError] = useState(false);
+  const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'applications'>('candidate');
+
+  const getStageStatus = (stageName: string): 'done' | 'active' | 'locked' => {
+    const stage = verificationStages.find((s: any) => s.stage_name === stageName);
+    if (!stage) {
+      const idx = STAGE_ORDER.indexOf(stageName as any);
+      const prevDone = idx > 0 && verificationStages.some((s: any) => s.stage_name === STAGE_ORDER[idx - 1] && s.status === 'completed');
+      return prevDone ? 'active' : idx === 0 ? 'active' : 'locked';
+    }
+    if (stage.status === 'completed') return 'done';
+    if (stage.status === 'in_progress') return 'active';
+    return 'locked';
+  };
+
+  const activeStageIndex = STAGE_ORDER.findIndex((s) => getStageStatus(s) === 'active');
+  const nextStageLabel = activeStageIndex >= 0 && activeStageIndex < STAGE_ORDER.length
+    ? STAGE_LABELS[STAGE_ORDER[activeStageIndex]]
+    : 'Verification';
+
+  const {
+ 
     isVerified, 
     verificationProgress: gateProgress, 
     currentStage,
@@ -117,80 +150,125 @@ const JobSeekerDashboard = () => {
   };
 
   useEffect(() => {
-    if (user) {
-      loadDashboardData();
+    if (!user) {
+      setLoading(false);
+      setProfile(null);
+      setApplications([]);
+      setSavedJobs([]);
+      setVerificationStages([]);
+      setTestResults({ aptitude: null, dsa: null });
+      return;
     }
-  }, [user]);
+    setLoading(true);
+    setLoadError(false);
+    loadDashboardData();
+  }, [user?.id]);
+
+  // Preload Verification flow chunk so /verification opens fast when user clicks
+  useEffect(() => {
+    const id = setTimeout(() => preloadVerificationFlow(), 300);
+    return () => clearTimeout(id);
+  }, []);
 
   const loadDashboardData = async () => {
+    const FETCH_TIMEOUT_MS = 20000;
     try {
-      const [profileData, applicationsData, savedJobsData, stagesData, aptitudeData, dsaData] = await Promise.all([
+      if (skipSupabaseRequests()) {
+        setProfile(null);
+        setApplications([]);
+        setSavedJobs([]);
+        setVerificationStages([]);
+        setTestResults({ aptitude: null, dsa: null });
+        setCertificationLevel(null);
+        setStats({ applicationsSent: 0, interviews: 0, profileViews: 0 });
+        setVerificationProgress(0);
+        setLoading(false);
+        return;
+      }
+
+      const queries = [
         supabase.from('job_seeker_profiles').select('*').eq('user_id', user?.id).maybeSingle(),
         supabase.from('job_applications').select('*, jobs(title, company, location)').eq('job_seeker_id', user?.id).order('applied_at', { ascending: false }),
         supabase.from('saved_jobs').select('*, jobs(id, title, company, location, salary_range, job_type)').eq('user_id', user?.id).order('saved_at', { ascending: false }),
         supabase.from('verification_stages').select('*').eq('user_id', user?.id).order('created_at', { ascending: true }),
         supabase.from('aptitude_test_results').select('*').eq('user_id', user?.id).order('completed_at', { ascending: false }).limit(1).maybeSingle(),
-        supabase.from('dsa_round_results').select('*').eq('user_id', user?.id).order('completed_at', { ascending: false }).limit(1).maybeSingle()
-      ]);
+        supabase.from('dsa_round_results').select('*').eq('user_id', user?.id).order('completed_at', { ascending: false }).limit(1).maybeSingle(),
+      ];
+      const fetchPromise = Promise.allSettled(queries).then((results) =>
+        results.map((r) => (r.status === 'fulfilled' ? r.value : { data: null, error: r.reason }))
+      );
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Dashboard request timed out. Check your connection and try again.')), FETCH_TIMEOUT_MS)
+      );
+      const resolved = await Promise.race([fetchPromise, timeoutPromise]);
+      const [profileData, applicationsData, savedJobsData, stagesData, aptitudeData, dsaData] = resolved;
 
-      if (profileData.data) {
-        setProfile(profileData.data);
-        setEditingProfile({
-          bio: profileData.data.bio || '',
-          location: profileData.data.location || '',
-          phone: profileData.data.phone || '',
-          skills: profileData.data.skills || [],
-        });
+      const hasError = resolved.some((r: { error?: unknown }) => r?.error);
+      setLoadError(hasError);
+      if (hasError) {
+        toast.error('Some data could not be loaded. Showing what’s available. Use Retry below if needed.');
       }
-      if (applicationsData.data) setApplications(applicationsData.data);
-      if (savedJobsData.data) setSavedJobs(savedJobsData.data);
-      if (stagesData.data) setVerificationStages(stagesData.data);
-      
-      // Set test results
-      setTestResults({
-        aptitude: aptitudeData.data,
-        dsa: dsaData.data
-      });
 
-      // Calculate certification level based on scores
-      if (profileData.data?.verification_status === 'verified') {
-        const aptitudeScore = aptitudeData.data?.total_score || 0;
-        const dsaScore = dsaData.data?.total_score || 0;
-        const avgScore = (aptitudeScore + dsaScore) / 2;
-        
-        // Get interview score from stages
-        const interviewStage = stagesData.data?.find(s => s.stage_name === 'expert_interview');
-        const interviewScore = interviewStage?.score || 0;
-        
+      const profile = profileData?.data ?? null;
+      const applicationsList = Array.isArray(applicationsData?.data) ? applicationsData.data : [];
+      const savedList = Array.isArray(savedJobsData?.data) ? savedJobsData.data : [];
+      const stagesList = Array.isArray(stagesData?.data) ? stagesData.data : [];
+      const aptitudeResult = aptitudeData?.data ?? null;
+      const dsaResult = dsaData?.data ?? null;
+
+      if (profile) {
+        setProfile(profile);
+        setEditingProfile({
+          bio: profile.bio || '',
+          location: profile.location || '',
+          phone: profile.phone || '',
+          skills: profile.skills || [],
+        });
+      } else {
+        setProfile(null);
+      }
+      setApplications(applicationsList);
+      setSavedJobs(savedList);
+      setVerificationStages(stagesList);
+      setTestResults({ aptitude: aptitudeResult, dsa: dsaResult });
+
+      if (profile?.verification_status === 'expert_verified' || profile?.verification_status === 'verified') {
+        const aptitudeScore = aptitudeResult?.total_score ?? 0;
+        const dsaScore = dsaResult?.total_score ?? 0;
+        const interviewStage = stagesList.find((s: { stage_name?: string }) => s.stage_name === 'expert_interview');
+        const interviewScore = interviewStage?.score ?? 0;
         const overallAvg = (aptitudeScore + dsaScore + interviewScore) / 3;
-        
-        if (overallAvg >= 12) {
-          setCertificationLevel("A");
-        } else if (overallAvg >= 9) {
-          setCertificationLevel("B");
-        } else {
-          setCertificationLevel("C");
-        }
+        if (overallAvg >= 12) setCertificationLevel("A");
+        else if (overallAvg >= 9) setCertificationLevel("B");
+        else setCertificationLevel("C");
       }
 
       setStats({
-        applicationsSent: applicationsData.data?.length || 0,
-        interviews: applicationsData.data?.filter(a => a.status === 'interview_scheduled').length || 0,
-        profileViews: profileData.data?.profile_views || 0,
+        applicationsSent: applicationsList.length,
+        interviews: applicationsList.filter((a: { status?: string }) => a.status === 'interview_scheduled').length,
+        profileViews: profile?.profile_views ?? 0,
       });
 
-      if (stagesData.data && stagesData.data.length > 0) {
-        const completed = stagesData.data.filter(s => s.status === 'completed').length;
+      if (stagesList.length > 0) {
+        const completed = stagesList.filter((s: { status?: string }) => s.status === 'completed').length;
         setVerificationProgress((completed / 4) * 100);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error loading dashboard data:', error);
+      setLoadError(true);
+      const msg = error instanceof Error ? error.message : 'Failed to load dashboard';
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleRemoveSavedJob = async (savedJobId: string, jobId: string) => {
+    if (skipSupabaseRequests()) {
+      setSavedJobs(prev => prev.filter(j => j.id !== savedJobId));
+      toast.success('Job removed from saved');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('saved_jobs')
@@ -208,6 +286,12 @@ const JobSeekerDashboard = () => {
   };
 
   const handleUpdateProfile = async () => {
+    if (skipSupabaseRequests()) {
+      setProfile((prev: any) => (prev ? { ...prev, ...editingProfile } : null));
+      setShowProfileDialog(false);
+      toast.success('Profile updated (demo mode)');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('job_seeker_profiles')
@@ -252,13 +336,13 @@ const JobSeekerDashboard = () => {
 
   const getStatusBadge = (status: string) => {
     const statusColors: Record<string, string> = {
-      'applied': 'bg-blue-100 text-blue-800',
-      'reviewing': 'bg-yellow-100 text-yellow-800',
-      'interview_scheduled': 'bg-green-100 text-green-800',
-      'rejected': 'bg-red-100 text-red-800',
-      'hired': 'bg-emerald-100 text-emerald-800',
+      'applied': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+      'reviewing': 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+      'interview_scheduled': 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+      'rejected': 'bg-red-500/20 text-red-300 border-red-500/30',
+      'hired': 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40',
     };
-    return statusColors[status] || 'bg-gray-100 text-gray-800';
+    return statusColors[status] || 'bg-white/10 text-gray-300 border-white/10';
   };
 
   const getStageIcon = (status: string) => {
@@ -278,412 +362,280 @@ const JobSeekerDashboard = () => {
     { label: "Profile Views", value: stats.profileViews.toString(), icon: Eye, color: "text-secondary-foreground" },
   ];
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const sidebarSections: import("@/components/DashboardShell").DashboardSidebarSection[] = [
+    {
+      sectionLabel: "Candidate",
+      items: [
+        { label: "Verification Pipeline", onClick: () => setDashboardSection('candidate'), active: dashboardSection === 'candidate', icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
+        { label: "Skill Passport", onClick: () => setDashboardSection('passport'), active: dashboardSection === 'passport', badge: isVerified ? "Active" : undefined, icon: <FileCheck className="w-[18px] h-[18px]" /> },
+        { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
+        { label: "Applications", onClick: () => setDashboardSection('applications'), active: dashboardSection === 'applications', icon: <ListChecks className="w-[18px] h-[18px]" /> },
+      ],
+    },
+  ];
+
+  const userName = profile?.full_name || user?.email?.split('@')[0] || 'Candidate';
+  const userInitials = (profile?.full_name || user?.email || 'U').split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-gradient-subtle">
-      {/* Header */}
-      <header className="bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Briefcase className="h-6 w-6 text-primary" />
-            <h1 className="text-xl font-bold bg-gradient-hero bg-clip-text text-transparent">
-              ProvenHire Dashboard
-            </h1>
+    <div className="min-h-screen">
+      <DashboardShell
+        sidebarSections={sidebarSections}
+        user={{ name: userName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
+      >
+        {loadError && (
+          <div className="dashboard-section-content">
+            <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+              <span>Some data could not be loaded (e.g. slow connection or region).</span>
+              <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-200 hover:bg-amber-500/20" onClick={() => { setLoadError(false); setLoading(true); loadDashboardData(); }}>Retry</Button>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground hidden md:block">
-              Welcome, {user?.email}
-            </span>
-            <Button variant="ghost" size="icon" onClick={() => setShowProfileDialog(true)} title="Edit Profile">
-              <Settings className="h-5 w-5" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowPasswordDialog(true)}>
-              Reset Password
-            </Button>
-            <Button variant="outline" onClick={signOut}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Sign Out
-            </Button>
+        )}
+        {loading && (
+          <div className="dashboard-section-content space-y-6">
+            <Skeleton className="h-48 w-full rounded-2xl" />
+            <div className="dashboard-stages-grid">
+              <Skeleton className="h-64 rounded-xl" />
+              <Skeleton className="h-64 rounded-xl" />
+            </div>
           </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Profile Quick View */}
-        {profile && (
-          <Card className="mb-8">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                    <User className="h-8 w-8 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle>{user?.email}</CardTitle>
-                    <CardDescription>
-                      {profile.location || 'Location not set'} • {profile.experience_years || 0} years experience
-                    </CardDescription>
-                    {profile.skills && profile.skills.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {profile.skills.slice(0, 5).map((skill: string) => (
-                          <Badge key={skill} variant="secondary" className="text-xs">
-                            {skill}
-                          </Badge>
-                        ))}
-                        {profile.skills.length > 5 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{profile.skills.length - 5} more
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  {profile.resume_url && (
-                    <ResumeViewButton 
-                      resumeUrl={profile.resume_url}
-                      label="View Resume"
-                    />
-                  )}
-                  <Button size="sm" onClick={() => setShowProfileDialog(true)}>
-                    Edit Profile
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-          </Card>
         )}
-
-        {/* Skill Passport */}
-        {profile && (
-          <SkillPassport
-            certificationLevel={certificationLevel}
-            skills={profile.skills || []}
-            verificationStatus={profile.verification_status}
-            aptitudeScore={testResults.aptitude ? Math.round((testResults.aptitude.total_score / 15) * 100) : undefined}
-            dsaScore={testResults.dsa ? Math.round((testResults.dsa.total_score / 15) * 100) : undefined}
-            interviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score ? Math.round((verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score / 15) * 100) : undefined}
-          />
+        {!loading && dashboardSection === 'passport' && (
+          <div className="dashboard-section-content">
+            <div className="dashboard-section-header">
+              <div>
+                <h1>Skill Passport</h1>
+                <p>Your verified, portable credential — accepted by all ProvenHire partner companies</p>
+              </div>
+            </div>
+            {profile && (
+              <SkillPassport
+                certificationLevel={certificationLevel}
+                skills={profile.skills || []}
+                verificationStatus={profile.verification_status}
+                aptitudeScore={testResults.aptitude ? Math.round((testResults.aptitude.total_score / 15) * 100) : undefined}
+                dsaScore={testResults.dsa ? Math.round((testResults.dsa.total_score / 15) * 100) : undefined}
+                interviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score ? Math.round((verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score / 15) * 100) : undefined}
+              />
+            )}
+          </div>
         )}
-
-        <Card className="mb-8">
-          <CardHeader>
-            <div className="flex items-center justify-between">
+        {!loading && dashboardSection === 'applications' && (
+          <div className="dashboard-section-content">
+            <div className="dashboard-section-header">
               <div>
-                <CardTitle>Profile Completeness</CardTitle>
-                <CardDescription>Finish these items to improve visibility</CardDescription>
+                <h1>Applications</h1>
+                <p>Track your job applications and saved jobs</p>
               </div>
-              <Badge variant="secondary" className="text-base px-4 py-2">
-                {profileCompletion}% Complete
-              </Badge>
+              <Button asChild className="dashboard-btn-gold">
+                <Link to="/jobs">Browse Jobs</Link>
+              </Button>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Progress value={profileCompletion} className="h-3" />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {profileChecklist.map((item) => (
-                <div key={item.label} className="flex items-center gap-2 text-sm">
-                  {item.done ? (
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <span className={item.done ? "text-foreground" : "text-muted-foreground"}>
-                    {item.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Verification Status */}
-        <Card className="mb-8 border-primary/20 bg-gradient-to-r from-primary/5 to-accent/5">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Verification Progress</CardTitle>
-                <CardDescription>Complete all stages to unlock full access</CardDescription>
-              </div>
-              <Badge variant="secondary" className="text-base px-4 py-2">
-                {Math.round(verificationProgress)}% Complete
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Progress value={verificationProgress} className="h-3" />
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {verificationStages.length > 0 ? (
-                verificationStages.map((stage) => (
-                  <div key={stage.id} className={`flex items-center gap-3 p-3 bg-background/60 rounded-lg ${stage.status === 'locked' ? 'opacity-50' : ''}`}>
-                    {getStageIcon(stage.status)}
-                    <div>
-                      <p className="font-medium text-sm capitalize">{stage.stage_name.replace('_', ' ')}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{stage.status.replace('_', ' ')}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <>
-                  <div className="flex items-center gap-3 p-3 bg-background/60 rounded-lg">
-                    <Clock className="h-5 w-5 text-yellow-500" />
-                    <div>
-                      <p className="font-medium text-sm">Profile Setup</p>
-                      <p className="text-xs text-muted-foreground">Start verification</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-background/60 rounded-lg opacity-50">
-                    <Lock className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-sm">Aptitude Test</p>
-                      <p className="text-xs text-muted-foreground">Locked</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-background/60 rounded-lg opacity-50">
-                    <Lock className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-sm">DSA Round</p>
-                      <p className="text-xs text-muted-foreground">Locked</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-background/60 rounded-lg opacity-50">
-                    <Lock className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-sm">Expert Interview</p>
-                      <p className="text-xs text-muted-foreground">Locked</p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            <Button className="w-full bg-gradient-hero hover:opacity-90" onClick={() => navigate('/verification')}>
-              {verificationProgress === 100 ? 'View Verification Status' : 'Continue Verification Process'}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {statsDisplay.map((stat, index) => (
-            <Card key={index} className="hover-scale">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardDescription>{stat.label}</CardDescription>
-                <stat.icon className={`h-5 w-5 ${stat.color}`} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{stat.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Quick Actions - Show different content based on verification */}
-        {isVerified ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <Link to="/jobs" className="hover-scale">
-              <Card className="cursor-pointer h-full hover:border-primary/50 transition-colors">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5 text-primary" />
-                    Browse Jobs
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Your Applications</span>
+                    <Badge variant="outline">{applications.length} total</Badge>
                   </CardTitle>
-                  <CardDescription>Find your next opportunity from our verified job listings</CardDescription>
+                  <CardDescription>Track your job applications</CardDescription>
                 </CardHeader>
-              </Card>
-            </Link>
-            <Card className="hover-scale cursor-pointer h-full hover:border-accent/50 transition-colors" onClick={() => toast.info('AI Match feature coming soon!')}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Award className="h-5 w-5 text-accent" />
-                  AI Match Score
-                </CardTitle>
-                <CardDescription>See your best matches based on your profile and skills</CardDescription>
-              </CardHeader>
-            </Card>
-          </div>
-        ) : (
-          <>
-            {/* Unverified User - Show restricted content */}
-            <Card className="mb-8 border-orange-500/30 bg-gradient-to-r from-orange-500/5 to-yellow-500/5">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center">
-                    <ShieldAlert className="h-5 w-5 text-orange-500" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Limited Access</CardTitle>
-                    <CardDescription>
-                      Complete verification to unlock all features
-                    </CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div 
-                    className="p-3 bg-background/60 rounded-lg text-center cursor-pointer hover:bg-background/80 transition-colors"
-                    onClick={() => handleRestrictedAction()}
-                  >
-                    <Briefcase className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm font-medium">Browse Jobs</p>
-                    <Lock className="h-3 w-3 mx-auto mt-1 text-orange-500" />
-                  </div>
-                  <div 
-                    className="p-3 bg-background/60 rounded-lg text-center cursor-pointer hover:bg-background/80 transition-colors"
-                    onClick={() => handleRestrictedAction()}
-                  >
-                    <Award className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm font-medium">AI Match</p>
-                    <Lock className="h-3 w-3 mx-auto mt-1 text-orange-500" />
-                  </div>
-                  <div 
-                    className="p-3 bg-background/60 rounded-lg text-center cursor-pointer hover:bg-background/80 transition-colors"
-                    onClick={() => handleRestrictedAction()}
-                  >
-                    <FileText className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm font-medium">Applications</p>
-                    <Lock className="h-3 w-3 mx-auto mt-1 text-orange-500" />
-                  </div>
-                  <div 
-                    className="p-3 bg-background/60 rounded-lg text-center cursor-pointer hover:bg-background/80 transition-colors"
-                    onClick={() => handleRestrictedAction()}
-                  >
-                    <BookmarkCheck className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm font-medium">Saved Jobs</p>
-                    <Lock className="h-3 w-3 mx-auto mt-1 text-orange-500" />
-                  </div>
-                </div>
-                <Button 
-                  className="w-full bg-gradient-hero hover:opacity-90" 
-                  onClick={() => navigate('/verification')}
-                >
-                  Complete Verification to Unlock
-                </Button>
-              </CardContent>
-            </Card>
-            
-            {/* Refer a Friend - Show for unverified users */}
-            <div className="mb-8">
-              <ReferAFriend />
-            </div>
-          </>
-        )}
-
-        {/* Applications and Saved Jobs - Only show if verified */}
-        {isVerified && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Applied Jobs */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Your Applications</span>
-                <Badge variant="outline">{applications.length} total</Badge>
-              </CardTitle>
-              <CardDescription>Track your job applications</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {applications.length === 0 ? (
-                <div className="text-center py-8">
-                  <Briefcase className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                  <p className="text-muted-foreground mb-4">No applications yet. Start browsing jobs!</p>
-                  <Button asChild>
-                    <Link to="/jobs">Browse Jobs</Link>
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {applications.map((app) => (
-                    <div
-                      key={app.id}
-                      className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold truncate">{app.jobs?.title || 'Unknown Position'}</h3>
-                        <p className="text-sm text-muted-foreground">{app.jobs?.company || 'Unknown Company'}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Applied {new Date(app.applied_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge className={getStatusBadge(app.status)}>
-                        {app.status.replace('_', ' ')}
-                      </Badge>
+                <CardContent>
+                  {applications.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Briefcase className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                      <p className="text-muted-foreground mb-4">No applications yet. Start browsing jobs!</p>
+                      <Button asChild className="dashboard-btn-gold"><Link to="/jobs">Browse Jobs</Link></Button>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                      {applications.map((app) => (
+                        <div key={app.id} className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold truncate text-white">{app.jobs?.title || 'Unknown Position'}</h3>
+                            <p className="text-sm text-[var(--dash-text-muted)]">{app.jobs?.company || 'Unknown Company'}</p>
+                            <p className="text-sm text-[var(--dash-text-muted)] mt-1">Applied {new Date(app.applied_at).toLocaleDateString()}</p>
+                          </div>
+                          <Badge className={getStatusBadge(app.status)}>{app.status.replace('_', ' ')}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Saved Jobs</span>
+                    <Badge variant="outline">{savedJobs.length} saved</Badge>
+                  </CardTitle>
+                  <CardDescription>Jobs you've bookmarked for later</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {savedJobs.length === 0 ? (
+                    <div className="text-center py-8">
+                      <BookmarkCheck className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                      <p className="text-muted-foreground mb-4">No saved jobs yet.</p>
+                      <Button asChild className="dashboard-btn-gold"><Link to="/jobs">Browse Jobs</Link></Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                      {savedJobs.map((saved) => (
+                        <div key={saved.id} className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold truncate text-white">{saved.jobs?.title || 'Unknown Position'}</h3>
+                            <p className="text-sm text-[var(--dash-text-muted)]">{saved.jobs?.company || 'Unknown Company'}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button className="dashboard-btn-ghost" size="sm" asChild><Link to="/jobs"><ExternalLink className="h-3 w-3" /></Link></Button>
+                            <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => handleRemoveSavedJob(saved.id, saved.job_id)}><Trash2 className="h-4 w-4" /></Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+        {!loading && dashboardSection === 'candidate' && (
+          <div className="dashboard-candidate-section">
+            <div className="dashboard-section-header flex-wrap gap-4">
+              <div className="section-header-left">
+                <h1>Verification Pipeline</h1>
+                <p>Complete all 5 stages to unlock your Skill Passport and access premium opportunities</p>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="dashboard-proc-indicator">
+                  <span className="dashboard-rec-dot" />
+                  Session Proctored
+                </span>
+                <Button className="dashboard-btn-gold" onClick={() => navigate('/verification')}>
+                  Continue {nextStageLabel} →
+                </Button>
+                <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowProfileDialog(true)}>Edit Profile</Button>
+                <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowPasswordDialog(true)}>Reset Password</Button>
+                <Button className="dashboard-btn-ghost" size="sm" onClick={signOut}><LogOut className="h-4 w-4 mr-2" />Sign Out</Button>
+              </div>
+            </div>
+            <div className="dashboard-section-content">
+              <div className="dashboard-stage-header-card">
+                <div className="flex justify-between items-start flex-wrap gap-4 mb-7">
+                  <div>
+                    <div className="dashboard-stage-greeting">Welcome back,</div>
+                    <div className="dashboard-stage-name">{userName.split(' ')[0]} <span>{userName.split(' ').slice(1).join(' ') || ''}</span></div>
+                    <div className="flex items-center gap-2 mt-2 text-base font-medium text-white/60">
+                      <span>{profile?.current_role || profile?.current_company || 'Candidate'}</span>
+                      {isVerified && <><span style={{ width: 4, height: 4, background: 'var(--dash-gold)', borderRadius: '50%', display: 'inline-block' }} /><span>Expert Verified Path</span></>}
+                    </div>
+                  </div>
+                  <div className="dashboard-stage-time-badge">
+                    <div className="dashboard-stage-time-label">Time to full verify</div>
+                    <div className="dashboard-stage-time-value">≤ 48h</div>
+                    <div className="dashboard-stage-time-label mt-1">Complete all 5 stages</div>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Saved Jobs */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Saved Jobs</span>
-                <Badge variant="outline">{savedJobs.length} saved</Badge>
-              </CardTitle>
-              <CardDescription>Jobs you've bookmarked for later</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {savedJobs.length === 0 ? (
-                <div className="text-center py-8">
-                  <BookmarkCheck className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                  <p className="text-muted-foreground mb-4">No saved jobs yet. Browse and save your favorites!</p>
-                  <Button asChild>
-                    <Link to="/jobs">Browse Jobs</Link>
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {savedJobs.map((saved) => (
-                    <div
-                      key={saved.id}
-                      className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold truncate">{saved.jobs?.title || 'Unknown Position'}</h3>
-                        <p className="text-sm text-muted-foreground">{saved.jobs?.company || 'Unknown Company'}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          {saved.jobs?.location && (
-                            <span className="text-xs text-muted-foreground">{saved.jobs.location}</span>
-                          )}
-                          {saved.jobs?.salary_range && (
-                            <Badge variant="secondary" className="text-xs">{saved.jobs.salary_range}</Badge>
-                          )}
+                <div className="dashboard-stage-progress-bar">
+                  {STAGE_ORDER.map((stageName, idx) => {
+                    const status = getStageStatus(stageName);
+                    return (
+                      <div key={stageName} className={`dashboard-stage-progress-step ${status}`}>
+                        <div className="flex flex-col items-center gap-1">
+                          <div className={`dashboard-stage-dot ${status}`}>
+                            {status === 'done' ? '✓' : idx + 1}
+                          </div>
+                          <div className="dashboard-stage-dot-label">{STAGE_LABELS[stageName]}</div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" asChild>
-                          <Link to="/jobs">
-                            <ExternalLink className="h-3 w-3" />
-                          </Link>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="dashboard-stages-grid">
+                {STAGE_ORDER.slice(0, 4).map((stageName, idx) => {
+                  const status = getStageStatus(stageName);
+                  const isCompleted = status === 'done';
+                  const isActive = status === 'active';
+                  const isLocked = status === 'locked';
+                  const aptitudePct = testResults.aptitude ? Math.round((testResults.aptitude.total_score / 15) * 100) : null;
+                  const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 4}` : null;
+                  return (
+                    <div
+                      key={stageName}
+                      className={`dashboard-stage-card ${isCompleted ? 'completed' : ''} ${isActive ? 'active-stage' : ''} ${isLocked ? 'locked-stage' : ''}`}
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className={`dashboard-stage-num ${isCompleted ? 'done-num' : isActive ? 'active-num' : 'locked-num'}`}>
+                          {String(idx + 1).padStart(2, '0')}
+                        </div>
+                        <div className={`flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px] ${isCompleted ? 'dashboard-pill-verified' : isActive ? 'dashboard-pill-active' : 'dashboard-pill-locked'}`}>
+                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+                          {isCompleted ? 'Verified' : isActive ? 'In Progress' : 'Locked'}
+                        </div>
+                      </div>
+                      <h3 className="dashboard-stage-card-title">{STAGE_LABELS[stageName]}</h3>
+                      <p className="dashboard-stage-card-desc">
+                        {stageName === 'profile_setup' && 'AI-assisted profile creation with resume parsing and consistency checks.'}
+                        {stageName === 'aptitude_test' && 'Proctored 60-minute test covering logical reasoning, quantitative aptitude, and verbal ability.'}
+                        {stageName === 'dsa_round' && 'Proctored coding round with 2–4 algorithmic problems of increasing difficulty.'}
+                        {stageName === 'expert_interview' && 'Adaptive AI video interview. Questions generated from your resume, role, and experience level.'}
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {stageName === 'profile_setup' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> AI Parsed</span>}
+                        {stageName === 'aptitude_test' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Webcam Active</span></>}
+                        {stageName === 'dsa_round' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Sandbox Executed</span></>}
+                        {stageName === 'expert_interview' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Recording Active</span><span className="dashboard-trust-chip"><span style={{ background: 'var(--dash-gold)' }} className="w-1.5 h-1.5 rounded-full" /> AI Adaptive</span></>}
+                      </div>
+                      {isCompleted && stageName === 'profile_setup' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
+                      {isCompleted && stageName === 'aptitude_test' && aptitudePct != null && (
+                        <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${aptitudePct}%` }} /></div><div className="dashboard-score-text">Score: {aptitudePct}%</div></>
+                      )}
+                      {isCompleted && stageName === 'dsa_round' && dsaSolved && (
+                        <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: '75%' }} /></div><div className="dashboard-score-text">{dsaSolved} Problems Solved</div></>
+                      )}
+                      {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
+                      {isActive && (
+                        <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
+                          Begin {STAGE_LABELS[stageName]} →
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleRemoveSavedJob(saved.id, saved.job_id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <div className={`dashboard-stage-card locked-stage full-width ${getStageStatus('human_expert_interview') === 'locked' ? 'locked-stage' : ''}`}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="dashboard-stage-num locked-num">05</div>
+                    <div className="dashboard-pill-locked flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px]">
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--dash-text-muted)' }} /> Locked
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-5 items-start">
+                    <div>
+                      <h3 className="dashboard-stage-card-title">Human Expert Interview</h3>
+                      <p className="dashboard-stage-card-desc">
+                        30–45 min live video interview with a domain expert (5+ yrs experience). NDA signed. Cannot be gamed by coaching or scripted answers.
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Live Recorded</span>
+                        <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> ID Verified</span>
+                        <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> NDA Expert</span>
                       </div>
                     </div>
-                  ))}
+                    <div className="rounded-xl p-4 bg-white/5 border border-[var(--dash-navy-border)]">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-[var(--dash-text-muted)] mb-2">Slot availability (after Stage 4)</div>
+                      <div className="text-base font-bold text-[var(--dash-gold)]">Within 4–12 hours</div>
+                      <div className="text-sm text-[var(--dash-text-muted)] mt-1">8 active experts · Morning, Evening & Weekend slots</div>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </div>
+            </div>
+          </div>
         )}
-      </main>
+      </DashboardShell>
 
       {/* Profile Edit Dialog */}
       <Dialog open={showProfileDialog} onOpenChange={setShowProfileDialog}>
