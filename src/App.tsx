@@ -26,6 +26,8 @@ const CandidateSearch = lazy(() => import("./pages/dashboard/CandidateSearch"));
 const AssignmentAIDocs = lazy(() => import("./pages/dashboard/AssignmentAIDocs"));
 const VerificationFlow = lazy(() => import("./pages/verification/VerificationFlow"));
 const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const InterviewerCareers = lazy(() => import("./pages/careers/InterviewerCareers"));
+const InterviewRoom = lazy(() => import("./pages/interview/InterviewRoom"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 
 // Create QueryClient instance outside component to ensure stability
@@ -71,6 +73,7 @@ const App = () => (
               <Route path="/jobs" element={<Jobs />} />
               <Route path="/about" element={<About />} />
               <Route path="/for-employers" element={<ForEmployers />} />
+              <Route path="/careers/interviewer" element={<InterviewerCareers />} />
               <Route path="/admin" element={<AdminLogin />} />
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
               <Route 
@@ -110,6 +113,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="expert_interviewer">
                     <ExpertDashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/interview/room/:sessionId" 
+                element={
+                  <ProtectedRoute allowedRole="expert_interviewer">
+                    <InterviewRoom />
                   </ProtectedRoute>
                 } 
               />

@@ -7,7 +7,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 
@@ -30,54 +30,15 @@ const NotificationInbox = () => {
     if (!user) return;
 
     const fetchMessages = async () => {
-      const { data } = await supabase
-        .from("admin_messages")
-        .select("*")
-        .eq("recipient_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (data) setMessages(data);
+      const { notifications } = await api.get<{ notifications: Message[] }>("/api/notifications");
+      if (notifications) setMessages(notifications);
     };
 
     fetchMessages();
-
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    let cancelled = false;
-
-    // Defer subscription to avoid WebSocket "closed before connection established" when component unmounts quickly
-    const timer = window.setTimeout(() => {
-      if (cancelled || !user) return;
-      channel = supabase
-        .channel("notifications")
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "admin_messages",
-            filter: `recipient_id=eq.${user.id}`,
-          },
-          (payload) => {
-            setMessages((prev) => [payload.new as Message, ...prev.slice(0, 9)]);
-          }
-        )
-        .subscribe();
-    }, 150);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      if (channel) supabase.removeChannel(channel);
-    };
   }, [user]);
 
   const markAsRead = async (id: string) => {
-    await supabase
-      .from("admin_messages")
-      .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("id", id);
-
+    await api.post("/api/notifications/read", { id });
     setMessages((prev) =>
       prev.map((m) => (m.id === id ? { ...m, is_read: true } : m))
     );

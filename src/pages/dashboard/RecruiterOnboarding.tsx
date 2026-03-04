@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,13 +41,9 @@ const RecruiterOnboarding = () => {
 
   const checkOnboardingStatus = async () => {
     try {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('onboarding_completed, designation, phone, company_website, industry, hiring_for')
-        .eq('user_id', user?.id)
-        .maybeSingle();
+      const { profile } = await api.get<{ profile: any }>("/api/users/recruiter-profile");
 
-      if (profile?.onboarding_completed) {
+      if (profile?.onboardingCompleted) {
         navigate('/dashboard/recruiter');
         return;
       }
@@ -57,9 +53,9 @@ const RecruiterOnboarding = () => {
         setFormData({
           designation: profile.designation || "",
           phone: profile.phone || "",
-          company_website: profile.company_website || "",
+          company_website: profile.companyWebsite || "",
           industry: profile.industry || "",
-          hiring_for: profile.hiring_for || "",
+          hiring_for: profile.hiringFor || "",
         });
       }
     } catch (error) {
@@ -79,19 +75,14 @@ const RecruiterOnboarding = () => {
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          designation: formData.designation,
-          phone: formData.phone,
-          company_website: formData.company_website || null,
-          industry: formData.industry,
-          hiring_for: formData.hiring_for,
-          onboarding_completed: true,
-        })
-        .eq('user_id', user?.id);
-
-      if (error) throw error;
+      await api.post("/api/users/recruiter-profile", {
+        designation: formData.designation,
+        phone: formData.phone,
+        companyWebsite: formData.company_website || null,
+        industry: formData.industry,
+        hiringFor: formData.hiring_for,
+        onboardingCompleted: true,
+      });
 
       toast.success("Profile completed successfully!");
       navigate('/dashboard/recruiter');

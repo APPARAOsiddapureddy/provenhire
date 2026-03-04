@@ -1,14 +1,14 @@
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Link } from "react-router-dom";
-import { ArrowRight, CheckCircle, Shield, Sparkles, Users, Lightbulb, Award, Target, Brain, Video, Clock, TrendingUp, Eye, Lock, Zap, RefreshCw, MessageSquare } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, CheckCircle, Shield, Sparkles, Users, Lightbulb, Award, Target, Brain, Video, Clock, TrendingUp, Eye, Lock, RefreshCw } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { useAuth } from "@/contexts/AuthContext";
 import VerificationFlowPreview from "@/components/VerificationFlowPreview";
 import SampleReportDialog from "@/components/SampleReportDialog";
-import FeedbackWidget from "@/components/FeedbackWidget";
 import { Badge } from "@/components/ui/badge";
 import {
-  HeroBadge,
   TargetVerified,
   PersonVerified,
   ShieldCheck,
@@ -17,10 +17,30 @@ import {
   IconClock,
   IconRupee,
 } from "@/components/graphics";
+import VerificationStagesCard from "@/components/VerificationStagesCard";
 
 const Index = () => {
+  const { user, userRole, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (loading || !user || userRole === null) return;
+    if (userRole === "admin") navigate("/admin/dashboard", { replace: true });
+    else if (userRole === "recruiter") navigate("/dashboard/recruiter", { replace: true });
+    else if (userRole === "expert_interviewer") navigate("/dashboard/expert", { replace: true });
+    else if (userRole === "jobseeker") navigate("/dashboard/jobseeker", { replace: true });
+  }, [user, userRole, loading, navigate]);
+
+  if (loading || (user && userRole !== null)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="h-10 w-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen index-page">
       <Navbar />
       
       {/* Hero Section — Deep Navy + Gold with premium badge graphic */}
@@ -32,14 +52,14 @@ const Index = () => {
               <div className="flex items-center justify-center lg:justify-start gap-2.5 mb-7 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.1s" }}>
                 <span className="font-mono text-[13px] font-semibold text-muted-foreground tracking-wider">[</span>
                 <div className="w-2 h-2 rounded-full bg-[#1FA971] animate-pulse" aria-hidden />
-                <span className="font-mono text-[13px] font-bold text-primary tracking-[2px] uppercase">
-                  India's First Skill-Certified Hiring Network
+                <span className="font-mono text-[15px] font-extrabold text-primary tracking-[2px] uppercase px-3 py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10">
+                  India's First Skill-Certified Hiring Platform
                 </span>
                 <span className="font-mono text-[13px] font-semibold text-muted-foreground tracking-wider">]</span>
               </div>
               <h1 className="hero-title opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.2s" }}>
                 <span className="gradient-text">Verified Talent,</span>
-                <span className="block text-white/50">Not Resumes.</span>
+                <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>Not Resumes.</span>
               </h1>
               <p className="hero-subtitle opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.35s" }}>
                 Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours. Carry a Skill Passport no resume can match. Get hired by companies that trust evidence over college names.
@@ -56,38 +76,38 @@ const Index = () => {
                   </Link>
                 </Button>
               </div>
-              <div className="flex flex-wrap justify-center lg:justify-start gap-0 border-y border-white/12 py-5 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.65s" }}>
-                <div className="flex items-center gap-3 px-6 sm:px-8 py-2 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg">
-                  <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary shrink-0">
-                    <IconLayers className="w-6 h-6" />
+              <div className="flex flex-nowrap justify-center lg:justify-start gap-0 border-y border-white/12 py-3 sm:py-4 overflow-x-auto opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.65s" }}>
+                <div className="flex items-center gap-2 sm:gap-2.5 px-4 sm:px-5 py-1.5 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg shrink-0">
+                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
+                    <IconLayers className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="flex items-baseline gap-2.5">
-                    <span className="font-bebas text-[2.75rem] tracking-[2px] text-primary leading-none">5</span>
-                    <span className="font-mono text-xs font-semibold text-muted-foreground uppercase tracking-wider leading-tight">Verification<br />Layers</span>
+                  <div className="flex items-baseline gap-1.5 sm:gap-2">
+                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">5</span>
+                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">Verification Layers</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 px-6 sm:px-8 py-2 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg">
-                  <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary shrink-0">
-                    <IconClock className="w-6 h-6" />
+                <div className="flex items-center gap-2 sm:gap-2.5 px-4 sm:px-5 py-1.5 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg shrink-0">
+                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
+                    <IconClock className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="flex items-baseline gap-2.5">
-                    <span className="font-bebas text-[2.75rem] tracking-[2px] text-primary leading-none">24H</span>
-                    <span className="font-mono text-xs font-semibold text-muted-foreground uppercase tracking-wider leading-tight">To Full<br />Certification</span>
+                  <div className="flex items-baseline gap-1.5 sm:gap-2">
+                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">24H</span>
+                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">To Full Certification</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 px-6 sm:px-8 py-2 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg">
-                  <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary shrink-0">
-                    <IconRupee className="w-6 h-6" />
+                <div className="flex items-center gap-2 sm:gap-2.5 px-4 sm:px-5 py-1.5 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg shrink-0">
+                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
+                    <IconRupee className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="flex items-baseline gap-2.5">
-                    <span className="font-bebas text-[2.75rem] tracking-[2px] text-primary leading-none">₹0</span>
-                    <span className="font-mono text-xs font-semibold text-muted-foreground uppercase tracking-wider leading-tight">Upfront Cost<br />to Hire</span>
+                  <div className="flex items-baseline gap-1.5 sm:gap-2">
+                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">₹0</span>
+                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">Upfront Cost to Hire</span>
                   </div>
                 </div>
               </div>
             </div>
             <div className="hero-badge-wrap hidden lg:flex">
-              <HeroBadge size={260} className="text-primary" />
+              <VerificationStagesCard />
             </div>
           </div>
         </div>
@@ -113,59 +133,6 @@ const Index = () => {
           <VerificationFlowPreview />
           <div className="flex justify-center mt-8 gap-4">
             <SampleReportDialog />
-          </div>
-        </div>
-      </section>
-
-      {/* AI Interview Transparency Section (#7, #8) */}
-      <section className="py-16 bg-background border-b border-border scroll-mt-20">
-        <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 bg-primary/10 text-primary border border-primary/20 px-4 py-2.5 rounded mb-4 font-mono text-xs font-bold tracking-wider uppercase">
-              <Brain className="h-5 w-5" />
-              AI Interview Transparency
-            </div>
-            <div className="bg-card p-6 rounded-lg border border-border mb-6 transition-all duration-300 hover:border-white/15 hover:shadow-lg hover:shadow-black/20">
-              <p className="text-lg md:text-xl font-semibold mb-2 text-foreground">
-                🤖 AI does not reject candidates.
-              </p>
-              <p className="text-muted-foreground text-base font-medium">
-                It only highlights your strengths and identifies growth areas. Final decisions involve human experts.
-              </p>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-card p-5 rounded-lg border border-border transition-all duration-300 hover:translate-y-1 hover:border-primary/30">
-                <MessageSquare className="h-6 w-6 text-primary mx-auto mb-2" />
-                <p className="font-semibold text-foreground text-base">Communication Clarity</p>
-              </div>
-              <div className="bg-card p-5 rounded-lg border border-border transition-all duration-300 hover:translate-y-1 hover:border-primary/30">
-                <Target className="h-6 w-6 text-primary mx-auto mb-2" />
-                <p className="font-semibold text-foreground text-base">Problem Approach</p>
-              </div>
-              <div className="bg-card p-5 rounded-lg border border-border transition-all duration-300 hover:translate-y-1 hover:border-primary/30">
-                <Brain className="h-6 w-6 text-primary mx-auto mb-2" />
-                <p className="font-semibold text-foreground text-base">Depth of Thinking</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Fast Track for Seniors (#9, #10) */}
-      <section className="py-12 bg-secondary border-b border-border">
-        <div className="container mx-auto px-4">
-          <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-2 mb-2 font-mono text-xs font-bold text-primary tracking-wider uppercase">
-                <Zap className="h-5 w-5" />
-                For Experienced Talent
-              </div>
-              <p className="text-xl font-semibold mb-1 text-foreground">Have 5+ years experience?</p>
-              <p className="text-muted-foreground text-base font-medium">One interview. Reused across multiple companies.</p>
-            </div>
-            <Button asChild className="bg-primary text-primary-foreground font-extrabold text-base rounded-md hover:brightness-110 transition-transform hover:scale-105">
-              <Link to="/auth">Fast Track Application →</Link>
-            </Button>
           </div>
         </div>
       </section>
@@ -352,13 +319,6 @@ const Index = () => {
           </div>
         </div>
       </section>
-
-      {/* Feedback Widget (#20) */}
-      <div className="py-6 bg-background border-t">
-        <div className="container mx-auto px-4 flex justify-center">
-          <FeedbackWidget context="landing-page" />
-        </div>
-      </div>
 
       <Footer />
     </div>

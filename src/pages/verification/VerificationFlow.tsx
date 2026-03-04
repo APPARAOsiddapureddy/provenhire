@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { skipSupabaseRequests } from "@/lib/skipSupabase";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -14,6 +13,7 @@ import AptitudeTestStage from "./stages/AptitudeTestStage";
 import DSARoundStage from "./stages/DSARoundStage";
 import ExpertInterviewStage from "./stages/ExpertInterviewStage";
 import HumanExpertInterviewStage from "./stages/HumanExpertInterviewStage";
+import NonTechnicalAssignmentStage from "./stages/NonTechnicalAssignmentStage";
 import { checkInvalidatedTests, checkCooldownStatus, RETAKE_COOLDOWN_HOURS } from "@/utils/recordingUpload";
 import { runShortlisting, getShortlistStatus, type ShortlistResult } from "@/lib/shortlisting";
 
@@ -44,11 +44,15 @@ const VerificationFlow = () => {
   });
   const [shortlistResult, setShortlistResult] = useState<ShortlistResult | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
+  const [targetJobTitle, setTargetJobTitle] = useState<string>("");
 
-  // PRD v3.0: 5-stage pipeline (Stage 4 = AI interview, Stage 5 = Human expert interview)
-  const stageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
-  // Insert only these 4 into DB to avoid 400 (check constraint). UI still shows 5 via mergeStagesWithOrder.
-  const STAGE_NAMES_FOR_INSERT = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
+  const technicalStageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
+  const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'expert_interview'];
+  const stageOrder = roleType === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+  const STAGE_NAMES_FOR_INSERT = roleType === "non_technical"
+    ? ['profile_setup', 'non_tech_assignment', 'expert_interview']
+    : ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
   const LOAD_TIMEOUT_MS = 30000;
 
   const STAGE_LABELS: Record<string, string> = {
@@ -57,11 +61,12 @@ const VerificationFlow = () => {
     dsa_round: 'DSA Round',
     expert_interview: 'AI Expert Interview',
     human_expert_interview: 'Human Expert Interview',
+    non_tech_assignment: 'Assignment',
   };
   const getStageLabel = (stageName: string) => STAGE_LABELS[stageName] ?? stageName.split('_').join(' ');
 
-  const mergeStagesWithOrder = (data: VerificationStage[]): VerificationStage[] =>
-    stageOrder.map(
+  const mergeStagesWithOrder = (data: VerificationStage[], order = stageOrder): VerificationStage[] =>
+    order.map(
       (name) => data.find((s) => s.stage_name === name) ?? { stage_name: name, status: 'locked' as StageStatus }
     );
 
@@ -77,10 +82,6 @@ const VerificationFlow = () => {
 
   const checkCooldowns = async () => {
     if (!user) return;
-    if (skipSupabaseRequests()) {
-      setCooldownInfo({ aptitude: { inCooldown: false }, dsa: { inCooldown: false } });
-      return;
-    }
     const [aptitudeCooldown, dsaCooldown] = await Promise.all([
       checkCooldownStatus(user.id, 'aptitude'),
       checkCooldownStatus(user.id, 'dsa'),
@@ -93,10 +94,6 @@ const VerificationFlow = () => {
 
   const checkForInvalidatedTests = async () => {
     if (!user) return;
-    if (skipSupabaseRequests()) {
-      setInvalidatedTests({ aptitude: false, dsa: false });
-      return;
-    }
     const result = await checkInvalidatedTests(user.id);
     setInvalidatedTests(result);
   };
@@ -104,84 +101,70 @@ const VerificationFlow = () => {
   const loadVerificationStages = async () => {
     setLoadError(null);
     try {
-      if (skipSupabaseRequests()) {
-        const mockStages: VerificationStage[] = stageOrder.map((stage, index) => ({
-          stage_name: stage,
-          status: index === 0 ? 'in_progress' : 'locked'
-        }));
-        setStages(mockStages);
-        setCurrentStage(stageOrder[0]);
-        setLoading(false);
-        return;
-      }
-
       const loadWithTimeout = async () => {
-        const { data, error } = await supabase
-          .from('verification_stages')
-          .select('*')
-          .eq('user_id', user?.id);
-
-        if (error) throw error;
+        const res = await api.get<{ stages: VerificationStage[]; roleType?: string }>("/api/verification/stages");
+        const data = res.stages;
+        const rt = (res.roleType as "technical" | "non_technical") || "technical";
+        setRoleType(rt);
+        const order = rt === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+        const insertNames = rt === "non_technical" ? nonTechnicalStageOrder : ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
+        const profileRes = await api.get<{ profile: { targetJobTitle?: string } }>("/api/users/job-seeker-profile").catch(() => ({ profile: null }));
+        setTargetJobTitle(profileRes?.profile?.targetJobTitle ?? "");
 
         if (!data || data.length === 0) {
-          await initializeStages();
+          await initializeStages(rt);
           return;
         }
 
         // Ensure new stages added in later releases exist for this user (e.g., PRD v3 Stage 5)
         const existingStageNames = new Set(data.map((s) => s.stage_name));
-        const missingStages = stageOrder.filter((s) => !existingStageNames.has(s));
+        const missingStages = order.filter((s) => !existingStageNames.has(s));
         if (missingStages.length > 0) {
           const missingRows = missingStages
-            .filter((stage) => STAGE_NAMES_FOR_INSERT.includes(stage))
+            .filter((stage) => insertNames.includes(stage))
             .map((stage) => ({
               user_id: user?.id,
               stage_name: stage,
               status: 'locked' as StageStatus,
             }));
           if (missingRows.length > 0) {
-            const { error: insertErr } = await supabase
-              .from('verification_stages')
-              .insert(missingRows);
-            if (insertErr) {
-              if (insertErr.code === '23505') {
-                // Race: rows exist now, continue with current data
-              } else {
-                throw insertErr;
-              }
-            }
+            await api.post("/api/verification/stages/bulk", { stages: missingRows });
           }
           const combined = [
             ...(data as VerificationStage[]),
             ...missingRows.map((r) => ({ stage_name: r.stage_name, status: r.status } as VerificationStage)),
           ];
-          const stagesList = mergeStagesWithOrder(combined);
+          const stagesList = mergeStagesWithOrder(combined, order);
           setStages(stagesList);
           const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
+          const firstFailed = stagesList.find((s) => s.status === 'failed');
           const firstLocked = stagesList.find((s) => s.status === 'locked');
           if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
+          else if (firstFailed) setCurrentStage(firstFailed.stage_name);
           else if (firstLocked) setCurrentStage(firstLocked.stage_name);
           else {
             const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
             if (lastCompleted) {
-              const nextIndex = stageOrder.indexOf(lastCompleted.stage_name) + 1;
-              if (nextIndex < stageOrder.length) setCurrentStage(stageOrder[nextIndex]);
+              const nextIndex = order.indexOf(lastCompleted.stage_name) + 1;
+              if (nextIndex < order.length) setCurrentStage(order[nextIndex]);
             }
           }
           return;
         }
 
-        let stagesList = mergeStagesWithOrder(data as VerificationStage[]);
+        let stagesList = mergeStagesWithOrder(data as VerificationStage[], order);
         setStages(stagesList);
         const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
+        const firstFailed = stagesList.find((s) => s.status === 'failed');
         const firstLocked = stagesList.find((s) => s.status === 'locked');
         if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
+        else if (firstFailed) setCurrentStage(firstFailed.stage_name);
         else if (firstLocked) setCurrentStage(firstLocked.stage_name);
         else {
           const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
           if (lastCompleted) {
-            const nextIndex = stageOrder.indexOf(lastCompleted.stage_name) + 1;
-            if (nextIndex < stageOrder.length) setCurrentStage(stageOrder[nextIndex]);
+            const nextIndex = order.indexOf(lastCompleted.stage_name) + 1;
+            if (nextIndex < order.length) setCurrentStage(order[nextIndex]);
           }
         }
 
@@ -219,33 +202,19 @@ const VerificationFlow = () => {
     }
   };
 
-  const initializeStages = async () => {
+  const initializeStages = async (rt?: "technical" | "non_technical") => {
     try {
-      if (skipSupabaseRequests()) {
-        const mockStages: VerificationStage[] = stageOrder.map((stage, index) => ({
-          stage_name: stage,
-          status: index === 0 ? 'in_progress' : 'locked'
-        }));
-        setStages(mockStages);
-        setCurrentStage(stageOrder[0]);
-        setLoading(false);
-        return;
-      }
-      const initialStages = STAGE_NAMES_FOR_INSERT.map((stage, index) => ({
-        user_id: user?.id,
-        stage_name: stage,
+      const r = rt ?? roleType;
+      const names = r === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder.filter((s) => s !== 'human_expert_interview');
+      const initialStages = names.map((stage, index) => ({
+        stageName: stage,
         status: (index === 0 ? 'in_progress' : 'locked') as StageStatus,
       }));
-
-      const { error } = await supabase.from('verification_stages').insert(initialStages);
-      if (error) {
-        if (error.code === '23505') {
-          await loadVerificationStages();
-          return;
-        }
-        throw error;
-      }
-      const asStages: VerificationStage[] = initialStages.map(({ stage_name, status }) => ({ stage_name, status }));
+      await api.post("/api/verification/stages/bulk", { stages: initialStages });
+      const asStages: VerificationStage[] = initialStages.map(({ stageName, status }) => ({
+        stage_name: stageName,
+        status,
+      }));
       setStages(mergeStagesWithOrder(asStages));
       setCurrentStage('profile_setup');
     } catch (error: any) {
@@ -269,6 +238,8 @@ const VerificationFlow = () => {
         return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'in_progress':
         return <Clock className="h-5 w-5 text-yellow-500" />;
+      case 'failed':
+        return <AlertTriangle className="h-5 w-5 text-amber-500" />;
       default:
         return <Lock className="h-5 w-5 text-muted-foreground" />;
     }
@@ -294,35 +265,11 @@ const VerificationFlow = () => {
   const retryStage = async (stageName: string) => {
     try {
       if (!user) return;
-      const currentIndex = stageOrder.indexOf(stageName);
+      const order = roleType === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+      const currentIndex = order.indexOf(stageName);
       if (currentIndex < 0) return;
 
-      if (skipSupabaseRequests()) {
-        setStages(prev => prev.map((s, i) => ({
-          ...s,
-          status: i < currentIndex ? 'completed' : i === currentIndex ? 'in_progress' : 'locked'
-        })));
-        setCurrentStage(stageName);
-        toast({ title: "Retry enabled", description: "This step is active again (demo)." });
-        return;
-      }
-
-      await Promise.all(
-        stageOrder.map((stage, index) => {
-          if (index < currentIndex) return Promise.resolve();
-          const status = index === currentIndex ? 'in_progress' : 'locked';
-          return supabase
-            .from('verification_stages')
-            .update({ status, score: null, completed_at: null })
-            .eq('user_id', user.id)
-            .eq('stage_name', stage);
-        })
-      );
-
-      await supabase
-        .from('job_seeker_profiles')
-        .update({ verification_status: 'in_progress' })
-        .eq('user_id', user.id);
+      await api.post("/api/verification/stages/reset", { stageName });
 
       toast({
         title: "Retry enabled",
@@ -344,22 +291,7 @@ const VerificationFlow = () => {
         ? stageOrder[currentIndex + 1]
         : null;
 
-      if (skipSupabaseRequests()) {
-        setStages(prev => prev.map((s, i) => ({
-          ...s,
-          status: i < currentIndex ? 'completed' : i === currentIndex ? 'completed' : i === currentIndex + 1 ? 'in_progress' : 'locked'
-        })));
-        if (nextStage) setCurrentStage(nextStage);
-        toast({ title: "Stage completed", description: nextStage ? "Proceeding to the next stage (demo)." : "Verification complete (demo)." });
-        return;
-      }
-
-      const { error: completeErr } = await supabase
-        .from('verification_stages')
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
-        .eq('user_id', user.id)
-        .eq('stage_name', stageName);
-      if (completeErr) throw completeErr;
+      await api.post("/api/verification/stages/update", { stageName, status: "completed" });
 
       if (stageName === 'expert_interview' && nextStage === 'human_expert_interview') {
         let sl: ShortlistResult;
@@ -393,25 +325,14 @@ const VerificationFlow = () => {
           });
         }
       } else if (nextStage) {
-        const { error: unlockErr } = await supabase
-          .from('verification_stages')
-          .update({ status: 'in_progress' })
-          .eq('user_id', user.id)
-          .eq('stage_name', nextStage);
-        if (unlockErr) throw unlockErr;
+        await api.post("/api/verification/stages/update", { stageName: nextStage, status: "in_progress" });
       }
 
-      // Update lifecycle status (schema allows: pending, in_progress, verified, rejected)
-      if (stageName === 'dsa_round' || stageName === 'expert_interview') {
-        await supabase
-          .from('job_seeker_profiles')
-          .update({ verification_status: 'in_progress' })
-          .eq('user_id', user.id);
-      } else if (stageName === 'human_expert_interview') {
-        await supabase
-          .from('job_seeker_profiles')
-          .update({ verification_status: 'verified' })
-          .eq('user_id', user.id);
+      if (stageName === 'human_expert_interview') {
+        await api.post("/api/users/job-seeker-profile", { verificationStatus: "verified" });
+      }
+      if (stageName === 'expert_interview' && roleType === 'non_technical') {
+        await api.post("/api/users/job-seeker-profile", { verificationStatus: "verified" });
       }
 
       toast({
@@ -430,11 +351,19 @@ const VerificationFlow = () => {
       case 'profile_setup':
         return (
           <ProfileSetupStage
+            roleType={roleType}
             onComplete={() => loadVerificationStages()}
             onContinueToVerification={() => {
               loadVerificationStages();
-              setCurrentStage('aptitude_test');
+              setCurrentStage(roleType === "non_technical" ? "non_tech_assignment" : "aptitude_test");
             }}
+          />
+        );
+      case 'non_tech_assignment':
+        return (
+          <NonTechnicalAssignmentStage
+            targetJobTitle={targetJobTitle}
+            onComplete={() => completeAndAdvanceStage('non_tech_assignment')}
           />
         );
       case 'aptitude_test':
@@ -480,7 +409,11 @@ const VerificationFlow = () => {
             )}
             {/* Only show test stage if not in cooldown */}
             {!cooldownInfo.aptitude.inCooldown && (
-              <AptitudeTestStage onComplete={() => completeAndAdvanceStage('aptitude_test')} />
+              <AptitudeTestStage
+                stageStatus={getStageStatus('aptitude_test')}
+                stageScore={stages.find((s) => s.stage_name === 'aptitude_test')?.score}
+                onComplete={() => completeAndAdvanceStage('aptitude_test')}
+              />
             )}
           </div>
         );
@@ -518,7 +451,11 @@ const VerificationFlow = () => {
             )}
             {/* Only show test stage if not in cooldown */}
             {!cooldownInfo.dsa.inCooldown && (
-              <DSARoundStage onComplete={() => completeAndAdvanceStage('dsa_round')} />
+              <DSARoundStage
+                stageStatus={getStageStatus('dsa_round')}
+                stageScore={stages.find((s) => s.stage_name === 'dsa_round')?.score}
+                onComplete={() => completeAndAdvanceStage('dsa_round')}
+              />
             )}
           </div>
         );

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { loadFaceDetectionModels, getFaceDescriptor, verifyFace, FaceVerificationResult } from "@/utils/faceDetection";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { sendHighRiskAlertNotification } from "@/utils/recordingUpload";
 interface AudioDetectionResult {
   isVoiceDetected: boolean;
@@ -79,23 +79,15 @@ export const useAntiCheat = (options: UseAntiCheatOptions = {}) => {
     if (!userId || !testId) return;
 
     try {
-      // Insert alert into database
-      const { error } = await supabase
-        .from('proctoring_alerts')
-        .insert([{
-          user_id: userId,
-          test_id: testId,
-          test_type: testType,
-          alert_type: alertType,
-          severity,
-          message,
-          violation_details: violationDetails ? JSON.parse(JSON.stringify(violationDetails)) : null,
-        }]);
-
-      if (error) {
-        console.error('Failed to log proctoring alert:', error);
-        return;
-      }
+      await api.post("/api/proctoring/alerts", {
+        userId,
+        testId,
+        testType,
+        alertType,
+        severity,
+        message,
+        violationDetails: violationDetails ? JSON.parse(JSON.stringify(violationDetails)) : null,
+      });
 
       // Send email notification for high-risk alerts
       if (severity === 'high') {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,65 +36,14 @@ const RealtimeProctoringAlerts = () => {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    // Fetch existing alerts
     fetchAlerts();
-
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    let cancelled = false;
-
-    // Defer subscription so we don't open WebSocket if component unmounts quickly (avoids "closed before connection established" console error)
-    const timer = window.setTimeout(() => {
-      if (cancelled) return;
-      channel = supabase
-        .channel('proctoring-alerts')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'proctoring_alerts',
-          },
-          (payload) => {
-            const newAlert = payload.new as ProctoringAlert;
-            setAlerts(prev => [newAlert, ...prev].slice(0, 50));
-            setUnreadCount(prev => prev + 1);
-
-            if (newAlert.severity === 'high') {
-              toast.error(`High-risk alert: ${newAlert.message}`, {
-                duration: 10000,
-              });
-              if (soundEnabled) {
-                playAlertSound();
-              }
-            } else {
-              toast.warning(`Proctoring alert: ${newAlert.message}`);
-            }
-          }
-        )
-        .subscribe();
-    }, 150);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, [soundEnabled]);
+  }, []);
 
   const fetchAlerts = async () => {
     try {
-      const { data, error } = await supabase
-        .from('proctoring_alerts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setAlerts((data || []).map(d => ({
-        ...d,
-        violation_details: (d.violation_details as Record<string, unknown>) || {}
-      })));
-      setUnreadCount(data?.filter(a => !a.is_read).length || 0);
+      const { alerts } = await api.get<{ alerts: ProctoringAlert[] }>("/api/proctoring/alerts");
+      setAlerts(alerts || []);
+      setUnreadCount(alerts?.length || 0);
     } catch (error: any) {
       console.error('Error fetching alerts:', error);
     }
@@ -112,12 +61,7 @@ const RealtimeProctoringAlerts = () => {
 
   const markAsRead = async (alertId: string) => {
     try {
-      const { error } = await supabase
-        .from('proctoring_alerts')
-        .update({ is_read: true })
-        .eq('id', alertId);
-
-      if (error) throw error;
+      await api.post("/api/proctoring/alerts/read", { alertId });
 
       setAlerts(prev => 
         prev.map(a => a.id === alertId ? { ...a, is_read: true } : a)
@@ -132,13 +76,7 @@ const RealtimeProctoringAlerts = () => {
     try {
       const unreadIds = alerts.filter(a => !a.is_read).map(a => a.id);
       if (unreadIds.length === 0) return;
-
-      const { error } = await supabase
-        .from('proctoring_alerts')
-        .update({ is_read: true })
-        .in('id', unreadIds);
-
-      if (error) throw error;
+      await api.post("/api/proctoring/alerts/read", { alertIds: unreadIds });
 
       setAlerts(prev => prev.map(a => ({ ...a, is_read: true })));
       setUnreadCount(0);

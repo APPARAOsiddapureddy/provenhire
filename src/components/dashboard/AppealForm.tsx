@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,38 +45,13 @@ const AppealForm = ({ testId, testType, onSuccess }: AppealFormProps) => {
 
     setSubmitting(true);
     try {
-      const { error } = await supabase
-        .from('test_appeals')
-        .insert({
-          user_id: user.id,
-          test_id: testId,
-          test_type: testType,
-          appeal_reason: appealReason,
-          supporting_evidence: supportingEvidence || null,
-          evidence_url: evidenceUrl || null,
-        });
-
-      if (error) throw error;
-
-      // Send email notification to admins
-      try {
-        await supabase.functions.invoke('send-admin-notification', {
-          body: {
-            notificationType: 'appeal_submitted',
-            subject: `New Appeal: ${testType === 'aptitude' ? 'Aptitude Test' : 'DSA Round'}`,
-            message: `A candidate has submitted an appeal for their invalidated ${testType === 'aptitude' ? 'Aptitude Test' : 'DSA Round'}. Please review the appeal and take appropriate action.`,
-            details: {
-              'Test Type': testType === 'aptitude' ? 'Aptitude Test' : 'DSA Round',
-              'User ID': user.id.slice(0, 8) + '...',
-              'Appeal Reason': appealReason.slice(0, 100) + (appealReason.length > 100 ? '...' : ''),
-            }
-          }
-        });
-        console.log('Admin notification sent for appeal');
-      } catch (notifyError) {
-        console.error('Failed to send admin notification:', notifyError);
-        // Don't fail the appeal submission if notification fails
-      }
+      await api.post("/api/appeals", {
+        testId,
+        testType,
+        appealReason,
+        supportingEvidence,
+        evidenceUrl,
+      });
 
       toast.success('Appeal submitted successfully');
       setSubmitted(true);

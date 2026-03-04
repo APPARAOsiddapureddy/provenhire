@@ -16,8 +16,14 @@ const AdminLogin = () => {
   const { user, userRole, signIn } = useAuth();
 
   useEffect(() => {
-    if (user && userRole === "admin") {
+    if (!user || userRole === null) return;
+    if (userRole === "admin") {
       navigate("/admin/dashboard");
+    } else {
+      // Auto-redirect non-admin to their dashboard
+      if (userRole === "recruiter") navigate("/dashboard/recruiter");
+      else if (userRole === "expert_interviewer") navigate("/dashboard/expert");
+      else navigate("/dashboard/jobseeker");
     }
   }, [user, userRole, navigate]);
 

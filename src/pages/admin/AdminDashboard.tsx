@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Send, MessageSquare, Flag, BarChart3, Bell, Scale, Video } from "lucide-react";
+import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Send, MessageSquare, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface JobSeeker {
@@ -28,10 +28,7 @@ interface JobSeeker {
   skills: string[] | null;
   verification_status: string | null;
   created_at: string;
-  profile?: {
-    full_name: string | null;
-    email: string | null;
-  };
+  profile?: { full_name?: string | null; email?: string | null };
 }
 
 interface Recruiter {
@@ -60,6 +57,20 @@ interface Job {
   created_at: string;
 }
 
+interface InterviewerApplication {
+  id: string;
+  name: string;
+  email: string;
+  experienceYears: number | null;
+  track: string;
+  domains: string[] | null;
+  linkedIn: string | null;
+  whyJoin: string | null;
+  status: string;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user: authUser, userRole, signOut } = useAuth();
@@ -69,12 +80,17 @@ const AdminDashboard = () => {
   const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [applicationSearch, setApplicationSearch] = useState("");
   const [stats, setStats] = useState({
     totalJobSeekers: 0,
     totalRecruiters: 0,
     totalSubscribers: 0,
     totalJobs: 0,
+    totalApplications: 0,
+    totalVerified: 0,
   });
+  const [applications, setApplications] = useState<any[]>([]);
+  const [interviewerApplications, setInterviewerApplications] = useState<InterviewerApplication[]>([]);
   const [jobSeekerSearch, setJobSeekerSearch] = useState("");
   const [jobSeekerStatusFilter, setJobSeekerStatusFilter] = useState("all");
   const [recruiterSearch, setRecruiterSearch] = useState("");
@@ -90,111 +106,51 @@ const AdminDashboard = () => {
   const [messageSubject, setMessageSubject] = useState("");
   const [messageContent, setMessageContent] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [inviteLinkDialog, setInviteLinkDialog] = useState<{ email: string; link: string } | null>(null);
 
   useEffect(() => {
-    const checkAdminAccess = async () => {
-      if (authUser && userRole === "admin") {
-        setCurrentUser(authUser);
-        fetchAllData();
-        return;
-      }
-
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setLoading(false);
-        navigate("/admin");
-        return;
-      }
-
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', session.user.id)
-        .eq('role', 'admin')
-        .single();
-
-      if (roleError || !roleData) {
-        setLoading(false);
-        toast.error("Access denied. Admin privileges required.");
-        await supabase.auth.signOut();
-        navigate("/admin");
-        return;
-      }
-
-      setCurrentUser(session.user);
+    if (authUser && userRole === "admin") {
+      setCurrentUser(authUser);
       fetchAllData();
-    };
-
-    checkAdminAccess();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (authUser && userRole === "admin") return;
-      if (event === 'SIGNED_OUT' || !session) {
-        navigate("/admin");
-      }
-    });
-
-    return () => subscription.unsubscribe();
+      return;
+    }
+    setLoading(false);
+    navigate("/admin");
   }, [navigate, authUser, userRole]);
 
   const fetchAllData = async () => {
     const FETCH_TIMEOUT_MS = 20000;
     setLoading(true);
     try {
-      const fetchPromise = (async () => {
-        const { data: seekerData } = await supabase
-          .from("job_seeker_profiles")
-          .select("*")
-          .order("created_at", { ascending: false });
+      const [jobsRes, jobSeekersRes, recruitersRes, statsRes, applicationsRes, interviewerAppsRes] = await Promise.allSettled([
+        api.get<{ jobs: Job[] }>("/api/jobs"),
+        api.get<{ jobSeekers: JobSeeker[] }>("/api/admin/job-seekers"),
+        api.get<{ recruiters: Recruiter[] }>("/api/admin/recruiters"),
+        api.get<{ totalJobSeekers: number; totalRecruiters: number; totalJobs: number; totalApplications: number; totalVerified: number }>("/api/admin/stats"),
+        api.get<{ applications: any[] }>("/api/admin/applications"),
+        api.get<{ applications: InterviewerApplication[] }>("/api/admin/interviewer-applications"),
+      ]);
 
-        const { data: recruiterRoles } = await supabase
-          .from("user_roles")
-          .select("user_id")
-          .eq("role", "recruiter");
+      const jobsData = jobsRes.status === "fulfilled" ? jobsRes.value?.jobs ?? [] : [];
+      const seekersData = jobSeekersRes.status === "fulfilled" ? jobSeekersRes.value?.jobSeekers ?? [] : [];
+      const recruitersData = recruitersRes.status === "fulfilled" ? recruitersRes.value?.recruiters ?? [] : [];
+      const statsData = statsRes.status === "fulfilled" ? statsRes.value : null;
+      const appsData = applicationsRes.status === "fulfilled" ? applicationsRes.value?.applications ?? [] : [];
+      const interviewerAppsData = interviewerAppsRes.status === "fulfilled" ? interviewerAppsRes.value?.applications ?? [] : [];
 
-        const recruiterUserIds = recruiterRoles?.map((r) => r.user_id) || [];
-
-        const { data: recruiterProfiles } = await supabase
-          .from("profiles")
-          .select("*")
-          .in("user_id", recruiterUserIds);
-
-        const { data: jobsData } = await supabase
-          .from("jobs")
-          .select("*")
-          .order("created_at", { ascending: false });
-
-        const { count: subscriberCount } = await supabase
-          .from("newsletter_subscribers")
-          .select("*", { count: "exact", head: true });
-
-        return { seekerData, recruiterProfiles, jobsData, subscriberCount };
-      })();
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Dashboard request timed out. Check your connection and try again.')), FETCH_TIMEOUT_MS)
-      );
-
-      const { seekerData, recruiterProfiles, jobsData, subscriberCount } = await Promise.race([fetchPromise, timeoutPromise]);
-
-      setJobSeekers(seekerData || []);
-      setRecruiters(
-        (recruiterProfiles || []).map((p) => ({
-          id: p.id,
-          user_id: p.user_id,
-          full_name: p.full_name,
-          email: p.email,
-          company_name: p.company_name,
-          created_at: p.created_at || new Date().toISOString(),
-        }))
-      );
-      setJobs(jobsData || []);
-      
+      setJobs(jobsData);
+      setJobSeekers(seekersData);
+      setRecruiters(recruitersData);
+      setApplications(appsData);
+      setInterviewerApplications(interviewerAppsData);
       setStats({
-        totalJobSeekers: seekerData?.length || 0,
-        totalRecruiters: recruiterProfiles?.length || 0,
-        totalSubscribers: subscriberCount || 0,
-        totalJobs: jobsData?.length || 0,
+        totalJobSeekers: statsData?.totalJobSeekers ?? seekersData.length,
+        totalRecruiters: statsData?.totalRecruiters ?? recruitersData.length,
+        totalSubscribers: 0,
+        totalJobs: statsData?.totalJobs ?? jobsData.length,
+        totalApplications: statsData?.totalApplications ?? appsData.length,
+        totalVerified: statsData?.totalVerified ?? 0,
       });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Failed to fetch data";
@@ -217,14 +173,20 @@ const AdminDashboard = () => {
   };
 
   const filteredJobSeekers = jobSeekers.filter((seeker) => {
+    const q = jobSeekerSearch.toLowerCase();
     const matchesSearch =
       !jobSeekerSearch ||
-      seeker.user_id?.toLowerCase().includes(jobSeekerSearch.toLowerCase()) ||
-      seeker.college?.toLowerCase().includes(jobSeekerSearch.toLowerCase()) ||
-      seeker.skills?.join(" ").toLowerCase().includes(jobSeekerSearch.toLowerCase());
+      seeker.user_id?.toLowerCase().includes(q) ||
+      seeker.college?.toLowerCase().includes(q) ||
+      seeker.profile?.full_name?.toLowerCase().includes(q) ||
+      seeker.profile?.email?.toLowerCase().includes(q) ||
+      (Array.isArray(seeker.skills) ? seeker.skills.join(" ").toLowerCase().includes(q) : false);
+    const status = seeker.verification_status || "pending";
     const matchesStatus =
       jobSeekerStatusFilter === "all" ||
-      (seeker.verification_status || "pending") === jobSeekerStatusFilter;
+      (jobSeekerStatusFilter === "verified" && (status === "verified" || status === "expert_verified")) ||
+      (jobSeekerStatusFilter === "expert_verified" && status === "expert_verified") ||
+      (jobSeekerStatusFilter === "pending" && status !== "verified" && status !== "expert_verified");
     return matchesSearch && matchesStatus;
   });
 
@@ -247,6 +209,46 @@ const AdminDashboard = () => {
       job.location?.toLowerCase().includes(query)
     );
   });
+
+  const filteredApplications = applications.filter((a) => {
+    if (!applicationSearch) return true;
+    const q = applicationSearch.toLowerCase();
+    return (
+      a.jobTitle?.toLowerCase().includes(q) ||
+      a.company?.toLowerCase().includes(q) ||
+      a.seekerEmail?.toLowerCase().includes(q)
+    );
+  });
+
+  const handleApproveInterviewer = async (appId: string) => {
+    setApprovingId(appId);
+    try {
+      const res = await api.post<{ setPasswordLink: string; email: string }>(
+        `/api/admin/interviewer-applications/${appId}/approve`
+      );
+      setInterviewerApplications((prev) =>
+        prev.map((a) => (a.id === appId ? { ...a, status: "approved", reviewedAt: new Date().toISOString() } : a))
+      );
+      setInviteLinkDialog({ email: res.email, link: res.setPasswordLink });
+      toast.success("Interviewer approved. Share the set-password link with them.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to approve");
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleRejectInterviewer = async (appId: string) => {
+    try {
+      await api.post(`/api/admin/interviewer-applications/${appId}/reject`);
+      setInterviewerApplications((prev) =>
+        prev.map((a) => (a.id === appId ? { ...a, status: "rejected", reviewedAt: new Date().toISOString() } : a))
+      );
+      toast.success("Application rejected.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to reject");
+    }
+  };
 
   const sendMessage = async () => {
     if (!messageSubject.trim() || !messageContent.trim()) {
@@ -279,16 +281,11 @@ const AdminDashboard = () => {
         return;
       }
 
-      // Use edge function to send messages (bypasses RLS)
-      const { data, error } = await supabase.functions.invoke('send-admin-message', {
-        body: {
-          recipientIds: recipients,
-          subject: messageSubject,
-          message: messageContent,
-        },
+      await api.post("/api/notifications/admin-message", {
+        recipientIds: recipients,
+        subject: messageSubject,
+        message: messageContent,
       });
-
-      if (error) throw error;
 
       toast.success(`Message sent to ${recipients.length} user(s)`);
       setAdminActions((prev) => [
@@ -442,55 +439,81 @@ const AdminDashboard = () => {
 
       <main className="container mx-auto px-4 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-blue-100 rounded-lg dark:bg-blue-900">
-                  <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-900">
+                  <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{stats.totalJobSeekers}</p>
-                  <p className="text-sm text-muted-foreground">Job Seekers</p>
+                  <p className="text-xl font-bold">{stats.totalJobSeekers}</p>
+                  <p className="text-xs text-muted-foreground">Job Seekers</p>
                 </div>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-green-100 rounded-lg dark:bg-green-900">
-                  <Briefcase className="h-6 w-6 text-green-600 dark:text-green-400" />
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-lg dark:bg-emerald-900">
+                  <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{stats.totalRecruiters}</p>
-                  <p className="text-sm text-muted-foreground">Recruiters</p>
+                  <p className="text-xl font-bold">{stats.totalVerified}</p>
+                  <p className="text-xs text-muted-foreground">Verified</p>
                 </div>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-purple-100 rounded-lg dark:bg-purple-900">
-                  <Mail className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg dark:bg-green-900">
+                  <Briefcase className="h-5 w-5 text-green-600 dark:text-green-400" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{stats.totalSubscribers}</p>
-                  <p className="text-sm text-muted-foreground">Subscribers</p>
+                  <p className="text-xl font-bold">{stats.totalRecruiters}</p>
+                  <p className="text-xs text-muted-foreground">Recruiters</p>
                 </div>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-orange-100 rounded-lg dark:bg-orange-900">
-                  <Briefcase className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-lg dark:bg-orange-900">
+                  <Briefcase className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{stats.totalJobs}</p>
-                  <p className="text-sm text-muted-foreground">Total Jobs</p>
+                  <p className="text-xl font-bold">{stats.totalJobs}</p>
+                  <p className="text-xs text-muted-foreground">Jobs</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-violet-100 rounded-lg dark:bg-violet-900">
+                  <FileText className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div>
+                  <p className="text-xl font-bold">{stats.totalApplications}</p>
+                  <p className="text-xs text-muted-foreground">Applications</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 rounded-lg dark:bg-purple-900">
+                  <Mail className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div>
+                  <p className="text-xl font-bold">{stats.totalSubscribers}</p>
+                  <p className="text-xs text-muted-foreground">Subscribers</p>
                 </div>
               </div>
             </CardContent>
@@ -522,10 +545,11 @@ const AdminDashboard = () => {
 
         {/* Data Tables */}
         <Tabs defaultValue="jobseekers" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-9 max-w-5xl">
+          <TabsList className="flex flex-wrap gap-1">
             <TabsTrigger value="jobseekers">Job Seekers</TabsTrigger>
             <TabsTrigger value="recruiters">Recruiters</TabsTrigger>
             <TabsTrigger value="jobs">Jobs</TabsTrigger>
+            <TabsTrigger value="applications">Applications</TabsTrigger>
             <TabsTrigger value="interviews" className="flex items-center gap-1">
               <Video className="h-3 w-3" />
               Interviews
@@ -547,7 +571,39 @@ const AdminDashboard = () => {
               Analytics
             </TabsTrigger>
             <TabsTrigger value="subscribers">Subscribers</TabsTrigger>
+            <TabsTrigger value="interviewer-apps" className="flex items-center gap-1">
+              <UserPlus className="h-3 w-3" />
+              Interviewer Apps
+            </TabsTrigger>
           </TabsList>
+
+          <Dialog open={!!inviteLinkDialog} onOpenChange={() => setInviteLinkDialog(null)}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Set Password Link</DialogTitle>
+              </DialogHeader>
+              {inviteLinkDialog && (
+                <div className="space-y-4 py-4">
+                  <p className="text-sm text-muted-foreground">
+                    Share this link with <strong>{inviteLinkDialog.email}</strong> so they can set their password and log in.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input readOnly value={inviteLinkDialog.link} className="font-mono text-xs" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(inviteLinkDialog.link);
+                        toast.success("Link copied to clipboard");
+                      }}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           <TabsContent value="jobseekers">
             <Card>
@@ -560,13 +616,14 @@ const AdminDashboard = () => {
                     value={jobSeekerSearch}
                     onChange={(e) => setJobSeekerSearch(e.target.value)}
                   />
-                  <Select value={jobSeekerStatusFilter} onValueChange={setJobSeekerStatusFilter}>
+                    <Select value={jobSeekerStatusFilter} onValueChange={setJobSeekerStatusFilter}>
                     <SelectTrigger className="md:w-48">
                       <SelectValue placeholder="Filter status" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Statuses</SelectItem>
                       <SelectItem value="verified">Verified</SelectItem>
+                      <SelectItem value="expert_verified">Expert Verified</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
                     </SelectContent>
                   </Select>
@@ -574,9 +631,9 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <Table>
-                  <TableHeader>
+                    <TableHeader>
                     <TableRow>
-                      <TableHead>User ID</TableHead>
+                      <TableHead>Name / Email</TableHead>
                       <TableHead>College</TableHead>
                       <TableHead>Experience</TableHead>
                       <TableHead>Skills</TableHead>
@@ -595,8 +652,9 @@ const AdminDashboard = () => {
                     ) : (
                       filteredJobSeekers.map((seeker) => (
                         <TableRow key={seeker.id}>
-                          <TableCell className="font-mono text-xs">
-                            {seeker.user_id?.slice(0, 8)}...
+                          <TableCell>
+                            <div className="font-medium">{seeker.profile?.full_name || "—"}</div>
+                            <div className="text-xs text-muted-foreground">{seeker.profile?.email || seeker.user_id?.slice(0, 12) + "…"}</div>
                           </TableCell>
                           <TableCell>{seeker.college || "-"}</TableCell>
                           <TableCell>{seeker.experience_years ? `${seeker.experience_years} yrs` : "-"}</TableCell>
@@ -756,6 +814,55 @@ const AdminDashboard = () => {
             </Card>
           </TabsContent>
 
+          <TabsContent value="applications">
+            <Card>
+              <CardHeader>
+                <CardTitle>Job Applications</CardTitle>
+                <CardDescription>Recent applications across all jobs</CardDescription>
+                <Input
+                  placeholder="Search by job title, company, or applicant email..."
+                  value={applicationSearch}
+                  onChange={(e) => setApplicationSearch(e.target.value)}
+                  className="mt-3 max-w-md"
+                />
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Applicant</TableHead>
+                      <TableHead>Job</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Applied</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredApplications.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                          No applications match.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredApplications.map((a) => (
+                        <TableRow key={a.id}>
+                          <TableCell className="font-medium">{a.seekerEmail || a.seekerId?.slice(0, 8) + "…"}</TableCell>
+                          <TableCell>{a.jobTitle || "—"}</TableCell>
+                          <TableCell>{a.company || "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant={a.status === "hired" ? "default" : "secondary"}>{a.status}</Badge>
+                          </TableCell>
+                          <TableCell>{formatDate(a.appliedAt)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="interviews">
             <AIInterviewReview />
           </TabsContent>
@@ -790,6 +897,93 @@ const AdminDashboard = () => {
                   <p>Subscriber data is protected and viewable via backend only.</p>
                   <p className="text-sm mt-2">Total subscribers: {stats.totalSubscribers}</p>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="interviewer-apps">
+            <Card>
+              <CardHeader>
+                <CardTitle>Interviewer Applications</CardTitle>
+                <CardDescription>Apply to become an Expert Interviewer. Approve to create account and send invite link.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Track</TableHead>
+                      <TableHead>Experience</TableHead>
+                      <TableHead>Domains</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Applied</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {interviewerApplications.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                          No interviewer applications yet.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      interviewerApplications.map((app) => (
+                        <TableRow key={app.id}>
+                          <TableCell className="font-medium">{app.name}</TableCell>
+                          <TableCell>{app.email}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{app.track}</Badge>
+                          </TableCell>
+                          <TableCell>{app.experienceYears != null ? `${app.experienceYears} yrs` : "-"}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1 max-w-[150px]">
+                              {(app.domains || []).slice(0, 2).map((d) => (
+                                <Badge key={d} variant="secondary" className="text-xs">
+                                  {d}
+                                </Badge>
+                              ))}
+                              {(app.domains?.length || 0) > 2 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{(app.domains?.length || 0) - 2}
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={app.status === "approved" ? "default" : app.status === "rejected" ? "destructive" : "secondary"}
+                            >
+                              {app.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{formatDate(app.createdAt)}</TableCell>
+                          <TableCell>
+                            {app.status === "pending" && (
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleApproveInterviewer(app.id)}
+                                  disabled={approvingId === app.id}
+                                >
+                                  {approvingId === app.id ? "..." : "Approve & Invite"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleRejectInterviewer(app.id)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
           </TabsContent>

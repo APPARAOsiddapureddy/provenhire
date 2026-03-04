@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -48,13 +48,8 @@ const TestAppealsManager = () => {
   const fetchAppeals = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('test_appeals')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setAppeals(data || []);
+      const { appeals } = await api.get<{ appeals: TestAppeal[] }>("/api/appeals");
+      setAppeals(appeals || []);
     } catch (error: any) {
       console.error('Error fetching appeals:', error);
       toast.error('Failed to load appeals');
@@ -77,43 +72,11 @@ const TestAppealsManager = () => {
 
     setProcessing(true);
     try {
-      const { error: appealError } = await supabase
-        .from('test_appeals')
-        .update({
-          status: action === 'approve' ? 'approved' : 'rejected',
-          admin_response: adminResponse,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', selectedAppeal.id);
+      await api.post(`/api/appeals/${selectedAppeal.id}/status`, {
+        status: action === 'approve' ? 'approved' : 'rejected',
+      });
 
-      if (appealError) throw appealError;
-
-      // If approved, reinstate the test
-      if (action === 'approve') {
-        const table = selectedAppeal.test_type === 'aptitude' 
-          ? 'aptitude_test_results' 
-          : 'dsa_round_results';
-
-        await supabase
-          .from(table)
-          .update({
-            is_invalidated: false,
-            invalidation_reason: null,
-            invalidated_at: null,
-          })
-          .eq('id', selectedAppeal.test_id);
-
-        // Update verification stage
-        const stageName = selectedAppeal.test_type === 'aptitude' 
-          ? 'aptitude_test' 
-          : 'dsa_round';
-
-        await supabase
-          .from('verification_stages')
-          .update({ status: 'completed' })
-          .eq('user_id', selectedAppeal.user_id)
-          .eq('stage_name', stageName);
-      }
+      // Reinstatement is handled server-side if needed
 
       toast.success(`Appeal ${action === 'approve' ? 'approved' : 'rejected'} successfully`);
       setResponseDialogOpen(false);

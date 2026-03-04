@@ -69,10 +69,8 @@ AssignmentAI is a web application that helps recruiters and hiring managers gene
 
 | Technology | Purpose |
 |------------|---------|
-| Lovable Cloud | Backend Infrastructure |
-| Supabase Edge Functions | Serverless API Endpoints |
-| Lovable AI Gateway | AI Model Integration |
-| Gemini 3 Flash Preview | AI Model for Generation |
+| Express API | Backend Infrastructure |
+| OpenAI API | AI Model Integration |
 
 ### Development Tools
 
@@ -94,9 +92,9 @@ CLIENT (Browser)
         |
         | HTTP POST (FormData)
         v
-LOVABLE CLOUD BACKEND
-  Edge Function: generate-assignment
-    Parse request -> Build prompts -> Call Lovable AI Gateway (Gemini 3)
+EXPRESS BACKEND
+  Route: POST /api/ai/assignments
+    Parse request -> Build prompts -> Call OpenAI
         |
         v
   JSON Response: { assignment: "..." }
@@ -106,7 +104,7 @@ LOVABLE CLOUD BACKEND
 
 ```
 User Input -> Form Validation -> API Call -> AI Processing -> Render Output
-FormData -> canProceed() -> supabase.functions.invoke() -> Gemini 3 -> AssignmentOutput
+FormData -> canProceed() -> POST /api/ai/assignments -> OpenAI -> AssignmentOutput
 ```
 
 ---
@@ -281,7 +279,7 @@ Purpose: Simple footer with logo and copyright.
 
 Edge Function: generate-assignment
 
-Location: supabase/functions/generate-assignment/index.ts
+Location: server/src/routes/ai.ts
 
 Endpoint: POST /functions/v1/generate-assignment
 
@@ -376,7 +374,7 @@ See project tree in repository:
 - public/
 - src/components/
 - src/pages/
-- supabase/functions/
+- server/src/routes/
 - config files
 
 ---
@@ -398,10 +396,10 @@ Edge functions:
 
 ## 12. Deployment Guide
 
-Lovable Cloud handles frontend, edge functions, SSL, and CDN.
+The frontend and backend are deployed as separate services.
 
 Deploy frontend:
-1. Publish in Lovable editor
+1. Deploy the frontend and backend
 2. Update to deploy latest changes
 
 Edge functions deploy automatically on save.

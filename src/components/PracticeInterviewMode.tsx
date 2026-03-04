@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -352,18 +352,15 @@ const PracticeInterviewMode = ({ onExit }: PracticeInterviewModeProps) => {
       const finalTranscript = transcript.trim() || "No speech detected";
       
       // Analyze with AI - same as real interview but we don't save the results
-      const { data, error } = await supabase.functions.invoke('analyze-interview-response', {
-        body: {
-          action: 'analyze_response',
-          transcript: finalTranscript,
-          questionType: currentQuestion.type,
-          questionText: currentQuestion.question
-        }
+      const { result } = await api.post<{ result: string }>("/api/ai/evaluate-interview", {
+        transcript: `Question: ${currentQuestion.question}\nAnswer: ${finalTranscript}`,
       });
-      
-      if (error) throw error;
-      
-      const evaluation: ResponseEvaluation = data.evaluation;
+      let evaluation: ResponseEvaluation = {
+        score: 0,
+        strengths: [],
+        improvements: [],
+        feedback: result,
+      } as ResponseEvaluation;
       setCurrentEvaluation(evaluation);
       setAllScores(prev => [...prev, evaluation.score]);
       setStage('feedback');

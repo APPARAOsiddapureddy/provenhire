@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,15 +68,8 @@ const CandidateSearch = () => {
 
   const fetchCandidates = async () => {
     try {
-      // Fetch all candidates
-      const { data, error } = await supabase
-        .from('job_seeker_profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      setCandidates(data || []);
+      const { profiles } = await api.get<{ profiles: JobSeekerProfile[] }>("/api/users/candidates");
+      setCandidates(profiles || []);
 
       // Extract all unique skills
       const skills = new Set<string>();
@@ -167,10 +160,9 @@ const CandidateSearch = () => {
   };
 
   const incrementProfileView = async (candidateId: string) => {
-    await supabase
-      .from('job_seeker_profiles')
-      .update({ profile_views: (candidates.find(c => c.id === candidateId)?.profile_views || 0) + 1 })
-      .eq('id', candidateId);
+    const current = candidates.find(c => c.id === candidateId);
+    if (!current) return;
+    setCandidates(prev => prev.map(c => c.id === candidateId ? { ...c, profile_views: (c.profile_views || 0) + 1 } : c));
   };
 
   const handleContactCandidate = async () => {
@@ -179,14 +171,10 @@ const CandidateSearch = () => {
     setContactingCandidate(candidateToContact.user_id);
     
     try {
-      const { data, error } = await supabase.functions.invoke('contact-candidate', {
-        body: {
-          candidateUserId: candidateToContact.user_id,
-          recruiterMessage: contactMessage || undefined,
-        },
+      await api.post("/api/notifications/contact-candidate", {
+        candidateUserId: candidateToContact.user_id,
+        recruiterMessage: contactMessage || undefined,
       });
-
-      if (error) throw error;
 
       toast({
         title: "Interest Sent!",

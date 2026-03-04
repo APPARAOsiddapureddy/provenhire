@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 interface ProctoringState {
@@ -42,7 +42,6 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
     isMonitoring: false,
   });
 
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const subscribeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Broadcast alert to realtime channel for admins
@@ -55,39 +54,15 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
     if (!userId || !sessionId) return;
 
     try {
-      // Log to database
-      const { error } = await supabase
-        .from('proctoring_alerts')
-        .insert([{
-          user_id: userId,
-          test_id: sessionId,
-          test_type: 'ai_interview',
-          alert_type: alertType,
-          severity,
-          message,
-          violation_details: details ? JSON.parse(JSON.stringify(details)) : null,
-        }]);
-
-      if (error) {
-        console.error('Failed to log proctoring alert:', error);
-      }
-
-      // Broadcast via realtime channel for instant admin notification
-      if (channelRef.current) {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'proctoring_alert',
-          payload: {
-            user_id: userId,
-            session_id: sessionId,
-            alert_type: alertType,
-            message,
-            severity,
-            details,
-            timestamp: new Date().toISOString(),
-          },
-        });
-      }
+      await api.post("/api/proctoring/alerts", {
+        userId,
+        testId: sessionId,
+        testType: "ai_interview",
+        alertType,
+        severity,
+        message,
+        violationDetails: details ? JSON.parse(JSON.stringify(details)) : null,
+      });
     } catch (error) {
       console.error('Error broadcasting alert:', error);
     }
@@ -203,19 +178,6 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
       subscribeTimerRef.current = null;
     }
 
-    const ch = supabase.channel(`interview-proctoring-${sessionId}`, {
-      config: {
-        broadcast: { self: false },
-      },
-    });
-    channelRef.current = ch;
-
-    // Defer subscribe to avoid WebSocket "closed before connection established" if stop is called immediately
-    subscribeTimerRef.current = setTimeout(() => {
-      subscribeTimerRef.current = null;
-      if (channelRef.current === ch) ch.subscribe();
-    }, 150);
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
@@ -230,10 +192,6 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
     if (subscribeTimerRef.current) {
       clearTimeout(subscribeTimerRef.current);
       subscribeTimerRef.current = null;
-    }
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
     }
 
     setState(prev => ({ ...prev, isMonitoring: false }));
@@ -258,10 +216,6 @@ export const useInterviewProctoring = (options: UseInterviewProctoringOptions = 
       if (subscribeTimerRef.current) {
         clearTimeout(subscribeTimerRef.current);
         subscribeTimerRef.current = null;
-      }
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
       }
     };
   }, [handleVisibilityChange, handleFullscreenChange]);

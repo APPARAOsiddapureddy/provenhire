@@ -1,4 +1,5 @@
 export { default as HeroBadge } from "./HeroBadge";
+export { default as WhyProvenHire } from "./WhyProvenHire";
 export { default as TargetVerified } from "./TargetVerified";
 export { default as PersonVerified } from "./PersonVerified";
 export { default as ShieldCheck } from "./ShieldCheck";

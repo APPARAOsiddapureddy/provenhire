@@ -1,306 +1,219 @@
-import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
-import { skipSupabaseRequests } from "@/lib/skipSupabase";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Calendar, User, Loader2, CheckCircle, Video } from "lucide-react";
 import { toast } from "sonner";
-import { Calendar, CheckCircle2, Clock, Video } from "lucide-react";
+import { VideoCallSection } from "@/components/interview/VideoCallSection";
 
 interface HumanExpertInterviewStageProps {
   onComplete: () => void;
   onReturnToDashboard: () => void;
 }
 
-type SlotRow = {
+interface MatchedInterviewer {
   id: string;
-  starts_at: string;
-  ends_at: string | null;
-  interviewer_id: string;
-  status: string;
-  expert_interviewers?: { name: string | null; domain: string | null } | null;
-};
+  name: string | null;
+  domain: string | null;
+  track: string;
+  domains: string[] | null;
+  experienceYears: number | null;
+  slots: { id: string; startsAt: string; endsAt: string | null }[];
+}
 
-type SessionRow = {
-  id: string;
-  scheduled_at: string | null;
-  completed_at: string | null;
-  status: string;
-  interviewer_id: string;
-};
-
-const HumanExpertInterviewStage = ({ onComplete, onReturnToDashboard }: HumanExpertInterviewStageProps) => {
-  const { user } = useAuth();
+export default function HumanExpertInterviewStage({ onComplete, onReturnToDashboard }: HumanExpertInterviewStageProps) {
+  const [interviewers, setInterviewers] = useState<MatchedInterviewer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [booking, setBooking] = useState(false);
-  const [slots, setSlots] = useState<SlotRow[]>([]);
-  const [selectedSlotId, setSelectedSlotId] = useState<string>("");
-  const [session, setSession] = useState<SessionRow | null>(null);
-
-  const selectedSlot = useMemo(() => slots.find((s) => s.id === selectedSlotId) ?? null, [slots, selectedSlotId]);
-
-  const loadData = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      if (skipSupabaseRequests()) {
-        setSlots([]);
-        setSession(null);
-        setLoading(false);
-        return;
-      }
-      const { data: existingSession } = await supabase
-        .from("human_interview_sessions")
-        .select("id, scheduled_at, completed_at, status, interviewer_id")
-        .eq("user_id", user.id)
-        .order("scheduled_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existingSession) {
-        setSession(existingSession as SessionRow);
-      }
-
-      const { data: slotData, error: slotError } = await supabase
-        .from("interviewer_slots")
-        .select("id, starts_at, ends_at, interviewer_id, status, expert_interviewers(name, domain)")
-        .eq("status", "available")
-        .gt("starts_at", new Date().toISOString())
-        .order("starts_at", { ascending: true })
-        .limit(20);
-
-      if (slotError) throw slotError;
-      setSlots((slotData || []) as unknown as SlotRow[]);
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message || "Unable to load interview scheduling.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [bookingSlotId, setBookingSlotId] = useState<string | null>(null);
+  const [bookedSession, setBookedSession] = useState<{ scheduledAt: string; meetingLink?: string | null } | null>(null);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [roomUrl, setRoomUrl] = useState<string | null>(null);
+  const [roomToken, setRoomToken] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
 
   useEffect(() => {
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!user) return;
-    if (!session?.id) return;
-    if (session.status === "completed") return;
-
-    const interval = window.setInterval(async () => {
+    (async () => {
       try {
-        const { data } = await supabase
-          .from("human_interview_sessions")
-          .select("id, scheduled_at, completed_at, status, interviewer_id")
-          .eq("id", session.id)
-          .maybeSingle();
+        const res = await api.get<{ interviewers: MatchedInterviewer[] }>("/api/verification/matched-interviewers");
+        setInterviewers(res.interviewers ?? []);
 
-        if (data) {
-          const updated = data as SessionRow;
-          setSession(updated);
-          if (updated.status === "completed") {
-            toast.success("Human Expert Interview completed. Finalizing verification…");
-            onComplete();
-          }
+        const sessionRes = await api.get<{ session: { scheduledAt: string; meetingLink?: string | null } | null }>("/api/verification/human-interview-session").catch(() => null);
+        if (sessionRes?.session?.scheduledAt) {
+          setBookedSession({ scheduledAt: sessionRes.session.scheduledAt, meetingLink: sessionRes.session.meetingLink });
         }
       } catch {
-        // ignore polling errors
+        toast.error("Failed to load interviewers");
+      } finally {
+        setLoading(false);
       }
-    }, 10000);
+    })();
+  }, []);
 
-    return () => window.clearInterval(interval);
-  }, [session?.id, session?.status, user, onComplete]);
-
-  const bookSlot = async () => {
-    if (!user) return;
-    if (!selectedSlot) {
-      toast.error("Please select a slot to book.");
-      return;
-    }
-    setBooking(true);
+  const handleBook = async (slotId: string) => {
+    setBookingSlotId(slotId);
     try {
-      if (skipSupabaseRequests()) {
-        setSession({
-          id: "demo-session",
-          scheduled_at: selectedSlot.starts_at,
-          completed_at: null,
-          status: "scheduled",
-          interviewer_id: selectedSlot.interviewer_id,
-        } as SessionRow);
-        toast.success("Slot booked (demo). Complete verification when auth is enabled.");
-        setBooking(false);
-        return;
-      }
-      const { error: slotUpdateError } = await supabase
-        .from("interviewer_slots")
-        .update({ status: "booked", booked_user_id: user.id })
-        .eq("id", selectedSlot.id)
-        .eq("status", "available");
-
-      if (slotUpdateError) throw slotUpdateError;
-
-      const { data: sessionInsert, error: sessionError } = await supabase
-        .from("human_interview_sessions")
-        .insert({
-          user_id: user.id,
-          interviewer_id: selectedSlot.interviewer_id,
-          scheduled_at: selectedSlot.starts_at,
-          status: "scheduled",
-          verification_tier: "expert",
-        })
-        .select("id, scheduled_at, completed_at, status, interviewer_id")
-        .maybeSingle();
-
-      if (sessionError) throw sessionError;
-
-      setSession(sessionInsert as SessionRow);
-      toast.success("Slot booked. You’ll receive confirmation soon.");
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message || "Unable to book this slot.");
-      await loadData();
+      const res = await api.post<{ session: { scheduledAt: string } }>("/api/verification/book-slot", { slotId });
+      setBookedSession({ scheduledAt: res.session?.scheduledAt ?? "" });
+      toast.success("Slot booked! Attend the interview at the scheduled time.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to book slot");
     } finally {
-      setBooking(false);
+      setBookingSlotId(null);
     }
   };
+
+  const handleJoinInterview = async () => {
+    setJoining(true);
+    try {
+      const res = await api.get<{ token: string; roomUrl: string }>("/api/verification/human-interview-session/room-token");
+      setRoomUrl(res.roomUrl);
+      setRoomToken(res.token);
+      setJoinModalOpen(true);
+    } catch (err: any) {
+      toast.error(err?.message || "Unable to join. The interviewer may not have started the room yet.");
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const formatSlot = (d: string) =>
+    new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-28 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
+      <Card>
+        <CardContent className="py-12 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (bookedSession) {
+    return (
+      <>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              Interview scheduled
+            </CardTitle>
+            <CardDescription>
+              Your human expert interview is scheduled for {formatSlot(bookedSession.scheduledAt)}.
+              Attend on time to complete this stage.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button onClick={handleJoinInterview} disabled={joining}>
+              <Video className="h-4 w-4 mr-2" />
+              {joining ? "Joining..." : "Join Interview"}
+            </Button>
+            <Button onClick={onReturnToDashboard} variant="outline">
+              Return to dashboard
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Dialog open={joinModalOpen} onOpenChange={setJoinModalOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Video Interview</DialogTitle>
+              <DialogDescription>
+                Camera and microphone access required. Allow when prompted.
+              </DialogDescription>
+            </DialogHeader>
+            {roomUrl && (
+              <VideoCallSection
+                roomUrl={roomUrl}
+                token={roomToken}
+                isOwner={false}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  if (interviewers.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Human Expert Interview</CardTitle>
+          <CardDescription>
+            No interviewers with availability right now. Check back in a few days or return to your dashboard.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={onReturnToDashboard} variant="outline">
+            Return to dashboard
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Video className="h-5 w-5 text-primary" />
-            Stage 5: Human Expert Interview
-          </CardTitle>
-          <CardDescription>
-            Book a live 30–45 minute interview with a domain expert. This stage completes your Expert Verified Skill Passport.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">Live video</Badge>
-            <Badge variant="secondary">Recorded</Badge>
-            <Badge variant="secondary">Fraud-resistant</Badge>
+    <Card>
+      <CardHeader>
+        <CardTitle>Book your Human Expert Interview</CardTitle>
+        <CardDescription>
+          Select an interviewer and time slot. Technical interviewers are matched to your profile.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {interviewers.map((inv) => (
+          <div key={inv.id} className="rounded-lg border border-border p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <User className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <div className="font-medium">{inv.name || "Expert Interviewer"}</div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {inv.domain && <Badge variant="secondary">{inv.domain}</Badge>}
+                  {inv.experienceYears != null && (
+                    <Badge variant="outline">{inv.experienceYears} yrs exp</Badge>
+                  )}
+                  {(inv.domains as string[])?.slice(0, 2).map((d) => (
+                    <Badge key={d} variant="outline" className="text-xs">
+                      {d}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {inv.slots.map((slot) => (
+                <Button
+                  key={slot.id}
+                  variant="outline"
+                  size="sm"
+                  disabled={bookingSlotId !== null}
+                  onClick={() => handleBook(slot.id)}
+                >
+                  {bookingSlotId === slot.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <Calendar className="h-4 w-4 mr-1" />
+                  )}
+                  {formatSlot(slot.startsAt)}
+                </Button>
+              ))}
+            </div>
           </div>
-          <Button variant="outline" onClick={onReturnToDashboard}>
-            Return to Dashboard
-          </Button>
-        </CardContent>
-      </Card>
-
-      {session?.status === "scheduled" && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-primary" />
-              Interview scheduled
-            </CardTitle>
-            <CardDescription>
-              Your slot is booked. Please join on time. After the expert submits the evaluation, your verification will be finalized.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Clock className="h-4 w-4" />
-              Scheduled at: <span className="font-medium text-foreground">{session.scheduled_at ? new Date(session.scheduled_at).toLocaleString("en-IN") : "—"}</span>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Status: <span className="font-medium text-foreground">{session.status}</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {session?.status === "completed" && (
-        <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-green-700 dark:text-green-300">
-              <CheckCircle2 className="h-5 w-5" />
-              Interview completed
-            </CardTitle>
-            <CardDescription>
-              Your expert interview is completed. Finalizing your verification status…
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={onComplete}>Finalize verification</Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {!session && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Available slots</CardTitle>
-            <CardDescription>Select a slot below to book your expert interview.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {slots.length === 0 ? (
-              <div className="text-sm text-muted-foreground">
-                No slots available right now. Please check back in a few hours.
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {slots.map((slot) => {
-                  const isSelected = selectedSlotId === slot.id;
-                  const when = new Date(slot.starts_at).toLocaleString("en-IN", {
-                    weekday: "short",
-                    day: "2-digit",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  });
-                  return (
-                    <button
-                      key={slot.id}
-                      type="button"
-                      onClick={() => setSelectedSlotId(slot.id)}
-                      className={`text-left rounded-xl border p-4 transition-colors ${
-                        isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium">{when}</div>
-                          <div className="text-sm text-muted-foreground">
-                            Expert: {slot.expert_interviewers?.name || "ProvenHire Expert"} • {slot.expert_interviewers?.domain || "Domain"}
-                          </div>
-                        </div>
-                        {isSelected && <Badge>Selected</Badge>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3">
-              <Button variant="outline" onClick={loadData} disabled={booking}>
-                Refresh slots
-              </Button>
-              <Button onClick={bookSlot} disabled={booking || !selectedSlotId || slots.length === 0}>
-                {booking ? "Booking…" : "Book slot"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+        ))}
+        <Button variant="ghost" onClick={onReturnToDashboard} className="mt-4">
+          Return to dashboard
+        </Button>
+      </CardContent>
+    </Card>
   );
-};
-
-export default HumanExpertInterviewStage;
-
+}

@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Users, Copy, Share2, Gift, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
 
 interface ReferralStats {
   referralCount: number;
@@ -31,25 +30,8 @@ const ReferAFriend = () => {
   const fetchReferralStats = async () => {
     if (!user?.id) return;
     
-    try {
-      // Get referral stats from profiles table
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('referral_count, referral_verified_count')
-        .eq('user_id', user.id)
-        .single();
-
-      if (profileData) {
-        setStats({
-          referralCount: profileData.referral_count || 0,
-          verifiedCount: profileData.referral_verified_count || 0
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching referral stats:', error);
-    } finally {
-      setLoading(false);
-    }
+    setStats({ referralCount: 0, verifiedCount: 0 });
+    setLoading(false);
   };
 
   const handleCopy = async () => {

@@ -9,7 +9,7 @@
 5. [Page-by-Page Documentation](#page-by-page-documentation)
 6. [Database Schema](#database-schema)
 7. [User Flows](#user-flows)
-8. [Edge Functions](#edge-functions)
+8. [Backend Services](#backend-services)
 9. [Design System](#design-system)
 
 ---
@@ -41,8 +41,9 @@
 | UI Components | shadcn/ui + Radix UI |
 | State Management | React Query (TanStack Query) |
 | Routing | React Router DOM 6.30.1 |
-| Backend | Supabase (Lovable Cloud) |
-| AI Integration | Lovable AI Gateway (Gemini 2.5 Flash) |
+| Backend | Node.js + Express (TypeScript) |
+| Database | PostgreSQL + Prisma ORM |
+| AI Integration | OpenAI API |
 | Notifications | Sonner Toast |
 | Icons | Lucide React |
 
@@ -103,7 +104,7 @@ src/
 │   ├── use-toast.ts
 │   └── use-mobile.tsx
 ├── integrations/
-│   └── supabase/
+│   └── server/
 │       ├── client.ts
 │       └── types.ts
 └── lib/
@@ -414,7 +415,7 @@ src/
 | Hobbies & Interests | Tag input | AI-extracted |
 
 **Behavior:**
-1. User uploads resume → Stored in Supabase storage
+1. User uploads resume → Stored via backend uploads
 2. Resume text sent to `analyze-resume` edge function
 3. AI extracts structured data and populates form
 4. User reviews/edits and submits
@@ -657,58 +658,16 @@ src/
 
 ---
 
-## Edge Functions
+## Backend Services
 
-### `analyze-resume`
+### Core API Endpoints
 
-**Location:** `supabase/functions/analyze-resume/index.ts`
+- `/api/auth/*` for register/login/session
+- `/api/ai/*` for resume analysis and learning resources
+- `/api/interview/*` for structured AI interviews
+- `/api/uploads` for file uploads
 
-**Purpose:** AI-powered resume parsing and data extraction
-
-**Endpoint:** POST to edge function
-
-**Request:**
-```json
-{
-  "resumeText": "string (raw text content of resume)"
-}
-```
-
-**Response:**
-```json
-{
-  "data": {
-    "skills": ["JavaScript", "React", "Python"],
-    "college": "Stanford University",
-    "graduation_year": 2022,
-    "experience_years": 3,
-    "actively_looking_roles": ["Frontend Developer", "Full Stack Engineer"],
-    "projects": [
-      {
-        "name": "E-commerce Platform",
-        "description": "Built a full-stack e-commerce app",
-        "link": "https://github.com/user/project",
-        "technologies": ["React", "Node.js", "MongoDB"]
-      }
-    ],
-    "hobbies": ["Open source", "Reading"],
-    "bio": "Passionate developer with 3 years of experience...",
-    "phone": "+1-555-0123",
-    "location": "San Francisco, CA"
-  }
-}
-```
-
-**AI Configuration:**
-- Model: `google/gemini-2.5-flash`
-- Provider: Lovable AI Gateway
-- Uses function calling for structured extraction
-- API Key: `LOVABLE_API_KEY` (auto-provided)
-
-**Error Responses:**
-- 500: "AI service not configured" (missing API key)
-- 500: "Failed to analyze resume" (API error)
-- 500: "Invalid AI response" (no tool call returned)
+All AI calls are routed through the backend using the OpenAI SDK and server-side API keys.
 
 ---
 
@@ -850,7 +809,7 @@ All standard shadcn/ui components available in `src/components/ui/`:
 - Row Level Security (RLS) on all user data tables
 - Protected routes using `ProtectedRoute` component
 - Role-based access control (recruiter vs jobseeker)
-- Secure file storage for resumes in Supabase Storage
+- Secure file storage for resumes via backend uploads
 - Auto-confirm email signups enabled
 
 ---

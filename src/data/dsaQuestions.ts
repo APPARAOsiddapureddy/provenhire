@@ -1527,28 +1527,24 @@ export const getQuestionsByDifficulty = (difficulty: "Easy" | "Medium" | "Hard")
   return dsaQuestions.filter(q => q.difficulty === difficulty);
 };
 
+import { getNewDSAQuestions } from "./dsaQuestionsBank";
+
+export const allDSAQuestions = [...dsaQuestions, ...getNewDSAQuestions()];
+
 export const generateDSATest = (experienceYears: number): DSAQuestion[] => {
-  // For freshers (0-1 years): 2 Easy, 1 Medium
-  // For intermediate (2-4 years): 1 Easy, 2 Medium
-  // For experienced (5+ years): 1 Medium, 2 Hard
-  
+  const pool = allDSAQuestions;
+  const byDiff = (d: "Easy" | "Medium" | "Hard") =>
+    pool.filter((q) => q.difficulty === d).sort(() => Math.random() - 0.5);
+
   let questions: DSAQuestion[] = [];
-  
   if (experienceYears <= 1) {
-    const easy = getQuestionsByDifficulty("Easy").sort(() => Math.random() - 0.5).slice(0, 2);
-    const medium = getQuestionsByDifficulty("Medium").sort(() => Math.random() - 0.5).slice(0, 1);
-    questions = [...easy, ...medium];
+    questions = [...byDiff("Easy").slice(0, 2), ...byDiff("Medium").slice(0, 1)];
   } else if (experienceYears <= 4) {
-    const easy = getQuestionsByDifficulty("Easy").sort(() => Math.random() - 0.5).slice(0, 1);
-    const medium = getQuestionsByDifficulty("Medium").sort(() => Math.random() - 0.5).slice(0, 2);
-    questions = [...easy, ...medium];
+    questions = [...byDiff("Easy").slice(0, 1), ...byDiff("Medium").slice(0, 2)];
   } else {
-    const medium = getQuestionsByDifficulty("Medium").sort(() => Math.random() - 0.5).slice(0, 1);
-    const hard = getQuestionsByDifficulty("Hard").sort(() => Math.random() - 0.5).slice(0, 2);
-    questions = [...medium, ...hard];
+    questions = [...byDiff("Medium").slice(0, 1), ...byDiff("Hard").slice(0, 2)];
   }
-  
-  return questions.sort(() => Math.random() - 0.5);
+  return questions.sort(() => Math.random() - 0.5).slice(0, 4);
 };
 
 export const getLanguageIcon = (language: ProgrammingLanguage): string => {

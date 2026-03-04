@@ -69,7 +69,7 @@ const JobDetailsDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start gap-4">
             <div className="w-16 h-16 rounded-xl bg-gradient-hero flex items-center justify-center text-white font-bold text-2xl shrink-0">
@@ -182,7 +182,7 @@ const JobDetailsDialog = ({
               className="flex-1"
               onClick={() => onOpenChange(false)}
             >
-              Cancel
+              ← Back
             </Button>
             <Button 
               className="flex-1 bg-gradient-hero hover:opacity-90"

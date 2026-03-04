@@ -6,7 +6,7 @@ import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -22,17 +22,19 @@ import { Textarea } from "@/components/ui/textarea";
 import SkillPassport from "@/components/SkillPassport";
 import ReferAFriend from "@/components/ReferAFriend";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
+import JobTitleModal from "@/components/JobTitleModal";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { preloadVerificationFlow } from "@/preloads";
-import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import DashboardShell from "@/components/DashboardShell";
 
-const STAGE_ORDER = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'] as const;
+const TECHNICAL_STAGE_ORDER = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'] as const;
+const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'expert_interview'] as const;
 const STAGE_LABELS: Record<string, string> = {
   profile_setup: 'Profile Setup',
   aptitude_test: 'Aptitude Test',
   dsa_round: 'DSA Round',
+  non_tech_assignment: 'Assignment',
   expert_interview: 'AI Expert Interview',
   human_expert_interview: 'Human Expert Interview',
 };
@@ -68,12 +70,37 @@ const JobSeekerDashboard = () => {
   const [skillInput, setSkillInput] = useState('');
   const [loadError, setLoadError] = useState(false);
   const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'applications'>('candidate');
+  const showJobTitleModal = Boolean(
+    !loading &&
+    profile &&
+    !(profile.targetJobTitle ?? profile.target_job_title)?.trim()
+  );
+  const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
+  const stageOrder = roleType === "non_technical" ? [...NON_TECHNICAL_STAGE_ORDER] : [...TECHNICAL_STAGE_ORDER];
+
+  /** Highest completed stage for Skill Passport progressive display */
+  const completedUpToStage = (() => {
+    if (!verificationStages.length) return null;
+    const completed = verificationStages.filter((s: { status?: string }) => s.status === "completed");
+    if (roleType === "technical") {
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "human_expert_interview")) return "expert";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "ai_interview";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "dsa_round")) return "dsa";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "aptitude_test")) return "aptitude";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "profile_setup")) return "profile";
+    } else {
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "expert";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "non_tech_assignment")) return "assignment";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "profile_setup")) return "profile";
+    }
+    return null;
+  })();
 
   const getStageStatus = (stageName: string): 'done' | 'active' | 'locked' => {
     const stage = verificationStages.find((s: any) => s.stage_name === stageName);
     if (!stage) {
-      const idx = STAGE_ORDER.indexOf(stageName as any);
-      const prevDone = idx > 0 && verificationStages.some((s: any) => s.stage_name === STAGE_ORDER[idx - 1] && s.status === 'completed');
+      const idx = stageOrder.indexOf(stageName);
+      const prevDone = idx > 0 && verificationStages.some((s: any) => s.stage_name === stageOrder[idx - 1] && s.status === 'completed');
       return prevDone ? 'active' : idx === 0 ? 'active' : 'locked';
     }
     if (stage.status === 'completed') return 'done';
@@ -81,9 +108,9 @@ const JobSeekerDashboard = () => {
     return 'locked';
   };
 
-  const activeStageIndex = STAGE_ORDER.findIndex((s) => getStageStatus(s) === 'active');
-  const nextStageLabel = activeStageIndex >= 0 && activeStageIndex < STAGE_ORDER.length
-    ? STAGE_LABELS[STAGE_ORDER[activeStageIndex]]
+  const activeStageIndex = stageOrder.findIndex((s) => getStageStatus(s) === 'active');
+  const nextStageLabel = activeStageIndex >= 0 && activeStageIndex < stageOrder.length
+    ? STAGE_LABELS[stageOrder[activeStageIndex]]
     : 'Verification';
 
   const {
@@ -97,19 +124,19 @@ const JobSeekerDashboard = () => {
   const profileChecklist = [
     {
       label: "Personal details",
-      done: Boolean(profile?.full_name && profile?.phone && profile?.location),
+      done: Boolean((profile?.fullName ?? profile?.full_name) && profile?.phone && profile?.location),
     },
     {
       label: "Education",
-      done: Boolean(profile?.college && profile?.graduation_year),
+      done: Boolean((profile?.college || profile?.graduationYear || profile?.graduation_year)),
     },
     {
       label: "Skills",
-      done: Boolean(profile?.skills && profile.skills.length > 0),
+      done: Boolean(profile?.skills && (Array.isArray(profile.skills) ? profile.skills.length > 0 : true)),
     },
     {
       label: "Resume uploaded",
-      done: Boolean(profile?.resume_url),
+      done: Boolean(profile?.resumeUrl ?? profile?.resume_url),
     },
   ];
   const profileCompletion = profileChecklist.length
@@ -173,29 +200,16 @@ const JobSeekerDashboard = () => {
   const loadDashboardData = async () => {
     const FETCH_TIMEOUT_MS = 20000;
     try {
-      if (skipSupabaseRequests()) {
-        setProfile(null);
-        setApplications([]);
-        setSavedJobs([]);
-        setVerificationStages([]);
-        setTestResults({ aptitude: null, dsa: null });
-        setCertificationLevel(null);
-        setStats({ applicationsSent: 0, interviews: 0, profileViews: 0 });
-        setVerificationProgress(0);
-        setLoading(false);
-        return;
-      }
-
       const queries = [
-        supabase.from('job_seeker_profiles').select('*').eq('user_id', user?.id).maybeSingle(),
-        supabase.from('job_applications').select('*, jobs(title, company, location)').eq('job_seeker_id', user?.id).order('applied_at', { ascending: false }),
-        supabase.from('saved_jobs').select('*, jobs(id, title, company, location, salary_range, job_type)').eq('user_id', user?.id).order('saved_at', { ascending: false }),
-        supabase.from('verification_stages').select('*').eq('user_id', user?.id).order('created_at', { ascending: true }),
-        supabase.from('aptitude_test_results').select('*').eq('user_id', user?.id).order('completed_at', { ascending: false }).limit(1).maybeSingle(),
-        supabase.from('dsa_round_results').select('*').eq('user_id', user?.id).order('completed_at', { ascending: false }).limit(1).maybeSingle(),
+        api.get<{ profile: any }>("/api/users/job-seeker-profile"),
+        api.get<{ applications: any[] }>("/api/jobs/me/applications"),
+        api.get<{ saved: any[] }>("/api/jobs/me/saved"),
+        api.get<{ stages: any[] }>("/api/verification/stages"),
+        api.get<{ result: any }>("/api/verification/aptitude/latest"),
+        api.get<{ result: any }>("/api/verification/dsa/latest"),
       ];
       const fetchPromise = Promise.allSettled(queries).then((results) =>
-        results.map((r) => (r.status === 'fulfilled' ? r.value : { data: null, error: r.reason }))
+        results.map((r) => (r.status === 'fulfilled' ? r.value : { error: r.reason }))
       );
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Dashboard request timed out. Check your connection and try again.')), FETCH_TIMEOUT_MS)
@@ -209,12 +223,12 @@ const JobSeekerDashboard = () => {
         toast.error('Some data could not be loaded. Showing what’s available. Use Retry below if needed.');
       }
 
-      const profile = profileData?.data ?? null;
-      const applicationsList = Array.isArray(applicationsData?.data) ? applicationsData.data : [];
-      const savedList = Array.isArray(savedJobsData?.data) ? savedJobsData.data : [];
-      const stagesList = Array.isArray(stagesData?.data) ? stagesData.data : [];
-      const aptitudeResult = aptitudeData?.data ?? null;
-      const dsaResult = dsaData?.data ?? null;
+      const profile = profileData?.profile ?? null;
+      const applicationsList = Array.isArray(applicationsData?.applications) ? applicationsData.applications : [];
+      const savedList = Array.isArray(savedJobsData?.saved) ? savedJobsData.saved : [];
+      const stagesList = Array.isArray(stagesData?.stages) ? stagesData.stages : [];
+      const aptitudeResult = aptitudeData?.result ?? null;
+      const dsaResult = dsaData?.result ?? null;
 
       if (profile) {
         setProfile(profile);
@@ -232,26 +246,36 @@ const JobSeekerDashboard = () => {
       setVerificationStages(stagesList);
       setTestResults({ aptitude: aptitudeResult, dsa: dsaResult });
 
-      if (profile?.verification_status === 'expert_verified' || profile?.verification_status === 'verified') {
-        const aptitudeScore = aptitudeResult?.total_score ?? 0;
-        const dsaScore = dsaResult?.total_score ?? 0;
+      if (profile?.verificationStatus === 'expert_verified' || profile?.verificationStatus === 'verified') {
+        const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
         const interviewStage = stagesList.find((s: { stage_name?: string }) => s.stage_name === 'expert_interview');
         const interviewScore = interviewStage?.score ?? 0;
-        const overallAvg = (aptitudeScore + dsaScore + interviewScore) / 3;
-        if (overallAvg >= 12) setCertificationLevel("A");
-        else if (overallAvg >= 9) setCertificationLevel("B");
-        else setCertificationLevel("C");
+        if (role === "non_technical") {
+          const pct = interviewScore ? Math.round((interviewScore / 15) * 100) : 0;
+          if (pct >= 80) setCertificationLevel("A");
+          else if (pct >= 60) setCertificationLevel("B");
+          else setCertificationLevel("C");
+        } else {
+          const aptitudeScore = aptitudeResult?.total_score ?? 0;
+          const dsaScore = dsaResult?.total_score ?? 0;
+          const overallAvg = (aptitudeScore + dsaScore + interviewScore) / 3;
+          if (overallAvg >= 12) setCertificationLevel("A");
+          else if (overallAvg >= 9) setCertificationLevel("B");
+          else setCertificationLevel("C");
+        }
       }
 
       setStats({
         applicationsSent: applicationsList.length,
         interviews: applicationsList.filter((a: { status?: string }) => a.status === 'interview_scheduled').length,
-        profileViews: profile?.profile_views ?? 0,
+        profileViews: profile?.profileViews ?? 0,
       });
 
       if (stagesList.length > 0) {
         const completed = stagesList.filter((s: { status?: string }) => s.status === 'completed').length;
-        setVerificationProgress((completed / 4) * 100);
+        const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
+        const total = role === "non_technical" ? 3 : 5;
+        setVerificationProgress((completed / total) * 100);
       }
     } catch (error: unknown) {
       console.error('Error loading dashboard data:', error);
@@ -264,18 +288,8 @@ const JobSeekerDashboard = () => {
   };
 
   const handleRemoveSavedJob = async (savedJobId: string, jobId: string) => {
-    if (skipSupabaseRequests()) {
-      setSavedJobs(prev => prev.filter(j => j.id !== savedJobId));
-      toast.success('Job removed from saved');
-      return;
-    }
     try {
-      const { error } = await supabase
-        .from('saved_jobs')
-        .delete()
-        .eq('id', savedJobId);
-
-      if (error) throw error;
+      await api.del(`/api/jobs/${jobId}/save`);
 
       setSavedJobs(prev => prev.filter(j => j.id !== savedJobId));
       toast.success('Job removed from saved');
@@ -286,24 +300,13 @@ const JobSeekerDashboard = () => {
   };
 
   const handleUpdateProfile = async () => {
-    if (skipSupabaseRequests()) {
-      setProfile((prev: any) => (prev ? { ...prev, ...editingProfile } : null));
-      setShowProfileDialog(false);
-      toast.success('Profile updated (demo mode)');
-      return;
-    }
     try {
-      const { error } = await supabase
-        .from('job_seeker_profiles')
-        .update({
-          bio: editingProfile.bio,
-          location: editingProfile.location,
-          phone: editingProfile.phone,
-          skills: editingProfile.skills,
-        })
-        .eq('user_id', user?.id);
-
-      if (error) throw error;
+      await api.post("/api/users/job-seeker-profile", {
+        bio: editingProfile.bio,
+        location: editingProfile.location,
+        phone: editingProfile.phone,
+        skills: editingProfile.skills,
+      });
 
       setProfile((prev: any) => ({
         ...prev,
@@ -374,11 +377,18 @@ const JobSeekerDashboard = () => {
     },
   ];
 
-  const userName = profile?.full_name || user?.email?.split('@')[0] || 'Candidate';
-  const userInitials = (profile?.full_name || user?.email || 'U').split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
+  const userName = (profile?.fullName ?? profile?.full_name) || user?.email?.split('@')[0] || 'Candidate';
+  const userInitials = ((profile?.fullName ?? profile?.full_name) || user?.email || 'U').split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
 
   return (
     <div className="min-h-screen">
+      <JobTitleModal
+        open={showJobTitleModal}
+        roleType={roleType}
+        onSave={(title) => {
+          setProfile((p: any) => (p ? { ...p, targetJobTitle: title } : p));
+        }}
+      />
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{ name: userName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
@@ -412,7 +422,9 @@ const JobSeekerDashboard = () => {
               <SkillPassport
                 certificationLevel={certificationLevel}
                 skills={profile.skills || []}
-                verificationStatus={profile.verification_status}
+                verificationStatus={profile.verificationStatus ?? profile.verification_status}
+                roleType={roleType}
+                completedUpToStage={completedUpToStage}
                 aptitudeScore={testResults.aptitude ? Math.round((testResults.aptitude.total_score / 15) * 100) : undefined}
                 dsaScore={testResults.dsa ? Math.round((testResults.dsa.total_score / 15) * 100) : undefined}
                 interviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score ? Math.round((verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score / 15) * 100) : undefined}
@@ -452,9 +464,9 @@ const JobSeekerDashboard = () => {
                       {applications.map((app) => (
                         <div key={app.id} className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold truncate text-white">{app.jobs?.title || 'Unknown Position'}</h3>
-                            <p className="text-sm text-[var(--dash-text-muted)]">{app.jobs?.company || 'Unknown Company'}</p>
-                            <p className="text-sm text-[var(--dash-text-muted)] mt-1">Applied {new Date(app.applied_at).toLocaleDateString()}</p>
+                            <h3 className="font-semibold truncate text-white">{(app.job ?? app.jobs)?.title || 'Unknown Position'}</h3>
+                            <p className="text-sm text-[var(--dash-text-muted)]">{(app.job ?? app.jobs)?.company || 'Unknown Company'}</p>
+                            <p className="text-sm text-[var(--dash-text-muted)] mt-1">Applied {new Date(app.appliedAt ?? app.applied_at).toLocaleDateString()}</p>
                           </div>
                           <Badge className={getStatusBadge(app.status)}>{app.status.replace('_', ' ')}</Badge>
                         </div>
@@ -483,12 +495,12 @@ const JobSeekerDashboard = () => {
                       {savedJobs.map((saved) => (
                         <div key={saved.id} className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold truncate text-white">{saved.jobs?.title || 'Unknown Position'}</h3>
-                            <p className="text-sm text-[var(--dash-text-muted)]">{saved.jobs?.company || 'Unknown Company'}</p>
+                            <h3 className="font-semibold truncate text-white">{(saved.job ?? saved.jobs)?.title || 'Unknown Position'}</h3>
+                            <p className="text-sm text-[var(--dash-text-muted)]">{(saved.job ?? saved.jobs)?.company || 'Unknown Company'}</p>
                           </div>
                           <div className="flex gap-2">
                             <Button className="dashboard-btn-ghost" size="sm" asChild><Link to="/jobs"><ExternalLink className="h-3 w-3" /></Link></Button>
-                            <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => handleRemoveSavedJob(saved.id, saved.job_id)}><Trash2 className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => handleRemoveSavedJob(saved.id, saved.jobId ?? saved.job_id)}><Trash2 className="h-4 w-4" /></Button>
                           </div>
                         </div>
                       ))}
@@ -504,7 +516,11 @@ const JobSeekerDashboard = () => {
             <div className="dashboard-section-header flex-wrap gap-4">
               <div className="section-header-left">
                 <h1>Verification Pipeline</h1>
-                <p>Complete all 5 stages to unlock your Skill Passport and access premium opportunities</p>
+                <p>
+                  {roleType === "non_technical"
+                    ? "Complete all 3 stages to unlock your Skill Passport and access premium opportunities"
+                    : "Complete all 5 stages to unlock your Skill Passport and access premium opportunities"}
+                </p>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="dashboard-proc-indicator">
@@ -533,11 +549,13 @@ const JobSeekerDashboard = () => {
                   <div className="dashboard-stage-time-badge">
                     <div className="dashboard-stage-time-label">Time to full verify</div>
                     <div className="dashboard-stage-time-value">≤ 48h</div>
-                    <div className="dashboard-stage-time-label mt-1">Complete all 5 stages</div>
+                    <div className="dashboard-stage-time-label mt-1">
+                      Complete all {roleType === "non_technical" ? 3 : 5} stages
+                    </div>
                   </div>
                 </div>
                 <div className="dashboard-stage-progress-bar">
-                  {STAGE_ORDER.map((stageName, idx) => {
+                  {stageOrder.map((stageName, idx) => {
                     const status = getStageStatus(stageName);
                     return (
                       <div key={stageName} className={`dashboard-stage-progress-step ${status}`}>
@@ -554,13 +572,20 @@ const JobSeekerDashboard = () => {
               </div>
 
               <div className="dashboard-stages-grid">
-                {STAGE_ORDER.slice(0, 4).map((stageName, idx) => {
+                {stageOrder.filter((s) => s !== 'human_expert_interview').map((stageName, idx) => {
                   const status = getStageStatus(stageName);
                   const isCompleted = status === 'done';
                   const isActive = status === 'active';
                   const isLocked = status === 'locked';
                   const aptitudePct = testResults.aptitude ? Math.round((testResults.aptitude.total_score / 15) * 100) : null;
                   const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 4}` : null;
+                  const stageDesc: Record<string, string> = {
+                    profile_setup: 'AI-assisted profile creation with resume parsing and consistency checks.',
+                    aptitude_test: 'Proctored 60-minute test covering logical reasoning, quantitative aptitude, and verbal ability.',
+                    dsa_round: 'Proctored coding round with 2–4 algorithmic problems of increasing difficulty.',
+                    non_tech_assignment: 'Role-based written assignment tailored to your target job title.',
+                    expert_interview: 'Adaptive AI video interview. Questions generated from your resume, role, and experience level.',
+                  };
                   return (
                     <div
                       key={stageName}
@@ -576,16 +601,12 @@ const JobSeekerDashboard = () => {
                         </div>
                       </div>
                       <h3 className="dashboard-stage-card-title">{STAGE_LABELS[stageName]}</h3>
-                      <p className="dashboard-stage-card-desc">
-                        {stageName === 'profile_setup' && 'AI-assisted profile creation with resume parsing and consistency checks.'}
-                        {stageName === 'aptitude_test' && 'Proctored 60-minute test covering logical reasoning, quantitative aptitude, and verbal ability.'}
-                        {stageName === 'dsa_round' && 'Proctored coding round with 2–4 algorithmic problems of increasing difficulty.'}
-                        {stageName === 'expert_interview' && 'Adaptive AI video interview. Questions generated from your resume, role, and experience level.'}
-                      </p>
+                      <p className="dashboard-stage-card-desc">{stageDesc[stageName] ?? ''}</p>
                       <div className="flex flex-wrap gap-1">
                         {stageName === 'profile_setup' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> AI Parsed</span>}
                         {stageName === 'aptitude_test' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Webcam Active</span></>}
                         {stageName === 'dsa_round' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Sandbox Executed</span></>}
+                        {stageName === 'non_tech_assignment' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Job-Specific</span>}
                         {stageName === 'expert_interview' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Recording Active</span><span className="dashboard-trust-chip"><span style={{ background: 'var(--dash-gold)' }} className="w-1.5 h-1.5 rounded-full" /> AI Adaptive</span></>}
                       </div>
                       {isCompleted && stageName === 'profile_setup' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
@@ -595,6 +616,7 @@ const JobSeekerDashboard = () => {
                       {isCompleted && stageName === 'dsa_round' && dsaSolved && (
                         <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: '75%' }} /></div><div className="dashboard-score-text">{dsaSolved} Problems Solved</div></>
                       )}
+                      {isCompleted && stageName === 'non_tech_assignment' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
                       {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
                       {isActive && (
                         <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
@@ -605,6 +627,7 @@ const JobSeekerDashboard = () => {
                   );
                 })}
 
+                {roleType === 'technical' && (
                 <div className={`dashboard-stage-card locked-stage full-width ${getStageStatus('human_expert_interview') === 'locked' ? 'locked-stage' : ''}`}>
                   <div className="flex items-start justify-between mb-4">
                     <div className="dashboard-stage-num locked-num">05</div>
@@ -631,6 +654,7 @@ const JobSeekerDashboard = () => {
                     </div>
                   </div>
                 </div>
+                )}
               </div>
             </div>
           </div>

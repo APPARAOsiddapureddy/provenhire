@@ -1,0 +1,341 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  jobseeker
+  recruiter
+  admin
+  expert_interviewer
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String?
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(jobseeker)
+  createdAt    DateTime @default(now())
+
+  jobSeekerProfile JobSeekerProfile?
+  recruiterProfile RecruiterProfile?
+  interviews       Interview[]
+  resumeAnalyses   ResumeAnalysis[]
+  jobApplications  JobApplication[] @relation("JobApplicationsByUser")
+  savedJobs        SavedJob[]
+  verificationStages VerificationStage[]
+  aptitudeResults    AptitudeTestResult[]
+  dsaResults          DsaRoundResult[]
+  notifications       Notification[]
+  appeals             Appeal[]
+  humanInterviewSessions HumanInterviewSession[]
+  bookedSlots         InterviewerSlot[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  interviewerProfile  Interviewer?
+}
+
+model JobSeekerProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  fullName          String?
+  email             String?
+  currentRole       String?
+  experienceYears   Int?
+  resumeUrl         String?
+  about             String?
+  phone             String?
+  location          String?
+  college           String?
+  graduationYear    String?
+  verificationStatus String?
+  skills            Json?
+  education         Json?
+  workExperience    Json?
+  roleType          String?  @default("technical")
+  targetJobTitle    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model RecruiterProfile {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  companyName  String?
+  companySize  String?
+  designation  String?
+  phone        String?
+  companyWebsite String?
+  industry     String?
+  hiringFor    String?
+  onboardingCompleted Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  jobs Job[]
+}
+
+model Job {
+  id          String   @id @default(uuid())
+  title       String
+  company     String
+  location    String?
+  status      String   @default("active")
+  salaryRange String?
+  jobType     String?
+  description String?
+  jobTrack    String?  @default("tech")
+  createdAt   DateTime @default(now())
+  postedById  String?
+
+  postedBy RecruiterProfile? @relation(fields: [postedById], references: [id])
+  applications JobApplication[]
+  savedBy       SavedJob[]
+}
+
+model JobApplication {
+  id           String   @id @default(uuid())
+  jobId        String
+  jobSeekerId  String
+  status       String   @default("applied")
+  appliedAt    DateTime @default(now())
+  resumeUrl    String?
+
+  job       Job  @relation(fields: [jobId], references: [id])
+  jobSeeker User @relation("JobApplicationsByUser", fields: [jobSeekerId], references: [id])
+}
+
+model SavedJob {
+  id        String   @id @default(uuid())
+  jobId     String
+  userId    String
+  savedAt   DateTime @default(now())
+
+  job  Job  @relation(fields: [jobId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+}
+
+model VerificationStage {
+  id        String   @id @default(uuid())
+  userId    String
+  stageName String
+  status    String
+  score     Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AptitudeTestResult {
+  id         String   @id @default(uuid())
+  userId     String
+  score      Int?
+  answers    Json?
+  completedAt DateTime @default(now())
+  invalidated Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model DsaRoundResult {
+  id         String   @id @default(uuid())
+  userId     String
+  score      Int?
+  answers    Json?
+  completedAt DateTime @default(now())
+  invalidated Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Interview {
+  id            String   @id @default(uuid())
+  userId        String
+  jobRole       String
+  totalScore    Int?
+  badgeLevel    String?
+  finalVerdict  String?
+  scoreBreakdown Json?
+  status        String   @default("in_progress")
+  questionIndex Int      @default(0)
+  questionPlan  Json?
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  user      User              @relation(fields: [userId], references: [id])
+  messages  InterviewMessage[]
+}
+
+model InterviewMessage {
+  id          String   @id @default(uuid())
+  interviewId String
+  sender      String
+  message     String
+  questionType String?
+  isFollowup  Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  interview Interview @relation(fields: [interviewId], references: [id])
+}
+
+model ResumeAnalysis {
+  id        String   @id @default(uuid())
+  userId    String
+  score     Int?
+  feedback  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model JobAlertSubscription {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  email              String
+  skills             Json?
+  isActive           Boolean  @default(true)
+  frequency          String   @default("daily")
+  minMatchPercentage Int      @default(50)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Appeal {
+  id        String   @id @default(uuid())
+  userId    String
+  stage     String
+  reason    String
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model InterviewerApplication {
+  id              String   @id @default(uuid())
+  name            String
+  email           String
+  experienceYears Int?
+  track           String   @default("technical")
+  domains         Json?
+  linkedIn        String?
+  whyJoin         String?
+  status          String   @default("pending")
+  createdAt       DateTime @default(now())
+  reviewedAt      DateTime?
+}
+
+model Interviewer {
+  id             String   @id @default(uuid())
+  userId         String?  @unique
+  name           String?
+  domain         String?
+  track          String?  @default("technical")
+  domains        Json?
+  experienceYears Int?
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+
+  user    User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  slots   InterviewerSlot[]
+  sessions HumanInterviewSession[]
+}
+
+model InterviewerInvite {
+  id        String   @id @default(uuid())
+  email     String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model InterviewerSlot {
+  id            String   @id @default(uuid())
+  interviewerId String
+  startsAt      DateTime
+  endsAt        DateTime?
+  status        String   @default("available")
+  bookedUserId  String?
+
+  interviewer Interviewer @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
+  bookedUser  User?      @relation(fields: [bookedUserId], references: [id])
+  session     HumanInterviewSession?
+}
+
+model HumanInterviewSession {
+  id                   String    @id @default(uuid())
+  userId               String
+  interviewerId        String
+  slotId               String?   @unique
+  scheduledAt          DateTime?
+  completedAt          DateTime?
+  status               String    @default("scheduled")
+  meetingLink          String?
+  verificationTier     String?
+  evaluationScores     Json?
+  evaluationNotes      String?
+  evaluationPass       Boolean?
+  evaluationSubmittedAt DateTime?
+
+  user        User         @relation(fields: [userId], references: [id])
+  interviewer Interviewer  @relation(fields: [interviewerId], references: [id])
+  slot        InterviewerSlot? @relation(fields: [slotId], references: [id])
+}
+
+model ProctoringEvent {
+  id        String   @id @default(uuid())
+  sessionId String
+  userId    String?
+  type      String
+  message   String?
+  createdAt DateTime @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TestCredential {
+  id       String   @id @default(uuid())
+  email    String   @unique
+  password String
+  role     UserRole
+  active   Boolean  @default(true)
+  createdAt DateTime @default(now())
+}

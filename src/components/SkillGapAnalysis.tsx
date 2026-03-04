@@ -31,7 +31,7 @@ import {
   FileText,
   BookMarked
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 interface LearningResource {
@@ -155,15 +155,16 @@ const SkillGapAnalysis = ({ jobs, userSkills }: SkillGapAnalysisProps) => {
     try {
       const skillNames = analysis.topMissingSkills.slice(0, 5).map(s => s.skill);
       
-      const { data, error } = await supabase.functions.invoke('get-learning-resources', {
-        body: { skills: skillNames }
+      const { result } = await api.post<{ result: string }>("/api/ai/learning-resources", {
+        profile: `Missing skills: ${skillNames.join(", ")}`,
       });
-
-      if (error) throw error;
-      
-      if (data?.resources) {
-        setSkillResources(data.resources);
+      let parsed: SkillResources[] = [];
+      try {
+        parsed = JSON.parse(result);
+      } catch {
+        parsed = [];
       }
+      setSkillResources(parsed);
     } catch (error) {
       console.error("Error loading learning resources:", error);
       toast.error("Failed to load learning resources");

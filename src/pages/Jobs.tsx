@@ -8,7 +8,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -22,12 +22,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
 import JobDetailsDialog from "@/components/JobDetailsDialog";
-import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import JobComparisonDialog from "@/components/JobComparisonDialog";
 import SkillGapAnalysis from "@/components/SkillGapAnalysis";
 import JobAlertSettings from "@/components/JobAlertSettings";
 import VerifiedBenefitsBanner from "@/components/VerifiedBenefitsBanner";
-import PremiumBadge from "@/components/PremiumBadge";
 
 interface Job {
   id: string;
@@ -84,7 +82,8 @@ const MOCK_JOBS: Job[] = [
     job_type: 'Remote',
     experience_required: 6,
     created_at: new Date().toISOString(),
-    isPremium: true
+    isPremium: true,
+    job_track: 'non_technical',
   },
   {
     id: 'mock-4',
@@ -280,7 +279,8 @@ const MOCK_JOBS: Job[] = [
     job_type: 'Full-time',
     experience_required: 4,
     created_at: new Date().toISOString(),
-    isPremium: false
+    isPremium: false,
+    job_track: 'non_technical',
   },
   {
     id: 'mock-19',
@@ -293,7 +293,8 @@ const MOCK_JOBS: Job[] = [
     job_type: 'Full-time',
     experience_required: 3,
     created_at: new Date().toISOString(),
-    isPremium: false
+    isPremium: false,
+    job_track: 'non_technical',
   },
   {
     id: 'mock-20',
@@ -306,7 +307,8 @@ const MOCK_JOBS: Job[] = [
     job_type: 'Full-time',
     experience_required: 1,
     created_at: new Date().toISOString(),
-    isPremium: false
+    isPremium: false,
+    job_track: 'non_technical',
   }
 ];
 
@@ -330,7 +332,8 @@ const Jobs = () => {
   const [showCompareDialog, setShowCompareDialog] = useState(false);
   const [userSkills, setUserSkills] = useState<string[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
-  
+  const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
+
   const {
     isVerified, 
     isLoading: verificationLoading, 
@@ -410,14 +413,10 @@ const Jobs = () => {
 
   const loadUserSkills = async () => {
     try {
-      const { data, error } = await supabase
-        .from('job_seeker_profiles')
-        .select('skills')
-        .eq('user_id', user!.id)
-        .maybeSingle();
-
-      if (error) throw error;
-      setUserSkills(data?.skills || []);
+      const { profile } = await api.get<{ profile: any }>("/api/users/job-seeker-profile");
+      setUserSkills(profile?.skills || []);
+      const rt = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
+      setRoleType(rt);
     } catch (error: any) {
       console.error('Error loading user skills:', error);
     }
@@ -425,13 +424,8 @@ const Jobs = () => {
 
   const loadAppliedJobs = async () => {
     try {
-      const { data, error } = await supabase
-        .from('job_applications')
-        .select('job_id')
-        .eq('job_seeker_id', user!.id);
-
-      if (error) throw error;
-      setAppliedJobs(new Set(data?.map(item => item.job_id) || []));
+      const { applications } = await api.get<{ applications: any[] }>("/api/jobs/me/applications");
+      setAppliedJobs(new Set(applications?.map((item) => item.jobId || item.job_id) || []));
     } catch (error: any) {
       console.error('Error loading applied jobs:', error);
     }
@@ -439,19 +433,34 @@ const Jobs = () => {
 
   const loadJobs = async () => {
     try {
-      const { data, error } = await supabase
-        .from('jobs_public' as any)
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      const jobsData = (data || []) as unknown as (Job & { job_track?: string; verification_required?: string })[];
-      const normalizedJobs = jobsData.map(job => ({
-        ...job,
-        job_track: (job.job_track === 'non_technical' ? 'non_technical' : 'tech') as 'tech' | 'non_technical',
-        isPremium: job.job_track !== 'non_technical' && (job as any).verification_required === 'premium',
-      }));
-      setJobs(normalizedJobs.length > 0 ? [...normalizedJobs, ...MOCK_JOBS] : MOCK_JOBS);
+      let track: string | null = null;
+      if (user && userRole === "jobseeker") {
+        try {
+          const { profile } = await api.get<{ profile: any }>("/api/users/job-seeker-profile");
+          const rt = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
+          track = rt === "non_technical" ? "non_technical" : "tech";
+          setRoleType(rt as "technical" | "non_technical");
+        } catch (_) {}
+      }
+      const url = track ? `/api/jobs?track=${track}` : "/api/jobs";
+      const { jobs: data } = await api.get<{ jobs: any[] }>(url);
+      const jobsData = (data || []) as unknown as (Job & { job_track?: string; jobTrack?: string; verification_required?: string })[];
+      const normalizedJobs = jobsData.map(job => {
+        const jt = job.job_track ?? job.jobTrack;
+        return {
+          ...job,
+          job_track: (jt === 'non_technical' ? 'non_technical' : 'tech') as 'tech' | 'non_technical',
+          isPremium: jt !== 'non_technical' && (job as any).verification_required === 'premium',
+        };
+      });
+      const mockFiltered = track
+        ? MOCK_JOBS.filter((j) =>
+            track === "non_technical"
+              ? j.job_track === "non_technical"
+              : (j.job_track !== "non_technical" || !j.job_track)
+          )
+        : MOCK_JOBS;
+      setJobs(normalizedJobs.length > 0 ? [...normalizedJobs, ...mockFiltered] : mockFiltered);
     } catch (error: any) {
       console.error('Error loading jobs:', error);
       setJobs(MOCK_JOBS);
@@ -462,13 +471,8 @@ const Jobs = () => {
 
   const loadSavedJobs = async () => {
     try {
-      const { data, error } = await supabase
-        .from('saved_jobs')
-        .select('job_id')
-        .eq('user_id', user!.id);
-
-      if (error) throw error;
-      setSavedJobs(new Set(data?.map(item => item.job_id) || []));
+      const { saved } = await api.get<{ saved: any[] }>("/api/jobs/me/saved");
+      setSavedJobs(new Set(saved?.map((item) => item.jobId || item.job_id) || []));
     } catch (error: any) {
       console.error('Error loading saved jobs:', error);
     }
@@ -502,6 +506,47 @@ const Jobs = () => {
     return 'Senior Level';
   };
 
+  const parseSalaryMax = (salaryStr: string | null): number | null => {
+    if (!salaryStr) return null;
+    const match = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i) || salaryStr.match(/\$?([\d,]+)k?/i);
+    if (match) {
+      const max = match[2] ? parseInt(match[2].replace(/,/g, ''), 10) : parseInt(match[1].replace(/,/g, ''), 10);
+      return isNaN(max) ? null : max;
+    }
+    return null;
+  };
+
+  const parseSalaryMin = (salaryStr: string | null): number | null => {
+    if (!salaryStr) return null;
+    const match = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i);
+    if (match) {
+      const min = parseInt(match[1].replace(/,/g, ''), 10);
+      return isNaN(min) ? null : min;
+    }
+    const single = salaryStr.match(/\$?([\d,]+)k?/i);
+    if (single) {
+      const v = parseInt(single[1].replace(/,/g, ''), 10);
+      return isNaN(v) ? null : v;
+    }
+    return null;
+  };
+
+  const matchesSalaryRange = (job: Job, range: string): boolean => {
+    const sr = job.salary_range || '';
+    const min = parseSalaryMin(sr);
+    const max = parseSalaryMax(sr);
+    if (min == null && max == null) return true;
+    const jobMin = min ?? 0;
+    const jobMax = max ?? min ?? 999;
+    switch (range) {
+      case 'Above $100k': return jobMin >= 100 || jobMax >= 100;
+      case '$80k - $100k': return jobMin <= 100 && jobMax >= 80;
+      case '$60k - $80k': return jobMin <= 80 && jobMax >= 60;
+      case 'Below $60k': return jobMax < 60;
+      default: return true;
+    }
+  };
+
   const jobsToShow = jobs.length > 0 ? jobs : MOCK_JOBS;
   const filteredJobs = jobsToShow.filter((job) => {
     const matchesKeyword = !keyword ||
@@ -521,7 +566,9 @@ const Jobs = () => {
     const jobExpLevel = getExperienceLevel(job.experience_required);
     const matchesExperience = activeExperience.length === 0 || activeExperience.includes(jobExpLevel);
 
-    return matchesKeyword && matchesLocation && matchesSkill && matchesJobType && matchesExperience;
+    const matchesSalary = !selectedSalary || matchesSalaryRange(job, selectedSalary);
+
+    return matchesKeyword && matchesLocation && matchesSkill && matchesJobType && matchesExperience && matchesSalary;
   });
 
   const displayedJobs = filteredJobs.slice(0, displayLimit);
@@ -613,20 +660,15 @@ const Jobs = () => {
         return;
       }
 
-      const { data: profile } = await supabase
-        .from('job_seeker_profiles')
-        .select('resume_url')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (!profile?.resume_url) {
+      const { profile } = await api.get<{ profile: any }>("/api/users/job-seeker-profile");
+      if (!profile?.resumeUrl) {
         setSelectedJobId(selectedJob.id);
         setShowJobDetails(false);
         setShowResumeDialog(true);
         return;
       }
 
-      await applyToJob(selectedJob.id, profile.resume_url);
+      await applyToJob(selectedJob.id, profile.resumeUrl);
       setAppliedJobs(prev => new Set([...prev, selectedJob.id]));
       setShowJobDetails(false);
     } catch (error: any) {
@@ -651,21 +693,11 @@ const Jobs = () => {
       const fileName = `${user!.id}-${Date.now()}.${fileExt}`;
       const filePath = `${user!.id}/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('resumes')
-        .upload(filePath, resumeFile);
-
-      if (uploadError) throw uploadError;
-
-      // Store file path instead of public URL for security
-      const { error: updateError } = await supabase
-        .from('job_seeker_profiles')
-        .update({ resume_url: filePath })
-        .eq('user_id', user!.id);
-
-      if (updateError) throw updateError;
-
-      await applyToJob(selectedJobId, filePath);
+      const form = new FormData();
+      form.append("file", resumeFile);
+      const { url } = await api.post<{ url: string }>("/api/uploads", form);
+      await api.post("/api/users/job-seeker-profile", { resumeUrl: url });
+      await applyToJob(selectedJobId, url);
       setShowResumeDialog(false);
       setResumeFile(null);
     } catch (error: any) {
@@ -678,16 +710,7 @@ const Jobs = () => {
 
   const applyToJob = async (jobId: string, resumeUrl: string) => {
     try {
-      const { error } = await supabase
-        .from('job_applications')
-        .insert({
-          job_id: jobId,
-          job_seeker_id: user!.id,
-          resume_url: resumeUrl,
-          status: 'applied'
-        });
-
-      if (error) throw error;
+      await api.post(`/api/jobs/${jobId}/apply`, { resumeUrl });
       toast.success('Application submitted successfully!');
     } catch (error: any) {
       console.error('Error applying to job:', error);
@@ -732,24 +755,9 @@ const Jobs = () => {
       return;
     }
 
-    if (skipSupabaseRequests()) {
-      setSavedJobs(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(jobId)) {
-          newSet.delete(jobId);
-          toast.success('Job removed from saved');
-        } else {
-          newSet.add(jobId);
-          toast.success('Job saved!');
-        }
-        return newSet;
-      });
-      return;
-    }
-
     try {
       if (savedJobs.has(jobId)) {
-        await supabase.from('saved_jobs').delete().eq('user_id', user.id).eq('job_id', jobId);
+        await api.del(`/api/jobs/${jobId}/save`);
         setSavedJobs(prev => {
           const newSet = new Set(prev);
           newSet.delete(jobId);
@@ -757,7 +765,7 @@ const Jobs = () => {
         });
         toast.success('Job removed from saved');
       } else {
-        await supabase.from('saved_jobs').insert({ user_id: user.id, job_id: jobId });
+        await api.post(`/api/jobs/${jobId}/save`, {});
         setSavedJobs(prev => new Set([...prev, jobId]));
         toast.success('Job saved!');
       }
@@ -840,7 +848,7 @@ const Jobs = () => {
               <div className="flex-1 flex items-center gap-2">
                 <MapPin className="h-5 w-5 text-muted-foreground" />
                 <Input
-                  placeholder="e.g. San Francisco"
+                  placeholder="e.g. Bangalore"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className="border-0 bg-transparent focus-visible:ring-0"
@@ -969,9 +977,15 @@ const Jobs = () => {
                     {(job.isPremium || job.job_track === 'non_technical') && (
                       <span className="absolute top-3 left-3 flex items-center gap-1.5">
                         {job.job_track === 'non_technical' ? (
-                          <Badge className="bg-amber-500/20 text-amber-700 border-amber-400/30">Non-Tech</Badge>
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00C9A7]/90 border border-[#00F5D4] text-[#0B1C2D] text-xs font-bold tracking-wide shadow-md">
+                            <span className="w-2 h-2 rounded-full bg-[#0B1C2D]" />
+                            Non-Technical
+                          </span>
                         ) : (
-                          <PremiumBadge />
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#D4AF37] border border-[#E5C65C] text-[#0B1C2D] text-xs font-bold tracking-wide shadow-md">
+                            <span className="w-2 h-2 rounded-full bg-[#0B1C2D]" />
+                            Premium
+                          </span>
                         )}
                       </span>
                     )}

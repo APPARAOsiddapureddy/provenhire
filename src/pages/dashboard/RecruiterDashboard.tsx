@@ -6,7 +6,7 @@ import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2,
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -36,7 +36,6 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { skipSupabaseRequests } from "@/lib/skipSupabase";
 import DashboardShell from "@/components/DashboardShell";
 
 interface Job {
@@ -175,121 +174,40 @@ const RecruiterDashboard = () => {
   const loadDashboardData = async () => {
     const FETCH_TIMEOUT_MS = 20000;
     try {
-      if (skipSupabaseRequests()) {
-        setJobs([]);
-        setProfile(null);
-        setApplications([]);
-        setCandidates([]);
-        setStats({ activeJobs: 0, totalApplicants: 0, interviewsScheduled: 0, hiredCount: 0, profileViews: 0 });
-        setLoading(false);
-        return;
-      }
-
-      const isBypass = user?.id?.startsWith?.('bypass-');
-      if (isBypass) {
-        setJobs([]);
-        setProfile(null);
-        setApplications([]);
-        setStats({ activeJobs: 0, totalApplicants: 0, interviewsScheduled: 0, hiredCount: 0, profileViews: 0 });
-        const { data: candidatesData } = await supabase
-          .from('job_seeker_profiles')
-          .select('id, user_id, current_role, experience_years, verification_status, skills, actively_looking_roles, resume_url')
-          .in('verification_status', ['verified', 'expert_verified'])
-          .order('created_at', { ascending: false });
-        if (candidatesData?.length) {
-          const userIds = [...new Set(candidatesData.map((c: { user_id: string }) => c.user_id))];
-          const { data: profilesData } = await supabase.from('profiles').select('user_id, full_name').in('user_id', userIds);
-          const nameMap = new Map((profilesData || []).map((p: { user_id: string; full_name: string | null }) => [p.user_id, p.full_name]));
-          setCandidates(candidatesData.map((c: Record<string, unknown>) => ({ ...c, full_name: nameMap.get(c.user_id as string) ?? null })) as TalentCandidate[]);
-        } else {
-          setCandidates([]);
-        }
-        setLoading(false);
-        return;
-      }
-
       const fetchPromise = Promise.all([
-        supabase
-          .from('jobs')
-          .select('*')
-          .eq('recruiter_id', user?.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('user_id', user?.id)
-          .maybeSingle()
+        api.get<{ jobs: Job[] }>("/api/jobs/recruiter"),
+        api.get<{ profile: RecruiterProfile | null }>("/api/users/recruiter-profile"),
+        api.get<{ applications: Application[] }>("/api/jobs/recruiter/applications"),
+        api.get<{ profiles: TalentCandidate[] }>("/api/users/candidates"),
       ]);
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Dashboard request timed out. Check your connection and try again.')), FETCH_TIMEOUT_MS)
       );
-      const [jobsResult, profileResult] = await Promise.race([fetchPromise, timeoutPromise]);
+      const [jobsResult, profileResult, applicationsResult, candidatesResult] = await Promise.race([
+        fetchPromise,
+        timeoutPromise,
+      ]);
 
-      if (jobsResult.error) throw jobsResult.error;
-
-      // Check if onboarding is completed - redirect if not
-      if (profileResult.data && !profileResult.data.onboarding_completed) {
-        navigate('/dashboard/recruiter/onboarding');
-        return;
-      }
-
-      setJobs(jobsResult.data || []);
-      setProfile(profileResult.data as RecruiterProfile);
-      if (profileResult.data) {
+      setJobs(jobsResult.jobs || []);
+      setProfile(profileResult.profile as RecruiterProfile | null);
+      if (profileResult.profile) {
         setEditedProfile({
-          full_name: profileResult.data.full_name || '',
-          phone: profileResult.data.phone || '',
-          company_name: profileResult.data.company_name || '',
+          full_name: (profileResult.profile as any).full_name || "",
+          phone: (profileResult.profile as any).phone || "",
+          company_name: (profileResult.profile as any).company_name || "",
         });
       }
 
-      // Get all applications for recruiter's jobs
-      if (jobsResult.data && jobsResult.data.length > 0) {
-        const { data: applicationsData } = await supabase
-          .from('job_applications')
-          .select('*, jobs(title, company)')
-          .in('job_id', jobsResult.data.map(j => j.id))
-          .order('applied_at', { ascending: false });
+      setApplications(applicationsResult.applications || []);
+      setCandidates(candidatesResult.profiles || []);
 
-        setApplications(applicationsData || []);
-
-        setStats({
-          activeJobs: jobsResult.data.filter(j => j.status === 'active').length,
-          totalApplicants: applicationsData?.length || 0,
-          interviewsScheduled: applicationsData?.filter(a => a.status === 'interview_scheduled').length || 0,
-          hiredCount: applicationsData?.filter(a => a.status === 'hired').length || 0,
-          profileViews: Math.floor(Math.random() * 500) + 100, // Placeholder
-        });
-      } else {
-        setStats({
-          activeJobs: 0,
-          totalApplicants: 0,
-          interviewsScheduled: 0,
-          hiredCount: 0,
-          profileViews: 0,
-        });
-      }
-
-      // Fetch verified talent pool (job seeker profiles with verified status)
-      const { data: candidatesData } = await supabase
-        .from('job_seeker_profiles')
-        .select('id, user_id, current_role, experience_years, verification_status, skills, actively_looking_roles, resume_url')
-        .in('verification_status', ['verified', 'expert_verified'])
-        .order('created_at', { ascending: false });
-      if (candidatesData?.length) {
-        const userIds = [...new Set(candidatesData.map((c: { user_id: string }) => c.user_id))];
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('user_id, full_name')
-          .in('user_id', userIds);
-        const nameMap = new Map((profilesData || []).map((p: { user_id: string; full_name: string | null }) => [p.user_id, p.full_name]));
-        setCandidates(candidatesData.map((c: Record<string, unknown>) => ({
-          ...c,
-          full_name: nameMap.get(c.user_id as string) ?? null,
-        })) as TalentCandidate[]);
-      } else {
-        setCandidates([]);
-      }
+      setStats({
+        activeJobs: (jobsResult.jobs || []).length,
+        totalApplicants: (applicationsResult.applications || []).length,
+        interviewsScheduled: (applicationsResult.applications || []).filter((a) => a.status === "interview_scheduled").length,
+        hiredCount: (applicationsResult.applications || []).filter((a) => a.status === "hired").length,
+        profileViews: Math.floor(Math.random() * 500) + 100,
+      });
     } catch (error: unknown) {
       console.error('Error loading dashboard data:', error);
       const msg = error instanceof Error ? error.message : 'Failed to load dashboard data';
@@ -302,32 +220,14 @@ const RecruiterDashboard = () => {
   const handleViewJobDetails = async (job: Job) => {
     setSelectedJob(job);
     setShowJobDetails(true);
-    if (skipSupabaseRequests()) {
-      setJobApplications([]);
-      return;
-    }
-    const { data } = await supabase
-      .from('job_applications')
-      .select('*')
-      .eq('job_id', job.id)
-      .order('applied_at', { ascending: false });
-    setJobApplications(data || []);
+    const { applications } = await api.get<{ applications: Application[] }>(`/api/jobs/${job.id}/applications`);
+    setJobApplications(applications || []);
   };
 
   const handleToggleJobStatus = async (jobId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'closed' : 'active';
-    if (skipSupabaseRequests()) {
-      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
-      toast.success(`Job ${newStatus === 'active' ? 'activated' : 'closed'} (demo)`);
-      return;
-    }
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ status: newStatus })
-        .eq('id', jobId);
-
-      if (error) throw error;
+      await api.post(`/api/jobs/${jobId}/status`, { status: newStatus });
 
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
       toast.success(`Job ${newStatus === 'active' ? 'activated' : 'closed'} successfully`);
@@ -339,19 +239,8 @@ const RecruiterDashboard = () => {
 
   const handleDeleteJob = async () => {
     if (!jobToDelete) return;
-    if (skipSupabaseRequests()) {
-      setJobs(prev => prev.filter(j => j.id !== jobToDelete));
-      setJobToDelete(null);
-      toast.success('Job deleted (demo)');
-      return;
-    }
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .delete()
-        .eq('id', jobToDelete);
-
-      if (error) throw error;
+      await api.del(`/api/jobs/${jobToDelete}`);
 
       setJobs(prev => prev.filter(j => j.id !== jobToDelete));
       setJobToDelete(null);
@@ -363,38 +252,9 @@ const RecruiterDashboard = () => {
   };
 
   const handleUpdateApplicationStatus = async (applicationId: string, newStatus: string) => {
-    if (skipSupabaseRequests()) {
-      setApplications(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
-      setJobApplications(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
-      toast.success('Application status updated (demo)');
-      return;
-    }
     try {
-      const { error } = await supabase
-        .from('job_applications')
-        .update({ status: newStatus })
-        .eq('id', applicationId);
-
-      if (error) throw error;
-
-      const application = applications.find(a => a.id === applicationId);
-      
-      if (!skipSupabaseRequests() && application && application.jobs) {
-        try {
-          await supabase.functions.invoke('send-status-notification', {
-            body: {
-              applicationId,
-              newStatus,
-              jobTitle: application.jobs.title,
-              companyName: application.jobs.company,
-              candidateEmail: user?.email || '',
-              candidateName: 'Candidate',
-            }
-          });
-        } catch (emailError) {
-          console.error('Email notification failed:', emailError);
-        }
-      }
+      await api.post(`/api/jobs/applications/${applicationId}/status`, { status: newStatus });
+      await api.post("/api/notifications/status", { applicationId, newStatus });
 
       setApplications(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
       setJobApplications(prev => prev.map(a => a.id === applicationId ? { ...a, status: newStatus } : a));
@@ -411,23 +271,11 @@ const RecruiterDashboard = () => {
       setShowProfileEdit(false);
       return;
     }
-    if (skipSupabaseRequests()) {
-      setProfile(prev => prev ? { ...prev, ...editedProfile } : null);
-      setShowProfileEdit(false);
-      toast.success('Profile updated (demo)');
-      return;
-    }
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: editedProfile.full_name,
-          phone: editedProfile.phone,
-          company_name: editedProfile.company_name,
-        })
-        .eq('user_id', user?.id);
-
-      if (error) throw error;
+      await api.post("/api/users/recruiter-profile", {
+        companyName: editedProfile.company_name,
+        phone: editedProfile.phone,
+      });
 
       setProfile(prev => prev ? { ...prev, ...editedProfile } : null);
       setShowProfileEdit(false);

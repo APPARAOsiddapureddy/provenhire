@@ -23,7 +23,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Bell, BellOff, Mail, Settings2, Eye, ChevronDown, MapPin, Briefcase, DollarSign, CheckCircle2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -172,19 +172,12 @@ const JobAlertSettings = ({ userSkills, userEmail }: JobAlertSettingsProps) => {
 
   const loadSubscription = async () => {
     try {
-      const { data, error } = await supabase
-        .from('job_alert_subscriptions')
-        .select('*')
-        .eq('user_id', user?.id)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (data) {
-        setSubscriptionId(data.id);
-        setIsActive(data.is_active);
-        setFrequency(data.frequency);
-        setMinMatchPercentage(data.min_match_percentage);
+      const { subscription } = await api.get<{ subscription: any }>("/api/notifications/job-alerts");
+      if (subscription) {
+        setSubscriptionId(subscription.id);
+        setIsActive(subscription.isActive);
+        setFrequency(subscription.frequency);
+        setMinMatchPercentage(subscription.minMatchPercentage);
       }
     } catch (error) {
       console.error("Error loading subscription:", error);
@@ -198,32 +191,14 @@ const JobAlertSettings = ({ userSkills, userEmail }: JobAlertSettingsProps) => {
     
     setSaving(true);
     try {
-      const subscriptionData = {
-        user_id: user.id,
+      const { subscription } = await api.post<{ subscription: any }>("/api/notifications/job-alerts", {
         email: userEmail,
         skills: userSkills,
-        is_active: isActive,
+        isActive,
         frequency,
-        min_match_percentage: minMatchPercentage,
-      };
-
-      if (subscriptionId) {
-        const { error } = await supabase
-          .from('job_alert_subscriptions')
-          .update(subscriptionData)
-          .eq('id', subscriptionId);
-        
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from('job_alert_subscriptions')
-          .insert(subscriptionData)
-          .select()
-          .single();
-        
-        if (error) throw error;
-        setSubscriptionId(data.id);
-      }
+        minMatchPercentage,
+      });
+      setSubscriptionId(subscription?.id ?? null);
 
       toast.success(isActive ? "Job alerts enabled!" : "Job alerts disabled");
     } catch (error: any) {

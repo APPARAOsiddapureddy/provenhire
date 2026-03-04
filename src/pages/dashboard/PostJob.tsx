@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { Briefcase, ArrowLeft, Upload, Sparkles, FileText, Loader2, X, Eye, MapPin, Clock, DollarSign, Calendar } from "lucide-react";
@@ -105,31 +105,26 @@ const PostJob = () => {
         return;
       }
 
-      // Call AI parsing function
-      const { data, error } = await supabase.functions.invoke('parse-job-description', {
-        body: { content }
+      const { result } = await api.post<{ result: string }>("/api/ai/parse-job-description", { text: content });
+      let parsed: any = {};
+      try {
+        parsed = JSON.parse(result);
+      } catch {
+        parsed = {};
+      }
+
+      setFormData({
+        title: parsed.title || formData.title,
+        company: parsed.company || formData.company,
+        description: parsed.description || formData.description,
+        location: parsed.location || formData.location,
+        job_type: parsed.job_type || formData.job_type,
+        salary_range: parsed.salary_range || formData.salary_range,
+        experience_required: parsed.experience_required || formData.experience_required,
+        required_skills: parsed.required_skills || formData.required_skills,
       });
 
-      if (error) throw error;
-
-      if (data?.success && data?.data) {
-        const parsed = data.data;
-        
-        setFormData({
-          title: parsed.title || formData.title,
-          company: parsed.company || formData.company,
-          description: parsed.description || formData.description,
-          location: parsed.location || formData.location,
-          job_type: parsed.job_type || formData.job_type,
-          salary_range: parsed.salary_range || formData.salary_range,
-          experience_required: parsed.experience_required || formData.experience_required,
-          required_skills: parsed.required_skills || formData.required_skills,
-        });
-
-        toast.success('Job details extracted successfully! Review and adjust as needed.');
-      } else {
-        throw new Error(data?.error || 'Failed to parse job description');
-      }
+      toast.success('Job details extracted successfully! Review and adjust as needed.');
     } catch (error: any) {
       console.error('AI parsing error:', error);
       toast.error(error.message || 'Failed to parse job description');
@@ -195,47 +190,19 @@ const PostJob = () => {
 
     setLoading(true);
     try {
-      const { data: newJob, error } = await supabase
-        .from('jobs')
-        .insert({
-          recruiter_id: user.id,
-          title: formData.title.trim(),
-          company: formData.company.trim(),
-          description: formData.description.trim(),
-          location: formData.location || null,
-          job_type: formData.job_type || null,
-          salary_range: formData.salary_range || null,
-          experience_required: formData.experience_required,
-          required_skills: formData.required_skills,
-          status: 'active',
-          job_track: formData.job_track,
-          role_category: formData.job_track === 'non_technical' ? formData.role_category || null : null,
-          company_context: formData.job_track === 'non_technical' ? formData.company_context || null : null,
-          assignment_threshold: formData.job_track === 'non_technical' ? formData.assignment_threshold : null,
-        })
-        .select()
-        .single();
+      const { job: newJob } = await api.post<{ job: any }>("/api/jobs", {
+        title: formData.title.trim(),
+        company: formData.company.trim(),
+        description: formData.description.trim(),
+        location: formData.location || null,
+        jobType: formData.job_type || null,
+        salaryRange: formData.salary_range || null,
+        jobTrack: formData.job_track || "tech",
+      });
 
-      if (error) throw error;
-
-      // Trigger job alert emails for matching subscribers (fire-and-forget)
       if (newJob) {
-        supabase.functions.invoke('send-job-alerts', {
-          body: {
-            jobId: newJob.id,
-            jobTitle: newJob.title,
-            company: newJob.company,
-            requiredSkills: newJob.required_skills || [],
-            location: newJob.location,
-            salaryRange: newJob.salary_range,
-            jobType: newJob.job_type
-          }
-        }).then(({ error: alertError }) => {
-          if (alertError) {
-            console.error('Failed to send job alerts:', alertError);
-          } else {
-            console.log('Job alerts triggered successfully');
-          }
+        api.post("/api/notifications/admin", { jobId: newJob.id }).catch((err) => {
+          console.warn("Job alert notification failed", err);
         });
       }
 

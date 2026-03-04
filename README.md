@@ -1,99 +1,43 @@
-# Welcome to your Lovable project
+ # ProvenHire
 
-## Project info
+ ProvenHire is a skill-certified hiring network with a React/Vite frontend and a Node.js/Express backend.
 
-**URL**: https://lovable.dev/projects/5d8775cc-c07d-451f-af48-df935df5da9e
+## Stack
 
-## How can I edit this code?
+- Frontend: React + Vite + TypeScript
+- Backend: Node.js + Express (TypeScript)
+- Database: PostgreSQL + Prisma
+- AI: OpenAI API
 
-There are several ways of editing your application.
+## Local development
 
-**Use Lovable**
+### 1) Install frontend dependencies
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/5d8775cc-c07d-451f-af48-df935df5da9e) and start prompting.
+```
+npm install
+```
 
-Changes made via Lovable will be committed automatically to this repo.
+### 2) Configure backend
 
-**Use your preferred IDE**
+Create `server/.env`:
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+```
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
+JWT_SECRET="your-secret"
+OPENAI_API_KEY="your-openai-key"
+PORT=5000
+```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### 3) Start backend
 
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```
+cd server
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## Local resume parser (optional)
-
-For stronger resume auto-fill, you can run the local Qwen-based parser and point the frontend to it.
-
-### Setup
-
-```sh
-cd local-resume-parser
-python -m venv env
-source env/bin/activate  # Windows: env\\Scripts\\activate
-pip install -r requirements.txt
-python download_model.py qwen
-python main.py
-```
-
-### Frontend config
-
-Set this in your `.env` (see `.env.example`):
+### 4) Start frontend
 
 ```
-VITE_LOCAL_RESUME_PARSER_URL="http://127.0.0.1:8000"
+npm run dev
 ```
-
-The app will call the local parser first, then fall back to the Supabase `analyze-resume` function and heuristics.
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/5d8775cc-c07d-451f-af48-df935df5da9e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
-# provenhire
