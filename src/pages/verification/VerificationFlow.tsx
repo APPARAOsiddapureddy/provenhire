@@ -5,6 +5,13 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CheckCircle, Clock, Lock, AlertTriangle, RotateCcw, Timer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -45,13 +52,15 @@ const VerificationFlow = () => {
   const [shortlistResult, setShortlistResult] = useState<ShortlistResult | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
+  const [showAllCompletePopup, setShowAllCompletePopup] = useState(false);
   const [targetJobTitle, setTargetJobTitle] = useState<string>("");
+  const [testStageStarted, setTestStageStarted] = useState<Record<string, boolean>>({});
 
   const technicalStageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
-  const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'expert_interview'];
+  const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'];
   const stageOrder = roleType === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
   const STAGE_NAMES_FOR_INSERT = roleType === "non_technical"
-    ? ['profile_setup', 'non_tech_assignment', 'expert_interview']
+    ? ['profile_setup', 'non_tech_assignment', 'human_expert_interview']
     : ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
   const LOAD_TIMEOUT_MS = 30000;
 
@@ -60,7 +69,7 @@ const VerificationFlow = () => {
     aptitude_test: 'Aptitude Test',
     dsa_round: 'DSA Round',
     expert_interview: 'AI Expert Interview',
-    human_expert_interview: 'Human Expert Interview',
+    human_expert_interview: 'Human Expert Interview (5+ years experienced)',
     non_tech_assignment: 'Assignment',
   };
   const getStageLabel = (stageName: string) => STAGE_LABELS[stageName] ?? stageName.split('_').join(' ');
@@ -103,9 +112,17 @@ const VerificationFlow = () => {
     try {
       const loadWithTimeout = async () => {
         const res = await api.get<{ stages: VerificationStage[]; roleType?: string }>("/api/verification/stages");
-        const data = res.stages;
+        let data = res.stages;
         const rt = (res.roleType as "technical" | "non_technical") || "technical";
         setRoleType(rt);
+        // Migrate non-tech: expert_interview -> human_expert_interview for existing users
+        if (rt === "non_technical" && data?.length) {
+          data = data.map((s: VerificationStage) =>
+            s.stage_name === "expert_interview"
+              ? { ...s, stage_name: "human_expert_interview" as const }
+              : s
+          );
+        }
         const order = rt === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
         const insertNames = rt === "non_technical" ? nonTechnicalStageOrder : ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
         const profileRes = await api.get<{ profile: { targetJobTitle?: string } }>("/api/users/job-seeker-profile").catch(() => ({ profile: null }));
@@ -314,9 +331,10 @@ const VerificationFlow = () => {
         }
         setShortlistResult(sl);
         if (!sl.shortlisted) {
+          setShowAllCompletePopup(true);
           toast({
             title: "Stage 4 (AI Expert Interview) complete",
-            description: `Combined score ${sl.combined_score_pct.toFixed(1)}% (threshold ${sl.threshold_pct}%). Not shortlisted for Stage 5. You can retry Stage 4 when attempts allow.`,
+            description: `Combined score ${sl.combined_score_pct.toFixed(1)}% (threshold ${sl.threshold_pct}%). Not shortlisted for Stage 5.`,
           });
         } else {
           toast({
@@ -330,9 +348,7 @@ const VerificationFlow = () => {
 
       if (stageName === 'human_expert_interview') {
         await api.post("/api/users/job-seeker-profile", { verificationStatus: "verified" });
-      }
-      if (stageName === 'expert_interview' && roleType === 'non_technical') {
-        await api.post("/api/users/job-seeker-profile", { verificationStatus: "verified" });
+        setShowAllCompletePopup(true);
       }
 
       toast({
@@ -360,7 +376,24 @@ const VerificationFlow = () => {
           />
         );
       case 'non_tech_assignment':
-        return (
+        return !testStageStarted.non_tech_assignment ? (
+          <Card className="border-2 border-primary/30 bg-primary/5">
+            <CardContent className="pt-6">
+              <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Assignment</h3>
+              <p className="text-muted-foreground mb-4">
+                Start the non-technical assignment when you're ready, or return to the homepage and come back later.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="outline" onClick={() => navigate("/")}>
+                  Go to Homepage
+                </Button>
+                <Button onClick={() => setTestStageStarted((p) => ({ ...p, non_tech_assignment: true }))}>
+                  Start Assignment
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
           <NonTechnicalAssignmentStage
             targetJobTitle={targetJobTitle}
             onComplete={() => completeAndAdvanceStage('non_tech_assignment')}
@@ -398,17 +431,25 @@ const VerificationFlow = () => {
                 </AlertDescription>
               </Alert>
             )}
-            {!invalidatedTests.aptitude && !cooldownInfo.aptitude.inCooldown && (
-              <div className="bg-accent/10 border border-accent/20 rounded-lg p-6 mb-4">
-                <h3 className="font-semibold text-accent mb-2">🎉 Profile Setup Complete!</h3>
-                <p className="text-muted-foreground">
-                  Your resume has been uploaded successfully. You can now attempt the aptitude test 
-                  whenever you're ready, or come back later to complete it at your convenience.
-                </p>
-              </div>
-            )}
-            {/* Only show test stage if not in cooldown */}
-            {!cooldownInfo.aptitude.inCooldown && (
+            {/* Next-step landing: Start Test or Go Home */}
+            {!cooldownInfo.aptitude.inCooldown && !testStageStarted.aptitude_test ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Aptitude Test</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Your profile is ready. Start the aptitude test when you're ready, or return to the homepage and come back later.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, aptitude_test: true }))}>
+                      Start Aptitude Test
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : !cooldownInfo.aptitude.inCooldown && (
               <AptitudeTestStage
                 stageStatus={getStageStatus('aptitude_test')}
                 stageScore={stages.find((s) => s.stage_name === 'aptitude_test')?.score}
@@ -449,8 +490,25 @@ const VerificationFlow = () => {
                 </AlertDescription>
               </Alert>
             )}
-            {/* Only show test stage if not in cooldown */}
-            {!cooldownInfo.dsa.inCooldown && (
+            {/* Next-step landing: Start Test or Go Home */}
+            {!cooldownInfo.dsa.inCooldown && !testStageStarted.dsa_round ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: DSA Round</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Start the DSA coding round when you're ready, or return to the homepage and come back later.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, dsa_round: true }))}>
+                      Start DSA Round
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : !cooldownInfo.dsa.inCooldown && (
               <DSARoundStage
                 stageStatus={getStageStatus('dsa_round')}
                 stageScore={stages.find((s) => s.stage_name === 'dsa_round')?.score}
@@ -462,6 +520,25 @@ const VerificationFlow = () => {
       case 'expert_interview':
         return (
           <div className="space-y-6">
+            {!testStageStarted.expert_interview ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Expert Interview</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Start the AI Expert Interview when you're ready, or return to the homepage and come back later.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, expert_interview: true }))}>
+                      Start AI Expert Interview
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
             <ExpertInterviewStage
               onComplete={() => completeAndAdvanceStage('expert_interview')}
               onReturnToDashboard={handleReturnToDashboard}
@@ -495,6 +572,8 @@ const VerificationFlow = () => {
                 </div>
               </div>
                 )}
+              </>
+            )}
               </>
             )}
           </div>
@@ -588,6 +667,29 @@ const VerificationFlow = () => {
         </Card>
 
         {renderCurrentStage()}
+
+        {/* All steps complete popup */}
+        <Dialog open={showAllCompletePopup} onOpenChange={setShowAllCompletePopup}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle className="h-6 w-6 text-green-600" />
+                Verification Complete
+              </DialogTitle>
+              <DialogDescription>
+                You have successfully completed all verification steps. Your Skill Passport and verification status will be processed within 10–15 hours. You will be notified when ready.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowAllCompletePopup(false)}>
+                Stay
+              </Button>
+              <Button onClick={() => { setShowAllCompletePopup(false); navigate("/"); }}>
+                Go to Homepage
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

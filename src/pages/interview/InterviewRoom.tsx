@@ -1,5 +1,6 @@
 /**
- * Interview Room — embedded video call + candidate profile + evaluation.
+ * Interview Room — Google Meet link + candidate profile + evaluation.
+ * MVP: No Daily.co. Interviewer adds Google Meet link, conducts interview there, returns to submit evaluation.
  */
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
@@ -12,13 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import Navbar from "@/components/Navbar";
-import { VideoCallSection } from "@/components/interview/VideoCallSection";
 import {
   Video,
   User,
   FileText,
   ArrowLeft,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -36,9 +37,8 @@ export default function InterviewRoom() {
   const { userRole } = useAuth();
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [roomUrl, setRoomUrl] = useState<string | null>(null);
-  const [roomToken, setRoomToken] = useState<string | null>(null);
-  const [roomLoading, setRoomLoading] = useState(true);
+  const [meetLinkInput, setMeetLinkInput] = useState("");
+  const [savingLink, setSavingLink] = useState(false);
   const [evalScores, setEvalScores] = useState<Record<string, number>>({
     technicalDepth: 0,
     problemSolving: 0,
@@ -61,16 +61,21 @@ export default function InterviewRoom() {
     }
   };
 
-  const createRoom = async () => {
-    setRoomLoading(true);
+  const saveMeetLink = async () => {
+    const url = meetLinkInput.trim();
+    if (!url || !url.includes("meet.google.com")) {
+      toast.error("Please enter a valid Google Meet link (e.g. https://meet.google.com/xxx-xxxx-xxx)");
+      return;
+    }
+    setSavingLink(true);
     try {
-      const res = await api.post<{ roomUrl: string; token?: string }>(`/api/expert/sessions/${sessionId}/create-room`);
-      setRoomUrl(res.roomUrl);
-      setRoomToken(res.token ?? null);
+      await api.patch(`/api/expert/sessions/${sessionId}`, { meetingLink: url });
+      setSession((s: any) => ({ ...s, meetingLink: url }));
+      toast.success("Google Meet link saved. The candidate can now see it.");
     } catch (err: any) {
-      toast.error(err?.message || "Unable to start video call. Please refresh.");
+      toast.error(err?.message || "Failed to save link");
     } finally {
-      setRoomLoading(false);
+      setSavingLink(false);
     }
   };
 
@@ -80,9 +85,18 @@ export default function InterviewRoom() {
   }, [sessionId, userRole]);
 
   useEffect(() => {
-    if (!session || roomUrl) return;
-    createRoom();
-  }, [session?.id]);
+    if (session?.meetingLink && !meetLinkInput) setMeetLinkInput(session.meetingLink);
+  }, [session?.meetingLink]);
+
+  const [evalResult, setEvalResult] = useState<{ total: number; pass: boolean } | null>(null);
+  useEffect(() => {
+    if (session?.evaluationSubmittedAt && session?.evaluationPass !== undefined) {
+      const weights = { technicalDepth: 0.30, problemSolving: 0.20, authenticity: 0.15, realWorldExposure: 0.15, systemThinking: 0.10, communication: 0.10 };
+      const scores = (session.evaluationScores || {}) as Record<string, number>;
+      const total = Object.entries(weights).reduce((s, [k, w]) => s + (scores[k] ?? 0) * w, 0);
+      setEvalResult({ total: Math.round(total), pass: session.evaluationPass });
+    }
+  }, [session?.evaluationSubmittedAt, session?.evaluationPass, session?.evaluationScores]);
 
   const handleSubmitEval = async () => {
     const allFilled = Object.values(evalScores).every((v) => v >= 0 && v <= 100);
@@ -92,8 +106,9 @@ export default function InterviewRoom() {
     }
     setEvalSubmitting(true);
     try {
-      await api.post(`/api/expert/sessions/${sessionId}/evaluate`, { ...evalScores, notes: evalNotes });
-      toast.success("Evaluation submitted");
+      const res = await api.post<{ total: number; pass: boolean }>(`/api/expert/sessions/${sessionId}/evaluate`, { ...evalScores, notes: evalNotes });
+      setEvalResult({ total: res.total ?? 0, pass: res.pass ?? false });
+      toast.success(res.pass ? "Candidate passed. ProvenHire badge awarded." : "Evaluation submitted. Candidate did not meet the threshold.");
       setSession((s: any) => ({ ...s, evaluationSubmittedAt: new Date().toISOString() }));
     } catch (err: any) {
       toast.error(err?.message || "Failed to submit");
@@ -115,7 +130,7 @@ export default function InterviewRoom() {
 
   const profile = session.user?.jobSeekerProfile;
   const candidateName = profile?.fullName || session.user?.name || "Candidate";
-  const isEvaluated = !!session.evaluationSubmittedAt;
+  const isEvaluated = !!session.evaluationSubmittedAt || !!evalResult;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 flex flex-col">
@@ -129,30 +144,51 @@ export default function InterviewRoom() {
         </Button>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Video call */}
+          {/* Left: Google Meet */}
           <div className="lg:col-span-2 space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Video className="h-5 w-5 text-primary" />
-                  Video Call
+                  Google Meet Interview
                 </CardTitle>
                 <CardDescription>
                   {candidateName} — {formatSlot(session.scheduledAt)}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                {roomLoading && !roomUrl ? (
-                  <div className="aspect-video flex items-center justify-center bg-muted rounded-xl">
-                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                  </div>
-                ) : (
-                  <VideoCallSection
-                    roomUrl={roomUrl ?? ""}
-                    token={roomToken}
-                    isOwner
-                    onCreateRoom={createRoom}
-                  />
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
+                  <p className="font-medium mb-2">How it works:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                    <li>Go to Google Meet (button below) and create a new meeting.</li>
+                    <li>Copy the meeting link and paste it here.</li>
+                    <li>Click &quot;Send link to job seeker&quot; — the link will appear on the job seeker&apos;s verification page.</li>
+                    <li>Both you and the job seeker join the same Google Meet. Conduct the interview there.</li>
+                    <li>After the interview, return here and submit the evaluation below.</li>
+                  </ol>
+                </div>
+                <Button asChild variant="outline" className="w-full">
+                  <a href="https://meet.google.com/landing" target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Open Google Meet
+                  </a>
+                </Button>
+                <p className="text-xs text-muted-foreground">Create a meeting, copy the link, paste below.</p>
+                <Label>Google Meet link</Label>
+                <Input
+                  placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                  value={meetLinkInput}
+                  onChange={(e) => setMeetLinkInput(e.target.value)}
+                />
+                <Button
+                  onClick={saveMeetLink}
+                  disabled={savingLink || !meetLinkInput.trim()}
+                  className="w-full"
+                >
+                  {savingLink ? "Sending..." : "Send link to job seeker"}
+                </Button>
+                {session.meetingLink && (
+                  <p className="text-xs text-green-600">Link sent. Job seeker can see it on their verification page.</p>
                 )}
               </CardContent>
             </Card>
@@ -190,11 +226,23 @@ export default function InterviewRoom() {
                   <FileText className="h-4 w-4" />
                   Evaluation
                 </CardTitle>
-                <CardDescription>Pass threshold 70%</CardDescription>
+                <CardDescription>After the interview, rate the candidate on each capability (0–100). Pass threshold 70%.</CardDescription>
               </CardHeader>
               <CardContent>
                 {isEvaluated ? (
-                  <p className="text-sm text-muted-foreground">Evaluation submitted.</p>
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">Evaluation submitted.</p>
+                    {evalResult && (
+                      <div className="rounded-lg border border-border bg-muted/30 p-3">
+                        <p className="text-lg font-semibold">
+                          ProvenHire Score: {evalResult.total}%
+                        </p>
+                        <p className={`text-sm font-medium ${evalResult.pass ? "text-green-600" : "text-amber-600"}`}>
+                          {evalResult.pass ? "✓ Candidate passed — ProvenHire badge awarded" : "Did not meet threshold — No badge"}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {Object.entries(SCORE_WEIGHTS).map(([key, { label, weight }]) => (

@@ -29,9 +29,13 @@ const AdminLogin = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email?.trim() || !password) {
+      toast.error("Please enter email and password");
+      return;
+    }
     setLoading(true);
     try {
-      await signIn(email || "admin@example.com", password || "any", "admin");
+      await signIn(email.trim(), password);
       toast.success("Welcome, Admin!");
     } catch (err) {
       toast.error("Login failed");
@@ -49,7 +53,7 @@ const AdminLogin = () => {
           </div>
           <CardTitle className="text-2xl">Admin Portal</CardTitle>
           <CardDescription>
-            Enter any email and password to access the admin dashboard
+            Sign in with your admin account credentials
           </CardDescription>
         </CardHeader>
         <CardContent>

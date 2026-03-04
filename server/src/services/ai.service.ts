@@ -215,3 +215,89 @@ export async function conductInterviewPrompt(role: string, questionPlan: string,
     return fallbacks[Math.floor(Math.random() * fallbacks.length)];
   }
 }
+
+/** Params for non-technical job assignment generation (AssignmentAI flow) */
+export interface GenerateAssignmentParams {
+  companyName: string;
+  companyContext?: string;
+  industry?: string;
+  jobRole: string;
+  jobDescription?: string;
+  roleCategory?: string;
+  experienceYears?: number;
+  additionalContext?: string;
+}
+
+function mapExperienceLevel(years: number): string {
+  if (years <= 2) return "Entry Level (0-2 years)";
+  if (years <= 5) return "Mid Level (2-5 years)";
+  if (years <= 8) return "Senior (5-8 years)";
+  return "Lead/Principal (8+ years)";
+}
+
+/** Generate a professional take-home assignment for non-technical roles. Uses Gemini or OpenAI (no Lovable). */
+export async function generateJobAssignment(params: GenerateAssignmentParams): Promise<string> {
+  const {
+    companyName,
+    companyContext,
+    industry,
+    jobRole,
+    jobDescription,
+    roleCategory,
+    experienceYears = 3,
+    additionalContext,
+  } = params;
+
+  const experienceLevel = mapExperienceLevel(experienceYears);
+  const industryOrCategory = industry || roleCategory || "General Business";
+
+  const system = `You are an elite talent acquisition specialist with 15+ years of experience designing take-home assignments for non-technical roles.
+
+Your expertise:
+- Designing realistic, fair take-home assignments
+- Creating unbiased assessments that reflect real job scenarios
+- Balancing depth of assessment with candidate time investment
+
+Design principles:
+- Use realistic context (actual business challenges the company might face)
+- Provide clear structure with explicit success criteria
+- Focus on strategic thinking, communication, and problem-solving (not coding)
+- Ensure assignments are fair and accessible
+- Make evaluation criteria transparent
+
+OUTPUT FORMAT: Return a single Markdown document. Do NOT wrap in code blocks.`;
+
+  const userPrompt = `# Assignment Generation Request
+
+## COMPANY CONTEXT
+- Company Name: ${companyName}
+- Industry/Role Category: ${industryOrCategory}
+${companyContext ? `- About the Company: ${companyContext}` : ""}
+
+## ROLE DETAILS
+- Position: ${jobRole}
+- Role Type: Non-Technical
+- Experience Level: ${experienceLevel}
+${jobDescription ? `- Job Description: ${jobDescription}` : ""}
+${additionalContext ? `- Special Requirements: ${additionalContext}` : ""}
+
+## GENERATE A COMPLETE ASSIGNMENT WITH THESE SECTIONS (in Markdown):
+1. **Assignment Title** - Clear, role-specific
+2. **Introduction & Purpose** - Brief context for the candidate
+3. **Company Scenario** - Realistic scenario based on ${companyName}
+4. **Assignment Tasks** - 2-4 concrete tasks appropriate for this role
+5. **Resources Provided** - What the candidate will receive (e.g. data, documents)
+6. **Submission Requirements** - Format, length, file types
+7. **Time Allocation** - Suggested time (Entry: 2-3h, Mid: 3-4h, Senior/Lead: 4-6h)
+8. **Evaluation Criteria** - How responses will be assessed
+9. **Tips for Success** - Helpful guidance for candidates
+
+Focus on non-technical skills: strategic analysis, stakeholder communication, process improvement, market research, and problem-solving. Keep the tone professional and the tasks achievable within the suggested time.`;
+
+  try {
+    return await llmChat(userPrompt, system);
+  } catch (e) {
+    console.error("[generateJobAssignment]", e);
+    throw new Error("Failed to generate assignment. Please try again.");
+  }
+}

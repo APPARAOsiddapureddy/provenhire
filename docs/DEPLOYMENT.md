@@ -57,10 +57,12 @@ You need a PostgreSQL database. Options:
    | `DATABASE_URL`  | Your Postgres connection string            |
    | `JWT_SECRET`    | Strong random string (e.g. from 1Password) |
    | `BASE_URL`      | Your frontend URL (e.g. `https://yourapp.vercel.app`) |
-   | `DAILY_API_KEY` | (Optional) Daily.co API key                 |
+   | `DAILY_API_KEY` | (Optional) MVP uses Google Meet. Uncomment for Daily.co video |
    | `DAILY_DOMAIN`  | (Optional) Daily.co subdomain               |
-   | `GEMINI_API_KEY`| (Optional) For resume parsing              |
-   | `OPENAI_API_KEY`| (Optional) For AI features                  |
+   | `GEMINI_API_KEY`| (Optional) For resume parsing & assignment generation |
+   | `OPENAI_API_KEY`| (Optional) For AI features (used if no Gemini)       |
+   | `RESEND_API_KEY`| (Optional) For broadcast emails via Resend  |
+   | `EMAIL_FROM`    | (Optional) e.g. `ProvenHire <noreply@yourdomain.com>` |
 
 5. **Deploy** → Railway will build and deploy.
 6. Copy your backend URL (e.g. `https://provenhire-server-production.up.railway.app`).

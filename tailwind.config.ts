@@ -152,7 +152,7 @@ export default {
         "fade-in": "fade-in 0.6s ease-out",
         "slide-up": "slide-up 0.6s ease-out",
         "scale-in": "scale-in 0.4s ease-out",
-        "fade-in-up": "fade-in-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards",
+        "fade-in-up": "fade-in-up 2s cubic-bezier(0.22, 1, 0.36, 1) forwards",
         "fade-in-scale": "fade-in-scale 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards",
         "slide-in-left": "slide-in-left 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards",
         "float-subtle": "float-subtle 4s ease-in-out infinite",

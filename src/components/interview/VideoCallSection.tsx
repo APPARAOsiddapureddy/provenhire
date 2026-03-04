@@ -21,6 +21,7 @@ function VideoCallInner({ onLeave, isOwner }: VideoCallInnerProps) {
   const daily = useDaily();
   const error = useDailyError();
   const [joined, setJoined] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!daily || joined) return;
@@ -29,7 +30,17 @@ function VideoCallInner({ onLeave, isOwner }: VideoCallInnerProps) {
     else {
       daily.join()
         .then(() => setJoined(true))
-        .catch((err) => console.error("[Daily join]", err));
+        .catch((err: { errorMsg?: string }) => {
+          const msg = (err?.errorMsg ?? String(err)).toLowerCase();
+          if (msg.includes("account-missing-payment-method")) {
+            setJoinError("Video calls require a configured Daily.co account with a payment method. Please contact the administrator.");
+          } else if (msg.includes("permission") || msg.includes("camera") || msg.includes("microphone")) {
+            setPermissionError(true);
+          } else {
+            setJoinError(msg || "Failed to join the video call. Please try again.");
+          }
+          console.error("[Daily join]", err);
+        });
     }
   }, [daily, joined]);
   const [permissionError, setPermissionError] = useState(false);
@@ -40,7 +51,9 @@ function VideoCallInner({ onLeave, isOwner }: VideoCallInnerProps) {
     if (!daily) return;
     const handleError = (e: { errorMsg?: string }) => {
       const msg = (e?.errorMsg ?? "").toLowerCase();
-      if (msg.includes("permission") || msg.includes("camera") || msg.includes("microphone")) {
+      if (msg.includes("account-missing-payment-method")) {
+        setJoinError("Video calls require a configured Daily.co account. Please contact the administrator.");
+      } else if (msg.includes("permission") || msg.includes("camera") || msg.includes("microphone")) {
         setPermissionError(true);
       }
     };
@@ -48,11 +61,30 @@ function VideoCallInner({ onLeave, isOwner }: VideoCallInnerProps) {
     return () => daily.off("error", handleError);
   }, [daily]);
 
-  if (error) {
+  useEffect(() => {
+    if (!error) return;
     const msg = String(error).toLowerCase();
-    if (msg.includes("permission") || msg.includes("camera") || msg.includes("microphone")) {
+    if (msg.includes("account-missing-payment-method")) {
+      setJoinError("Video calls require a configured Daily.co account. Please contact the administrator.");
+    } else if (msg.includes("permission") || msg.includes("camera") || msg.includes("microphone")) {
       setPermissionError(true);
     }
+  }, [error]);
+
+  if (joinError) {
+    return (
+      <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-6 text-center">
+        <p className="font-medium text-amber-800 dark:text-amber-200">Unable to join video call</p>
+        <p className="text-sm text-muted-foreground mt-2">{joinError}</p>
+        <p className="text-xs text-muted-foreground mt-3">
+          If you&apos;re the admin: Add a payment method at{" "}
+          <a href="https://dashboard.daily.co" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+            dashboard.daily.co
+          </a>{" "}
+          (Daily.co requires this for video rooms).
+        </p>
+      </div>
+    );
   }
 
   if (permissionError) {
@@ -138,10 +170,6 @@ export function VideoCallSection({ roomUrl, token, isOwner, onCreateRoom }: Vide
     <DailyProvider
       url={roomUrl}
       token={token || undefined}
-      joinConfig={{
-        startVideoOff: false,
-        startAudioOff: false,
-      }}
     >
       <VideoCallInner isOwner={isOwner} />
     </DailyProvider>

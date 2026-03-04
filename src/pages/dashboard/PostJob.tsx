@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { Briefcase, ArrowLeft, Upload, Sparkles, FileText, Loader2, X, Eye, MapPin, Clock, DollarSign, Calendar } from "lucide-react";
+import { Briefcase, ArrowLeft, Upload, Sparkles, FileText, Loader2, X, Eye, MapPin, Clock, DollarSign, Calendar, Wand2 } from "lucide-react";
 
 const PostJob = () => {
   const { user } = useAuth();
@@ -35,9 +35,11 @@ const PostJob = () => {
     role_category: "",
     company_context: "",
     assignment_threshold: 60,
+    assignment: "", // AI-generated for non-technical jobs
   });
   const [skillInput, setSkillInput] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [assignmentGenerating, setAssignmentGenerating] = useState(false);
 
   const getSubmitErrorMessage = (error: any): string => {
     if (!error) return 'Something went wrong. Please check the form and try again.';
@@ -113,16 +115,17 @@ const PostJob = () => {
         parsed = {};
       }
 
-      setFormData({
-        title: parsed.title || formData.title,
-        company: parsed.company || formData.company,
-        description: parsed.description || formData.description,
-        location: parsed.location || formData.location,
-        job_type: parsed.job_type || formData.job_type,
-        salary_range: parsed.salary_range || formData.salary_range,
-        experience_required: parsed.experience_required || formData.experience_required,
-        required_skills: parsed.required_skills || formData.required_skills,
-      });
+      setFormData((prev) => ({
+        ...prev,
+        title: parsed.title || prev.title,
+        company: parsed.company || prev.company,
+        description: parsed.description || prev.description,
+        location: parsed.location || prev.location,
+        job_type: parsed.job_type || prev.job_type,
+        salary_range: parsed.salary_range || prev.salary_range,
+        experience_required: parsed.experience_required ?? prev.experience_required,
+        required_skills: Array.isArray(parsed.required_skills) ? parsed.required_skills : prev.required_skills,
+      }));
 
       toast.success('Job details extracted successfully! Review and adjust as needed.');
     } catch (error: any) {
@@ -198,6 +201,9 @@ const PostJob = () => {
         jobType: formData.job_type || null,
         salaryRange: formData.salary_range || null,
         jobTrack: formData.job_track || "tech",
+        assignment: formData.job_track === "non_technical" && formData.assignment?.trim() ? formData.assignment.trim() : null,
+        roleCategory: formData.role_category || null,
+        companyContext: formData.company_context || null,
       });
 
       if (newJob) {
@@ -211,8 +217,16 @@ const PostJob = () => {
     } catch (error: any) {
       console.error('Error posting job:', error);
       const friendlyMessage = getSubmitErrorMessage(error);
+      const apiFieldErrors = error?.response?.data?.fieldErrors as Record<string, string> | undefined;
+      const mapped: Record<string, string> = {};
+      if (apiFieldErrors) {
+        const keyMap: Record<string, string> = { companyContext: "company_context", roleCategory: "role_category" };
+        for (const [k, v] of Object.entries(apiFieldErrors)) {
+          mapped[keyMap[k] ?? k] = v;
+        }
+      }
+      setFieldErrors({ ...mapped, form: friendlyMessage });
       toast.error(friendlyMessage);
-      setFieldErrors({ form: friendlyMessage });
     } finally {
       setLoading(false);
     }
@@ -418,6 +432,53 @@ const PostJob = () => {
                       className={fieldErrors.company_context ? 'border-destructive focus-visible:ring-destructive' : ''}
                     />
                     {fieldErrors.company_context && <p className="text-sm text-destructive">{fieldErrors.company_context}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Assignment (AI-generated)</Label>
+                    <p className="text-xs text-muted-foreground">Generate a take-home assignment for applicants. Candidates must complete it to apply.</p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={async () => {
+                          if (!formData.company?.trim() || !formData.title?.trim() || !formData.company_context?.trim()) {
+                            toast.error('Fill company name, job title, and company context first.');
+                            return;
+                          }
+                          setAssignmentGenerating(true);
+                          try {
+                            const { assignment } = await api.post<{ assignment: string }>("/api/ai/generate-assignment", {
+                              companyName: formData.company.trim(),
+                              companyContext: formData.company_context.trim() || undefined,
+                              jobRole: formData.title.trim(),
+                              jobDescription: formData.description.trim() || undefined,
+                              roleCategory: formData.role_category || undefined,
+                              industry: formData.role_category || undefined,
+                              experienceYears: formData.experience_required || 3,
+                            });
+                            setFormData((prev) => ({ ...prev, assignment: assignment || "" }));
+                            toast.success('Assignment generated! Review and edit if needed.');
+                          } catch (err: any) {
+                            toast.error(err?.message || err?.response?.data?.error || 'Failed to generate assignment.');
+                          } finally {
+                            setAssignmentGenerating(false);
+                          }
+                        }}
+                        disabled={assignmentGenerating || !formData.company?.trim() || !formData.title?.trim() || !formData.company_context?.trim()}
+                      >
+                        {assignmentGenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wand2 className="h-4 w-4 mr-2" />}
+                        {assignmentGenerating ? 'Generating...' : 'Generate Assignment'}
+                      </Button>
+                    </div>
+                    {formData.assignment && (
+                      <Textarea
+                        placeholder="Generated assignment will appear here. You can edit before posting."
+                        value={formData.assignment}
+                        onChange={(e) => setFormData({ ...formData, assignment: e.target.value })}
+                        rows={14}
+                        className="mt-2 font-mono text-sm"
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Assignment score threshold (%)</Label>

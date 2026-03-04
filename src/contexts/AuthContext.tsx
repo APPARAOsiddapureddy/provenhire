@@ -122,12 +122,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const resetPassword = async (email: string) => {
     try {
-      const data = await api.post<{ ok: boolean; resetLink?: string }>("/api/auth/forgot-password", {
+      const data = await api.post<{ ok: boolean; resetLink?: string; message?: string }>("/api/auth/forgot-password", {
         email: email.trim().toLowerCase(),
       });
-      if (data.resetLink) {
-        toast.success("Reset link created. Use the link below to set a new password.");
-        window.open(data.resetLink, "_self");
+      if (data.message) {
+        toast.info(data.message);
       } else {
         toast.success("If an account exists, check your email for a reset link.");
       }

@@ -3,11 +3,15 @@ import bcrypt from "bcrypt";
 import { requireAdmin } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { hashToken, generateRefreshToken } from "../utils/jwt.js";
+import { adminNotificationsRouter } from "./admin-notifications.js";
 
 export const adminRouter = Router();
 
 /** All admin routes require admin role */
 adminRouter.use(requireAdmin);
+
+/** Mount admin notifications at /api/admin/notifications */
+adminRouter.use("/notifications", adminNotificationsRouter);
 
 /** Job seekers with profile + user */
 adminRouter.get("/job-seekers", async (_req, res) => {
@@ -58,10 +62,11 @@ adminRouter.get("/recruiters", async (_req, res) => {
 
 /** Aggregate stats for admin dashboard */
 adminRouter.get("/stats", async (_req, res) => {
-  const [totalJobSeekers, totalRecruiters, totalJobs, totalApplications, totalVerified] =
+  const [totalJobSeekers, totalRecruiters, totalInterviewers, totalJobs, totalApplications, totalVerified] =
     await Promise.all([
       prisma.jobSeekerProfile.count(),
       prisma.recruiterProfile.count(),
+      prisma.interviewer.count({ where: { userId: { not: null } } }),
       prisma.job.count(),
       prisma.jobApplication.count(),
       prisma.jobSeekerProfile.count({
@@ -73,6 +78,7 @@ adminRouter.get("/stats", async (_req, res) => {
   res.json({
     totalJobSeekers,
     totalRecruiters,
+    totalInterviewers,
     totalJobs,
     totalApplications,
     totalVerified,
@@ -202,4 +208,44 @@ adminRouter.post("/interviewer-applications/:id/reject", async (req, res) => {
     data: { status: "rejected", reviewedAt: new Date() },
   });
   res.json({ ok: true });
+});
+
+/** Delete user (job seeker or recruiter) — email is blocked from future signups */
+adminRouter.delete("/users/:userId", async (req, res) => {
+  const { userId } = req.params;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (user.role === "admin") return res.status(400).json({ error: "Cannot delete admin users" });
+
+  const email = user.email.trim().toLowerCase();
+  await prisma.$transaction(async (tx) => {
+    await tx.blockedEmail.upsert({
+      where: { email },
+      create: { email },
+      update: {},
+    });
+    await tx.notification.deleteMany({ where: { userId } });
+    await tx.verificationStage.deleteMany({ where: { userId } });
+    await tx.aptitudeTestResult.deleteMany({ where: { userId } });
+    await tx.dsaRoundResult.deleteMany({ where: { userId } });
+    await tx.jobApplication.deleteMany({ where: { jobSeekerId: userId } });
+    await tx.savedJob.deleteMany({ where: { userId } });
+    await tx.jobSeekerProfile.deleteMany({ where: { userId } });
+    await tx.recruiterProfile.deleteMany({ where: { userId } });
+    await tx.interview.deleteMany({ where: { userId } });
+    await tx.refreshToken.deleteMany({ where: { userId } });
+    await tx.passwordResetToken.deleteMany({ where: { userId } });
+    await tx.appeal.deleteMany({ where: { userId } });
+    await tx.humanInterviewSession.deleteMany({ where: { userId } });
+    await tx.jobAlertSubscription.deleteMany({ where: { userId } });
+    await tx.resumeAnalysis.deleteMany({ where: { userId } });
+    const interviewer = await tx.interviewer.findFirst({ where: { userId } });
+    if (interviewer) {
+      await tx.interviewerSlot.updateMany({ where: { interviewerId: interviewer.id }, data: { bookedUserId: null } });
+      await tx.interviewer.delete({ where: { id: interviewer.id } });
+    }
+    await tx.user.delete({ where: { id: userId } });
+  });
+
+  res.json({ ok: true, message: "User deleted. Email blocked from future signups." });
 });

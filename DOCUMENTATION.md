@@ -666,6 +666,15 @@ src/
 - `/api/ai/*` for resume analysis and learning resources
 - `/api/interview/*` for structured AI interviews
 - `/api/uploads` for file uploads
+- `/api/notifications` for in-app notifications (GET list, POST read)
+- `/api/admin/notifications/broadcast` for admin broadcast (POST: targetRoles, title, message, sendEmail)
+
+### In-App Notifications & Broadcast
+
+- **Notification table**: `userId`, `title`, `message`, `read`, `targetRole`, `sentBy`, `createdAt`
+- Admin sends via **Broadcast Message** dialog: audience multi-select (All / Job Seekers / Recruiters / Interviewers), subject, rich-text message, optional email via Resend
+- Recipients see notifications in the bell icon; polling on bell open
+- **Resend** (optional): set `RESEND_API_KEY` in server env to also send emails when admin broadcasts
 
 All AI calls are routed through the backend using the OpenAI SDK and server-side API keys.
 

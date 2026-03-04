@@ -53,7 +53,7 @@ const Index = () => {
                 <span className="font-mono text-[13px] font-semibold text-muted-foreground tracking-wider">[</span>
                 <div className="w-2 h-2 rounded-full bg-[#1FA971] animate-pulse" aria-hidden />
                 <span className="font-mono text-[15px] font-extrabold text-primary tracking-[2px] uppercase px-3 py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10">
-                  India's First Skill-Certified Hiring Platform
+                  First Indian Skill Passport Certified Verification Platform
                 </span>
                 <span className="font-mono text-[13px] font-semibold text-muted-foreground tracking-wider">]</span>
               </div>
@@ -62,7 +62,10 @@ const Index = () => {
                 <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>Not Resumes.</span>
               </h1>
               <p className="hero-subtitle opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.35s" }}>
-                Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours. Carry a Skill Passport no resume can match. Get hired by companies that trust evidence over college names.
+                Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours.{" "}
+                <span className="text-primary font-semibold drop-shadow-[0_0_8px_rgba(212,175,55,0.5)]">
+                  Complete all 5 stages to unlock your Skill Passport and access premium opportunities.
+                </span>
               </p>
               <div className="hero-buttons mb-12 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.5s" }}>
                 <Button size="lg" asChild className="btn-primary btn-hero">

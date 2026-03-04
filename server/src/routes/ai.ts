@@ -2,7 +2,7 @@ import express, { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
-import { analyzeResume, evaluateInterview, parseJobDescription, generateLearningResources, parseResumeForProfile } from "../services/ai.service.js";
+import { analyzeResume, evaluateInterview, parseJobDescription, generateLearningResources, parseResumeForProfile, generateJobAssignment } from "../services/ai.service.js";
 import { extractTextFromFile } from "../utils/resumeExtract.js";
 
 const memoryUpload = multer({
@@ -82,4 +82,32 @@ aiRouter.post("/evaluate-interview", requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const result = await evaluateInterview(parsed.data.transcript);
   return res.json({ result });
+});
+
+aiRouter.post("/generate-assignment", requireAuth, async (req, res) => {
+  if (!process.env.GEMINI_API_KEY && !process.env.OPENAI_API_KEY) {
+    return res.status(503).json({
+      error: "Assignment generation unavailable. Add GEMINI_API_KEY or OPENAI_API_KEY to server/.env. Get a free Gemini key at https://aistudio.google.com/apikey",
+    });
+  }
+  const schema = z.object({
+    companyName: z.string().min(1),
+    companyContext: z.string().optional(),
+    industry: z.string().optional(),
+    jobRole: z.string().min(1),
+    jobDescription: z.string().optional(),
+    roleCategory: z.string().optional(),
+    experienceYears: z.number().min(0).optional(),
+    additionalContext: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload. Provide companyName and jobRole." });
+  try {
+    const assignment = await generateJobAssignment(parsed.data);
+    return res.json({ assignment });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to generate assignment";
+    console.error("[generate-assignment]", msg);
+    return res.status(502).json({ error: msg });
+  }
 });

@@ -1,5 +1,8 @@
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -13,10 +16,10 @@ import {
   DollarSign, 
   Clock, 
   Building2, 
-  Users, 
   Calendar,
   CheckCircle2,
-  GraduationCap
+  GraduationCap,
+  FileText
 } from "lucide-react";
 
 interface Job {
@@ -29,14 +32,16 @@ interface Job {
   required_skills: string[] | null;
   description: string | null;
   experience_required: number | null;
-  created_at: string;
+  created_at?: string;
+  createdAt?: string;
+  assignment?: string | null;
 }
 
 interface JobDetailsDialogProps {
   job: Job | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onApply: () => void;
+  onApply: (assignmentResponse?: string) => void;
   hasApplied?: boolean;
   isApplying?: boolean;
 }
@@ -49,7 +54,15 @@ const JobDetailsDialog = ({
   hasApplied = false,
   isApplying = false 
 }: JobDetailsDialogProps) => {
+  const [assignmentResponse, setAssignmentResponse] = useState("");
+  useEffect(() => {
+    setAssignmentResponse("");
+  }, [job?.id]);
+
   if (!job) return null;
+
+  const hasAssignment = !!job.assignment?.trim();
+  const canApply = !hasAssignment || assignmentResponse.trim().length > 0;
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -167,10 +180,39 @@ const JobDetailsDialog = ({
             </div>
           </div>
 
+          {/* Assignment (non-technical jobs) */}
+          {hasAssignment && (
+            <>
+              <Separator />
+              <div>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  Take-Home Assignment (Required)
+                </h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Complete this assignment to apply. Your response will be reviewed by the recruiter.
+                </p>
+                <div className="bg-secondary/30 rounded-lg p-4 mb-4 max-h-48 overflow-y-auto">
+                  <pre className="text-sm text-foreground whitespace-pre-wrap font-sans">{job.assignment}</pre>
+                </div>
+                <div className="space-y-2">
+                  <Label>Your response *</Label>
+                  <Textarea
+                    placeholder="Type your assignment response here..."
+                    value={assignmentResponse}
+                    onChange={(e) => setAssignmentResponse(e.target.value)}
+                    rows={8}
+                    className="resize-y min-h-[160px]"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Posted Date */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Calendar className="h-4 w-4" />
-            Posted on {formatDate(job.created_at)}
+            Posted on {formatDate(job.created_at ?? job.createdAt ?? '')}
           </div>
 
           <Separator />
@@ -186,10 +228,10 @@ const JobDetailsDialog = ({
             </Button>
             <Button 
               className="flex-1 bg-gradient-hero hover:opacity-90"
-              onClick={onApply}
-              disabled={hasApplied || isApplying}
+              onClick={() => onApply(hasAssignment ? assignmentResponse : undefined)}
+              disabled={hasApplied || isApplying || !canApply}
             >
-              {hasApplied ? 'Already Applied' : isApplying ? 'Applying...' : 'Apply Now'}
+              {hasApplied ? 'Already Applied' : isApplying ? 'Applying...' : hasAssignment && !assignmentResponse.trim() ? 'Complete assignment to apply' : 'Apply Now'}
             </Button>
           </div>
         </div>

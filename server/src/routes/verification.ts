@@ -2,12 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
-import { createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
+// Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
+// import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
 export const verificationRouter = Router();
 
 const technicalStages = ["profile_setup", "aptitude_test", "dsa_round", "expert_interview"];
-const nonTechnicalStages = ["profile_setup", "non_tech_assignment", "expert_interview"];
+const nonTechnicalStages = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
 
 function toStageResponse(rows: { stageName: string; status: string; score?: number | null }[]) {
   return rows.map((r) => ({
@@ -174,7 +175,7 @@ verificationRouter.post("/invalidate", requireAuth, async (req: AuthedRequest, r
   res.json({ ok: true });
 });
 
-/** Get room token for job seeker to join Daily video call */
+/** Get meeting link for job seeker. MVP: Google Meet URL. Daily.co disabled. */
 verificationRouter.get("/human-interview-session/room-token", requireAuth, async (req: AuthedRequest, res) => {
   const session = await prisma.humanInterviewSession.findFirst({
     where: {
@@ -183,18 +184,9 @@ verificationRouter.get("/human-interview-session/room-token", requireAuth, async
     },
   });
   if (!session) return res.status(404).json({ error: "No scheduled interview found" });
-  if (!session.meetingLink) return res.status(400).json({ error: "Interview room not ready yet. The interviewer will start it shortly." });
-  const roomName = getRoomNameFromUrl(session.meetingLink);
-  if (!roomName) return res.status(500).json({ error: "Invalid room URL" });
-  try {
-    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
-    const userName = profile?.fullName || "Candidate";
-    const { token } = await createMeetingToken(roomName, { isOwner: false, userId: req.user!.id, userName });
-    return res.json({ token, roomUrl: session.meetingLink });
-  } catch (err) {
-    console.error("[room-token]", err);
-    return res.status(500).json({ error: "Unable to join video call. Please try again." });
-  }
+  if (!session.meetingLink) return res.status(400).json({ error: "The interviewer will share the Google Meet link shortly. Check back before your scheduled time." });
+  // Google Meet or any external URL - return as-is (no Daily token needed)
+  return res.json({ roomUrl: session.meetingLink, token: null });
 });
 
 /** Get current user's human expert interview session (if any) */
@@ -209,7 +201,7 @@ verificationRouter.get("/human-interview-session", requireAuth, async (req: Auth
   res.json({ session: session ? { id: session.id, scheduledAt: session.scheduledAt, status: session.status, meetingLink: session.meetingLink } : null });
 });
 
-/** Match interviewers by track (technical/non_technical) with available slots */
+/** Match interviewers by track (technical/non_technical) with available slots. Non-tech: 5+ years experience. */
 verificationRouter.get("/matched-interviewers", requireAuth, async (req: AuthedRequest, res) => {
   const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
   const track = (profile?.roleType as string) === "non_technical" ? "non_technical" : "technical";
@@ -225,6 +217,7 @@ verificationRouter.get("/matched-interviewers", requireAuth, async (req: AuthedR
         status: "active",
         track,
         userId: { not: null },
+        ...(track === "non_technical" && { experienceYears: { gte: 5 } }),
       },
     },
     include: {
@@ -309,6 +302,8 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
       data: { status: "booked", bookedUserId: req.user!.id },
     }),
   ]);
+
+  // MVP: No Daily.co. Interviewer adds Google Meet link when ready.
 
   const existing = await prisma.verificationStage.findFirst({
     where: { userId: req.user!.id, stageName: "human_expert_interview" },

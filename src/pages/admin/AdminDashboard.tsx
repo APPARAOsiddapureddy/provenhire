@@ -12,12 +12,19 @@ import TestAppealsManager from "@/components/admin/TestAppealsManager";
 import AIInterviewReview from "@/components/admin/AIInterviewReview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Send, MessageSquare, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare } from "lucide-react";
+import BroadcastMessageDialog from "@/components/admin/BroadcastMessageDialog";
 import { toast } from "sonner";
 
 interface JobSeeker {
@@ -84,6 +91,7 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState({
     totalJobSeekers: 0,
     totalRecruiters: 0,
+    totalInterviewers: 0,
     totalSubscribers: 0,
     totalJobs: 0,
     totalApplications: 0,
@@ -99,15 +107,12 @@ const AdminDashboard = () => {
     { id: string; action: string; time: string }[]
   >([]);
   
-  // Messaging state
-  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
-  const [selectedRecipient, setSelectedRecipient] = useState<string>("");
-  const [recipientType, setRecipientType] = useState<"jobseeker" | "recruiter" | "all">("jobseeker");
-  const [messageSubject, setMessageSubject] = useState("");
-  const [messageContent, setMessageContent] = useState("");
-  const [sendingMessage, setSendingMessage] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [inviteLinkDialog, setInviteLinkDialog] = useState<{ email: string; link: string } | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{ userId: string; email: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
+  const [messageRecipient, setMessageRecipient] = useState<{ userId: string; label: string } | null>(null);
 
   useEffect(() => {
     if (authUser && userRole === "admin") {
@@ -127,7 +132,7 @@ const AdminDashboard = () => {
         api.get<{ jobs: Job[] }>("/api/jobs"),
         api.get<{ jobSeekers: JobSeeker[] }>("/api/admin/job-seekers"),
         api.get<{ recruiters: Recruiter[] }>("/api/admin/recruiters"),
-        api.get<{ totalJobSeekers: number; totalRecruiters: number; totalJobs: number; totalApplications: number; totalVerified: number }>("/api/admin/stats"),
+        api.get<{ totalJobSeekers: number; totalRecruiters: number; totalInterviewers: number; totalJobs: number; totalApplications: number; totalVerified: number }>("/api/admin/stats"),
         api.get<{ applications: any[] }>("/api/admin/applications"),
         api.get<{ applications: InterviewerApplication[] }>("/api/admin/interviewer-applications"),
       ]);
@@ -147,6 +152,7 @@ const AdminDashboard = () => {
       setStats({
         totalJobSeekers: statsData?.totalJobSeekers ?? seekersData.length,
         totalRecruiters: statsData?.totalRecruiters ?? recruitersData.length,
+        totalInterviewers: statsData?.totalInterviewers ?? 0,
         totalSubscribers: 0,
         totalJobs: statsData?.totalJobs ?? jobsData.length,
         totalApplications: statsData?.totalApplications ?? appsData.length,
@@ -238,6 +244,23 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleDeleteUser = async () => {
+    if (!deleteDialog) return;
+    setDeleting(true);
+    try {
+      await api.del(`/api/admin/users/${deleteDialog.userId}`);
+      setJobSeekers((prev) => prev.filter((s) => s.user_id !== deleteDialog.userId));
+      setRecruiters((prev) => prev.filter((r) => r.user_id !== deleteDialog.userId));
+      toast.success("User deleted. Email blocked from future signups.");
+      setDeleteDialog(null);
+      fetchAllData();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete user");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleRejectInterviewer = async (appId: string) => {
     try {
       await api.post(`/api/admin/interviewer-applications/${appId}/reject`);
@@ -250,61 +273,12 @@ const AdminDashboard = () => {
     }
   };
 
-  const sendMessage = async () => {
-    if (!messageSubject.trim() || !messageContent.trim()) {
-      toast.error("Please fill in subject and message");
-      return;
-    }
-
-    setSendingMessage(true);
-    try {
-      let recipients: string[] = [];
-
-      if (recipientType === "all") {
-        // Get all user IDs
-        const jobSeekerIds = jobSeekers.map(js => js.user_id);
-        const recruiterIds = recruiters.map(r => r.user_id);
-        recipients = [...jobSeekerIds, ...recruiterIds];
-      } else if (recipientType === "jobseeker" && selectedRecipient) {
-        recipients = [selectedRecipient];
-      } else if (recipientType === "recruiter" && selectedRecipient) {
-        recipients = [selectedRecipient];
-      } else if (recipientType === "jobseeker") {
-        recipients = jobSeekers.map(js => js.user_id);
-      } else if (recipientType === "recruiter") {
-        recipients = recruiters.map(r => r.user_id);
-      }
-
-      if (recipients.length === 0) {
-        toast.error("No recipients found");
-        setSendingMessage(false);
-        return;
-      }
-
-      await api.post("/api/notifications/admin-message", {
-        recipientIds: recipients,
-        subject: messageSubject,
-        message: messageContent,
-      });
-
-      toast.success(`Message sent to ${recipients.length} user(s)`);
-      setAdminActions((prev) => [
-        {
-          id: crypto.randomUUID(),
-          action: `Sent message to ${recipientType === "all" ? "all users" : recipientType}`,
-          time: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-      setMessageDialogOpen(false);
-      setMessageSubject("");
-      setMessageContent("");
-      setSelectedRecipient("");
-    } catch (error: any) {
-      toast.error("Failed to send message: " + error.message);
-    } finally {
-      setSendingMessage(false);
-    }
+  const handleBroadcastSent = () => {
+    fetchAllData();
+    setAdminActions((prev) => [
+      { id: crypto.randomUUID(), action: "Broadcast message sent", time: new Date().toISOString() },
+      ...prev,
+    ]);
   };
 
   if (loading) {
@@ -336,94 +310,26 @@ const AdminDashboard = () => {
                 </div>
               </div>
             )}
-            <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
+            <BroadcastMessageDialog
+              stats={{
+                totalJobSeekers: stats.totalJobSeekers,
+                totalRecruiters: stats.totalRecruiters,
+                totalInterviewers: stats.totalInterviewers,
+              }}
+              onSent={handleBroadcastSent}
+              open={messageDialogOpen}
+              onOpenChange={(o) => {
+                setMessageDialogOpen(o);
+                if (!o) setMessageRecipient(null);
+              }}
+              initialRecipient={messageRecipient ?? undefined}
+              trigger={
+                <Button variant="outline" size="sm" onClick={() => { setMessageRecipient(null); setMessageDialogOpen(true); }}>
                   <MessageSquare className="h-4 w-4 mr-2" />
                   Send Message
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>Send In-App Message</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label>Recipient Type</Label>
-                    <Select 
-                      value={recipientType} 
-                      onValueChange={(v) => {
-                        setRecipientType(v as any);
-                        setSelectedRecipient("");
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="jobseeker">Job Seekers</SelectItem>
-                        <SelectItem value="recruiter">Recruiters</SelectItem>
-                        <SelectItem value="all">All Users</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {recipientType !== "all" && (
-                    <div className="space-y-2">
-                      <Label>Select Specific User (Optional)</Label>
-                      <Select value={selectedRecipient} onValueChange={setSelectedRecipient}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="All users of selected type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">All {recipientType === "jobseeker" ? "Job Seekers" : "Recruiters"}</SelectItem>
-                          {recipientType === "jobseeker" 
-                            ? jobSeekers.map(js => (
-                                <SelectItem key={js.user_id} value={js.user_id}>
-                                  {js.college || js.user_id.slice(0, 8)}
-                                </SelectItem>
-                              ))
-                            : recruiters.map(r => (
-                                <SelectItem key={r.user_id} value={r.user_id}>
-                                  {r.full_name || r.email || r.user_id.slice(0, 8)}
-                                </SelectItem>
-                              ))
-                          }
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label>Subject</Label>
-                    <Input 
-                      value={messageSubject} 
-                      onChange={(e) => setMessageSubject(e.target.value)}
-                      placeholder="Message subject..."
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Message</Label>
-                    <Textarea 
-                      value={messageContent} 
-                      onChange={(e) => setMessageContent(e.target.value)}
-                      placeholder="Type your message here..."
-                      rows={5}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setMessageDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={sendMessage} disabled={sendingMessage}>
-                    <Send className="h-4 w-4 mr-2" />
-                    {sendingMessage ? "Sending..." : "Send Message"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+              }
+            />
 
             <Button variant="outline" size="sm" onClick={fetchAllData}>
               <RefreshCw className="h-4 w-4 mr-2" />
@@ -605,6 +511,25 @@ const AdminDashboard = () => {
             </DialogContent>
           </Dialog>
 
+          <Dialog open={!!deleteDialog} onOpenChange={() => !deleting && setDeleteDialog(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Delete User</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to delete <strong>{deleteDialog?.name}</strong> ({deleteDialog?.email})? This cannot be undone. The email will be permanently blocked from future signups.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDeleteDialog(null)} disabled={deleting}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={handleDeleteUser} disabled={deleting}>
+                  {deleting ? "Deleting..." : "Delete User"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <TabsContent value="jobseekers">
             <Card>
               <CardHeader>
@@ -681,17 +606,40 @@ const AdminDashboard = () => {
                           </TableCell>
                           <TableCell>{formatDate(seeker.created_at)}</TableCell>
                           <TableCell>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => {
-                                setRecipientType("jobseeker");
-                                setSelectedRecipient(seeker.user_id);
-                                setMessageDialogOpen(true);
-                              }}
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setMessageRecipient({
+                                      userId: seeker.user_id,
+                                      label: seeker.profile?.full_name || seeker.profile?.email || seeker.college || seeker.user_id.slice(0, 8),
+                                    });
+                                    setMessageDialogOpen(true);
+                                  }}
+                                >
+                                  <MessageSquare className="h-4 w-4 mr-2" />
+                                  Send Message
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() =>
+                                    setDeleteDialog({
+                                      userId: seeker.user_id,
+                                      email: seeker.profile?.email || seeker.user_id,
+                                      name: seeker.profile?.full_name || "Job Seeker",
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete User
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </TableCell>
                         </TableRow>
                       ))
@@ -741,17 +689,40 @@ const AdminDashboard = () => {
                           <TableCell>{recruiter.company_name || "-"}</TableCell>
                           <TableCell>{formatDate(recruiter.created_at)}</TableCell>
                           <TableCell>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => {
-                                setRecipientType("recruiter");
-                                setSelectedRecipient(recruiter.user_id);
-                                setMessageDialogOpen(true);
-                              }}
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setMessageRecipient({
+                                      userId: recruiter.user_id,
+                                      label: recruiter.full_name || recruiter.email || recruiter.company_name || recruiter.user_id.slice(0, 8),
+                                    });
+                                    setMessageDialogOpen(true);
+                                  }}
+                                >
+                                  <MessageSquare className="h-4 w-4 mr-2" />
+                                  Send Message
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() =>
+                                    setDeleteDialog({
+                                      userId: recruiter.user_id,
+                                      email: recruiter.email || recruiter.user_id,
+                                      name: recruiter.full_name || "Recruiter",
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete User
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </TableCell>
                         </TableRow>
                       ))

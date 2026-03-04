@@ -163,14 +163,14 @@ const About = () => {
             </div>
           </div>
 
-          {/* Motivation Banner */}
-          <div className="max-w-3xl mx-auto text-center p-8 bg-gradient-hero rounded-2xl text-white shadow-glow">
+          {/* Motivation Banner — matches Get Verified styling (primary bg + primary-foreground) */}
+          <div className="max-w-3xl mx-auto text-center p-8 bg-primary text-primary-foreground rounded-2xl shadow-lg border border-primary/30">
             <h2 className="text-3xl font-bold mb-4">Built for Real Talent</h2>
-            <p className="text-lg opacity-90 mb-6">
+            <p className="text-lg opacity-95 mb-6">
               This platform is not about shortcuts. We value honesty, passion, and real talent. 
               Please approach this journey with integrity—because only true talent shines here.
             </p>
-            <p className="text-sm opacity-80">
+            <p className="text-sm opacity-90">
               Our verification process is designed to celebrate your abilities and give you the 
               recognition you deserve in a competitive job market.
             </p>

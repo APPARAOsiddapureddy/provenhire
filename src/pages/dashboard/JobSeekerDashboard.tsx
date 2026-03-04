@@ -29,7 +29,7 @@ import { preloadVerificationFlow } from "@/preloads";
 import DashboardShell from "@/components/DashboardShell";
 
 const TECHNICAL_STAGE_ORDER = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'] as const;
-const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'expert_interview'] as const;
+const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'] as const;
 const STAGE_LABELS: Record<string, string> = {
   profile_setup: 'Profile Setup',
   aptitude_test: 'Aptitude Test',

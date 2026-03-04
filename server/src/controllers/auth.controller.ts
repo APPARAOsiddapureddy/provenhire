@@ -22,7 +22,7 @@ const loginSchema = z.object({
 const forgotSchema = z.object({ email: z.string().email() });
 
 const resetSchema = z.object({
-  token: z.string().optional(),
+  token: z.string().min(1),
   email: z.string().email().optional(),
   newPassword: z.string().min(6),
 });
@@ -60,6 +60,10 @@ export async function register(req: Request, res: Response) {
   }
   const { name, email, password, role, roleType } = parsed.data;
   const normalizedEmail = email.trim().toLowerCase();
+  const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
+  if (blocked) {
+    return res.status(403).json({ error: "This email cannot be used for registration" });
+  }
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
     return res.status(409).json({ error: "Email already registered" });
@@ -150,6 +154,13 @@ export async function forgotPassword(req: Request, res: Response) {
     if (!user) {
       return res.json({ ok: true });
     }
+    if (!process.env.RESEND_API_KEY) {
+      return res.json({
+        ok: true,
+        message: "Password reset email is not configured. Contact support.",
+      });
+    }
+    const { sendPasswordResetEmail } = await import("../services/resend.js");
     await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
     const tokenPlain = generateRefreshToken();
     const expiresAt = new Date();
@@ -163,7 +174,12 @@ export async function forgotPassword(req: Request, res: Response) {
     });
     const baseUrl = process.env.BASE_URL || "http://localhost:8080";
     const resetLink = `${baseUrl}/auth?mode=reset&token=${encodeURIComponent(tokenPlain)}&email=${encodeURIComponent(user.email)}`;
-    return res.json({ ok: true, resetLink });
+    const sent = await sendPasswordResetEmail(user.email, resetLink);
+    if (!sent) {
+      await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+      return res.status(500).json({ error: "Failed to send reset email. Try again later." });
+    }
+    return res.json({ ok: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[forgot-password]", msg);
@@ -173,34 +189,22 @@ export async function forgotPassword(req: Request, res: Response) {
 
 export async function resetPassword(req: Request, res: Response) {
   const parsed = resetSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid reset payload" });
-  const { token, email, newPassword } = parsed.data;
+  if (!parsed.success) return res.status(400).json({ error: "Invalid reset payload. Token is required." });
+  const { token, newPassword } = parsed.data;
 
-  if (token) {
-    const tokenHash = hashToken(token);
-    const stored = await prisma.passwordResetToken.findUnique({
-      where: { tokenHash },
-      include: { user: true },
-    });
-    if (!stored || stored.expiresAt < new Date()) {
-      if (stored) await prisma.passwordResetToken.delete({ where: { id: stored.id } }).catch(() => {});
-      return res.status(400).json({ error: "Invalid or expired reset link. Request a new one." });
-    }
-    const passwordHash = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({ where: { id: stored.user.id }, data: { passwordHash } });
-    await prisma.passwordResetToken.delete({ where: { id: stored.id } });
-    return res.json({ ok: true });
+  const tokenHash = hashToken(token);
+  const stored = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: { user: true },
+  });
+  if (!stored || stored.expiresAt < new Date()) {
+    if (stored) await prisma.passwordResetToken.delete({ where: { id: stored.id } }).catch(() => {});
+    return res.status(400).json({ error: "Invalid or expired reset link. Request a new one." });
   }
-
-  if (email) {
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (!user) return res.status(404).json({ error: "User not found" });
-    const passwordHash = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
-    return res.json({ ok: true });
-  }
-
-  return res.status(400).json({ error: "Token or email required" });
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await prisma.user.update({ where: { id: stored.user.id }, data: { passwordHash } });
+  await prisma.passwordResetToken.delete({ where: { id: stored.id } });
+  return res.json({ ok: true });
 }
 
 const changePasswordSchema = z.object({

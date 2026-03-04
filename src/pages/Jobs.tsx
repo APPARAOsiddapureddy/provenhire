@@ -41,6 +41,8 @@ interface Job {
   isPremium?: boolean;
   /** PRD v4.1: tech = expert-verified gate; non_technical = nontech-verified gate */
   job_track?: 'tech' | 'non_technical';
+  /** Non-technical: AI-generated assignment applicants must complete */
+  assignment?: string | null;
 }
 
 const MOCK_JOBS: Job[] = [
@@ -327,6 +329,7 @@ const Jobs = () => {
   const [showVerificationDialog, setShowVerificationDialog] = useState(false);
   const [showJobDetails, setShowJobDetails] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [pendingAssignmentResponse, setPendingAssignmentResponse] = useState<string | undefined>(undefined);
   const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set());
   const [compareJobs, setCompareJobs] = useState<Set<string>>(new Set());
   const [showCompareDialog, setShowCompareDialog] = useState(false);
@@ -628,7 +631,7 @@ const Jobs = () => {
     setShowJobDetails(true);
   };
 
-  const handleApplyFromDetails = async () => {
+  const handleApplyFromDetails = async (assignmentResponse?: string) => {
     if (!selectedJob) return;
     
     if (!user) {
@@ -663,12 +666,13 @@ const Jobs = () => {
       const { profile } = await api.get<{ profile: any }>("/api/users/job-seeker-profile");
       if (!profile?.resumeUrl) {
         setSelectedJobId(selectedJob.id);
+        setPendingAssignmentResponse(assignmentResponse);
         setShowJobDetails(false);
         setShowResumeDialog(true);
         return;
       }
 
-      await applyToJob(selectedJob.id, profile.resumeUrl);
+      await applyToJob(selectedJob.id, profile.resumeUrl, assignmentResponse);
       setAppliedJobs(prev => new Set([...prev, selectedJob.id]));
       setShowJobDetails(false);
     } catch (error: any) {
@@ -697,9 +701,10 @@ const Jobs = () => {
       form.append("file", resumeFile);
       const { url } = await api.post<{ url: string }>("/api/uploads", form);
       await api.post("/api/users/job-seeker-profile", { resumeUrl: url });
-      await applyToJob(selectedJobId, url);
+      await applyToJob(selectedJobId, url, pendingAssignmentResponse);
       setShowResumeDialog(false);
       setResumeFile(null);
+      setPendingAssignmentResponse(undefined);
     } catch (error: any) {
       console.error('Error uploading resume:', error);
       toast.error('Failed to upload resume');
@@ -708,13 +713,13 @@ const Jobs = () => {
     }
   };
 
-  const applyToJob = async (jobId: string, resumeUrl: string) => {
+  const applyToJob = async (jobId: string, resumeUrl: string, assignmentResponse?: string) => {
     try {
-      await api.post(`/api/jobs/${jobId}/apply`, { resumeUrl });
+      await api.post(`/api/jobs/${jobId}/apply`, { resumeUrl, assignmentResponse: assignmentResponse || undefined });
       toast.success('Application submitted successfully!');
     } catch (error: any) {
       console.error('Error applying to job:', error);
-      toast.error('Failed to submit application');
+      toast.error(error?.response?.data?.error || 'Failed to submit application');
     }
   };
 
@@ -956,39 +961,39 @@ const Jobs = () => {
                 {displayedJobs.map((job) => {
                   const isPremiumLocked = isJobLocked(job);
                   return (
-                  <div key={job.id} className={`job-card bg-card rounded-xl p-6 shadow-sm border transition-all relative ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${isPremiumLocked ? 'opacity-70' : ''}`}>
-                    {/* Compare Toggle */}
-                    <button
-                      onClick={() => handleToggleCompare(job.id)}
-                      className={`absolute top-3 right-3 p-1.5 rounded-lg transition-colors ${
-                        compareJobs.has(job.id) 
-                          ? 'bg-primary text-primary-foreground' 
-                          : 'bg-secondary hover:bg-secondary/80 text-muted-foreground'
-                      }`}
-                      title={compareJobs.has(job.id) ? 'Remove from comparison' : 'Add to comparison'}
-                      disabled={isPremiumLocked}
-                    >
-                      {compareJobs.has(job.id) ? (
-                        <X className="h-4 w-4" />
-                      ) : (
-                        <Scale className="h-4 w-4" />
-                      )}
-                    </button>
-                    {(job.isPremium || job.job_track === 'non_technical') && (
-                      <span className="absolute top-3 left-3 flex items-center gap-1.5">
-                        {job.job_track === 'non_technical' ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00C9A7]/90 border border-[#00F5D4] text-[#0B1C2D] text-xs font-bold tracking-wide shadow-md">
-                            <span className="w-2 h-2 rounded-full bg-[#0B1C2D]" />
-                            Non-Technical
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#D4AF37] border border-[#E5C65C] text-[#0B1C2D] text-xs font-bold tracking-wide shadow-md">
-                            <span className="w-2 h-2 rounded-full bg-[#0B1C2D]" />
-                            Premium
-                          </span>
+                  <div key={job.id} className={`job-card bg-card rounded-xl p-6 shadow-sm border transition-all ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${isPremiumLocked ? 'opacity-70' : ''}`}>
+                    {/* Badges + Compare — top row, no overlap */}
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div className="flex flex-wrap gap-1.5 min-w-0">
+                        {(job.isPremium || job.job_track === 'non_technical') && (
+                          job.job_track === 'non_technical' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#00C9A7]/90 border border-[#00F5D4]/50 text-[#0B1C2D] text-xs font-semibold">
+                              Non-Technical
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/20 border border-primary/40 text-primary text-xs font-semibold">
+                              Premium
+                            </span>
+                          )
                         )}
-                      </span>
-                    )}
+                      </div>
+                      <button
+                        onClick={() => handleToggleCompare(job.id)}
+                        className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+                          compareJobs.has(job.id) 
+                            ? 'bg-primary text-primary-foreground' 
+                            : 'bg-secondary hover:bg-secondary/80 text-muted-foreground'
+                        }`}
+                        title={compareJobs.has(job.id) ? 'Remove from comparison' : 'Add to comparison'}
+                        disabled={isPremiumLocked}
+                      >
+                        {compareJobs.has(job.id) ? (
+                          <X className="h-4 w-4" />
+                        ) : (
+                          <Scale className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                     <div className="flex items-start gap-4 mb-4">
                       <div className="w-12 h-12 rounded-xl bg-gradient-hero flex items-center justify-center text-white font-bold text-lg shrink-0">
                         {job.company?.[0] || 'C'}

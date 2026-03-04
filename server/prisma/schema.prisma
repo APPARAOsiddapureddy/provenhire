@@ -84,17 +84,20 @@ model RecruiterProfile {
 }
 
 model Job {
-  id          String   @id @default(uuid())
-  title       String
-  company     String
-  location    String?
-  status      String   @default("active")
-  salaryRange String?
-  jobType     String?
-  description String?
-  jobTrack    String?  @default("tech")
-  createdAt   DateTime @default(now())
-  postedById  String?
+  id             String   @id @default(uuid())
+  title          String
+  company        String
+  location       String?
+  status         String   @default("active")
+  salaryRange    String?
+  jobType        String?
+  description    String?
+  jobTrack       String?  @default("tech")
+  assignment     String?  // Non-technical: AI-generated assignment for applicants
+  roleCategory   String?  // e.g. Marketing, Sales, HR
+  companyContext String?  // Brief company description for assignment context
+  createdAt      DateTime @default(now())
+  postedById     String?
 
   postedBy RecruiterProfile? @relation(fields: [postedById], references: [id])
   applications JobApplication[]
@@ -102,12 +105,13 @@ model Job {
 }
 
 model JobApplication {
-  id           String   @id @default(uuid())
-  jobId        String
-  jobSeekerId  String
-  status       String   @default("applied")
-  appliedAt    DateTime @default(now())
-  resumeUrl    String?
+  id                 String   @id @default(uuid())
+  jobId              String
+  jobSeekerId        String
+  status             String   @default("applied")
+  appliedAt          DateTime @default(now())
+  resumeUrl          String?
+  assignmentResponse String?  // Applicant's submission for non-technical job assignment
 
   job       Job  @relation(fields: [jobId], references: [id])
   jobSeeker User @relation("JobApplicationsByUser", fields: [jobSeekerId], references: [id])
@@ -198,12 +202,14 @@ model ResumeAnalysis {
 }
 
 model Notification {
-  id        String   @id @default(uuid())
-  userId    String
-  title     String
-  message   String
-  read      Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  title      String
+  message    String
+  read       Boolean  @default(false)
+  targetRole String?  // jobseeker | recruiter | expert_interviewer | all (for broadcast tracking)
+  sentBy     String?  // admin userId who sent
+  createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -338,4 +344,10 @@ model TestCredential {
   role     UserRole
   active   Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+model BlockedEmail {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  blockedAt DateTime @default(now())
 }

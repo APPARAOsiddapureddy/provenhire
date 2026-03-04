@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ParsedProfile {
   fullName: string;
@@ -32,13 +34,17 @@ const ACCEPT_MIME =
   "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 
 const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "technical" }: ProfileSetupStageProps) => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [manualMode, setManualMode] = useState(false);
+  const [profileJustSaved, setProfileJustSaved] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(user?.email ?? "");
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
   const [currentRole, setCurrentRole] = useState("");
@@ -76,6 +82,12 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     );
   }, []);
 
+  const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (user?.email && !email) setEmail(user.email);
+  }, [user?.email]);
+
   useEffect(() => {
     let cancelled = false;
     api
@@ -84,7 +96,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         if (cancelled || !profile) return;
         if (profile.fullName) {
           setFullName(String(profile.fullName));
-          setEmail(profile.email ? String(profile.email) : "");
+          setEmail(profile.email ? String(profile.email) : (user?.email ?? ""));
           setPhone(profile.phone ? String(profile.phone) : "");
           setLocation(profile.location ? String(profile.location) : "");
           setCurrentRole(profile.currentRole ? String(profile.currentRole) : "");
@@ -100,7 +112,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user?.email]);
 
   const runParse = async (file: File) => {
     setResumeFile(file);
@@ -141,9 +153,34 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     setManualMode(true);
     setShowForm(true);
     setParseError(null);
+    if (user?.email && !email) setEmail(user.email);
+  };
+
+  const scrollToField = (fieldId: string) => {
+    const el = fieldRefs.current[fieldId] ?? document.getElementById(`field-${fieldId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   const handleSave = async () => {
+    setFieldErrors({});
+    const errs: Record<string, string> = {};
+    if (!fullName.trim()) {
+      errs.fullName = "Please enter your full name.";
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errs.email = "Please enter a valid email address.";
+    }
+    if (!resumeFile) {
+      errs.resume = "Resume is required. Please upload your resume (PDF, DOC, or DOCX).";
+    }
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      toast.error("Please fix the highlighted fields.");
+      const first = Object.keys(errs)[0];
+      setTimeout(() => scrollToField(first), 100);
+      return;
+    }
+
     setSaving(true);
     try {
       let resumeUrl: string | null = null;
@@ -158,8 +195,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         .map((s) => s.trim())
         .filter(Boolean);
       await api.post("/api/users/job-seeker-profile", {
-        fullName,
-        email: email || undefined,
+        fullName: fullName.trim(),
+        email: email?.trim() || undefined,
         phone: phone || undefined,
         location: location || undefined,
         currentRole,
@@ -173,13 +210,28 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         workExperience: workExperience.trim() ? workExperience.trim().split("\n").filter(Boolean) : undefined,
       });
       await api.post("/api/verification/stages/update", { stageName: "profile_setup", status: "completed" });
-      const nextStage = roleType === "non_technical" ? "non_tech_assignment" : "aptitude_test";
-      await api.post("/api/verification/stages/update", { stageName: nextStage, status: "in_progress" });
-      toast.success(roleType === "non_technical" ? "Profile saved. Proceeding to Assignment." : "Profile saved. Proceeding to Aptitude Test.");
+      toast.success("Profile saved successfully!");
       onComplete();
-      onContinueToVerification?.();
+      setProfileJustSaved(true);
     } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Failed to save profile.");
+      const err = error as Error & { response?: { data?: { details?: { field: string; message: string }[]; message?: string; error?: string } } };
+      const data = err?.response?.data;
+      const serverErrs: Record<string, string> = {};
+      if (data?.details && Array.isArray(data.details)) {
+        for (const d of data.details) {
+          serverErrs[d.field] = d.message;
+        }
+      }
+      if (Object.keys(serverErrs).length > 0) {
+        setFieldErrors(serverErrs);
+        const msg = data?.message ?? data?.error ?? "Please fix the highlighted fields.";
+        toast.error(msg);
+        const first = Object.keys(serverErrs)[0];
+        setTimeout(() => scrollToField(first), 100);
+      } else {
+        const msg = data?.message ?? data?.error ?? (error instanceof Error ? error.message : "Failed to save profile.");
+        toast.error(msg);
+      }
     } finally {
       setSaving(false);
     }
@@ -229,7 +281,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
               </label>
             </div>
             <Button variant="ghost" size="sm" onClick={handleSkipToManual}>
-              Skip and fill manually
+              Fill manually (resume still required)
             </Button>
           </div>
         )}
@@ -237,22 +289,52 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         {showForm && (
           <div className="space-y-4">
             {parseError && (
-              <p className="text-sm text-amber-600">
-                {parseError} You can edit the fields below.
-              </p>
+              <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-200">
+                  Resume parsing failed: {parseError}
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-300 mt-1">You can edit the fields below or fill them manually.</p>
+              </div>
+            )}
+            {Object.keys(fieldErrors).length > 0 && (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                <p className="text-sm font-medium text-destructive">Please fix the following:</p>
+                <ul className="mt-1 text-sm text-destructive list-disc list-inside">
+                  {Object.entries(fieldErrors).map(([f, msg]) => (
+                    <li key={f}>{msg}</li>
+                  ))}
+                </ul>
+              </div>
             )}
             {resumeFile && !parseError && (
               <p className="text-sm text-muted-foreground">Using: {resumeFile.name}</p>
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Full name</Label>
-                <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your full name" />
+              <div ref={(r) => { fieldRefs.current.fullName = r; }} id="field-fullName" className="space-y-2">
+                <Label>Full name *</Label>
+                <Input
+                  value={fullName}
+                  onChange={(e) => { setFullName(e.target.value); setFieldErrors((p) => ({ ...p, fullName: "" })); }}
+                  placeholder="Your full name"
+                  className={fieldErrors.fullName ? "border-destructive focus-visible:ring-destructive" : ""}
+                />
+                {fieldErrors.fullName && (
+                  <p className="text-sm text-destructive">{fieldErrors.fullName}</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.email = r; }} id="field-email" className="space-y-2">
                 <Label>Email</Label>
-                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" />
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setFieldErrors((p) => ({ ...p, email: "" })); }}
+                  placeholder="email@example.com"
+                  className={fieldErrors.email ? "border-destructive focus-visible:ring-destructive" : ""}
+                />
+                {fieldErrors.email && (
+                  <p className="text-sm text-destructive">{fieldErrors.email}</p>
+                )}
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -292,7 +374,11 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
             </div>
             <div className="space-y-2">
               <Label>Skills (comma-separated)</Label>
-              <Input value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="Python, SQL, Excel, …" />
+              <Input
+                value={skills}
+                onChange={(e) => setSkills(e.target.value)}
+                placeholder={roleType === "technical" ? "Python, SQL, JavaScript, React, Node.js, …" : "Communication, Excel, Project Management, Presentation, Customer Service, …"}
+              />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -324,15 +410,47 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
             </div>
 
             {!resumeFile && (
-              <div className="space-y-2">
-                <Label>Resume (optional)</Label>
-                <Input type="file" accept={ACCEPT_MIME} onChange={handleFileChange} disabled={parsing} />
+              <div ref={(r) => { fieldRefs.current.resume = r; }} id="field-resume" className="space-y-2">
+                <Label>Resume *</Label>
+                <Input
+                  type="file"
+                  accept={ACCEPT_MIME}
+                  onChange={handleFileChange}
+                  disabled={parsing}
+                  className={fieldErrors.resume ? "border-destructive" : ""}
+                />
+                {fieldErrors.resume && (
+                  <p className="text-sm text-destructive">{fieldErrors.resume}</p>
+                )}
               </div>
             )}
 
             <div className="flex gap-2 pt-2">
-              <Button onClick={handleSave} disabled={saving || !fullName.trim()}>
+              <Button onClick={handleSave} disabled={saving}>
                 {saving ? "Saving…" : "Save and continue"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Post-save: choose Homepage or continue to next stage */}
+        {profileJustSaved && (
+          <div className="mt-6 p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">Profile saved! What&apos;s next?</h3>
+            <p className="text-sm text-muted-foreground">You can go to the homepage or continue to the next verification stage.</p>
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={() => navigate("/")}>
+                Go to Homepage
+              </Button>
+              <Button
+                onClick={() => {
+                  const nextStage = roleType === "non_technical" ? "non_tech_assignment" : "aptitude_test";
+                  api.post("/api/verification/stages/update", { stageName: nextStage, status: "in_progress" }).then(() => {
+                    onContinueToVerification?.();
+                  });
+                }}
+              >
+                Continue to {roleType === "non_technical" ? "Assignment" : "Aptitude Test"}
               </Button>
             </div>
           </div>

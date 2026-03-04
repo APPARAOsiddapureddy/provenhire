@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,8 +28,10 @@ const ASSIGNMENT_PROMPTS: Record<string, string> = {
 const DEFAULT_PROMPT = "Describe your relevant experience and approach for this role. Include 2-3 concrete examples of work you've done (or would do) that align with the job title.";
 
 const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete }: NonTechnicalAssignmentStageProps) => {
+  const navigate = useNavigate();
   const [response, setResponse] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [assignmentJustSubmitted, setAssignmentJustSubmitted] = useState(false);
 
   const prompt =
     (targetJobTitle && ASSIGNMENT_PROMPTS[targetJobTitle]) ||
@@ -45,8 +48,8 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete }: NonTechnica
         stageName: "non_tech_assignment",
         status: "completed",
       });
-      toast.success("Assignment submitted. Proceeding to Expert Interview.");
-      onComplete();
+      toast.success("Assignment submitted successfully!");
+      setAssignmentJustSubmitted(true);
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "Failed to submit assignment.");
     } finally {
@@ -82,6 +85,27 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete }: NonTechnica
         <Button onClick={handleSubmit} disabled={submitting || !response.trim()}>
           {submitting ? "Submitting..." : "Submit assignment"}
         </Button>
+
+        {assignmentJustSubmitted && (
+          <div className="mt-6 p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">Assignment submitted! What&apos;s next?</h3>
+            <p className="text-sm text-muted-foreground">You can go to the homepage or continue to the AI Expert Interview.</p>
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={() => navigate("/")}>
+                Go to Homepage
+              </Button>
+              <Button
+                onClick={() => {
+                  api.post("/api/verification/stages/update", { stageName: "expert_interview", status: "in_progress" }).then(() => {
+                    onComplete();
+                  });
+                }}
+              >
+                Continue to AI Expert Interview
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

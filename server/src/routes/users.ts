@@ -37,7 +37,14 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     targetJobTitle: z.string().optional(),
   });
     const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid profile payload" });
+    if (!parsed.success) {
+      const issues = parsed.error.errors.map((e) => ({ field: e.path.join("."), message: e.message }));
+      return res.status(400).json({
+        error: "Invalid profile data",
+        details: issues,
+        message: issues.map((i) => `${i.field}: ${i.message}`).join("; "),
+      });
+    }
     const { bio, ...rest } = parsed.data;
     const raw = { ...rest, ...(bio !== undefined ? { about: bio } : {}) };
     const data = Object.fromEntries(
@@ -51,7 +58,8 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     return res.json({ profile });
   } catch (e) {
     console.error("[job-seeker-profile]", e);
-    return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to save profile" });
+    const msg = e instanceof Error ? e.message : "Failed to save profile";
+    return res.status(500).json({ error: msg, message: msg });
   }
 });
 

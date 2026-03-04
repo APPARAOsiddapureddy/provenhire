@@ -10,7 +10,14 @@ notificationsRouter.get("/", requireAuth, async (req: AuthedRequest, res) => {
     where: { userId: req.user!.id },
     orderBy: { createdAt: "desc" },
   });
-  res.json({ notifications: items });
+  res.json({
+    notifications: items.map((n) => ({
+      ...n,
+      subject: n.title,
+      is_read: n.read,
+      created_at: n.createdAt,
+    })),
+  });
 });
 
 notificationsRouter.post("/read", requireAuth, async (req: AuthedRequest, res) => {
@@ -22,11 +29,30 @@ notificationsRouter.post("/read", requireAuth, async (req: AuthedRequest, res) =
 });
 
 notificationsRouter.post("/admin-message", requireAuth, async (req: AuthedRequest, res) => {
-  const schema = z.object({ title: z.string().min(1), message: z.string().min(1) });
+  const schema = z.object({
+    title: z.string().min(1).optional(),
+    subject: z.string().min(1).optional(),
+    message: z.string().min(1),
+    recipientIds: z.array(z.string()).optional(),
+  });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const title = parsed.data.title ?? parsed.data.subject ?? "Admin Message";
+  if (parsed.data.recipientIds && parsed.data.recipientIds.length > 0) {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required to send to multiple users" });
+    }
+    const created = await Promise.all(
+      parsed.data.recipientIds.map((userId) =>
+        prisma.notification.create({
+          data: { userId, title, message: parsed.data.message },
+        })
+      )
+    );
+    return res.json({ ok: true, count: created.length });
+  }
   const notification = await prisma.notification.create({
-    data: { userId: req.user!.id, title: parsed.data.title, message: parsed.data.message },
+    data: { userId: req.user!.id, title, message: parsed.data.message },
   });
   res.json({ notification });
 });

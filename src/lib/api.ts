@@ -78,7 +78,7 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
-    const msg = (errorBody?.error || "Request failed") as string;
+    const msg = (errorBody?.message ?? errorBody?.error ?? "Request failed") as string;
     const backendHint = "Run: npm run dev:all (or npm run dev:server in another terminal)";
     if (path.startsWith("/api/") && res.status === 404) {
       throw new Error(`Backend not running. ${backendHint}`);
@@ -89,7 +89,9 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
       }
       throw new Error(`Backend not running or service unavailable. ${backendHint}`);
     }
-    throw new Error(msg);
+    const err = new Error(msg) as Error & { response?: { data?: unknown } };
+    err.response = { data: errorBody };
+    throw err;
   }
   return res.json() as Promise<T>;
 }
@@ -98,5 +100,7 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

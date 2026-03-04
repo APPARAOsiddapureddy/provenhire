@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import ProctoringNotice from "@/components/ProctoringNotice";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
@@ -29,6 +31,7 @@ interface TestResult {
 }
 
 const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 2 }: DSARoundStageProps) => {
+  const navigate = useNavigate();
   const [questions, setQuestions] = useState<DSAQuestion[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [code, setCode] = useState<Record<string, string>>({});
@@ -37,6 +40,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
   const [results, setResults] = useState<TestResult[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
+  const [justPassed, setJustPassed] = useState(false);
 
   useEffect(() => {
     const q = generateDSATest(experienceYears);
@@ -150,8 +154,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
           status: "completed",
           score: finalScore,
         });
-        toast.success(`DSA round completed. Score: ${finalScore}/100. You are eligible for the AI interview.`);
-        onComplete();
+        toast.success(`DSA round completed. Score: ${finalScore}/100.`);
+        setJustPassed(true);
       } else {
         await api.post("/api/verification/stages/update", {
           stageName: "dsa_round",
@@ -186,6 +190,27 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
 
   const isFailed = stageStatus === "failed";
 
+  if (justPassed) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">DSA round passed! What&apos;s next?</h3>
+            <p className="text-sm text-muted-foreground">You can go to the homepage or continue to the AI Expert Interview.</p>
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={() => navigate("/")}>
+                Go to Homepage
+              </Button>
+              <Button onClick={() => onComplete()}>
+                Continue to AI Expert Interview
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -204,13 +229,16 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
           </div>
         )}
         {/* Question tabs */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="tablist">
           {questions.map((q, i) => (
             <Button
               key={q.id}
               variant={selectedIndex === i ? "default" : "outline"}
               size="sm"
-              onClick={() => setSelectedIndex(i)}
+              onClick={() => {
+                setSelectedIndex(i);
+                setResults(null);
+              }}
             >
               Q{i + 1}: {q.title}
               {scores[q.id] !== undefined && (
@@ -287,26 +315,26 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
               height="360px"
             />
 
-            {/* Run & Submit */}
-            <div className="flex gap-2">
-              <Button onClick={runTests} disabled={running} variant="secondary">
+            {/* Run & Submit — clear hierarchy */}
+            <div className="flex flex-wrap gap-3 pt-2">
+              <Button onClick={runTests} disabled={running} variant="secondary" size="lg" className="font-medium">
                 {running ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
                   <Play className="h-4 w-4 mr-2" />
                 )}
-                Run tests
+                Run test cases
               </Button>
-              <Button onClick={handleSubmit} disabled={submitting}>
+              <Button onClick={handleSubmit} disabled={submitting} size="lg" className="font-medium">
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                 Submit round
               </Button>
             </div>
 
-            {/* Test results */}
+            {/* Test results — clears when switching questions */}
             {results && (
-              <div className="rounded-lg border border-border p-3 space-y-2">
-                <h4 className="font-medium text-sm">Test results</h4>
+              <div className="rounded-xl border-2 border-border bg-muted/20 p-4 space-y-2">
+                <h4 className="font-medium text-sm text-foreground">Test results for Q{selectedIndex + 1}</h4>
                 {results.map((r, i) => (
                   <div
                     key={i}

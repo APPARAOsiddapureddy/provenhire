@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
+import DOMPurify from "dompurify";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -14,8 +21,10 @@ import { formatDistanceToNow } from "date-fns";
 interface Message {
   id: string;
   subject: string;
+  title?: string;
   message: string;
   is_read: boolean;
+  read?: boolean;
   created_at: string;
 }
 
@@ -23,19 +32,36 @@ const NotificationInbox = () => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [open, setOpen] = useState(false);
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [popupShown, setPopupShown] = useState(false);
 
-  const unreadCount = messages.filter((m) => !m.is_read).length;
+  const unreadMessages = messages.filter((m) => !m.is_read && !m.read);
+  const unreadCount = unreadMessages.length;
+  const latestUnread = unreadMessages[0];
+
+  const fetchMessages = async () => {
+    if (!user) return;
+    try {
+      const { notifications } = await api.get<{ notifications: Message[] }>("/api/notifications");
+      if (notifications) {
+        setMessages(notifications.map((n) => ({ ...n, is_read: n.read ?? n.is_read ?? false })));
+      }
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
-
-    const fetchMessages = async () => {
-      const { notifications } = await api.get<{ notifications: Message[] }>("/api/notifications");
-      if (notifications) setMessages(notifications);
-    };
-
     fetchMessages();
   }, [user]);
+
+  useEffect(() => {
+    if (latestUnread && !popupShown && user) {
+      setPopupOpen(true);
+      setPopupShown(true);
+    }
+  }, [latestUnread, popupShown, user]);
 
   const markAsRead = async (id: string) => {
     await api.post("/api/notifications/read", { id });
@@ -44,10 +70,30 @@ const NotificationInbox = () => {
     );
   };
 
+  const handlePopupClose = () => {
+    if (latestUnread) markAsRead(latestUnread.id);
+    setPopupOpen(false);
+  };
+
   if (!user) return null;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <>
+      <Dialog open={popupOpen} onOpenChange={(o) => { setPopupOpen(o); if (!o) handlePopupClose(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{latestUnread?.subject ?? latestUnread?.title ?? "Notification"}</DialogTitle>
+          </DialogHeader>
+          <div
+            className="text-sm text-muted-foreground py-2 prose prose-sm max-w-none [&_*]:text-inherit [&_*]:text-sm"
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(latestUnread?.message || "", { ALLOWED_TAGS: ["p", "br", "b", "i", "u", "a", "ul", "ol", "li"] }),
+            }}
+          />
+          <Button onClick={handlePopupClose}>Got it</Button>
+        </DialogContent>
+      </Dialog>
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) fetchMessages(); }}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
@@ -83,9 +129,12 @@ const NotificationInbox = () => {
                       <span className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                    {msg.message}
-                  </p>
+                  <div
+                    className="text-xs text-muted-foreground line-clamp-2 mt-1 prose prose-sm max-w-none [&_*]:text-inherit [&_*]:text-xs"
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(msg.message || "", { ALLOWED_TAGS: ["p", "br", "b", "i", "u", "a", "ul", "ol", "li"] }),
+                    }}
+                  />
                   <p className="text-xs text-muted-foreground mt-1">
                     {formatDistanceToNow(new Date(msg.created_at), {
                       addSuffix: true,
@@ -98,6 +147,7 @@ const NotificationInbox = () => {
         </ScrollArea>
       </PopoverContent>
     </Popover>
+    </>
   );
 };
 

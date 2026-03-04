@@ -2,7 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireExpertInterviewer, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
-import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
+// Daily.co disabled for MVP - using Google Meet. Uncomment when budget allows.
+// import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
 export const expertRouter = Router();
 expertRouter.use(requireExpertInterviewer);
@@ -82,7 +83,7 @@ expertRouter.get("/sessions/upcoming", async (req: AuthedRequest, res) => {
   res.json({ sessions });
 });
 
-/** Create or fetch Daily room for session (idempotent) */
+/** MVP: Get meeting link (Google Meet). Interviewer adds via PATCH. Daily.co disabled. */
 expertRouter.post("/sessions/:id/create-room", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -91,29 +92,9 @@ expertRouter.post("/sessions/:id/create-room", async (req: AuthedRequest, res) =
   });
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.meetingLink) {
-    const roomName = getRoomNameFromUrl(session.meetingLink);
-    if (roomName) {
-      try {
-        const { token } = await createMeetingToken(roomName, { isOwner: true });
-        return res.json({ roomUrl: session.meetingLink, token });
-      } catch {
-        return res.json({ roomUrl: session.meetingLink });
-      }
-    }
     return res.json({ roomUrl: session.meetingLink });
   }
-  try {
-    const room = await createDailyRoom();
-    const { token } = await createMeetingToken(room.name, { isOwner: true });
-    await prisma.humanInterviewSession.update({
-      where: { id: session.id },
-      data: { meetingLink: room.url },
-    });
-    return res.json({ roomUrl: room.url, token });
-  } catch (err) {
-    console.error("[create-room]", err);
-    return res.status(500).json({ error: "Unable to start video call. Please refresh." });
-  }
+  return res.status(400).json({ error: "Add your Google Meet link below, then open it to start the interview." });
 });
 
 /** Get single session (for interview room) */

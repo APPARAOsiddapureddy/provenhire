@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import ProctoringNotice from "@/components/ProctoringNotice";
 
 interface ExpertInterviewStageProps {
   onComplete: () => void;
@@ -62,6 +63,7 @@ const ExpertInterviewStage = ({ onComplete }: ExpertInterviewStageProps) => {
         <CardDescription>Answer the questions one at a time.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <ProctoringNotice />
         {!interviewId && (
           <div className="space-y-3">
             <Input value={jobRole} onChange={(e) => setJobRole(e.target.value)} />

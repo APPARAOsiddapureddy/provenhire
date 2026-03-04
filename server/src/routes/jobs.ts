@@ -22,22 +22,38 @@ jobsRouter.get("/", async (req, res) => {
 
 jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
   const schema = z.object({
-    title: z.string().min(1),
-    company: z.string().min(1),
-    location: z.string().optional(),
-    salaryRange: z.string().optional(),
-    jobType: z.string().optional(),
-    description: z.string().optional(),
+    title: z.string().min(1, "Job title is required"),
+    company: z.string().min(1, "Company name is required"),
+    description: z.string().min(1, "Job description is required"),
+    location: z.string().nullish(),
+    salaryRange: z.string().nullish(),
+    jobType: z.string().nullish(),
     jobTrack: z.enum(["tech", "non_technical"]).optional(),
+    assignment: z.string().nullish(),
+    roleCategory: z.string().nullish(),
+    companyContext: z.string().nullish(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  if (!parsed.success) {
+    const issues = parsed.error.issues || [];
+    const fieldErrors: Record<string, string> = {};
+    for (const i of issues) {
+      const path = (i.path && i.path[0] ? String(i.path[0]) : "form") as string;
+      const msg = i.message || "Invalid value";
+      if (!fieldErrors[path]) fieldErrors[path] = msg;
+    }
+    const firstMsg = Object.values(fieldErrors)[0] || "Please check the form and fix any errors.";
+    return res.status(400).json({ error: firstMsg, fieldErrors });
+  }
 
   const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
   const job = await prisma.job.create({
     data: {
       ...parsed.data,
       jobTrack: parsed.data.jobTrack ?? "tech",
+      assignment: parsed.data.assignment ?? null,
+      roleCategory: parsed.data.roleCategory ?? null,
+      companyContext: parsed.data.companyContext ?? null,
       postedById: recruiter?.id ?? null,
     },
   });
@@ -45,7 +61,10 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
-  const schema = z.object({ resumeUrl: z.string().optional() });
+  const schema = z.object({
+    resumeUrl: z.string().optional(),
+    assignmentResponse: z.string().optional(),
+  });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const jobId = req.params.id;
@@ -59,11 +78,15 @@ jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
       return res.status(403).json({ error: "This job does not match your profile. Technical seekers apply to technical jobs; non-technical seekers apply to non-technical jobs." });
     }
   }
+  if (job.assignment && !parsed.data.assignmentResponse?.trim()) {
+    return res.status(400).json({ error: "This job requires an assignment submission. Please complete the assignment and try again." });
+  }
   const application = await prisma.jobApplication.create({
     data: {
       jobId,
       jobSeekerId: req.user!.id,
       resumeUrl: parsed.data.resumeUrl ?? null,
+      assignmentResponse: parsed.data.assignmentResponse ?? null,
     },
   });
   res.json({ application });

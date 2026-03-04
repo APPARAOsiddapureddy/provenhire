@@ -44,8 +44,7 @@ const Auth = () => {
     roleFromUrl === "recruiter" ? "recruiter" : "jobseeker"
   );
 
-  // Sign Up
-  const [fullName, setFullName] = useState("");
+  // Sign Up (fullName removed — fetched in profile setup)
   const [email, setEmail] = useState("");
   const [signUpPassword, setSignUpPassword] = useState("");
   const [signUpConfirmPassword, setSignUpConfirmPassword] = useState("");
@@ -149,7 +148,7 @@ const Auth = () => {
         email,
         signUpPassword,
         role,
-        fullName || undefined,
+        undefined,
         role === "recruiter" ? companyName : undefined,
         role === "recruiter" ? companySize : undefined,
         roleType
@@ -189,16 +188,16 @@ const Auth = () => {
       toast.error("Password must be at least 6 characters");
       return;
     }
-    if (!resetTokenFromUrl && !(resetUserEmail || emailFromUrl)) {
-      toast.error("Please use the reset link from your email, or enter your email");
+    if (!resetTokenFromUrl) {
+      toast.error("Please use the reset link from your email. The link contains a secure token.");
       return;
     }
     try {
       setResetUpdating(true);
-      const payload: { token?: string; email?: string; newPassword: string } = { newPassword };
-      if (resetTokenFromUrl) payload.token = resetTokenFromUrl;
-      else payload.email = resetUserEmail || emailFromUrl || "";
-      await api.post("/api/auth/reset-password", payload);
+      await api.post("/api/auth/reset-password", {
+        token: resetTokenFromUrl,
+        newPassword,
+      });
       toast.success("Password updated successfully. Please sign in again.");
       navigate("/auth?mode=login&reset=1", { replace: true });
     } catch (error: any) {
@@ -293,6 +292,11 @@ const Auth = () => {
               <h1 className="text-2xl font-bold text-foreground">Create Your Password</h1>
               <p className="text-muted-foreground mt-2">Create a new password to activate your account.</p>
             </div>
+            {!resetTokenFromUrl && (
+              <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                Use the reset link from your email. The link contains a secure token required to set a new password.
+              </div>
+            )}
             <form onSubmit={handleResetPassword} className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Email</label>
@@ -352,10 +356,10 @@ const Auth = () => {
               </div>
               <button
                 type="submit"
-                disabled={resetUpdating}
+                disabled={resetUpdating || !resetTokenFromUrl}
                 className="w-full py-3 px-4 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50"
               >
-                {resetUpdating ? "Updating..." : "Update Password"}
+                {resetUpdating ? "Updating..." : !resetTokenFromUrl ? "Reset link required" : "Update Password"}
               </button>
             </form>
           </div>
@@ -506,13 +510,6 @@ const Auth = () => {
               <p className="auth-form-sub">Join free. Prove your skills. Get hired by companies that trust evidence.</p>
 
               <form onSubmit={handleSignUp} className="space-y-0">
-                <div>
-                  <label className="auth-label">Full Name</label>
-                  <div className="auth-input-wrap">
-                    <User className="iw-icon" />
-                    <input type="text" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                  </div>
-                </div>
                 <div>
                   <label className="auth-label">Email</label>
                   <div className="auth-input-wrap">
@@ -685,10 +682,6 @@ const Auth = () => {
               <h1 className="auth-form-title mb-1">Start Your <span className="gold">Verification</span></h1>
               <p className="auth-form-sub mb-6">Join free. Prove your skills.</p>
               <form onSubmit={handleSignUp} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Full Name</label>
-                  <input type="text" placeholder="Your name" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full px-4 py-3 border border-border rounded-lg bg-background" />
-                </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
                   <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 border border-border rounded-lg bg-background" />

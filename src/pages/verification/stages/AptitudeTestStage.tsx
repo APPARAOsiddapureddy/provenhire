@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import ProctoringNotice from "@/components/ProctoringNotice";
 
 const ELIGIBILITY_THRESHOLD = 60;
 const PLACEHOLDER_QUESTIONS = [
@@ -20,11 +22,13 @@ interface AptitudeTestStageProps {
 }
 
 const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTestStageProps) => {
+  const navigate = useNavigate();
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
   const [submittedScore, setSubmittedScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const isFailed = stageStatus === "failed" || submitted;
+  const [justPassed, setJustPassed] = useState(false);
+  const isFailed = stageStatus === "failed" || (submitted && !justPassed);
   const displayScore = submittedScore ?? stageScore ?? 0;
 
   const handleSubmit = async () => {
@@ -37,8 +41,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
       await api.post("/api/verification/aptitude", { score, answers: { questions: PLACEHOLDER_QUESTIONS.length, correct: correctCount } });
       if (score >= ELIGIBILITY_THRESHOLD) {
         await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "completed", score });
-        toast.success(`Aptitude test completed. Score: ${score}/100. You are eligible for the next stage.`);
-        onComplete();
+        toast.success(`Aptitude test completed. Score: ${score}/100.`);
+        setJustPassed(true);
       } else {
         await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score });
         setSubmittedScore(score);
@@ -73,8 +77,22 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
             </p>
             <p className="mt-2 text-sm">Use the &quot;Retry This Step&quot; button above when you are ready to retake the test.</p>
           </div>
+        ) : justPassed ? (
+          <div className="p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">Aptitude test passed! What&apos;s next?</h3>
+            <p className="text-sm text-muted-foreground">You can go to the homepage or continue to the DSA round.</p>
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={() => navigate("/")}>
+                Go to Homepage
+              </Button>
+              <Button onClick={() => onComplete()}>
+                Continue to DSA Round
+              </Button>
+            </div>
+          </div>
         ) : (
           <>
+            <ProctoringNotice />
             <div className="space-y-6">
               {PLACEHOLDER_QUESTIONS.map((q, idx) => (
                 <div key={q.id} className="space-y-2">
