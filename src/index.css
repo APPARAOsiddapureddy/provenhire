@@ -189,44 +189,6 @@
   text-align: center;
 }
 
-@media (min-width: 640px) {
-  .hero-stats {
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0;
-    border-top: 1px solid rgba(255,255,255,0.08);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    padding: 0.75rem 0;
-  }
-
-  .hero-stat-item {
-    flex: 1;
-    min-width: 0;
-    padding: 0.5rem 1rem;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    border-right: 1px solid rgba(255,255,255,0.08);
-  }
-
-  .hero-stat-item:last-child {
-    border-right: none;
-  }
-
-  .hero-stat-item:hover {
-    background: rgba(255,255,255,0.04);
-  }
-
-  .hero-stat-num {
-    font-size: 1.5rem;
-  }
-
-  .hero-stat-label {
-    font-size: 0.6875rem;
-  }
-}
-
 @media (min-width: 1024px) {
   .hero-content-with-graphic {
     grid-template-columns: 1fr auto;
@@ -310,64 +272,54 @@
   justify-content: center;
 }
 
-/* Hero stats - responsive: stack on mobile, row on desktop */
-.hero-stats {
+/* Hero stats — desktop: original pill row; mobile: stacked cards */
+.hero-stats.hero-stats-desktop {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
-}
-
-.hero-stat-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.hero-stat-item:hover {
-  background: rgba(255,255,255,0.06);
-  border-color: rgba(255,255,255,0.12);
-}
-
-.hero-stat-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
+  flex-wrap: nowrap;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 6px;
-  background: hsl(var(--primary) / 0.15);
-  color: hsl(var(--primary));
+  gap: 0;
+  border-top: 1px solid rgba(255,255,255,0.12);
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+  padding: 0.75rem 0;
 }
 
-.hero-stat-text {
+.hero-stat-pill {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  padding: 0.375rem 1rem;
+  border-right: 1px solid rgba(255,255,255,0.12);
+  transition: background 0.2s;
 }
 
-.hero-stat-num {
-  font-family: var(--font-bebas);
-  font-size: 1.25rem;
-  line-height: 1;
-  letter-spacing: 1px;
-  color: hsl(var(--primary));
+.hero-stat-pill:last-child {
+  border-right: none;
 }
 
-.hero-stat-label {
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: hsl(var(--muted-foreground));
+.hero-stat-pill:hover {
+  background: rgba(255,255,255,0.05);
+  border-radius: 0.5rem;
+}
+
+@media (max-width: 639px) {
+  .hero-stats.hero-stats-desktop {
+    flex-direction: column;
+    border: none;
+    gap: 0.5rem;
+    padding: 0;
+  }
+
+  .hero-stat-pill {
+    padding: 0.75rem 1rem;
+    border-right: none;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .hero-stat-pill:hover {
+    background: rgba(255,255,255,0.06);
+  }
 }
 
 /* Buttons - Brutalist (larger, bolder, animated) */

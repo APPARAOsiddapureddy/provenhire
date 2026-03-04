@@ -49,16 +49,16 @@ const Index = () => {
         <div className="container mx-auto relative z-10 px-4 sm:px-6">
           <div className="hero-content hero-content-with-graphic">
             <div className="min-w-0">
-              <div className="hero-badge-wrap-mobile mb-6 lg:mb-7 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.1s" }}>
+              <div className="hero-badge-wrap-mobile mb-6 lg:mb-7 opacity-0 animate-fade-in-up animate-fill-forwards lg:hidden" style={{ animationDelay: "0.1s" }}>
                 <span className="inline-flex items-center gap-2 font-mono text-[11px] sm:text-[13px] font-extrabold text-primary tracking-wider uppercase px-3 py-1.5 rounded-md bg-primary/15 border border-primary/30">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#1FA971] animate-pulse" aria-hidden />
                   India&apos;s First Skill Passport Platform
                 </span>
               </div>
-              <div className="hidden lg:flex items-center justify-start gap-1.5 sm:gap-2.5 mb-7 opacity-0 animate-fade-in-up animate-fill-forwards flex-wrap" style={{ animationDelay: "0.1s" }}>
+              <div className="hidden lg:flex items-center justify-start gap-1.5 sm:gap-2.5 mb-7 opacity-0 animate-fade-in-up animate-fill-forwards shrink-0" style={{ animationDelay: "0.1s" }}>
                 <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">[</span>
                 <div className="w-2 h-2 rounded-full bg-[#1FA971] animate-pulse shrink-0" aria-hidden />
-                <span className="font-mono text-[11px] sm:text-[15px] font-extrabold text-primary tracking-[1px] sm:tracking-[2px] uppercase px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10 text-center">
+                <span className="font-mono text-[11px] sm:text-[15px] font-extrabold text-primary tracking-[1px] sm:tracking-[2px] uppercase px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10 text-center whitespace-nowrap shrink-0">
                   First Indian Skill Passport Certified Verification Platform
                 </span>
                 <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">]</span>
@@ -68,7 +68,10 @@ const Index = () => {
                 <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>Not Resumes.</span>
               </h1>
               <p className="hero-subtitle opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.35s" }}>
-                Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours. Complete all 5 stages to unlock your Skill Passport and access premium opportunities.
+                Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours.{" "}
+                <span className="text-primary font-semibold drop-shadow-[0_0_8px_rgba(212,175,55,0.5)]">
+                  Complete all 5 stages to unlock your Skill Passport and access premium opportunities.
+                </span>
               </p>
               <div className="hero-buttons mb-8 sm:mb-12 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.5s" }}>
                 <Button size="lg" asChild className="btn-primary btn-hero">
@@ -82,32 +85,33 @@ const Index = () => {
                   </Link>
                 </Button>
               </div>
-              <div className="hero-stats opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.65s" }}>
-                <div className="hero-stat-item">
-                  <span className="hero-stat-icon">
+              {/* Desktop: original pill design. Mobile: stacked cards via CSS. */}
+              <div className="hero-stats hero-stats-desktop opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.65s" }}>
+                <div className="hero-stat-pill">
+                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
                     <IconLayers className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="hero-stat-text">
-                    <span className="hero-stat-num">5</span>
-                    <span className="hero-stat-label">Verification Layers</span>
+                  <div className="flex items-baseline gap-1.5 sm:gap-2">
+                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">5</span>
+                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">Verification Layers</span>
                   </div>
                 </div>
-                <div className="hero-stat-item">
-                  <span className="hero-stat-icon">
+                <div className="hero-stat-pill">
+                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
                     <IconClock className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="hero-stat-text">
-                    <span className="hero-stat-num">24H</span>
-                    <span className="hero-stat-label">To Full Certification</span>
+                  <div className="flex items-baseline gap-1.5 sm:gap-2">
+                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">24H</span>
+                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">To Full Certification</span>
                   </div>
                 </div>
-                <div className="hero-stat-item">
-                  <span className="hero-stat-icon">
+                <div className="hero-stat-pill">
+                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
                     <IconRupee className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="hero-stat-text">
-                    <span className="hero-stat-num">₹0</span>
-                    <span className="hero-stat-label">Upfront Cost to Hire</span>
+                  <div className="flex items-baseline gap-1.5 sm:gap-2">
+                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">₹0</span>
+                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">Upfront Cost to Hire</span>
                   </div>
                 </div>
               </div>
