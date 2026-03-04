@@ -20,17 +20,16 @@ import { expertRouter } from "./routes/expert.js";
 export function createApp() {
   const app = express();
 
-  app.use(helmet({ contentSecurityPolicy: false }));
-  // CORS: allow all origins (Render, Vercel, localhost). Required for credentials when origin varies.
+  // CORS first - before any other middleware. origin: * works when not using cookies (JWT in header).
   app.use(
     cors({
-      origin: true, // reflect request origin
-      credentials: true,
+      origin: "*",
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
       optionsSuccessStatus: 204,
     })
   );
+  app.use(helmet({ contentSecurityPolicy: false }));
   app.use(express.json({ limit: "2mb" }));
   app.use(pinoHttp());
   app.use("/uploads", express.static("uploads"));

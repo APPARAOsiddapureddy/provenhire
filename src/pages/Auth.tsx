@@ -453,8 +453,8 @@ const Auth = () => {
     <div className="auth-page min-h-screen flex flex-col">
       <Navbar />
 
-      {/* Desktop: split sliding layout */}
-      <div className="auth-split-stage hidden lg:flex flex-1 pt-16">
+      {/* Desktop only (1400px+): split layout; below 1400px use mobile single-form for reliable responsive */}
+      <div className="auth-split-stage hidden min-[1400px]:flex flex-1 pt-16">
         <div className={`auth-track flex-shrink-0 ${showSignUp ? "auth-track-signup" : ""}`} style={{ minHeight: "calc(100vh - 4rem)" }}>
           {/* Half 1: Sign In (form left, benefits right) */}
           <div className="auth-half flex">
@@ -623,14 +623,12 @@ const Auth = () => {
         </div>
       </div>
 
-      {/* Mobile: single form, switch link */}
-      <div className="lg:hidden flex-1 flex items-center justify-center px-4 py-6 pt-20 pb-12 bg-[hsl(var(--background))] overflow-y-auto">
+      {/* Mobile/Tablet (<1400px): single form only, no marketing text */}
+      <div className="min-[1400px]:hidden flex-1 flex items-center justify-center px-4 py-6 pt-20 pb-8 bg-[hsl(var(--background))] overflow-y-auto min-h-0">
         <div className="w-full max-w-md">
           {isLogin ? (
             <>
-              <div className="auth-form-eyebrow mb-3">Sign In</div>
-              <h1 className="auth-form-title mb-2">Welcome <span className="gold">Back</span></h1>
-              <p className="auth-form-sub mb-6">Sign in to your account.</p>
+              <h2 className="text-lg font-semibold mb-4">Sign In</h2>
               {resetSuccess && (
                 <div className="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-200">Password updated. Please sign in.</div>
               )}
@@ -672,15 +670,13 @@ const Auth = () => {
                   {loading ? "Signing in..." : "Sign In"}
                 </button>
               </form>
-              <p className="auth-switch mt-4">
-                No account? <a onClick={() => switchMode("signup")}>Sign Up</a>
+              <p className="text-center mt-4 text-sm text-muted-foreground">
+                No account? <a onClick={() => switchMode("signup")} className="text-primary font-semibold hover:underline cursor-pointer">Sign Up</a>
               </p>
             </>
           ) : (
             <>
-              <div className="auth-form-eyebrow mb-2">Create Account</div>
-              <h1 className="auth-form-title mb-1">Start Your <span className="gold">Verification</span></h1>
-              <p className="auth-form-sub mb-6">Join free. Prove your skills.</p>
+              <h2 className="text-lg font-semibold mb-4">Create Account</h2>
               <form onSubmit={handleSignUp} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
@@ -771,15 +767,18 @@ const Auth = () => {
                   {loading ? "Creating..." : "Create Account"}
                 </button>
               </form>
-              <p className="auth-switch mt-4">
-                Already have an account? <a onClick={() => switchMode("login")}>Sign In</a>
+              <p className="text-center mt-4 text-sm text-muted-foreground">
+                Already have an account? <a onClick={() => switchMode("login")} className="text-primary font-semibold hover:underline cursor-pointer">Sign In</a>
               </p>
             </>
           )}
         </div>
       </div>
 
-      <Footer />
+      {/* Footer hidden on auth for mobile/tablet to avoid redundant Log In / Sign Up */}
+      <div className="hidden min-[1400px]:block">
+        <Footer />
+      </div>
     </div>
   );
 };

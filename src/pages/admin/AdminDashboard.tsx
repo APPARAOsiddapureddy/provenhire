@@ -291,147 +291,148 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-muted/30">
-      {/* Header */}
+      {/* Header — responsive: stack on mobile, hide user details on small screens */}
       <header className="bg-background border-b border-border sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Shield className="h-8 w-8 text-primary" />
-            <div>
-              <h1 className="text-xl font-bold">Admin Dashboard</h1>
-              <p className="text-sm text-muted-foreground">ProvenHire Management</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {currentUser && (
-              <div className="text-right text-sm text-muted-foreground">
-                <div className="font-medium text-foreground">{currentUser.email}</div>
-                <div>
-                  Last login: {currentUser.last_sign_in_at ? formatDate(currentUser.last_sign_in_at) : "—"}
-                </div>
+        <div className="container mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <Shield className="h-8 w-8 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold truncate">Admin Dashboard</h1>
+                <p className="text-xs sm:text-sm text-muted-foreground">ProvenHire Management</p>
               </div>
-            )}
-            <BroadcastMessageDialog
-              stats={{
-                totalJobSeekers: stats.totalJobSeekers,
-                totalRecruiters: stats.totalRecruiters,
-                totalInterviewers: stats.totalInterviewers,
-              }}
-              onSent={handleBroadcastSent}
-              open={messageDialogOpen}
-              onOpenChange={(o) => {
-                setMessageDialogOpen(o);
-                if (!o) setMessageRecipient(null);
-              }}
-              initialRecipient={messageRecipient ?? undefined}
-              trigger={
-                <Button variant="outline" size="sm" onClick={() => { setMessageRecipient(null); setMessageDialogOpen(true); }}>
-                  <MessageSquare className="h-4 w-4 mr-2" />
-                  Send Message
-                </Button>
-              }
-            />
-
-            <Button variant="outline" size="sm" onClick={fetchAllData}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
-            <Button variant="destructive" size="sm" onClick={handleLogout}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Logout
-            </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              {currentUser && (
+                <div className="hidden md:block text-right text-sm text-muted-foreground">
+                  <div className="font-medium text-foreground truncate max-w-[180px]">{currentUser.email}</div>
+                  <div className="text-xs">
+                    Last login: {currentUser.last_sign_in_at ? formatDate(currentUser.last_sign_in_at) : "—"}
+                  </div>
+                </div>
+              )}
+              <BroadcastMessageDialog
+                stats={{
+                  totalJobSeekers: stats.totalJobSeekers,
+                  totalRecruiters: stats.totalRecruiters,
+                  totalInterviewers: stats.totalInterviewers,
+                }}
+                onSent={handleBroadcastSent}
+                open={messageDialogOpen}
+                onOpenChange={(o) => {
+                  setMessageDialogOpen(o);
+                  if (!o) setMessageRecipient(null);
+                }}
+                initialRecipient={messageRecipient ?? undefined}
+                trigger={
+                  <Button variant="outline" size="sm" className="shrink-0" onClick={() => setMessageRecipient(null)}>
+                    <MessageSquare className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Send Message</span>
+                  </Button>
+                }
+              />
+              <Button variant="outline" size="sm" onClick={fetchAllData} className="shrink-0">
+                <RefreshCw className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Refresh</span>
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleLogout} className="shrink-0">
+                <LogOut className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {/* Stats Cards — responsive grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6 sm:mb-8">
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-900">
-                  <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-blue-100 rounded-lg dark:bg-blue-900 shrink-0">
+                  <Users className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 dark:text-blue-400" />
                 </div>
-                <div>
-                  <p className="text-xl font-bold">{stats.totalJobSeekers}</p>
-                  <p className="text-xs text-muted-foreground">Job Seekers</p>
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-xl font-bold truncate">{stats.totalJobSeekers}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Job Seekers</p>
                 </div>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-100 rounded-lg dark:bg-emerald-900">
-                  <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-emerald-100 rounded-lg dark:bg-emerald-900 shrink-0">
+                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600 dark:text-emerald-400" />
                 </div>
-                <div>
-                  <p className="text-xl font-bold">{stats.totalVerified}</p>
-                  <p className="text-xs text-muted-foreground">Verified</p>
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-xl font-bold truncate">{stats.totalVerified}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Verified</p>
                 </div>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-100 rounded-lg dark:bg-green-900">
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-green-100 rounded-lg dark:bg-green-900 shrink-0">
                   <Briefcase className="h-5 w-5 text-green-600 dark:text-green-400" />
                 </div>
-                <div>
-                  <p className="text-xl font-bold">{stats.totalRecruiters}</p>
-                  <p className="text-xs text-muted-foreground">Recruiters</p>
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-xl font-bold truncate">{stats.totalRecruiters}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Recruiters</p>
                 </div>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-orange-100 rounded-lg dark:bg-orange-900">
-                  <Briefcase className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-orange-100 rounded-lg dark:bg-orange-900 shrink-0">
+                  <Briefcase className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 dark:text-orange-400" />
                 </div>
-                <div>
-                  <p className="text-xl font-bold">{stats.totalJobs}</p>
-                  <p className="text-xs text-muted-foreground">Jobs</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-violet-100 rounded-lg dark:bg-violet-900">
-                  <FileText className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-                </div>
-                <div>
-                  <p className="text-xl font-bold">{stats.totalApplications}</p>
-                  <p className="text-xs text-muted-foreground">Applications</p>
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-xl font-bold truncate">{stats.totalJobs}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Jobs</p>
                 </div>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-100 rounded-lg dark:bg-purple-900">
-                  <Mail className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-violet-100 rounded-lg dark:bg-violet-900 shrink-0">
+                  <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-violet-600 dark:text-violet-400" />
                 </div>
-                <div>
-                  <p className="text-xl font-bold">{stats.totalSubscribers}</p>
-                  <p className="text-xs text-muted-foreground">Subscribers</p>
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-xl font-bold truncate">{stats.totalApplications}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Applications</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-purple-100 rounded-lg dark:bg-purple-900 shrink-0">
+                  <Mail className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-xl font-bold truncate">{stats.totalSubscribers}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Subscribers</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Recent Admin Actions</CardTitle>
+        <Card className="mb-6 sm:mb-8">
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="text-base sm:text-lg">Recent Admin Actions</CardTitle>
             <CardDescription>Quick activity log for this session</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 sm:p-6">
             {adminActions.length === 0 ? (
               <div className="text-sm text-muted-foreground">
                 No actions yet. Activity like messages will show here.
@@ -449,39 +450,41 @@ const AdminDashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Data Tables */}
-        <Tabs defaultValue="jobseekers" className="space-y-6">
-          <TabsList className="flex flex-wrap gap-1">
-            <TabsTrigger value="jobseekers">Job Seekers</TabsTrigger>
-            <TabsTrigger value="recruiters">Recruiters</TabsTrigger>
-            <TabsTrigger value="jobs">Jobs</TabsTrigger>
-            <TabsTrigger value="applications">Applications</TabsTrigger>
-            <TabsTrigger value="interviews" className="flex items-center gap-1">
+        {/* Data Tables — scrollable tabs on mobile */}
+        <Tabs defaultValue="jobseekers" className="space-y-4 sm:space-y-6">
+          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+            <TabsList className="inline-flex w-max min-w-full sm:min-w-0 sm:w-auto flex-nowrap gap-1 p-1 h-auto">
+            <TabsTrigger value="jobseekers" className="shrink-0">Job Seekers</TabsTrigger>
+            <TabsTrigger value="recruiters" className="shrink-0">Recruiters</TabsTrigger>
+            <TabsTrigger value="jobs" className="shrink-0">Jobs</TabsTrigger>
+            <TabsTrigger value="applications" className="shrink-0">Applications</TabsTrigger>
+            <TabsTrigger value="interviews" className="flex items-center gap-1 shrink-0">
               <Video className="h-3 w-3" />
               Interviews
             </TabsTrigger>
-            <TabsTrigger value="proctoring" className="flex items-center gap-1">
+            <TabsTrigger value="proctoring" className="flex items-center gap-1 shrink-0">
               <Flag className="h-3 w-3" />
               Proctoring
             </TabsTrigger>
-            <TabsTrigger value="alerts" className="flex items-center gap-1">
+            <TabsTrigger value="alerts" className="flex items-center gap-1 shrink-0">
               <Bell className="h-3 w-3" />
               Alerts
             </TabsTrigger>
-            <TabsTrigger value="appeals" className="flex items-center gap-1">
+            <TabsTrigger value="appeals" className="flex items-center gap-1 shrink-0">
               <Scale className="h-3 w-3" />
               Appeals
             </TabsTrigger>
-            <TabsTrigger value="analytics" className="flex items-center gap-1">
+            <TabsTrigger value="analytics" className="flex items-center gap-1 shrink-0">
               <BarChart3 className="h-3 w-3" />
               Analytics
             </TabsTrigger>
-            <TabsTrigger value="subscribers">Subscribers</TabsTrigger>
-            <TabsTrigger value="interviewer-apps" className="flex items-center gap-1">
+            <TabsTrigger value="subscribers" className="shrink-0">Subscribers</TabsTrigger>
+            <TabsTrigger value="interviewer-apps" className="flex items-center gap-1 shrink-0">
               <UserPlus className="h-3 w-3" />
               Interviewer Apps
             </TabsTrigger>
           </TabsList>
+          </div>
 
           <Dialog open={!!inviteLinkDialog} onOpenChange={() => setInviteLinkDialog(null)}>
             <DialogContent className="max-w-lg">
@@ -493,8 +496,8 @@ const AdminDashboard = () => {
                   <p className="text-sm text-muted-foreground">
                     Share this link with <strong>{inviteLinkDialog.email}</strong> so they can set their password and log in.
                   </p>
-                  <div className="flex gap-2">
-                    <Input readOnly value={inviteLinkDialog.link} className="font-mono text-xs" />
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input readOnly value={inviteLinkDialog.link} className="font-mono text-xs flex-1 min-w-0" />
                     <Button
                       variant="outline"
                       size="sm"
@@ -532,8 +535,8 @@ const AdminDashboard = () => {
 
           <TabsContent value="jobseekers">
             <Card>
-              <CardHeader>
-                <CardTitle>Job Seekers</CardTitle>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Job Seekers</CardTitle>
                 <CardDescription>All registered job seekers on the platform</CardDescription>
                 <div className="flex flex-col md:flex-row gap-3 mt-3">
                   <Input
@@ -542,7 +545,7 @@ const AdminDashboard = () => {
                     onChange={(e) => setJobSeekerSearch(e.target.value)}
                   />
                     <Select value={jobSeekerStatusFilter} onValueChange={setJobSeekerStatusFilter}>
-                    <SelectTrigger className="md:w-48">
+                    <SelectTrigger className="w-full md:w-48">
                       <SelectValue placeholder="Filter status" />
                     </SelectTrigger>
                     <SelectContent>
@@ -554,8 +557,9 @@ const AdminDashboard = () => {
                   </Select>
                 </div>
               </CardHeader>
-              <CardContent>
-                <Table>
+              <CardContent className="p-4 sm:p-6">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[640px]">
                     <TableHeader>
                     <TableRow>
                       <TableHead>Name / Email</TableHead>
@@ -646,14 +650,15 @@ const AdminDashboard = () => {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="recruiters">
             <Card>
-              <CardHeader>
-                <CardTitle>Recruiters</CardTitle>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Recruiters</CardTitle>
                 <CardDescription>All registered recruiters on the platform</CardDescription>
                 <div className="flex flex-col md:flex-row gap-3 mt-3">
                   <Input
@@ -663,19 +668,20 @@ const AdminDashboard = () => {
                   />
                 </div>
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Joined</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRecruiters.length === 0 ? (
+              <CardContent className="p-4 sm:p-6">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[640px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Joined</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredRecruiters.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center text-muted-foreground">
                           No recruiters match your search.
@@ -729,14 +735,15 @@ const AdminDashboard = () => {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="jobs">
             <Card>
-              <CardHeader>
-                <CardTitle>Jobs</CardTitle>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Jobs</CardTitle>
                 <CardDescription>All job listings on the platform</CardDescription>
                 <div className="flex flex-col md:flex-row gap-3 mt-3">
                   <Input
@@ -746,12 +753,13 @@ const AdminDashboard = () => {
                   />
                 </div>
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Company</TableHead>
+              <CardContent className="p-4 sm:p-6">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[640px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Company</TableHead>
                       <TableHead>Location</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Posted</TableHead>
@@ -781,27 +789,29 @@ const AdminDashboard = () => {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="applications">
             <Card>
-              <CardHeader>
-                <CardTitle>Job Applications</CardTitle>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Job Applications</CardTitle>
                 <CardDescription>Recent applications across all jobs</CardDescription>
                 <Input
                   placeholder="Search by job title, company, or applicant email..."
                   value={applicationSearch}
                   onChange={(e) => setApplicationSearch(e.target.value)}
-                  className="mt-3 max-w-md"
+                  className="mt-3 max-w-full sm:max-w-md"
                 />
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Applicant</TableHead>
+              <CardContent className="p-4 sm:p-6">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[640px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Applicant</TableHead>
                       <TableHead>Job</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Status</TableHead>
@@ -830,6 +840,7 @@ const AdminDashboard = () => {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -856,8 +867,8 @@ const AdminDashboard = () => {
 
           <TabsContent value="subscribers">
             <Card>
-              <CardHeader>
-                <CardTitle>Newsletter Subscribers</CardTitle>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Newsletter Subscribers</CardTitle>
                 <CardDescription>
                   Users who subscribed to newsletter updates. Total: {stats.totalSubscribers}
                 </CardDescription>
@@ -874,17 +885,18 @@ const AdminDashboard = () => {
 
           <TabsContent value="interviewer-apps">
             <Card>
-              <CardHeader>
-                <CardTitle>Interviewer Applications</CardTitle>
-                <CardDescription>Apply to become an Expert Interviewer. Approve to create account and send invite link.</CardDescription>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Interviewer Applications</CardTitle>
+                <CardDescription>                Apply to become an Expert Interviewer. Approve to create account and send invite link.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Track</TableHead>
+              <CardContent className="p-4 sm:p-6">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[640px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Track</TableHead>
                       <TableHead>Experience</TableHead>
                       <TableHead>Domains</TableHead>
                       <TableHead>Status</TableHead>
@@ -955,6 +967,7 @@ const AdminDashboard = () => {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

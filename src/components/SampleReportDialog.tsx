@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -41,6 +41,9 @@ const SampleReportDialog = ({ trigger }: SampleReportDialogProps) => {
             <Shield className="h-5 w-5 text-primary" />
             Sample Verification Report
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            A sample of what recruiters see after a candidate completes verification.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">

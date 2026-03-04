@@ -46,13 +46,19 @@ const Index = () => {
       {/* Hero Section — Deep Navy + Gold with premium badge graphic */}
       <section className="hero-section">
         <div className="hero-overlay" />
-        <div className="container mx-auto relative z-10 px-4">
+        <div className="container mx-auto relative z-10 px-4 sm:px-6">
           <div className="hero-content hero-content-with-graphic">
-            <div>
-              <div className="flex items-center justify-center lg:justify-start gap-1.5 sm:gap-2.5 mb-7 opacity-0 animate-fade-in-up animate-fill-forwards flex-wrap" style={{ animationDelay: "0.1s" }}>
+            <div className="min-w-0">
+              <div className="hero-badge-wrap-mobile mb-6 lg:mb-7 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.1s" }}>
+                <span className="inline-flex items-center gap-2 font-mono text-[11px] sm:text-[13px] font-extrabold text-primary tracking-wider uppercase px-3 py-1.5 rounded-md bg-primary/15 border border-primary/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#1FA971] animate-pulse" aria-hidden />
+                  India&apos;s First Skill Passport Platform
+                </span>
+              </div>
+              <div className="hidden lg:flex items-center justify-start gap-1.5 sm:gap-2.5 mb-7 opacity-0 animate-fade-in-up animate-fill-forwards flex-wrap" style={{ animationDelay: "0.1s" }}>
                 <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">[</span>
                 <div className="w-2 h-2 rounded-full bg-[#1FA971] animate-pulse shrink-0" aria-hidden />
-                <span className="font-mono text-[11px] sm:text-[15px] font-extrabold text-primary tracking-[1px] sm:tracking-[2px] uppercase px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10 text-center max-w-[min(100%,340px)]">
+                <span className="font-mono text-[11px] sm:text-[15px] font-extrabold text-primary tracking-[1px] sm:tracking-[2px] uppercase px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10 text-center">
                   First Indian Skill Passport Certified Verification Platform
                 </span>
                 <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">]</span>
@@ -62,12 +68,9 @@ const Index = () => {
                 <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>Not Resumes.</span>
               </h1>
               <p className="hero-subtitle opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.35s" }}>
-                Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours.{" "}
-                <span className="text-primary font-semibold drop-shadow-[0_0_8px_rgba(212,175,55,0.5)]">
-                  Complete all 5 stages to unlock your Skill Passport and access premium opportunities.
-                </span>
+                Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours. Complete all 5 stages to unlock your Skill Passport and access premium opportunities.
               </p>
-              <div className="hero-buttons mb-12 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.5s" }}>
+              <div className="hero-buttons mb-8 sm:mb-12 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.5s" }}>
                 <Button size="lg" asChild className="btn-primary btn-hero">
                   <Link to="/auth">
                     Get Certified in 24hrs →
@@ -75,36 +78,36 @@ const Index = () => {
                 </Button>
                 <Button size="lg" variant="outline" asChild className="btn-outline btn-hero">
                   <Link to="/for-employers">
-                    I'm a Recruiter ↗
+                    I&apos;m a Recruiter ↗
                   </Link>
                 </Button>
               </div>
-              <div className="flex flex-nowrap justify-center lg:justify-start gap-0 border-y border-white/12 py-3 sm:py-4 overflow-x-auto opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.65s" }}>
-                <div className="flex items-center gap-2 sm:gap-2.5 px-4 sm:px-5 py-1.5 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg shrink-0">
-                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
+              <div className="hero-stats opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.65s" }}>
+                <div className="hero-stat-item">
+                  <span className="hero-stat-icon">
                     <IconLayers className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">5</span>
-                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">Verification Layers</span>
+                  <div className="hero-stat-text">
+                    <span className="hero-stat-num">5</span>
+                    <span className="hero-stat-label">Verification Layers</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 sm:gap-2.5 px-4 sm:px-5 py-1.5 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg shrink-0">
-                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
+                <div className="hero-stat-item">
+                  <span className="hero-stat-icon">
                     <IconClock className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">24H</span>
-                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">To Full Certification</span>
+                  <div className="hero-stat-text">
+                    <span className="hero-stat-num">24H</span>
+                    <span className="hero-stat-label">To Full Certification</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 sm:gap-2.5 px-4 sm:px-5 py-1.5 border-r border-white/12 first:pl-0 last:border-r-0 last:pr-0 transition-all duration-300 hover:scale-[1.02] hover:bg-white/5 rounded-lg shrink-0">
-                  <span className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-primary/15 text-primary shrink-0">
+                <div className="hero-stat-item">
+                  <span className="hero-stat-icon">
                     <IconRupee className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
-                  <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="font-bebas text-xl sm:text-2xl tracking-[1px] text-primary leading-none">₹0</span>
-                    <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight whitespace-nowrap">Upfront Cost to Hire</span>
+                  <div className="hero-stat-text">
+                    <span className="hero-stat-num">₹0</span>
+                    <span className="hero-stat-label">Upfront Cost to Hire</span>
                   </div>
                 </div>
               </div>
@@ -117,14 +120,14 @@ const Index = () => {
       </section>
 
       {/* How Verification Works - Visual Flow (#1) */}
-      <section className="py-16 bg-secondary border-y border-border scroll-mt-20">
-        <div className="container mx-auto px-4">
+      <section className="py-12 sm:py-16 bg-secondary border-y border-border scroll-mt-20">
+        <div className="container mx-auto px-4 sm:px-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
             <div>
-              <div className="font-mono text-xs font-bold text-primary tracking-[3px] uppercase mb-3 flex items-center gap-3">
+              <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3 flex items-center gap-2">
                 <span className="text-muted-foreground">//</span> How_It_Works
               </div>
-              <h2 className="font-bebas text-4xl md:text-6xl tracking-[3px] text-foreground mb-2 font-normal">
+              <h2 className="font-bebas text-3xl sm:text-4xl md:text-6xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2 font-normal">
                 How Verification <span className="text-primary">Works</span>
               </h2>
               <p className="text-muted-foreground text-base font-medium">Transparent process, no black boxes</p>
@@ -141,10 +144,10 @@ const Index = () => {
       </section>
 
       {/* What You Unlock - Progress Gamification (#5) */}
-      <section className="py-16 bg-background border-b border-border scroll-mt-20">
-        <div className="container mx-auto px-4">
-          <div className="font-mono text-xs font-bold text-primary tracking-[3px] uppercase mb-3">// What_You_Unlock</div>
-          <h2 className="font-bebas text-4xl md:text-5xl tracking-[3px] text-foreground mb-2">What You <span className="text-primary">Unlock</span></h2>
+      <section className="py-12 sm:py-16 bg-background border-b border-border scroll-mt-20">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3">// What_You_Unlock</div>
+          <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">What You <span className="text-primary">Unlock</span></h2>
           <p className="text-muted-foreground mb-8 text-base font-medium">Complete verification stages to unlock more opportunities</p>
           <div className="max-w-2xl mx-auto">
             <div className="bg-card p-8 rounded border border-border">
@@ -193,9 +196,9 @@ const Index = () => {
 
       {/* 3-Stage Verification with Time Labels (#6) */}
       <section className="verify-section scroll-mt-20">
-        <div className="container mx-auto">
-          <div className="font-mono text-xs font-bold text-primary tracking-[3px] uppercase mb-3">// Verification_Pipeline</div>
-          <h2 className="font-bebas text-4xl md:text-5xl tracking-[3px] text-foreground mb-2">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3">// Verification_Pipeline</div>
+          <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">
             Five <span className="text-primary">Stages.</span> One <span className="text-primary">Credential.</span>
           </h2>
           <p className="text-muted-foreground mb-8 text-base font-medium">Only the top 18% of candidates pass our multi-stage verification to earn the ProvenHire Skill Passport</p>
@@ -242,9 +245,9 @@ const Index = () => {
 
       {/* Features Section */}
       <section className="features-section scroll-mt-20">
-        <div className="container mx-auto">
-          <div className="font-mono text-xs font-bold text-primary tracking-[3px] uppercase mb-3">// Why_ProvenHire</div>
-          <h2 className="font-bebas text-4xl md:text-5xl tracking-[3px] text-foreground mb-2">Why Choose <span className="text-primary">ProvenHire?</span></h2>
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3">// Why_ProvenHire</div>
+          <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">Why Choose <span className="text-primary">ProvenHire?</span></h2>
           <p className="text-muted-foreground mb-8 text-base font-medium">Benefits for both job seekers and employers</p>
           <div className="features-grid">
             <div className="feature-card">
@@ -309,10 +312,10 @@ const Index = () => {
 
       {/* CTA Section */}
       <section className="cta-section scroll-mt-20">
-        <div className="container mx-auto">
-          <h2 className="font-bebas text-4xl md:text-5xl tracking-[2px] text-foreground mb-2">Ready to Get <span className="text-primary">Skill-Certified?</span></h2>
-          <p className="text-muted-foreground mb-8 text-lg font-medium">Join India's first skill-certified hiring network where every candidate is verified before you hire</p>
-          <div className="hero-buttons">
+        <div className="container mx-auto px-4 sm:px-6">
+          <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] text-foreground mb-2 text-center">Ready to Get <span className="text-primary">Skill-Certified?</span></h2>
+          <p className="text-muted-foreground mb-8 text-base sm:text-lg font-medium text-center max-w-xl mx-auto">Join India&apos;s first skill-certified hiring network where every candidate is verified before you hire</p>
+          <div className="hero-buttons flex flex-col sm:flex-row gap-3 justify-center items-center">
             <Button size="lg" asChild className="btn-primary btn-hero">
               <Link to="/auth">Start Verification →</Link>
             </Button>
