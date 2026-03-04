@@ -39,6 +39,7 @@ async function refreshAccessToken(): Promise<boolean> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
+      credentials: "include",
     });
     if (!res.ok) return false;
     const data = await res.json();
@@ -62,7 +63,7 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+    res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, credentials: "include" });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Network error";
     if (msg.includes("fetch") || msg.includes("Failed") || msg.includes("NetworkError") || msg.includes("Connection refused")) {

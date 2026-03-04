@@ -11,7 +11,7 @@ Step-by-step guide to fix and verify the full deployment flow.
 ```
 
 - **Frontend (Vercel):** React app, calls backend via `VITE_API_URL`
-- **Backend (Render):** Express API, CORS allows Vercel origin via `BASE_URL`
+- **Backend (Render):** Express API, CORS reflects request origin (`origin: true`)
 
 ---
 
@@ -57,7 +57,7 @@ Add these in **Environment** tab (or use Environment Group):
 | `DATABASE_URL` | Postgres connection string from Render Postgres | Yes |
 | `JWT_SECRET` | Random string (e.g. `openssl rand -hex 32`) | Yes |
 | `PORT` | Leave empty (Render sets it) | No |
-| `BASE_URL` | Your Vercel URL (e.g. `https://provenhire-xxx.vercel.app`) | Yes (for CORS) |
+| `BASE_URL` | Your Vercel URL (optional, used by some features) | No |
 | `OPENAI_API_KEY` | OpenAI key (optional) | No |
 | `GEMINI_API_KEY` | Gemini key (optional) | No |
 
@@ -127,11 +127,10 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 
 ---
 
-## Part 4: Connect Backend to Frontend (CORS)
+## Part 4: Connect Backend to Frontend (optional)
 
-1. Go back to **Render** → your backend service → **Environment**.
-2. Set `BASE_URL` = your Vercel URL (e.g. `https://provenhire-xxx.vercel.app`).
-3. **Save** and **Redeploy** the backend.
+1. If your app uses `BASE_URL`, set it in Render’s Environment to your Vercel URL.
+2. CORS is configured to allow all origins (`origin: true`); no extra env vars needed.
 
 ---
 
@@ -171,10 +170,22 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
   1. Vercel → Settings → Environment Variables → confirm `VITE_API_URL` = Render URL.
   2. Deployments → Redeploy (create a new deployment).
 
-### CORS errors when signing up
+### 404 on /api/auth/me or /api/auth/register
 
-- **Cause:** Backend `BASE_URL` doesn’t match Vercel URL, or CORS isn’t configured for it.
-- **Fix:** Set `BASE_URL` on Render to your exact Vercel URL, redeploy backend.
+- **Cause:** Backend not reachable, wrong Root Directory, or Render serving a placeholder.
+- **Fix:**
+  1. Open `https://YOUR-RENDER-URL.onrender.com/ping` — if 404, the app isn’t being served.
+  2. Render → Your service → **Settings** → ensure **Root Directory** = `server`.
+  3. Check **Logs** for startup errors (e.g. Prisma, env vars).
+  4. Push latest code and trigger a fresh deploy.
+
+### CORS errors (“No Access-Control-Allow-Origin header”)
+
+- **Cause:** Preflight fails when the backend doesn’t respond with CORS headers (often because the request never reaches your app, e.g. 404 from Render’s proxy).
+- **Fix:**
+  1. Fix the 404 first (see above) so requests reach your Express app.
+  2. Ensure the latest CORS config is deployed: `origin: true` in `server/src/app.ts`.
+  3. Push to GitHub and redeploy the Render backend.
 
 ### Database connection errors on Render
 
@@ -186,9 +197,8 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 ## Quick Checklist
 
 - [ ] Code pushed to GitHub (`main` branch)
-- [ ] Render: `DATABASE_URL`, `JWT_SECRET`, `BASE_URL` set
+- [ ] Render: `DATABASE_URL`, `JWT_SECRET` set
 - [ ] Render: `/health`, `/ping`, `/status` return JSON (not 404)
 - [ ] Vercel: `VITE_API_URL` = Render backend URL (no trailing slash)
 - [ ] Vercel: Redeployed **after** setting `VITE_API_URL`
-- [ ] Render: `BASE_URL` = Vercel frontend URL
 - [ ] Sign up from Vercel URL works (Network tab shows Render domain)

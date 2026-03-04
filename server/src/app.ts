@@ -21,7 +21,16 @@ export function createApp() {
   const app = express();
 
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors({ origin: true, credentials: true }));
+  // CORS: allow all origins (Render, Vercel, localhost). Required for credentials when origin varies.
+  app.use(
+    cors({
+      origin: true, // reflect request origin
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
+      optionsSuccessStatus: 204,
+    })
+  );
   app.use(express.json({ limit: "2mb" }));
   app.use(pinoHttp());
   app.use("/uploads", express.static("uploads"));
