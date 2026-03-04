@@ -922,10 +922,19 @@
 .values-grid,
 .features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 2rem;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
   max-width: 1100px;
   margin: 0 auto;
+}
+
+@media (min-width: 640px) {
+  .verify-grid,
+  .values-grid,
+  .features-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 2rem;
+  }
 }
 
 .verify-icon,
@@ -993,39 +1002,63 @@
 /* Responsive */
 @media (max-width: 768px) {
   .hero-section {
-    padding: 5rem 1rem 3rem;
+    padding: 4.5rem 0.75rem 2.5rem;
     min-height: auto;
   }
 
   .hero-title {
-    font-size: 2.75rem;
+    font-size: 2.25rem;
   }
 
   .hero-subtitle {
-    font-size: 1.0625rem;
-    padding-left: 1rem;
+    font-size: 0.9375rem;
+    padding-left: 0.75rem;
+    line-height: 1.6;
   }
 
   .hero-buttons {
     flex-direction: column;
     align-items: center;
+    gap: 0.5rem;
   }
 
   .btn-hero {
     width: 100%;
     max-width: 300px;
     justify-content: center;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.875rem;
   }
 
   .section-header h2 {
-    font-size: 2rem;
+    font-size: 1.75rem;
   }
 
   .stats-section,
   .verify-section,
   .values-section,
   .features-section {
-    padding: 3rem 1rem;
+    padding: 2.5rem 0.75rem;
+  }
+
+  .verify-card,
+  .value-card,
+  .feature-card {
+    padding: 1.25rem;
+  }
+
+  .verify-card h3,
+  .value-card h3,
+  .feature-card h3 {
+    font-size: 1.125rem;
+  }
+
+  .cta-section {
+    padding: 3rem 0.75rem;
+  }
+
+  .cta-section h2 {
+    font-size: 1.75rem;
   }
 
   .cta-section {

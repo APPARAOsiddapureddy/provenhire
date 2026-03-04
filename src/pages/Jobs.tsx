@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, MapPin, Briefcase, DollarSign, Bookmark, BookmarkCheck, Eye, Scale, X, Shield } from "lucide-react";
+import { Search, MapPin, Briefcase, DollarSign, Bookmark, BookmarkCheck, Eye, Scale, X, Shield, Filter } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
@@ -336,6 +337,7 @@ const Jobs = () => {
   const [userSkills, setUserSkills] = useState<string[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
   const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const {
     isVerified, 
@@ -797,10 +799,10 @@ const Jobs = () => {
     <div className="min-h-screen flex flex-col bg-secondary">
       <Navbar />
       
-      <div className="flex-1 pt-24 pb-12">
-        <div className="container mx-auto px-4">
+      <div className="flex-1 pt-20 sm:pt-24 pb-8 sm:pb-12">
+        <div className="container mx-auto px-4 sm:px-6">
           {/* Page Title */}
-          <h1 className="text-4xl font-bold text-center mb-8 bg-gradient-hero bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-6 sm:mb-8 bg-gradient-hero bg-clip-text text-transparent">
             Find Your Dream Job
           </h1>
 
@@ -874,63 +876,67 @@ const Jobs = () => {
           </div>
 
           {/* Main Layout */}
-          <div className="flex flex-col lg:flex-row gap-8 max-w-7xl mx-auto">
-            {/* Sidebar Filters */}
-            <aside className="w-full lg:w-72 shrink-0">
-              <div className="bg-card rounded-xl p-6 shadow-sm border border-border sticky top-24">
-                <div className="mb-6">
-                  <h3 className="font-semibold mb-4 text-foreground">Job Type</h3>
-                  <div className="space-y-3">
-                    {Object.keys(jobTypes).map(type => (
-                      <label key={type} className="flex items-center gap-3 cursor-pointer">
-                        <Checkbox
-                          checked={jobTypes[type as keyof typeof jobTypes]}
-                          onCheckedChange={() => handleJobTypeChange(type)}
-                        />
-                        <span className="text-sm text-foreground">{type}</span>
-                      </label>
-                    ))}
+          <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 max-w-7xl mx-auto">
+            {/* Sidebar Filters - Desktop: sticky sidebar; Mobile: Sheet */}
+            {(() => {
+              const filtersContent = (
+                <div className="bg-card rounded-xl p-4 sm:p-6 shadow-sm border border-border">
+                  <div className="mb-6">
+                    <h3 className="font-semibold mb-4 text-foreground">Job Type</h3>
+                    <div className="space-y-3">
+                      {Object.keys(jobTypes).map(type => (
+                        <label key={type} className="flex items-center gap-3 cursor-pointer">
+                          <Checkbox
+                            checked={jobTypes[type as keyof typeof jobTypes]}
+                            onCheckedChange={() => handleJobTypeChange(type)}
+                          />
+                          <span className="text-sm text-foreground">{type}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-
-                <div className="mb-6">
-                  <h3 className="font-semibold mb-4 text-foreground">Experience</h3>
-                  <div className="space-y-3">
-                    {Object.keys(experience).map(level => (
-                      <label key={level} className="flex items-center gap-3 cursor-pointer">
-                        <Checkbox
-                          checked={experience[level as keyof typeof experience]}
-                          onCheckedChange={() => handleExperienceChange(level)}
-                        />
-                        <span className="text-sm text-foreground">{level}</span>
-                      </label>
-                    ))}
+                  <div className="mb-6">
+                    <h3 className="font-semibold mb-4 text-foreground">Experience</h3>
+                    <div className="space-y-3">
+                      {Object.keys(experience).map(level => (
+                        <label key={level} className="flex items-center gap-3 cursor-pointer">
+                          <Checkbox
+                            checked={experience[level as keyof typeof experience]}
+                            onCheckedChange={() => handleExperienceChange(level)}
+                          />
+                          <span className="text-sm text-foreground">{level}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-
-                <div className="mb-6">
-                  <h3 className="font-semibold mb-4 text-foreground">Salary</h3>
-                  <div className="space-y-3">
-                    {['Above $100k', '$80k - $100k', '$60k - $80k', 'Below $60k'].map(range => (
-                      <label key={range} className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="salary"
-                          checked={selectedSalary === range}
-                          onChange={() => handleSalaryChange(range)}
-                          className="h-4 w-4 text-primary border-border"
-                        />
-                        <span className="text-sm text-foreground">{range}</span>
-                      </label>
-                    ))}
+                  <div className="mb-6">
+                    <h3 className="font-semibold mb-4 text-foreground">Salary</h3>
+                    <div className="space-y-3">
+                      {['Above $100k', '$80k - $100k', '$60k - $80k', 'Below $60k'].map(range => (
+                        <label key={range} className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="salary"
+                            checked={selectedSalary === range}
+                            onChange={() => handleSalaryChange(range)}
+                            className="h-4 w-4 text-primary border-border"
+                          />
+                          <span className="text-sm text-foreground">{range}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
+                  <Button variant="outline" className="w-full" onClick={clearFilters}>
+                    Clear Filters
+                  </Button>
                 </div>
-
-                <Button variant="outline" className="w-full" onClick={clearFilters}>
-                  Clear Filters
-                </Button>
-              </div>
-            </aside>
+              );
+              return (
+                <aside className="hidden lg:block w-72 shrink-0">
+                  <div className="sticky top-24">{filtersContent}</div>
+                </aside>
+              );
+            })()}
 
             {/* Jobs Grid */}
             <div className="flex-1">
@@ -938,7 +944,56 @@ const Jobs = () => {
                 <div className="text-muted-foreground">
                   <span className="font-semibold text-foreground">{filteredJobs.length}</span> Jobs Found
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+                    <SheetTrigger asChild>
+                      <Button variant="outline" size="sm" className="lg:hidden">
+                        <Filter className="h-4 w-4 mr-1.5" />
+                        Filters
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent side="bottom" className="h-[85vh] overflow-y-auto rounded-t-xl">
+                      <div className="pt-2 pb-6">
+                        <h3 className="font-semibold text-lg mb-4">Filters</h3>
+                        <div className="bg-card rounded-xl p-4 shadow-sm border border-border space-y-6">
+                          <div>
+                            <h3 className="font-semibold mb-3 text-foreground">Job Type</h3>
+                            <div className="space-y-2">
+                              {Object.keys(jobTypes).map(type => (
+                                <label key={type} className="flex items-center gap-3 cursor-pointer">
+                                  <Checkbox checked={jobTypes[type as keyof typeof jobTypes]} onCheckedChange={() => handleJobTypeChange(type)} />
+                                  <span className="text-sm">{type}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <h3 className="font-semibold mb-3 text-foreground">Experience</h3>
+                            <div className="space-y-2">
+                              {Object.keys(experience).map(level => (
+                                <label key={level} className="flex items-center gap-3 cursor-pointer">
+                                  <Checkbox checked={experience[level as keyof typeof experience]} onCheckedChange={() => handleExperienceChange(level)} />
+                                  <span className="text-sm">{level}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <h3 className="font-semibold mb-3 text-foreground">Salary</h3>
+                            <div className="space-y-2">
+                              {['Above $100k', '$80k - $100k', '$60k - $80k', 'Below $60k'].map(range => (
+                                <label key={range} className="flex items-center gap-3 cursor-pointer">
+                                  <input type="radio" name="salary-mobile" checked={selectedSalary === range} onChange={() => handleSalaryChange(range)} className="h-4 w-4" />
+                                  <span className="text-sm">{range}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <Button variant="outline" className="w-full" onClick={() => setMobileFiltersOpen(false)}>Done</Button>
+                        </div>
+                      </div>
+                    </SheetContent>
+                  </Sheet>
                   {userRole === 'jobseeker' && (
                     <>
                       <JobAlertSettings userSkills={userSkills} userEmail={userEmail} />
@@ -961,7 +1016,7 @@ const Jobs = () => {
                 {displayedJobs.map((job) => {
                   const isPremiumLocked = isJobLocked(job);
                   return (
-                  <div key={job.id} className={`job-card bg-card rounded-xl p-6 shadow-sm border transition-all ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${isPremiumLocked ? 'opacity-70' : ''}`}>
+                  <div key={job.id} className={`job-card bg-card rounded-xl p-4 sm:p-6 shadow-sm border transition-all ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${isPremiumLocked ? 'opacity-70' : ''}`}>
                     {/* Badges + Compare — top row, no overlap */}
                     <div className="flex items-center justify-between gap-2 mb-3">
                       <div className="flex flex-wrap gap-1.5 min-w-0">

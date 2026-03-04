@@ -1,19 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import ProctoringNotice from "@/components/ProctoringNotice";
+import { Loader2 } from "lucide-react";
 
 const ELIGIBILITY_THRESHOLD = 60;
-const PLACEHOLDER_QUESTIONS = [
-  { id: "q1", question: "A train travels 120 km in 2 hours. What is its average speed in km/h?", options: ["40", "60", "80", "100"], correct: 1 },
-  { id: "q2", question: "If 3x + 7 = 22, what is x?", options: ["3", "4", "5", "6"], correct: 2 },
-  { id: "q3", question: "Which number comes next in the sequence: 2, 6, 12, 20, 30, ?", options: ["40", "42", "44", "46"], correct: 1 },
-  { id: "q4", question: "A shirt costs $40 after a 20% discount. What was the original price?", options: ["$48", "$50", "$52", "$55"], correct: 1 },
-  { id: "q5", question: "In a group of 60 people, 40% are women. How many men are there?", options: ["24", "30", "36", "40"], correct: 2 },
-];
+
+interface AptitudeQuestion {
+  id: string;
+  question: string;
+  options: string[];
+}
 
 interface AptitudeTestStageProps {
   stageStatus?: string;
@@ -23,7 +23,9 @@ interface AptitudeTestStageProps {
 
 const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTestStageProps) => {
   const navigate = useNavigate();
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [questions, setQuestions] = useState<AptitudeQuestion[]>([]);
+  const [loadingQuestions, setLoadingQuestions] = useState(true);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [submittedScore, setSubmittedScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,14 +33,28 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
   const isFailed = stageStatus === "failed" || (submitted && !justPassed);
   const displayScore = submittedScore ?? stageScore ?? 0;
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ questions: AptitudeQuestion[] }>("/api/verification/aptitude/questions");
+        setQuestions(res.questions ?? []);
+      } catch (e) {
+        toast.error("Failed to load aptitude questions. Please refresh.");
+      } finally {
+        setLoadingQuestions(false);
+      }
+    })();
+  }, []);
+
   const handleSubmit = async () => {
-    const correctCount = PLACEHOLDER_QUESTIONS.filter((q, i) => answers[q.id] === q.correct).length;
-    const score = PLACEHOLDER_QUESTIONS.length > 0
-      ? Math.round((correctCount / PLACEHOLDER_QUESTIONS.length) * 100)
-      : 0;
+    if (questions.length === 0) return;
     setLoading(true);
     try {
-      await api.post("/api/verification/aptitude", { score, answers: { questions: PLACEHOLDER_QUESTIONS.length, correct: correctCount } });
+      const res = await api.post<{ result: { score?: number }; score?: number }>(
+        "/api/verification/aptitude",
+        { answers }
+      );
+      const score = res.score ?? res.result?.score ?? 0;
       if (score >= ELIGIBILITY_THRESHOLD) {
         await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "completed", score });
         toast.success(`Aptitude test completed. Score: ${score}/100.`);
@@ -56,16 +72,35 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
     }
   };
 
-  const correctCount = PLACEHOLDER_QUESTIONS.filter((q) => answers[q.id] === q.correct).length;
-  const score = PLACEHOLDER_QUESTIONS.length > 0 ? Math.round((correctCount / PLACEHOLDER_QUESTIONS.length) * 100) : 0;
-  const allAnswered = PLACEHOLDER_QUESTIONS.every((q) => answers[q.id] !== undefined);
+  const allAnswered = questions.length > 0 && questions.every((q) => answers[q.id] != null && answers[q.id] !== "");
+
+  if (loadingQuestions) {
+    return (
+      <Card>
+        <CardContent className="py-12 flex flex-col items-center justify-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading aptitude questions...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (questions.length === 0 && !loadingQuestions) {
+    return (
+      <Card>
+        <CardContent className="py-6">
+          <p className="text-muted-foreground">No aptitude questions available. Please try again later.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Aptitude Test</CardTitle>
         <CardDescription>
-          Answer the following questions. You need at least {ELIGIBILITY_THRESHOLD}/100 to proceed to the next stage.
+          Answer all {questions.length} questions. You need at least {ELIGIBILITY_THRESHOLD}/100 to proceed to the next stage.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -94,16 +129,16 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
           <>
             <ProctoringNotice />
             <div className="space-y-6">
-              {PLACEHOLDER_QUESTIONS.map((q, idx) => (
+              {questions.map((q, idx) => (
                 <div key={q.id} className="space-y-2">
                   <p className="font-medium">Q{idx + 1}: {q.question}</p>
                   <div className="flex flex-wrap gap-2">
                     {q.options.map((opt, i) => (
                       <Button
                         key={i}
-                        variant={answers[q.id] === i ? "default" : "outline"}
+                        variant={answers[q.id] === opt ? "default" : "outline"}
                         size="sm"
-                        onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: i }))}
+                        onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))}
                       >
                         {opt}
                       </Button>

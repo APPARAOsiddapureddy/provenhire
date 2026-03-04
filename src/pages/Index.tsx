@@ -49,13 +49,13 @@ const Index = () => {
         <div className="container mx-auto relative z-10 px-4">
           <div className="hero-content hero-content-with-graphic">
             <div>
-              <div className="flex items-center justify-center lg:justify-start gap-2.5 mb-7 opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.1s" }}>
-                <span className="font-mono text-[13px] font-semibold text-muted-foreground tracking-wider">[</span>
-                <div className="w-2 h-2 rounded-full bg-[#1FA971] animate-pulse" aria-hidden />
-                <span className="font-mono text-[15px] font-extrabold text-primary tracking-[2px] uppercase px-3 py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10">
+              <div className="flex items-center justify-center lg:justify-start gap-1.5 sm:gap-2.5 mb-7 opacity-0 animate-fade-in-up animate-fill-forwards flex-wrap" style={{ animationDelay: "0.1s" }}>
+                <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">[</span>
+                <div className="w-2 h-2 rounded-full bg-[#1FA971] animate-pulse shrink-0" aria-hidden />
+                <span className="font-mono text-[11px] sm:text-[15px] font-extrabold text-primary tracking-[1px] sm:tracking-[2px] uppercase px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-primary/15 border border-primary/30 shadow-lg shadow-primary/10 text-center max-w-[min(100%,340px)]">
                   First Indian Skill Passport Certified Verification Platform
                 </span>
-                <span className="font-mono text-[13px] font-semibold text-muted-foreground tracking-wider">]</span>
+                <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">]</span>
               </div>
               <h1 className="hero-title opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.2s" }}>
                 <span className="gradient-text">Verified Talent,</span>
@@ -149,40 +149,40 @@ const Index = () => {
           <div className="max-w-2xl mx-auto">
             <div className="bg-card p-8 rounded border border-border">
               <div className="space-y-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Eye className="h-6 w-6 text-primary" />
+                <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <Eye className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-base">30% — Visible to companies</span>
-                      <Badge variant="secondary">Profile Setup</Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-1">
+                      <span className="font-semibold text-sm sm:text-base">30% — Visible to companies</span>
+                      <Badge variant="secondary" className="w-fit">Profile Setup</Badge>
                     </div>
-                    <p className="text-base font-medium text-muted-foreground">Your profile appears in recruiter searches</p>
+                    <p className="text-sm sm:text-base font-medium text-muted-foreground">Your profile appears in recruiter searches</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Sparkles className="h-6 w-6 text-primary" />
+                <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <Sparkles className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-base">60% — Priority screening</span>
-                      <Badge variant="secondary">Tests Passed</Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-1">
+                      <span className="font-semibold text-sm sm:text-base">60% — Priority screening</span>
+                      <Badge variant="secondary" className="w-fit">Tests Passed</Badge>
                     </div>
-                    <p className="text-base font-medium text-muted-foreground">Get reviewed first by hiring managers</p>
+                    <p className="text-sm sm:text-base font-medium text-muted-foreground">Get reviewed first by hiring managers</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-[#1FA971]/20 flex items-center justify-center">
-                    <Award className="h-6 w-6 text-[#1FA971]" />
+                <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[#1FA971]/20 flex items-center justify-center shrink-0">
+                    <Award className="h-5 w-5 sm:h-6 sm:w-6 text-[#1FA971]" />
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-base">100% — Verified badge</span>
-                      <Badge className="bg-[#1FA971]/20 text-[#1FA971] border border-[#1FA971]/30">Full Access</Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-1">
+                      <span className="font-semibold text-sm sm:text-base">100% — Verified badge</span>
+                      <Badge className="bg-[#1FA971]/20 text-[#1FA971] border border-[#1FA971]/30 w-fit">Full Access</Badge>
                     </div>
-                    <p className="text-base font-medium text-muted-foreground">ProvenHire Skill Passport + all opportunities unlocked</p>
+                    <p className="text-sm sm:text-base font-medium text-muted-foreground">ProvenHire Skill Passport + all opportunities unlocked</p>
                   </div>
                 </div>
               </div>

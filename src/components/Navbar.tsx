@@ -1,55 +1,151 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
 import NotificationInbox from "@/components/NotificationInbox";
 import { useAuth } from "@/contexts/AuthContext";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Menu } from "lucide-react";
 
 const Navbar = () => {
   const { user, userRole, signOut } = useAuth();
   const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
   const isOnAuthPage = location.pathname === "/auth";
   const authMode = isOnAuthPage ? new URLSearchParams(location.search).get("mode") : null;
   const isOnSignupView = authMode === "signup";
 
+  const navLinks = userRole !== "expert_interviewer" && (
+    <>
+      {userRole !== "recruiter" && <Link to="/jobs" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Find Jobs</Link>}
+      {userRole !== "jobseeker" && <Link to="/for-employers" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">For Employers</Link>}
+      <Link to="/careers/interviewer" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Careers</Link>
+      <Link to="/about" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">About</Link>
+    </>
+  );
+
+  const desktopNav = (
+    <div className="hidden md:flex items-center gap-8 font-mono text-[13px] font-semibold text-muted-foreground tracking-wider uppercase">
+      {navLinks}
+    </div>
+  );
+
+  const authButtons = user ? (
+    <>
+      <NotificationInbox />
+      <Button variant="ghost" asChild className="font-bold text-sm sm:text-base text-muted-foreground border-2 border-border/80 rounded-md hover:text-foreground hover:border-white/25 transition-all duration-200 hover:scale-[1.02] shrink-0">
+        <Link to={
+          userRole === "admin" ? "/admin/dashboard" :
+          userRole === "recruiter" ? "/dashboard/recruiter" :
+          userRole === "expert_interviewer" ? "/dashboard/expert" : "/dashboard/jobseeker"
+        }>
+          <span className="hidden sm:inline">Dashboard</span>
+          <span className="sm:hidden">Dashboard</span>
+        </Link>
+      </Button>
+      <Button variant="outline" onClick={signOut} className="rounded-md border-2 border-border/80 text-muted-foreground font-semibold text-sm sm:text-base hover:text-foreground hover:border-white/25 transition-all duration-200 shrink-0 px-3 sm:px-4">
+        Sign Out
+      </Button>
+    </>
+  ) : isOnAuthPage ? (
+    <>
+      <Button variant="ghost" asChild className="font-bold text-sm sm:text-base text-muted-foreground border-2 border-border/80 rounded-md hover:text-foreground hover:border-white/25 shrink-0 px-3 sm:px-4">
+        <Link to={isOnSignupView ? "/auth?mode=login" : "/auth?mode=signup"}>
+          {isOnSignupView ? "Log In" : "Sign Up"}
+        </Link>
+      </Button>
+      <Button asChild className="bg-primary text-primary-foreground font-extrabold text-sm sm:text-base px-4 sm:px-5 py-2 sm:py-2.5 rounded-md shrink-0">
+        <Link to={isOnSignupView ? "/auth?mode=login" : "/auth?mode=signup"}>
+          Get Verified →
+        </Link>
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button variant="ghost" asChild className="font-bold text-sm sm:text-base text-muted-foreground border-2 border-border/80 rounded-md hover:text-foreground hover:border-white/25 shrink-0 px-3 sm:px-4">
+        <Link to="/auth?mode=login">Log In</Link>
+      </Button>
+      <Button asChild className="bg-primary text-primary-foreground font-extrabold text-sm sm:text-base px-4 sm:px-5 py-2 sm:py-2.5 rounded-md shrink-0">
+        <Link to="/auth?mode=signup">Get Verified →</Link>
+      </Button>
+    </>
+  );
+
+  const mobileMenu = (
+    <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+      <SheetTrigger asChild>
+        <Button variant="ghost" size="icon" className="md:hidden shrink-0">
+          <Menu className="h-5 w-5" aria-label="Open menu" />
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="right" className="w-[280px] sm:w-[320px] pt-12">
+        <nav className="flex flex-col gap-6 font-mono text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          {navLinks && (
+            <div className="flex flex-col gap-4">
+              {navLinks}
+            </div>
+          )}
+          <div className="border-t border-border pt-6 flex flex-col gap-3">
+            {user ? (
+              <>
+                <Link to={
+                  userRole === "admin" ? "/admin/dashboard" :
+                  userRole === "recruiter" ? "/dashboard/recruiter" :
+                  userRole === "expert_interviewer" ? "/dashboard/expert" : "/dashboard/jobseeker"
+                } onClick={() => setMenuOpen(false)} className="hover:text-foreground">
+                  Dashboard
+                </Link>
+                <button onClick={() => { signOut(); setMenuOpen(false); }} className="text-left hover:text-foreground">
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link to="/auth?mode=login" onClick={() => setMenuOpen(false)} className="hover:text-foreground">Log In</Link>
+                <Link to="/auth?mode=signup" onClick={() => setMenuOpen(false)} className="hover:text-primary">Get Verified →</Link>
+              </>
+            )}
+          </div>
+        </nav>
+        {user && (
+          <div className="mt-6 pt-6 border-t border-border">
+            <NotificationInbox />
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-[100] flex items-center justify-between h-16 px-6 md:px-14 border-b border-border bg-background/92 backdrop-blur-xl transition-all duration-300">
-      <Link to={userRole === "expert_interviewer" ? "/dashboard/expert" : "/"} className="flex items-center gap-3 group">
-        <div className="w-9 h-9 border-2 border-primary flex items-center justify-center font-mono text-base font-bold text-primary transition-transform duration-200 group-hover:scale-105">
+    <nav className="fixed top-0 left-0 right-0 z-[100] flex items-center justify-between h-14 sm:h-16 px-4 sm:px-6 md:px-14 border-b border-border bg-background/92 backdrop-blur-xl transition-all duration-300">
+      <Link to={userRole === "expert_interviewer" ? "/dashboard/expert" : "/"} className="flex items-center gap-2 sm:gap-3 group min-w-0 shrink-0">
+        <div className="w-8 h-8 sm:w-9 sm:h-9 border-2 border-primary flex items-center justify-center font-mono text-sm sm:text-base font-bold text-primary transition-transform duration-200 group-hover:scale-105 shrink-0">
           PH
         </div>
-        <span className="font-bebas text-[26px] md:text-[28px] tracking-[2px] text-foreground leading-none">
+        <span className="font-bebas text-[22px] sm:text-[26px] md:text-[28px] tracking-[2px] text-foreground leading-none truncate">
           Proven<span className="text-primary">Hire</span>
         </span>
       </Link>
 
-      <div className="hidden md:flex items-center gap-8 font-mono text-[13px] font-semibold text-muted-foreground tracking-wider uppercase">
-        {/* Interviewer panel: minimal nav — no Find Jobs, Employers, Careers, About */}
-        {userRole !== "expert_interviewer" && (
-          <>
-            {(userRole !== "recruiter") && (
-              <Link to="/jobs" className="hover:text-foreground transition-colors duration-200 hover:scale-105 origin-center">
-                Find Jobs
-              </Link>
-            )}
-            {(userRole !== "jobseeker") && (
-              <Link to="/for-employers" className="hover:text-foreground transition-colors duration-200 hover:scale-105 origin-center">
-                For Employers
-              </Link>
-            )}
-            <Link to="/careers/interviewer" className="hover:text-foreground transition-colors duration-200 hover:scale-105 origin-center">
-              Careers
-            </Link>
-            <Link to="/about" className="hover:text-foreground transition-colors duration-200 hover:scale-105 origin-center">
-              About
-            </Link>
-          </>
-        )}
-      </div>
+      {desktopNav}
 
-      <div className="flex items-center gap-2.5">
-        {user ? (
-          <>
-            <NotificationInbox />
-            <Button variant="ghost" asChild className="font-bold text-base text-muted-foreground border-2 border-border/80 rounded-md hover:text-foreground hover:border-white/25 transition-all duration-200 hover:scale-[1.02]">
+      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+        {user && <div className="md:hidden shrink-0"><NotificationInbox /></div>}
+        <div className="hidden md:flex items-center gap-2.5">
+          {authButtons}
+        </div>
+        <div className="md:hidden flex items-center gap-1.5">
+          {!user && (
+            <>
+              <Button variant="ghost" size="sm" asChild className="text-muted-foreground text-sm px-2">
+                <Link to="/auth?mode=login">Log In</Link>
+              </Button>
+              <Button size="sm" asChild className="bg-primary text-primary-foreground text-sm px-3">
+                <Link to="/auth?mode=signup">Get Verified</Link>
+              </Button>
+            </>
+          )}
+          {user && (
+            <Button variant="ghost" size="sm" asChild className="font-semibold text-muted-foreground text-sm px-2">
               <Link to={
                 userRole === "admin" ? "/admin/dashboard" :
                 userRole === "recruiter" ? "/dashboard/recruiter" :
@@ -58,40 +154,9 @@ const Navbar = () => {
                 Dashboard
               </Link>
             </Button>
-            <Button variant="outline" onClick={signOut} className="rounded-md border-2 border-border/80 text-muted-foreground font-semibold text-base hover:text-foreground hover:border-white/25 transition-all duration-200">
-              Sign Out
-            </Button>
-          </>
-        ) : (
-          <>
-            {isOnAuthPage ? (
-              <>
-                <Button variant="ghost" asChild className="font-bold text-base text-muted-foreground border-2 border-border/80 rounded-md hover:text-foreground hover:border-white/25 transition-all duration-200 hover:scale-[1.02]">
-                  <Link to={isOnSignupView ? "/auth?mode=login" : "/auth?mode=signup"}>
-                    {isOnSignupView ? "Log In" : "Sign Up"}
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  className="bg-primary text-primary-foreground font-extrabold text-base px-5 py-2.5 rounded-md border-0 hover:brightness-110 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
-                >
-                  <Link to={isOnSignupView ? "/auth?mode=login" : "/auth?mode=signup"}>
-                    Get Verified →
-                  </Link>
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="ghost" asChild className="font-bold text-base text-muted-foreground border-2 border-border/80 rounded-md hover:text-foreground hover:border-white/25 transition-all duration-200 hover:scale-[1.02]">
-                  <Link to="/auth?mode=login">Log In</Link>
-                </Button>
-                <Button asChild className="bg-primary text-primary-foreground font-extrabold text-base px-5 py-2.5 rounded-md border-0 hover:brightness-110 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-primary/25">
-                  <Link to="/auth?mode=signup">Get Verified →</Link>
-                </Button>
-              </>
-            )}
-          </>
-        )}
+          )}
+          {mobileMenu}
+        </div>
       </div>
     </nav>
   );

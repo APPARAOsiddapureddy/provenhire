@@ -624,7 +624,7 @@ const Auth = () => {
       </div>
 
       {/* Mobile: single form, switch link */}
-      <div className="lg:hidden flex-1 flex items-center justify-center p-6 pt-20 bg-[hsl(var(--background))]">
+      <div className="lg:hidden flex-1 flex items-center justify-center px-4 py-6 pt-20 pb-12 bg-[hsl(var(--background))] overflow-y-auto">
         <div className="w-full max-w-md">
           {isLogin ? (
             <>

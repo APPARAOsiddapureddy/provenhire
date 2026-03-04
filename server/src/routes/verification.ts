@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
+import { createAptitudeSession, storeAnswerKey, getAnswerKey, clearAnswerKey } from "../data/aptitude-loader.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -109,20 +110,65 @@ verificationRouter.post("/stages/reset", requireAuth, async (req: AuthedRequest,
   res.json({ ok: true });
 });
 
+/** GET aptitude questions (20) based on experience: <1yr → 10 easy, 5 medium, 5 hard; >=1yr → 5 easy, 10 medium, 5 hard */
+verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
+    const experienceYears = profile?.experienceYears ?? 0;
+    const { questions, answerKey } = createAptitudeSession(experienceYears);
+    storeAnswerKey(req.user!.id, answerKey);
+    return res.json({ questions });
+  } catch (e) {
+    console.error("[verification/aptitude/questions]", e);
+    return res.status(500).json({ error: "Failed to load aptitude questions" });
+  }
+});
+
 verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res) => {
-  const schema = z.object({ score: z.number().optional(), answers: z.any().optional(), invalidated: z.boolean().optional() });
+  const schema = z.object({
+    score: z.number().optional(),
+    answers: z.record(z.string(), z.string()).optional(), // { questionId: selectedOption }
+    invalidated: z.boolean().optional(),
+  });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+  let score: number;
+  let answersPayload: { questions: number; correct: number } | null = null;
+
+  if (parsed.data.answers && typeof parsed.data.answers === "object" && !Array.isArray(parsed.data.answers)) {
+    const answerKey = getAnswerKey(req.user!.id);
+    if (!answerKey) {
+      return res.status(400).json({ error: "Aptitude session expired. Please refresh and retake the test." });
+    }
+    let correct = 0;
+    for (const [qId, selected] of Object.entries(parsed.data.answers)) {
+      const expected = answerKey[qId];
+      if (expected != null && normalizeAnswer(selected) === normalizeAnswer(expected)) correct++;
+    }
+    const total = Object.keys(answerKey).length;
+    score = total > 0 ? Math.round((correct / total) * 100) : 0;
+    answersPayload = { questions: total, correct };
+    clearAnswerKey(req.user!.id);
+  } else {
+    score = parsed.data.score ?? 0;
+  }
+
+  const answersToStore = answersPayload ?? (parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : undefined);
   const result = await prisma.aptitudeTestResult.create({
     data: {
       userId: req.user!.id,
-      score: parsed.data.score ?? null,
-      answers: parsed.data.answers ?? null,
+      score,
+      ...(answersToStore !== undefined ? { answers: answersToStore as object } : {}),
       invalidated: parsed.data.invalidated ?? false,
     },
   });
-  res.json({ result });
+  res.json({ result, score });
 });
+
+function normalizeAnswer(s: string): string {
+  return (s || "").toString().trim().toLowerCase();
+}
 
 verificationRouter.get("/aptitude/latest", requireAuth, async (req: AuthedRequest, res) => {
   const row = await prisma.aptitudeTestResult.findFirst({

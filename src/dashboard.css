@@ -28,16 +28,9 @@
 
 /* App shell */
 .dashboard-shell {
-  display: grid;
-  grid-template-columns: 240px 1fr;
+  display: flex;
   min-height: 100vh;
   background: var(--dash-navy);
-}
-
-@media (max-width: 1024px) {
-  .dashboard-shell {
-    grid-template-columns: 1fr;
-  }
 }
 
 .dashboard-sidebar {
@@ -46,6 +39,8 @@
   padding: 28px 0;
   position: sticky;
   top: 0;
+  width: 240px;
+  flex-shrink: 0;
   height: 100vh;
   overflow-y: auto;
   font-family: var(--dash-font-sans);

@@ -425,7 +425,7 @@ const JobSeekerDashboard = () => {
                 verificationStatus={profile.verificationStatus ?? profile.verification_status}
                 roleType={roleType}
                 completedUpToStage={completedUpToStage}
-                aptitudeScore={testResults.aptitude ? Math.round((testResults.aptitude.total_score / 15) * 100) : undefined}
+                aptitudeScore={testResults.aptitude ? Math.round(testResults.aptitude.total_score ?? 0) : undefined}
                 dsaScore={testResults.dsa ? Math.round((testResults.dsa.total_score / 15) * 100) : undefined}
                 interviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score ? Math.round((verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score / 15) * 100) : undefined}
               />
@@ -577,7 +577,7 @@ const JobSeekerDashboard = () => {
                   const isCompleted = status === 'done';
                   const isActive = status === 'active';
                   const isLocked = status === 'locked';
-                  const aptitudePct = testResults.aptitude ? Math.round((testResults.aptitude.total_score / 15) * 100) : null;
+                  const aptitudePct = testResults.aptitude ? Math.round(testResults.aptitude.total_score ?? 0) : null;
                   const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 4}` : null;
                   const stageDesc: Record<string, string> = {
                     profile_setup: 'AI-assisted profile creation with resume parsing and consistency checks.',

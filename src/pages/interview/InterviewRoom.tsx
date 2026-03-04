@@ -135,7 +135,7 @@ export default function InterviewRoom() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 flex flex-col">
       <Navbar />
-      <main className="flex-1 container max-w-5xl mx-auto px-4 py-8">
+      <main className="flex-1 container max-w-5xl mx-auto px-4 pt-20 sm:pt-24 pb-8">
         <Button variant="ghost" asChild className="mb-6 -ml-2">
           <Link to="/dashboard/expert">
             <ArrowLeft className="h-4 w-4 mr-2" />
