@@ -1,5 +1,6 @@
 // Dev: use proxy (same origin). Prod: use VITE_API_URL.
 const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL || "http://localhost:5001");
+const isDev = import.meta.env.DEV;
 
 function getAuthToken() {
   try {
@@ -66,8 +67,15 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, credentials: "include" });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Network error";
-    if (msg.includes("fetch") || msg.includes("Failed") || msg.includes("NetworkError") || msg.includes("Connection refused")) {
-      throw new Error("Cannot reach app. Start both: npm run dev:all");
+    const isNetworkError =
+      msg.includes("fetch") ||
+      msg.includes("Failed") ||
+      msg.includes("NetworkError") ||
+      msg.includes("Connection refused") ||
+      msg.includes("Load failed") ||
+      msg.includes("blocked");
+    if (isNetworkError) {
+      throw new Error(isDev ? "Cannot reach app. Start both: npm run dev:all" : "Unable to connect. Please check your connection and try again.");
     }
     throw e;
   }
@@ -80,15 +88,14 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
     const msg = (errorBody?.message ?? errorBody?.error ?? "Request failed") as string;
-    const backendHint = "Run: npm run dev:all (or npm run dev:server in another terminal)";
     if (path.startsWith("/api/") && res.status === 404) {
-      throw new Error(`Backend not running. ${backendHint}`);
+      throw new Error(isDev ? `Backend not running. Run: npm run dev:all` : "Service temporarily unavailable. Please try again later.");
     }
     if (path.startsWith("/api/") && res.status === 502) {
       if (msg && msg !== "Request failed" && !msg.toLowerCase().includes("proxy")) {
         throw new Error(msg);
       }
-      throw new Error(`Backend not running or service unavailable. ${backendHint}`);
+      throw new Error(isDev ? "Backend not running or service unavailable. Run: npm run dev:all" : "Service temporarily unavailable. Please try again later.");
     }
     const err = new Error(msg) as Error & { response?: { data?: unknown } };
     err.response = { data: errorBody };
