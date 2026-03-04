@@ -1,7 +1,10 @@
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy init: OpenAI constructor throws if key is missing; only create when key exists
+const openai: OpenAI | null = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
@@ -9,6 +12,7 @@ const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 async function chatCompletion(messages: ChatMessage[], model = "gpt-4o-mini") {
+  if (!openai) throw new Error("OPENAI_API_KEY or GEMINI_API_KEY required for AI features");
   const response = await openai.chat.completions.create({
     model,
     messages,

@@ -30,6 +30,14 @@ export function createApp() {
     res.json({ ok: true });
   });
 
+  app.get("/ping", (_req, res) => {
+    res.json({ ping: "pong", timestamp: new Date().toISOString() });
+  });
+
+  app.get("/status", (_req, res) => {
+    res.json({ status: "running", service: "provenhire-api" });
+  });
+
   app.use("/api/auth", authRouter);
   app.use("/api/interview", interviewRouter);
   app.use("/api/ai", aiRouter);
