@@ -70,7 +70,7 @@ AssignmentAI is a web application that helps recruiters and hiring managers gene
 | Technology | Purpose |
 |------------|---------|
 | Express API | Backend Infrastructure |
-| OpenAI API | AI Model Integration |
+| Google Gemini API | AI Model Integration |
 
 ### Development Tools
 
@@ -94,7 +94,7 @@ CLIENT (Browser)
         v
 EXPRESS BACKEND
   Route: POST /api/ai/assignments
-    Parse request -> Build prompts -> Call OpenAI
+    Parse request -> Build prompts -> Call Gemini
         |
         v
   JSON Response: { assignment: "..." }
@@ -104,7 +104,7 @@ EXPRESS BACKEND
 
 ```
 User Input -> Form Validation -> API Call -> AI Processing -> Render Output
-FormData -> canProceed() -> POST /api/ai/assignments -> OpenAI -> AssignmentOutput
+FormData -> canProceed() -> POST /api/ai/assignments -> Gemini -> AssignmentOutput
 ```
 
 ---

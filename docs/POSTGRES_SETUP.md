@@ -13,7 +13,7 @@ Update `server/.env`:
 ```
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
 JWT_SECRET="your-secret"
-OPENAI_API_KEY="your-openai-key"
+GEMINI_API_KEY="your-gemini-key"
 PORT=5000
 ```
 

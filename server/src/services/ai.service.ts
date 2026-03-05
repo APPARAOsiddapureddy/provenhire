@@ -1,24 +1,21 @@
-import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
-
-// Lazy init: OpenAI constructor throws if key is missing; only create when key exists
-const openai: OpenAI | null = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-async function chatCompletion(messages: ChatMessage[], model = "gpt-4o-mini") {
-  if (!openai) throw new Error("OPENAI_API_KEY or GEMINI_API_KEY required for AI features");
-  const response = await openai.chat.completions.create({
-    model,
-    messages,
-    temperature: 0.2,
+async function geminiChat(messages: ChatMessage[]): Promise<string> {
+  if (!gemini) throw new Error("GEMINI_API_KEY required for AI features");
+  const system = messages.find((m) => m.role === "system")?.content ?? "";
+  const user = messages.find((m) => m.role === "user")?.content ?? "";
+  const fullPrompt = system ? `${system}\n\n${user}` : user;
+  const response = await gemini.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: fullPrompt,
+    config: { temperature: 0.2 },
   });
-  return response.choices[0]?.message?.content ?? "";
+  return (response as { text?: string })?.text ?? "";
 }
 
 /** Structured profile fields extracted from resume for auto-fill */
@@ -96,95 +93,48 @@ async function parseWithGemini(resumeText: string): Promise<ParsedResumeProfile 
   return normalizeParsed(parsed);
 }
 
-async function parseWithOpenAI(resumeText: string): Promise<ParsedResumeProfile | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
-  try {
-    const user = `Resume text:\n${resumeText.slice(0, 30000)}`;
-    const content = await chatCompletion(
-      [
-        { role: "system", content: PARSE_RESUME_SYSTEM },
-        { role: "user", content: user },
-      ],
-      "gpt-4o-mini"
-    );
-    const raw = content.trim().replace(/^```\w*\n?|\n?```$/g, "").trim();
-    const parsed = JSON.parse(raw) as Partial<ParsedResumeProfile>;
-    return normalizeParsed(parsed);
-  } catch {
-    return null;
-  }
-}
-
-/** Parse resume: prefers Gemini (free tier) when GEMINI_API_KEY is set, else OpenAI */
+/** Parse resume using Gemini */
 export async function parseResumeForProfile(resumeText: string): Promise<ParsedResumeProfile | null> {
   if (!resumeText?.trim()) return null;
-  let parsed = gemini ? await parseWithGemini(resumeText) : null;
-  if (!parsed && process.env.OPENAI_API_KEY) parsed = await parseWithOpenAI(resumeText);
-  return parsed;
+  return gemini ? await parseWithGemini(resumeText) : null;
 }
 
 export async function analyzeResume(resumeText: string) {
   const system = "You are a senior technical recruiter. Provide a concise resume assessment with score 0-100 and bullet feedback.";
   const user = `Resume:\n${resumeText}`;
-  const content = await chatCompletion(
+  return geminiChat(
     [
       { role: "system", content: system },
       { role: "user", content: user },
-    ],
-    "gpt-4o-mini"
+    ]
   );
-  return content;
 }
 
 export async function parseJobDescription(text: string) {
   const system = "Extract structured job info as JSON: {title, level, skills, location, salary_range, responsibilities, requirements}.";
-  const content = await chatCompletion(
+  return geminiChat(
     [
       { role: "system", content: system },
       { role: "user", content: text },
-    ],
-    "gpt-4o-mini"
+    ]
   );
-  return content;
 }
 
 export async function generateLearningResources(profile: string) {
   const system = "Provide a concise learning plan with resources and milestones.";
-  const content = await chatCompletion(
+  return geminiChat(
     [
       { role: "system", content: system },
       { role: "user", content: profile },
-    ],
-    "gpt-4o-mini"
+    ]
   );
-  return content;
-}
-
-async function llmChat(prompt: string, system: string): Promise<string> {
-  if (gemini) {
-    try {
-      const fullPrompt = `${system}\n\n${prompt}`;
-      const response = await gemini.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: fullPrompt,
-      });
-      return (response as { text?: string })?.text ?? "";
-    } catch {
-      // fall through to OpenAI
-    }
-  }
-  const content = await chatCompletion(
-    [{ role: "system", content: system }, { role: "user", content: prompt }],
-    "gpt-4o-mini"
-  );
-  return content;
 }
 
 export async function evaluateInterview(transcript: string): Promise<string> {
   const system = `You are a senior technical interviewer. Return STRICT JSON only:
 {"technical_accuracy":0-10,"depth_of_knowledge":0-10,"problem_solving":0-10,"communication_clarity":0-10,"strengths":[],"weaknesses":[],"final_verdict":"","confidence_level":"Low|Medium|High"}`;
   try {
-    return await llmChat(transcript, system);
+    return await geminiChat([{ role: "system", content: system }, { role: "user", content: transcript }]);
   } catch (e) {
     console.error("[evaluateInterview]", e);
     return JSON.stringify({
@@ -208,7 +158,7 @@ export async function conductInterviewPrompt(role: string, questionPlan: string,
 - No emojis. Be concise.`;
   const prompt = `Role: ${role}\nPlanned topics: ${questionPlan}\nCandidate answer: ${lastAnswer ?? "N/A"}\nRespond with the next question or a brief follow-up.`;
   try {
-    return await llmChat(prompt, system);
+    return await geminiChat([{ role: "system", content: system }, { role: "user", content: prompt }]);
   } catch (e) {
     console.error("[conductInterviewPrompt]", e);
     const fallbacks = [
@@ -239,7 +189,7 @@ function mapExperienceLevel(years: number): string {
   return "Lead/Principal (8+ years)";
 }
 
-/** Generate a professional take-home assignment for non-technical roles. Uses Gemini or OpenAI (no Lovable). */
+/** Generate a professional take-home assignment for non-technical roles. Uses Gemini. */
 export async function generateJobAssignment(params: GenerateAssignmentParams): Promise<string> {
   const {
     companyName,
@@ -299,7 +249,7 @@ ${additionalContext ? `- Special Requirements: ${additionalContext}` : ""}
 Focus on non-technical skills: strategic analysis, stakeholder communication, process improvement, market research, and problem-solving. Keep the tone professional and the tasks achievable within the suggested time.`;
 
   try {
-    return await llmChat(userPrompt, system);
+    return await geminiChat([{ role: "system", content: system }, { role: "user", content: userPrompt }]);
   } catch (e) {
     console.error("[generateJobAssignment]", e);
     throw new Error("Failed to generate assignment. Please try again.");

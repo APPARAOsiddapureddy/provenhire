@@ -8,7 +8,7 @@ import { aiRouter } from "./routes/ai.js";
 import { jobsRouter } from "./routes/jobs.js";
 import { verificationRouter } from "./routes/verification.js";
 import { notificationsRouter } from "./routes/notifications.js";
-import { uploadsRouter } from "./routes/uploads.js";
+import { uploadsRouter, UPLOADS_DIR } from "./routes/uploads.js";
 import { usersRouter } from "./routes/users.js";
 import { proctoringRouter } from "./routes/proctoring.js";
 import { appealsRouter } from "./routes/appeals.js";
@@ -44,7 +44,7 @@ export function createApp() {
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(express.json({ limit: "2mb" }));
   app.use(pinoHttp());
-  app.use("/uploads", express.static("uploads"));
+  app.use("/uploads", express.static(UPLOADS_DIR));
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true });

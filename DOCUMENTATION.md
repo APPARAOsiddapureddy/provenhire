@@ -43,7 +43,7 @@
 | Routing | React Router DOM 6.30.1 |
 | Backend | Node.js + Express (TypeScript) |
 | Database | PostgreSQL + Prisma ORM |
-| AI Integration | OpenAI API |
+| AI Integration | Google Gemini API |
 | Notifications | Sonner Toast |
 | Icons | Lucide React |
 
@@ -676,7 +676,7 @@ src/
 - Recipients see notifications in the bell icon; polling on bell open
 - **Resend** (optional): set `RESEND_API_KEY` in server env to also send emails when admin broadcasts
 
-All AI calls are routed through the backend using the OpenAI SDK and server-side API keys.
+All AI calls are routed through the backend using Google Gemini and server-side API keys.
 
 ---
 

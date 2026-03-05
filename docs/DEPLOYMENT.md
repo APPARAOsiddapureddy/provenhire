@@ -59,8 +59,7 @@ You need a PostgreSQL database. Options:
    | `BASE_URL`      | Your frontend URL (e.g. `https://yourapp.vercel.app`) |
    | `DAILY_API_KEY` | (Optional) MVP uses Google Meet. Uncomment for Daily.co video |
    | `DAILY_DOMAIN`  | (Optional) Daily.co subdomain               |
-   | `GEMINI_API_KEY`| (Optional) For resume parsing & assignment generation |
-   | `OPENAI_API_KEY`| (Optional) For AI features (used if no Gemini)       |
+   | `GEMINI_API_KEY`| (Optional) For AI features (resume parsing, interview eval, assignment gen; free at aistudio.google.com) |
    | `RESEND_API_KEY`| (Optional) For broadcast emails via Resend  |
    | `EMAIL_FROM`    | (Optional) e.g. `ProvenHire <noreply@yourdomain.com>` |
 

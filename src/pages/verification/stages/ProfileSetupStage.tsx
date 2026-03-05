@@ -132,7 +132,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         msg = "Resume parsing is temporarily unavailable (API quota exceeded). Please fill in your details manually.";
       } else if (msg.includes("401") || msg.includes("Incorrect API key")) {
         msg = "Resume parsing is unavailable (API key issue). Please fill in your details manually.";
-      } else if (msg.includes("GEMINI_API_KEY") || msg.includes("OPENAI_API_KEY") || msg.includes("503")) {
+      } else if (msg.includes("GEMINI_API_KEY") || msg.includes("503")) {
         msg = "Resume parsing is not configured. Add GEMINI_API_KEY to server/.env (free at aistudio.google.com/apikey).";
       }
       setParseError(msg);

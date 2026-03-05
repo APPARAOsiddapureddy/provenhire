@@ -32,16 +32,16 @@ aiRouter.post("/parse-resume", requireAuth, memoryUpload.single("file"), handleM
   const ok = mt.includes("pdf") || mt.includes("msword") || mt.includes("wordprocessingml") || mt.includes("text/plain");
   if (!ok) return res.status(400).json({ error: "Resume must be PDF, DOC, DOCX, or TXT" });
   try {
-    if (!process.env.GEMINI_API_KEY && !process.env.OPENAI_API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       return res.status(503).json({
-        error: "Resume parsing unavailable. Add GEMINI_API_KEY or OPENAI_API_KEY to server/.env. Get a free Gemini key at https://aistudio.google.com/apikey",
+        error: "Resume parsing unavailable. Add GEMINI_API_KEY to server/.env. Get a free key at https://aistudio.google.com/apikey",
       });
     }
     const text = await extractTextFromFile(req.file.buffer, req.file.mimetype);
     if (!text?.trim()) return res.status(400).json({ error: "Could not extract text from file" });
     const parsed = await parseResumeForProfile(text);
     if (!parsed) {
-      console.error("[parse-resume] parseResumeForProfile returned null. Check server logs for Gemini/OpenAI errors.");
+      console.error("[parse-resume] parseResumeForProfile returned null. Check server logs for Gemini errors.");
       return res.status(400).json({ error: "Could not parse resume. Please fill the form manually." });
     }
     return res.json({ parsed });
@@ -85,9 +85,9 @@ aiRouter.post("/evaluate-interview", requireAuth, async (req, res) => {
 });
 
 aiRouter.post("/generate-assignment", requireAuth, async (req, res) => {
-  if (!process.env.GEMINI_API_KEY && !process.env.OPENAI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return res.status(503).json({
-      error: "Assignment generation unavailable. Add GEMINI_API_KEY or OPENAI_API_KEY to server/.env. Get a free Gemini key at https://aistudio.google.com/apikey",
+      error: "Assignment generation unavailable. Add GEMINI_API_KEY to server/.env. Get a free key at https://aistudio.google.com/apikey",
     });
   }
   const schema = z.object({

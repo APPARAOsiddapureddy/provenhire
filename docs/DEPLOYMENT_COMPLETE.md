@@ -116,23 +116,14 @@ Add variables one by one as follows.
 
 ---
 
-#### Step 6: Add `OPENAI_API_KEY` (optional — for AI features)
-
-1. Click **+ Add Environment Variable**.
-2. In the new row:
-   - **First field (name):** Type exactly: `OPENAI_API_KEY`
-   - **Second field (value):** Your OpenAI API key from [platform.openai.com](https://platform.openai.com).
-   - Skip if you are not using OpenAI features yet.
-
----
-
-#### Step 7: Add `GEMINI_API_KEY` (optional — for AI features)
+#### Step 6: Add `GEMINI_API_KEY` (optional — for AI features)
 
 1. Click **+ Add Environment Variable**.
 2. In the new row:
    - **First field (name):** Type exactly: `GEMINI_API_KEY`
-   - **Second field (value):** Your Google Gemini API key.
-   - Skip if you are not using Gemini features yet.
+   - **Second field (value):** Your Google Gemini API key (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
+   - Required for resume parsing, interview evaluation, and assignment generation.
+   - Skip if you are not using AI features yet.
 
 ---
 
