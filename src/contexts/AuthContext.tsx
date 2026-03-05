@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { api, setAuthToken, setRefreshToken } from "@/lib/api";
+import { api, hasAuthToken, setAuthToken, setRefreshToken } from "@/lib/api";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
 
@@ -42,6 +42,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const bootstrap = async () => {
+      if (!hasAuthToken()) {
+        setUser(null);
+        setUserRole(null);
+        setLoading(false);
+        return;
+      }
       try {
         const { user } = await api.get<{ user: User }>("/api/auth/me");
         setUser(user);

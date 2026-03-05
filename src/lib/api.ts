@@ -10,6 +10,11 @@ function getAuthToken() {
   }
 }
 
+/** True if a JWT exists; use to skip /api/auth/me when unauthenticated. */
+export function hasAuthToken(): boolean {
+  return !!getAuthToken();
+}
+
 function getRefreshToken() {
   try {
     return localStorage.getItem("ph_refresh") || "";

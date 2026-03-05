@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
 import NotificationInbox from "@/components/NotificationInbox";
 import { useAuth } from "@/contexts/AuthContext";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
 
 const Navbar = () => {
@@ -78,6 +78,8 @@ const Navbar = () => {
         </Button>
       </SheetTrigger>
       <SheetContent side="right" className="w-[280px] sm:w-[320px] pt-12">
+        <SheetTitle className="sr-only">Navigation menu</SheetTitle>
+        <SheetDescription className="sr-only">Site navigation and account links</SheetDescription>
         <nav className="flex flex-col gap-6 font-mono text-sm font-semibold text-muted-foreground uppercase tracking-wider">
           {navLinks && (
             <div className="flex flex-col gap-4">

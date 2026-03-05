@@ -490,6 +490,7 @@ const AdminDashboard = () => {
             <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>Set Password Link</DialogTitle>
+                <DialogDescription>Share the link below so the user can set their password and log in.</DialogDescription>
               </DialogHeader>
               {inviteLinkDialog && (
                 <div className="space-y-4 py-4">

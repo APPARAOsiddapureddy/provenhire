@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -92,6 +93,7 @@ const JobDetailsDialog = ({
               <DialogTitle className="text-2xl font-bold text-foreground mb-1">
                 {job.title}
               </DialogTitle>
+              <DialogDescription className="sr-only">Job details and application</DialogDescription>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Building2 className="h-4 w-4" />
                 <span className="font-medium">{job.company}</span>

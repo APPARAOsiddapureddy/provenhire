@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -83,6 +84,7 @@ const NotificationInbox = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{latestUnread?.subject ?? latestUnread?.title ?? "Notification"}</DialogTitle>
+            <DialogDescription className="sr-only">Notification message content</DialogDescription>
           </DialogHeader>
           <div
             className="text-sm text-muted-foreground py-2 prose prose-sm max-w-none [&_*]:text-inherit [&_*]:text-sm"

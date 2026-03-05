@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -133,6 +134,7 @@ const JobComparisonDialog = ({
           <DialogTitle className="text-2xl font-bold text-foreground">
             Compare Jobs ({jobs.length})
           </DialogTitle>
+          <DialogDescription className="sr-only">Side-by-side job comparison</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[calc(90vh-100px)]">
