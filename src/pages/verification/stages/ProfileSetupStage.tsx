@@ -170,9 +170,6 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       errs.email = "Please enter a valid email address.";
     }
-    if (!resumeFile) {
-      errs.resume = "Resume is required. Please upload your resume (PDF, DOC, or DOCX).";
-    }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       toast.error("Please fix the highlighted fields.");
@@ -183,13 +180,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
 
     setSaving(true);
     try {
-      let resumeUrl: string | null = null;
-      if (resumeFile) {
-        const form = new FormData();
-        form.append("file", resumeFile);
-        const { url } = await api.post<{ url: string }>("/api/uploads", form);
-        resumeUrl = url;
-      }
+      // Resume not stored for now; full profile saved in DB. AWS storage in future.
       const skillsList = skills
         .split(/[,;]/)
         .map((s) => s.trim())
@@ -202,7 +193,6 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         currentRole,
         about,
         experienceYears: experienceYears === "" ? undefined : Number(experienceYears),
-        resumeUrl,
         skills: skillsList.length ? skillsList : undefined,
         college: college || undefined,
         graduationYear: graduationYear || undefined,
@@ -411,7 +401,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
 
             {!resumeFile && (
               <div ref={(r) => { fieldRefs.current.resume = r; }} id="field-resume" className="space-y-2">
-                <Label>Resume *</Label>
+                <Label>Resume (optional — for AI parsing only, not stored)</Label>
                 <Input
                   type="file"
                   accept={ACCEPT_MIME}

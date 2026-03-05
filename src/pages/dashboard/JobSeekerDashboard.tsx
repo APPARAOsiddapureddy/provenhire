@@ -134,10 +134,6 @@ const JobSeekerDashboard = () => {
       label: "Skills",
       done: Boolean(profile?.skills && (Array.isArray(profile.skills) ? profile.skills.length > 0 : true)),
     },
-    {
-      label: "Resume uploaded",
-      done: Boolean(profile?.resumeUrl ?? profile?.resume_url),
-    },
   ];
   const profileCompletion = profileChecklist.length
     ? Math.round(

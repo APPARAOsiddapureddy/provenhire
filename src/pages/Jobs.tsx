@@ -683,15 +683,9 @@ const Jobs = () => {
       }
 
       const { profile } = await api.get<{ profile: any }>("/api/users/job-seeker-profile");
-      if (!profile?.resumeUrl) {
-        setSelectedJobId(selectedJob.id);
-        setPendingAssignmentResponse(assignmentResponse);
-        setShowJobDetails(false);
-        setShowResumeDialog(true);
-        return;
-      }
-
-      await applyToJob(selectedJob.id, profile.resumeUrl, assignmentResponse);
+      // Resume not stored for now; apply with profile data only. AWS storage planned for future.
+      const resumeUrl = profile?.resumeUrl ?? profile?.resume_url ?? null;
+      await applyToJob(selectedJob.id, resumeUrl, assignmentResponse);
       setAppliedJobs(prev => new Set([...prev, selectedJob.id]));
       setShowJobDetails(false);
     } catch (error: any) {
@@ -732,9 +726,9 @@ const Jobs = () => {
     }
   };
 
-  const applyToJob = async (jobId: string, resumeUrl: string, assignmentResponse?: string) => {
+  const applyToJob = async (jobId: string, resumeUrl: string | null, assignmentResponse?: string) => {
     try {
-      await api.post(`/api/jobs/${jobId}/apply`, { resumeUrl, assignmentResponse: assignmentResponse || undefined });
+      await api.post(`/api/jobs/${jobId}/apply`, { resumeUrl: resumeUrl ?? undefined, assignmentResponse: assignmentResponse || undefined });
       toast.success('Application submitted successfully!');
     } catch (error: any) {
       console.error('Error applying to job:', error);
