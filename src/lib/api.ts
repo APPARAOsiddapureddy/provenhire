@@ -102,6 +102,9 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
       }
       throw new Error(isDev ? "Backend not running or service unavailable. Run: npm run dev:all" : "Service temporarily unavailable. Please try again later.");
     }
+    if (path.startsWith("/api/") && (res.status === 500 || res.status === 503)) {
+      throw new Error(msg && msg !== "Request failed" ? msg : "Something went wrong. Please try again in a moment.");
+    }
     const err = new Error(msg) as Error & { response?: { data?: unknown } };
     err.response = { data: errorBody };
     throw err;
