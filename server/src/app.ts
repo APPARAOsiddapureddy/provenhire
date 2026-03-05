@@ -58,6 +58,23 @@ export function createApp() {
     res.json({ status: "running", service: "provenhire-api" });
   });
 
+  app.get("/api/diagnostic", async (_req, res) => {
+    const jwtOk = !!process.env.JWT_SECRET;
+    let dbOk = false;
+    try {
+      const { prisma } = await import("./config/prisma.js");
+      await prisma.$queryRaw`SELECT 1`;
+      dbOk = true;
+    } catch {
+      // ignore
+    }
+    res.json({
+      ok: jwtOk && dbOk,
+      jwt: jwtOk ? "configured" : "missing",
+      database: dbOk ? "connected" : "unavailable",
+    });
+  });
+
   app.get("/api", (_req, res) => {
     res.json({
       ok: true,

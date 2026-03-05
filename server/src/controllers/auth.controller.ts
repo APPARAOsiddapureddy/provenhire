@@ -73,7 +73,7 @@ export async function register(req: Request, res: Response) {
     if (existing) {
       return res.status(409).json({ error: "Email already registered" });
     }
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: {
         name: name || null,
@@ -99,8 +99,9 @@ export async function register(req: Request, res: Response) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Registration failed";
     console.error("[auth/register]", msg, err);
-    // Prisma error codes: P1001 = DB unreachable, P2021 = table missing, P2002 = unique violation
-    const prisma = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : null;
+    // Prisma: code is on the error object directly
+    const anyErr = err as { code?: string };
+    const prisma = typeof anyErr?.code === "string" ? anyErr.code : null;
     if (prisma === "P1001") {
       return res.status(503).json({ error: "Database unavailable. Please try again in a moment." });
     }
