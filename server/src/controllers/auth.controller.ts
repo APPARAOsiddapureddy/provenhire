@@ -99,19 +99,27 @@ export async function register(req: Request, res: Response) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Registration failed";
     console.error("[auth/register]", msg, err);
-    // Prisma: code is on the error object directly
     const anyErr = err as { code?: string };
-    const prisma = typeof anyErr?.code === "string" ? anyErr.code : null;
-    if (prisma === "P1001") {
+    const code = typeof anyErr?.code === "string" ? anyErr.code : null;
+    if (code === "P1001") {
       return res.status(503).json({ error: "Database unavailable. Please try again in a moment." });
     }
-    if (prisma === "P2021") {
+    if (code === "P2021") {
       return res.status(503).json({ error: "Database is still initializing. Please try again in a minute." });
     }
-    if (prisma === "P2002") {
+    if (code === "P2002") {
       return res.status(409).json({ error: "Email already registered." });
     }
-    return res.status(500).json({ error: "Registration failed. Please try again." });
+    if (code === "P2014") {
+      return res.status(500).json({ error: "Database schema mismatch. Please contact support." });
+    }
+    if (code === "P2011") {
+      return res.status(500).json({ error: "Invalid data. Please check your input." });
+    }
+    // Return code in response for debugging (safe to expose)
+    const body: { error: string; code?: string } = { error: "Registration failed. Please try again." };
+    if (code) body.code = code;
+    return res.status(500).json(body);
   }
 }
 
