@@ -4,6 +4,9 @@ import { requireAuth } from "../middleware/auth.js";
 
 export const authRouter = Router();
 
+authRouter.get("/register", (_req, res) => {
+  res.status(405).json({ error: "Method not allowed", message: "Use POST with { email, password } to register." });
+});
 authRouter.post("/register", register);
 authRouter.post("/login", login);
 authRouter.post("/refresh", refresh);
