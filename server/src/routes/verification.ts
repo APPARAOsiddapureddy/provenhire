@@ -297,7 +297,8 @@ verificationRouter.get("/matched-interviewers", requireAuth, async (req: AuthedR
   const byInterviewer = new Map<string, { interviewer: any; slots: any[] }>();
   for (const s of slots) {
     const inv = s.interviewer;
-    const invRole = inv.domain ?? (Array.isArray(inv.domains) ? inv.domains[0] : null);
+    const raw = inv.domain ?? (Array.isArray(inv.domains) ? inv.domains[0] : null);
+    const invRole = typeof raw === "string" ? raw : null;
     if (!rolesMatch(targetTitle, invRole)) continue;
     const key = inv.id;
     if (!byInterviewer.has(key)) {
@@ -343,7 +344,8 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
   if (slot.interviewer.track !== track) {
     return res.status(400).json({ error: "Interviewer track does not match your profile" });
   }
-  const invRole = slot.interviewer.domain ?? (Array.isArray(slot.interviewer.domains) ? slot.interviewer.domains[0] : null);
+  const rawInvRole = slot.interviewer.domain ?? (Array.isArray(slot.interviewer.domains) ? slot.interviewer.domains[0] : null);
+  const invRole = typeof rawInvRole === "string" ? rawInvRole : null;
   if (!rolesMatch(profile?.targetJobTitle, invRole)) {
     return res.status(400).json({ error: "Interviewer role does not match your target job title" });
   }

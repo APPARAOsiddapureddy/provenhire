@@ -45,23 +45,103 @@ Step-by-step guide to fix and verify the full deployment flow.
 | **Root Directory** | `server` |
 | **Runtime** | Node |
 | **Build Command** | `npm install && npx prisma generate && npm run build` |
-| **Start Command** | `npx prisma migrate deploy && npm run start` |
+| **Start Command** | `npm run start` |
 | **Instance Type** | Free (or paid) |
 
-### 2.3 Environment Variables (Render)
+### 2.3 Environment Variables (Render) — Step-by-Step
 
-Add these in **Environment** tab (or use Environment Group):
+On the **Environment Variables** section of the "New Web Service" page, you will see rows with two fields:
+- **First field (NAME_OF_VARIABLE):** The variable name (e.g. `DATABASE_URL`)
+- **Second field (value):** The actual value (e.g. the database connection string)
 
-| Variable | Value | Required |
-|----------|-------|----------|
-| `DATABASE_URL` | Postgres connection string from Render Postgres | Yes |
-| `JWT_SECRET` | Random string (e.g. `openssl rand -hex 32`) | Yes |
-| `PORT` | Leave empty (Render sets it) | No |
-| `BASE_URL` | Your Vercel URL (optional, used by some features) | No |
-| `OPENAI_API_KEY` | OpenAI key (optional) | No |
-| `GEMINI_API_KEY` | Gemini key (optional) | No |
+Add variables one by one as follows.
 
-**Important:** You need a PostgreSQL database. Create one: **New +** → **PostgreSQL**, then copy **Internal Database URL** into `DATABASE_URL`.
+---
+
+#### Step 1: Create a PostgreSQL database (do this first)
+
+1. In Render Dashboard, click **New +** → **PostgreSQL**.
+2. Give it a name (e.g. `provenhire-db`) and choose **Oregon (US West)** (same region as your web service).
+3. Click **Create Database**.
+4. Wait for it to spin up.
+5. Open the database → **Info** tab → find **Internal Database URL**.
+6. Click the **copy** icon next to it. It looks like:
+   ```
+   postgresql://user:password@hostname/database?sslmode=require
+   ```
+   **Keep this copied** — you will paste it in Step 2.
+
+---
+
+#### Step 2: Add `DATABASE_URL` (required)
+
+1. In the first empty row of **Environment Variables**:
+   - **First field (name):** Type exactly: `DATABASE_URL`
+   - **Second field (value):** Paste the **Internal Database URL** you copied in Step 1.
+2. Do not leave it blank. This is required.
+
+---
+
+#### Step 3: Add `JWT_SECRET` (required)
+
+1. Click **+ Add Environment Variable** to add a new row.
+2. In the new row:
+   - **First field (name):** Type exactly: `JWT_SECRET`
+   - **Second field (value):** Either:
+     - Click **Generate** next to the value field to auto-generate a secure string, **or**
+     - Generate one yourself: run `openssl rand -hex 32` in your terminal and paste the result (e.g. `a1b2c3d4e5f6...`).
+3. This must be a long random string. Do not leave it blank.
+
+---
+
+#### Step 4: Add `PORT` (optional)
+
+1. Click **+ Add Environment Variable**.
+2. In the new row:
+   - **First field (name):** Type exactly: `PORT`
+   - **Second field (value):** Leave **empty**. Render will set it automatically.
+   - Or simply **skip** this — Render injects `PORT` by default.
+
+---
+
+#### Step 5: Add `BASE_URL` (optional — add after Vercel deploy)
+
+1. Click **+ Add Environment Variable**.
+2. In the new row:
+   - **First field (name):** Type exactly: `BASE_URL`
+   - **Second field (value):** Your Vercel frontend URL, e.g. `https://provenhire-xxx.vercel.app` (no trailing slash).
+   - Add this **after** you deploy the frontend on Vercel. You can add it later in the service’s **Environment** tab.
+
+---
+
+#### Step 6: Add `OPENAI_API_KEY` (optional — for AI features)
+
+1. Click **+ Add Environment Variable**.
+2. In the new row:
+   - **First field (name):** Type exactly: `OPENAI_API_KEY`
+   - **Second field (value):** Your OpenAI API key from [platform.openai.com](https://platform.openai.com).
+   - Skip if you are not using OpenAI features yet.
+
+---
+
+#### Step 7: Add `GEMINI_API_KEY` (optional — for AI features)
+
+1. Click **+ Add Environment Variable**.
+2. In the new row:
+   - **First field (name):** Type exactly: `GEMINI_API_KEY`
+   - **Second field (value):** Your Google Gemini API key.
+   - Skip if you are not using Gemini features yet.
+
+---
+
+#### Summary: Minimum variables to add
+
+| First field (name) | Second field (value) | Required? |
+|--------------------|----------------------|-----------|
+| `DATABASE_URL`     | Internal Database URL from Render Postgres | **Yes** |
+| `JWT_SECRET`       | Long random string (use **Generate** or `openssl rand -hex 32`) | **Yes** |
+
+All other variables are optional and can be added later.
 
 ### 2.4 Deploy & Verify Backend
 
