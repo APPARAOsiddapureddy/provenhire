@@ -44,9 +44,11 @@ Step-by-step guide to fix and verify the full deployment flow.
 | **Name** | `provenhire-server` |
 | **Root Directory** | `server` |
 | **Runtime** | Node |
-| **Build Command** | `npm install && npx prisma generate && npm run build` |
+| **Build Command** | `npm install && npx prisma generate && npm run build && npx prisma migrate deploy` |
 | **Start Command** | `npm run start` |
 | **Instance Type** | Free (or paid) |
+
+**Important:** `prisma migrate deploy` runs during build. If `DATABASE_URL` is wrong or the database is unreachable, the **build will fail** and you'll see the error in Build Logs. Fix the database connection before the service can start.
 
 ### 2.3 Environment Variables (Render) — Step-by-Step
 
@@ -259,13 +261,23 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
   3. Check **Logs** for startup errors (e.g. Prisma, env vars).
   4. Push latest code and trigger a fresh deploy.
 
+### 502 Bad Gateway (CORS error is a side effect)
+
+- **Cause:** The request reaches Render's proxy, but your backend app doesn't respond. The 502 comes from Render, not your app — so no CORS headers are sent. The browser then reports CORS.
+- **Immediate fix — update Render Build Command:**
+  1. Render Dashboard → your backend service (e.g. `provenhire-updated`) → **Settings**.
+  2. Find **Build Command**. Change it to:  
+     `npm install && npx prisma generate && npm run build && npx prisma migrate deploy`
+  3. **Save Changes** → **Manual Deploy** → Deploy latest commit.
+  4. If the **build fails**, check **Build Logs** — you'll see the exact error (e.g. `DATABASE_URL` wrong, migrations fail). Fix the issue and redeploy.
+  5. If the build **succeeds** but you still get 502, open `/health` in a new tab first (to wake the service on free tier), wait 30–60s, then retry sign-up.
+- **Required env vars:** `DATABASE_URL` (use **Internal Database URL** from Render Postgres), `JWT_SECRET`.
+
 ### CORS errors (“No Access-Control-Allow-Origin header”)
 
-- **Cause 1 (Render free tier — most common):** The service is **cold/waking up**. Requests hit Render's proxy before your app is ready, so the response has no CORS headers. **Fix:** Open `https://YOUR-RENDER-URL.onrender.com/health` first, wait until it returns `{"ok":true}` (may take 30–60s), then retry sign-up. Or upgrade to a paid instance so the service stays warm.
-- **Cause 2:** Request never reaches Express (404, 502 from Render).
-- **Fix:**
-  1. Verify backend is up: open `/health` — if it returns JSON, retry sign-up from the frontend.
-  2. Push the latest CORS fix to GitHub and redeploy the Render backend.
+- **Cause 1 (Render free tier):** Service is cold/waking up. **Fix:** Open `/health` first, wait 30–60s, then retry.
+- **Cause 2:** 502 Bad Gateway — see above.
+- **Fix:** Resolve the 502 first; CORS will work once the app responds.
 
 ### Database connection errors on Render
 
@@ -276,6 +288,15 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 
 - **Cause:** TypeScript or build errors (e.g. `JsonValue` type mismatch).
 - **Fix:** Ensure you've pushed the latest commit that fixes build errors. Then: Manual Deploy → Deploy latest commit.
+
+### Build fails at "prisma migrate deploy"
+
+- **Cause:** `DATABASE_URL` missing, wrong, or database unreachable. Migrate runs during build now, so DB must be reachable.
+- **Fix:**
+  1. Create a PostgreSQL database in Render (same region as your web service).
+  2. Copy the **Internal Database URL** (not External).
+  3. Add `DATABASE_URL` in your service's Environment Variables.
+  4. Redeploy.
 
 ### Deploy canceled - "Another deploy started"
 

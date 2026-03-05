@@ -1,0 +1,15 @@
+# Render Blueprint - ProvenHire Backend
+# See docs/DEPLOYMENT_COMPLETE.md for full setup.
+# If you already have a Web Service, update Build Command in Settings instead.
+services:
+  - type: web
+    name: provenhire-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npx prisma generate && npm run build && npx prisma migrate deploy
+    startCommand: npm run start
+    envVars:
+      - key: DATABASE_URL
+        sync: false  # Set manually: Internal Database URL from Render Postgres
+      - key: JWT_SECRET
+        generateValue: true
