@@ -9,12 +9,14 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:5001",
+        target: "https://provenhire-updated.onrender.com",
         changeOrigin: true,
+        secure: true,
       },
       "/uploads": {
-        target: "http://127.0.0.1:5001",
+        target: "https://provenhire-updated.onrender.com",
         changeOrigin: true,
+        secure: true,
       },
     },
   },

@@ -1,5 +1,6 @@
-// Dev: use proxy (same origin). Prod: use VITE_API_URL.
-const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL || "http://localhost:5001");
+import { RENDER_API_URL } from "./config";
+// Dev: Vite proxy to Render. Prod: VITE_API_URL or Render URL.
+const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL ?? RENDER_API_URL);
 const isDev = import.meta.env.DEV;
 
 function getAuthToken() {

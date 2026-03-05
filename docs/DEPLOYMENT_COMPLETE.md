@@ -10,8 +10,8 @@ Step-by-step guide to fix and verify the full deployment flow.
 [User] → Vercel (Frontend) → Render (Backend) → Render Postgres (Database)
 ```
 
-- **Frontend (Vercel):** React app, calls backend via `VITE_API_URL`
-- **Backend (Render):** Express API, CORS reflects request origin (`origin: true`)
+- **Frontend (Vercel):** React app. Uses **Vercel rewrites** (`vercel.json`) to proxy `/api` and `/uploads` to Render — no CORS, same-origin requests.
+- **Backend (Render):** Express API. Edit `vercel.json` if your Render URL is not `provenhire-updated.onrender.com`.
 
 ---
 
@@ -185,19 +185,18 @@ If you get **Route not found**: the deployed code is old. Ensure you pushed to G
 | **Build Command** | `npm run build` |
 | **Output Directory** | `dist` |
 
-### 3.3 Environment Variable (Critical)
+### 3.3 Environment Variable (Optional with Proxy)
 
-1. Go to **Settings** → **Environment Variables**.
-2. Add:
-   - **Key:** `VITE_API_URL`
-   - **Value:** `https://YOUR-RENDER-URL.onrender.com` (your actual Render backend URL)
-   - **No trailing slash.**
-3. Apply to: Production, Preview, Development.
-4. **Save.**
+The project uses **Vercel rewrites** (`vercel.json`) to proxy `/api` and `/uploads` to your Render backend. This means:
 
-### 3.4 Redeploy (Required)
+- **No `VITE_API_URL` needed** — the frontend uses same-origin requests; Vercel forwards them to Render.
+- **No CORS issues** — requests appear same-origin to the browser.
 
-**Vite bakes `VITE_API_URL` into the build at build time.** Changing the env var does NOT affect existing deployments.
+**Ensure `vercel.json` has your backend URL.** If your Render URL is not `provenhire-updated.onrender.com`, edit `vercel.json` and update the `destination` in the `/api` and `/uploads` rewrites.
+
+If you prefer **direct** backend calls (no proxy), set `VITE_API_URL` to your Render URL and redeploy.
+
+### 3.4 Redeploy (Required after changes)
 
 1. Go to **Deployments** tab.
 2. Click **⋮** on the latest deployment → **Redeploy**.
@@ -220,8 +219,9 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 
 ### 5.1 Check API is reachable
 
-1. Open: `https://YOUR-RENDER-URL.onrender.com/health`
-2. You should see: `{"ok":true}`
+**Option A (via proxy):** Open `https://YOUR-VERCEL-URL.vercel.app/api` — you should see `{"ok":true,"message":"ProvenHire API is reachable",...}`.
+
+**Option B (direct):** Open `https://YOUR-RENDER-URL.onrender.com/health` — you should see `{"ok":true}`.
 
 ### 5.2 Check frontend uses backend
 

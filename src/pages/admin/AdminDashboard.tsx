@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { RENDER_API_URL } from "@/lib/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -338,7 +339,7 @@ const AdminDashboard = () => {
                 variant="outline"
                 size="sm"
                 onClick={async () => {
-                  const base = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL || "http://localhost:5001");
+                  const base = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL || RENDER_API_URL);
                   const url = `${base}/api/admin/export-users`;
                   const token = localStorage.getItem("ph_jwt") || "";
                   try {

@@ -58,6 +58,29 @@ export function createApp() {
     res.json({ status: "running", service: "provenhire-api" });
   });
 
+  app.get("/api", (_req, res) => {
+    res.json({
+      ok: true,
+      message: "ProvenHire API is reachable",
+      routes: [
+        "/api/auth",
+        "/api/interview",
+        "/api/ai",
+        "/api/jobs",
+        "/api/verification",
+        "/api/notifications",
+        "/api/uploads",
+        "/api/users",
+        "/api/proctoring",
+        "/api/appeals",
+        "/api/execute",
+        "/api/admin",
+        "/api/interviewer-application",
+        "/api/expert",
+      ],
+    });
+  });
+
   app.use("/api/auth", authRouter);
   app.use("/api/interview", interviewRouter);
   app.use("/api/ai", aiRouter);
