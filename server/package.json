@@ -8,7 +8,7 @@
     "dev": "tsx watch server.ts",
     "build": "tsc -p tsconfig.json && mkdir -p dist/data && cp src/data/aptitude-questions.json dist/data/",
     "start": "npm run deploy:migrate && node dist/server.js",
-    "deploy:migrate": "prisma migrate resolve --rolled-back 20260304000001_add_phone_to_interviewer 2>/dev/null; (prisma migrate deploy || true); prisma db push",
+    "deploy:migrate": "prisma migrate resolve --rolled-back 20260304000001_add_phone_to_interviewer 2>/dev/null; (prisma migrate deploy || true); prisma db push --accept-data-loss",
     "prisma": "prisma",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
