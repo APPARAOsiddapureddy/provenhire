@@ -1,3 +1,13 @@
+-- CreateTable BlockedEmail (was missing from init)
+CREATE TABLE IF NOT EXISTS "BlockedEmail" (
+  "id" TEXT NOT NULL,
+  "email" TEXT NOT NULL,
+  "blockedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT "BlockedEmail_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "BlockedEmail_email_key" ON "BlockedEmail"("email");
+
 -- CreateTable InterviewerApplication (was missing from init - table never created)
 CREATE TABLE IF NOT EXISTS "InterviewerApplication" (
   "id" TEXT NOT NULL,
