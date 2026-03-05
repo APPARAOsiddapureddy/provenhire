@@ -6,7 +6,7 @@ services:
     name: provenhire-server
     runtime: node
     rootDir: server
-    buildCommand: npm install && npx prisma generate && npm run build && npx prisma migrate deploy
+    buildCommand: npm install && npx prisma generate && npm run build && npm run deploy:migrate
     startCommand: npm run start
     envVars:
       - key: DATABASE_URL

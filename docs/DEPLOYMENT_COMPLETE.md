@@ -44,7 +44,7 @@ Step-by-step guide to fix and verify the full deployment flow.
 | **Name** | `provenhire-server` |
 | **Root Directory** | `server` |
 | **Runtime** | Node |
-| **Build Command** | `npm install && npx prisma generate && npm run build && npx prisma migrate deploy` |
+| **Build Command** | `npm install && npx prisma generate && npm run build && npm run deploy:migrate` |
 | **Start Command** | `npm run start` |
 | **Instance Type** | Free (or paid) |
 
@@ -307,6 +307,11 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
   2. Copy the **Internal Database URL** (not External).
   3. Add `DATABASE_URL` in your service's Environment Variables.
   4. Redeploy.
+
+### P3009: "migrate found failed migrations"
+
+- **Cause:** A previous migration failed (e.g. DB timeout, partial apply). Prisma blocks new migrations until the failed one is resolved.
+- **Fix:** The `deploy:migrate` script automatically runs `prisma migrate resolve --rolled-back` for the failed migration before deploying. Ensure your Build Command uses `npm run deploy:migrate` (not `npx prisma migrate deploy` directly). Push the latest code and redeploy.
 
 ### Deploy canceled - "Another deploy started"
 
