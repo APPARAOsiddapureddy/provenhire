@@ -59,6 +59,9 @@ export async function register(req: Request, res: Response) {
       console.error("[auth/register] JWT_SECRET is not configured");
       return res.status(500).json({ error: "Server configuration error. Contact support." });
     }
+    if (!req.body || typeof req.body !== "object") {
+      return res.status(400).json({ error: "Invalid request body. Send JSON with email and password." });
+    }
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid registration payload" });
@@ -94,7 +97,18 @@ export async function register(req: Request, res: Response) {
         update: { roleType: roleType ?? "technical" },
       });
     }
-    const session = await createSession(user);
+    let session;
+    try {
+      session = await createSession(user);
+    } catch (sessionErr) {
+      const sm = sessionErr instanceof Error ? sessionErr.message : "Session failed";
+      console.error("[auth/register] createSession:", sm, sessionErr);
+      const se = sessionErr as { code?: string };
+      if (typeof se?.code === "string") {
+        return res.status(500).json({ error: "Registration failed.", code: se.code });
+      }
+      return res.status(500).json({ error: "Registration failed. Please try again." });
+    }
     return res.json(session);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Registration failed";
