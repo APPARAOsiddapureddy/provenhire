@@ -279,6 +279,16 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 - **Cause 2:** 502 Bad Gateway — see above.
 - **Fix:** Resolve the 502 first; CORS will work once the app responds.
 
+### 500 on /api/auth/register (or other auth endpoints)
+
+- **Cause:** Server-side error during registration. Common causes: `JWT_SECRET` missing, database unreachable, or migrations not applied.
+- **Fix:**
+  1. **Check Render Logs** (clear any search, view "Last 24 hours"). Look for `[auth/register]` — the actual error is logged there.
+  2. **Verify environment variables:** Render → **Environment** → ensure `JWT_SECRET` and `DATABASE_URL` are set.
+  3. **DATABASE_URL** must be the **Internal Database URL** from your Render Postgres (same region). Not the External URL.
+  4. **Migrations:** Build Command must include `npx prisma migrate deploy`. If migrations didn't run, the `User` table won't exist.
+  5. If you see "Database unavailable" or "Database schema missing" in the toast, fix `DATABASE_URL` and redeploy.
+
 ### Database connection errors on Render
 
 - **Cause:** `DATABASE_URL` wrong or Postgres not reachable.

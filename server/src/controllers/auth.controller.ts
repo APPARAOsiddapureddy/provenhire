@@ -99,6 +99,14 @@ export async function register(req: Request, res: Response) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Registration failed";
     console.error("[auth/register]", msg, err);
+    // Prisma error codes: P1001 = DB unreachable, P2021 = table missing, P2002 = unique violation
+    const prisma = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : null;
+    if (prisma === "P1001") {
+      return res.status(503).json({ error: "Database unavailable. Check DATABASE_URL and that migrations have run." });
+    }
+    if (prisma === "P2021") {
+      return res.status(503).json({ error: "Database schema missing. Run prisma migrate deploy on the server." });
+    }
     return res.status(500).json({ error: "Registration failed. Please try again." });
   }
 }
