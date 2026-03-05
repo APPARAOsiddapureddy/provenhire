@@ -54,43 +54,53 @@ async function createSession(user: { id: string; role: string; name: string | nu
 }
 
 export async function register(req: Request, res: Response) {
-  const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid registration payload" });
-  }
-  const { name, email, password, role, roleType } = parsed.data;
-  const normalizedEmail = email.trim().toLowerCase();
-  const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
-  if (blocked) {
-    return res.status(403).json({ error: "This email cannot be used for registration" });
-  }
-  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing) {
-    return res.status(409).json({ error: "Email already registered" });
-  }
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
-    data: {
-      name: name || null,
-      email: normalizedEmail,
-      passwordHash,
-      role: role ?? "jobseeker",
-    },
-  });
-  if (user.role === "jobseeker") {
-    await prisma.jobSeekerProfile.upsert({
-      where: { userId: user.id },
-      create: {
-        userId: user.id,
-        fullName: name || null,
+  try {
+    if (!process.env.JWT_SECRET) {
+      console.error("[auth/register] JWT_SECRET is not configured");
+      return res.status(500).json({ error: "Server configuration error. Contact support." });
+    }
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid registration payload" });
+    }
+    const { name, email, password, role, roleType } = parsed.data;
+    const normalizedEmail = email.trim().toLowerCase();
+    const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
+    if (blocked) {
+      return res.status(403).json({ error: "This email cannot be used for registration" });
+    }
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: {
+        name: name || null,
         email: normalizedEmail,
-        roleType: roleType ?? "technical",
+        passwordHash,
+        role: role ?? "jobseeker",
       },
-      update: { roleType: roleType ?? "technical" },
     });
+    if (user.role === "jobseeker") {
+      await prisma.jobSeekerProfile.upsert({
+        where: { userId: user.id },
+        create: {
+          userId: user.id,
+          fullName: name || null,
+          email: normalizedEmail,
+          roleType: roleType ?? "technical",
+        },
+        update: { roleType: roleType ?? "technical" },
+      });
+    }
+    const session = await createSession(user);
+    return res.json(session);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Registration failed";
+    console.error("[auth/register]", msg, err);
+    return res.status(500).json({ error: "Registration failed. Please try again." });
   }
-  const session = await createSession(user);
-  return res.json(session);
 }
 
 export async function login(req: Request, res: Response) {
