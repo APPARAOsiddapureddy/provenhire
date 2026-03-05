@@ -261,16 +261,31 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 
 ### CORS errors (“No Access-Control-Allow-Origin header”)
 
-- **Cause:** Preflight fails when the backend doesn’t respond with CORS headers (often because the request never reaches your app, e.g. 404 from Render’s proxy).
+- **Cause 1 (Render free tier — most common):** The service is **cold/waking up**. Requests hit Render's proxy before your app is ready, so the response has no CORS headers. **Fix:** Open `https://YOUR-RENDER-URL.onrender.com/health` first, wait until it returns `{"ok":true}` (may take 30–60s), then retry sign-up. Or upgrade to a paid instance so the service stays warm.
+- **Cause 2:** Request never reaches Express (404, 502 from Render).
 - **Fix:**
-  1. Fix the 404 first (see above) so requests reach your Express app.
-  2. Ensure the latest CORS config is deployed: `origin: true` in `server/src/app.ts`.
-  3. Push to GitHub and redeploy the Render backend.
+  1. Verify backend is up: open `/health` — if it returns JSON, retry sign-up from the frontend.
+  2. Push the latest CORS fix to GitHub and redeploy the Render backend.
 
 ### Database connection errors on Render
 
 - **Cause:** `DATABASE_URL` wrong or Postgres not reachable.
 - **Fix:** Use **Internal Database URL** from Render Postgres (same region as backend).
+
+### Deploy failed - "Exited with status 2 while building"
+
+- **Cause:** TypeScript or build errors (e.g. `JsonValue` type mismatch).
+- **Fix:** Ensure you've pushed the latest commit that fixes build errors. Then: Manual Deploy → Deploy latest commit.
+
+### Deploy canceled - "Another deploy started"
+
+- **Cause:** A new deploy was triggered (e.g. new push) while the previous one was still running.
+- **Fix:** Go to **Settings** → **Deploy** → set **Overlapping Deploys** to **Cancel outdated deploys** (so the newest commit always wins) or **Queue deploys** (so they run one after another).
+
+### Service crashes after deploy (build succeeds, start fails)
+
+- **Cause:** Usually `DATABASE_URL` missing/wrong, `JWT_SECRET` missing, or `prisma migrate deploy` fails.
+- **Fix:** Check **Logs** tab for the actual error. Verify env vars. Use **Internal Database URL** from Render Postgres (same region).
 
 ---
 

@@ -20,10 +20,22 @@ import { expertRouter } from "./routes/expert.js";
 export function createApp() {
   const app = express();
 
-  // CORS first - before any other middleware. origin: * works when not using cookies (JWT in header).
+  // CORS: explicit middleware first — reflect request origin (required for preflight from Vercel)
+  app.use((req, res, next) => {
+    const origin = req.headers.origin || "*";
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    if (req.method === "OPTIONS") {
+      return res.status(204).end();
+    }
+    next();
+  });
+
   app.use(
     cors({
-      origin: "*",
+      origin: true, // reflect request origin
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
       optionsSuccessStatus: 204,
