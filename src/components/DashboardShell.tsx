@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ReactNode } from "react";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 
@@ -144,6 +144,8 @@ export default function DashboardShell({
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-[280px] p-0 bg-[var(--dash-navy)] border-[var(--dash-navy-border)]">
+              <SheetTitle className="sr-only">Dashboard menu</SheetTitle>
+              <SheetDescription className="sr-only">Navigation and account links</SheetDescription>
               <div className="pt-8 pb-4 overflow-y-auto h-full">
                 <SidebarContent sidebarSections={sidebarSections} user={user} isActive={isActive} onItemClick={() => setMobileMenuOpen(false)} />
               </div>

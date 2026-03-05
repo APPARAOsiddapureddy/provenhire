@@ -682,7 +682,7 @@ const JobSeekerDashboard = () => {
               <div className="space-y-2">
                 <Label>Location</Label>
                 <Input
-                  placeholder="e.g. San Francisco, CA"
+                  placeholder="e.g. Bangalore or Gurugram"
                   value={editingProfile.location}
                   onChange={(e) => setEditingProfile(prev => ({ ...prev, location: e.target.value }))}
                 />
@@ -690,7 +690,7 @@ const JobSeekerDashboard = () => {
               <div className="space-y-2">
                 <Label>Phone</Label>
                 <Input
-                  placeholder="+1 234 567 8900"
+                  placeholder="+91 98765 43210"
                   value={editingProfile.phone}
                   onChange={(e) => setEditingProfile(prev => ({ ...prev, phone: e.target.value }))}
                 />

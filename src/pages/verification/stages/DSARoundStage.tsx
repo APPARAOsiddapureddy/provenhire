@@ -2,12 +2,28 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import ProctoringNotice from "@/components/ProctoringNotice";
+import TestProctoringBar from "@/components/TestProctoringBar";
+import ProctoringSetupGate from "@/components/ProctoringSetupGate";
+import LiveProctoringPreview from "@/components/LiveProctoringPreview";
+import SoundDetectedAlert from "@/components/SoundDetectedAlert";
+import FullScreenMonitor from "@/components/FullScreenMonitor";
+import type { ProctoringState } from "@/components/ProctoringSetupGate";
+import { useSoundDetection } from "@/hooks/useSoundDetection";
+import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   generateDSATest,
@@ -32,8 +48,11 @@ interface TestResult {
 
 const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 2 }: DSARoundStageProps) => {
   const navigate = useNavigate();
+  const [proctoringReady, setProctoringReady] = useState(false);
+  const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
   const [questions, setQuestions] = useState<DSAQuestion[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [code, setCode] = useState<Record<string, string>>({});
   const [language, setLanguage] = useState<ProgrammingLanguage>("python");
   const [running, setRunning] = useState(false);
@@ -41,6 +60,22 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
   const [submitting, setSubmitting] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [justPassed, setJustPassed] = useState(false);
+  const [hasFailed, setHasFailed] = useState(false);
+  const [soundAlertOpen, setSoundAlertOpen] = useState(false);
+
+  const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
+  const isFullScreen = useFullScreenState(inTest);
+
+  useSoundDetection({
+    enabled: inTest,
+    threshold: 40,
+    debounceMs: 4000,
+    onSoundDetected: () => setSoundAlertOpen(true),
+  });
+
+  useEffect(() => {
+    if (stageStatus !== "failed") setHasFailed(false);
+  }, [stageStatus]);
 
   useEffect(() => {
     const q = generateDSATest(experienceYears);
@@ -54,7 +89,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
     }
   }, [experienceYears]);
 
-  const selectedQuestion = questions[selectedIndex];
+  const selectedQuestion = questions[currentIndex];
 
   useEffect(() => {
     if (selectedQuestion) {
@@ -125,8 +160,26 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
       .replace(/\s+/g, " ");
 
   const ELIGIBILITY_THRESHOLD = 60;
+  const isFailed = stageStatus === "failed";
+  const isLastQuestion = currentIndex === questions.length - 1;
+  const isFirstQuestion = currentIndex === 0;
 
-  const handleSubmit = async () => {
+  useEffect(() => {
+    return () => {
+      proctoringState?.cameraStream?.getTracks().forEach((t) => t.stop());
+      proctoringState?.screenStream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [proctoringState?.cameraStream, proctoringState?.screenStream]);
+
+  useEffect(() => {
+    if (justPassed || hasFailed) {
+      proctoringState?.cameraStream?.getTracks().forEach((t) => t.stop());
+      proctoringState?.screenStream?.getTracks().forEach((t) => t.stop());
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }
+  }, [justPassed, hasFailed, proctoringState]);
+
+  const handleSubmitRound = async () => {
     const totalScore =
       questions.length > 0
         ? Math.round(
@@ -157,6 +210,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
         toast.success(`DSA round completed. Score: ${finalScore}/100.`);
         setJustPassed(true);
       } else {
+        setHasFailed(true);
         await api.post("/api/verification/stages/update", {
           stageName: "dsa_round",
           status: "failed",
@@ -168,6 +222,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
       toast.error(error instanceof Error ? error.message : "Failed to submit DSA round.");
     } finally {
       setSubmitting(false);
+      setSubmitConfirmOpen(false);
     }
   };
 
@@ -188,7 +243,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
     );
   }
 
-  const isFailed = stageStatus === "failed";
+  if (!proctoringReady) {
+    return (
+      <ProctoringSetupGate
+        testName="DSA Round"
+        onReady={(state) => {
+          setProctoringState(state);
+          setProctoringReady(true);
+        }}
+      />
+    );
+  }
 
   if (justPassed) {
     return (
@@ -216,10 +281,27 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
       <CardHeader>
         <CardTitle>DSA Round</CardTitle>
         <CardDescription>
-          Solve {questions.length} coding problem(s). Run tests and submit when ready. Minimum {ELIGIBILITY_THRESHOLD}/100 to proceed.
+          {questions.length > 0
+            ? `Solve each problem one by one. Question ${currentIndex + 1} of ${questions.length}. Run tests for the current question, then move to the next. When done with all, submit the entire round. Minimum ${ELIGIBILITY_THRESHOLD}/100 to proceed.`
+            : `Solve coding problems. Run tests and submit when ready. Minimum ${ELIGIBILITY_THRESHOLD}/100 to proceed.`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
+        <TestProctoringBar />
+        {!isFullScreen && inTest && (
+          <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
+              Enter full screen to proceed to the next question or submit.
+            </span>
+            <FullScreenMonitor active={inTest} />
+          </div>
+        )}
+        <LiveProctoringPreview
+          cameraStream={proctoringState?.cameraStream ?? null}
+          brandName="ProvenHire"
+          position="top-right"
+        />
         {isFailed && (
           <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
@@ -228,26 +310,20 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
             </p>
           </div>
         )}
-        {/* Question tabs */}
-        <div className="flex flex-wrap gap-2" role="tablist">
-          {questions.map((q, i) => (
-            <Button
-              key={q.id}
-              variant={selectedIndex === i ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setSelectedIndex(i);
-                setResults(null);
-              }}
-            >
-              Q{i + 1}: {q.title}
-              {scores[q.id] !== undefined && (
-                <Badge variant="secondary" className="ml-2">
-                  {scores[q.id]}%
-                </Badge>
-              )}
-            </Button>
-          ))}
+        {/* Question progress */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm text-muted-foreground">
+            Question {currentIndex + 1} of {questions.length}
+          </span>
+          <div className="flex gap-1">
+            {questions.map((q, i) => (
+              <div
+                key={q.id}
+                className={`w-2 h-2 rounded-full ${i === currentIndex ? "bg-primary" : scores[q.id] !== undefined ? "bg-green-500/70" : "bg-muted"}`}
+                title={`Q${i + 1}: ${scores[q.id] !== undefined ? scores[q.id] + "%" : "Pending"}`}
+              />
+            ))}
+          </div>
         </div>
 
         {selectedQuestion && (
@@ -315,26 +391,104 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
               height="360px"
             />
 
-            {/* Run & Submit — clear hierarchy */}
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Button onClick={runTests} disabled={running} variant="secondary" size="lg" className="font-medium">
-                {running ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
+            {/* Run tests & Navigate — clear separation from Submit entire round */}
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t">
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={runTests}
+                  disabled={running || (inTest && !isFullScreen)}
+                  variant="secondary"
+                  size="lg"
+                  className="font-medium"
+                >
+                  {running ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  Run test cases
+                </Button>
+                {!isLastQuestion && (
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="font-medium"
+                    onClick={() => {
+                      setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
+                      setResults(null);
+                    }}
+                    disabled={inTest && !isFullScreen}
+                  >
+                    Next question
+                    <ChevronRight className="h-4 w-4 ml-2" />
+                  </Button>
                 )}
-                Run test cases
-              </Button>
-              <Button onClick={handleSubmit} disabled={submitting} size="lg" className="font-medium">
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                Submit round
-              </Button>
+                <Button
+                  size="lg"
+                  variant={isLastQuestion ? "default" : "outline"}
+                  className="font-medium"
+                  onClick={() => setSubmitConfirmOpen(true)}
+                  disabled={submitting || (inTest && !isFullScreen)}
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                  Submit entire round
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setCurrentIndex((i) => Math.max(0, i - 1));
+                    setResults(null);
+                  }}
+                  disabled={isFirstQuestion || (inTest && !isFullScreen)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
+                    setResults(null);
+                  }}
+                  disabled={isLastQuestion || (inTest && !isFullScreen)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
+            <AlertDialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
+              <AlertDialogContent>
+                <AlertDialogTitle>Submit entire round?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will submit your complete DSA round with all {questions.length} question(s). You cannot change your answers after submitting. Make sure you have run tests and reviewed your solutions. Continue?
+                </AlertDialogDescription>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+                  <Button
+                    onClick={() => handleSubmitRound()}
+                    disabled={submitting}
+                    className="bg-primary text-primary-foreground"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Submitting...
+                      </>
+                    ) : (
+                      "Yes, submit entire round"
+                    )}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             {/* Test results — clears when switching questions */}
             {results && (
               <div className="rounded-xl border-2 border-border bg-muted/20 p-4 space-y-2">
-                <h4 className="font-medium text-sm text-foreground">Test results for Q{selectedIndex + 1}</h4>
+                <h4 className="font-medium text-sm text-foreground">Test results for Q{currentIndex + 1}</h4>
                 {results.map((r, i) => (
                   <div
                     key={i}

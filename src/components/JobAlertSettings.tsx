@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -35,10 +36,10 @@ interface JobAlertSettingsProps {
 const EmailPreview = ({ frequency, userSkills }: { frequency: string; userSkills: string[] }) => {
   const sampleJob = {
     title: "Senior Frontend Developer",
-    company: "TechCorp Inc",
-    location: "San Francisco, CA",
+    company: "TechCorp India",
+    location: "Bangalore",
     jobType: "Full-time",
-    salary: "$120k - $150k",
+    salary: "₹20L - ₹25L",
     skills: ["React", "TypeScript", "Node.js", "CSS", "GraphQL"],
     matchPercentage: 85
   };
@@ -224,6 +225,7 @@ const JobAlertSettings = ({ userSkills, userEmail }: JobAlertSettingsProps) => {
               <Bell className="h-5 w-5 text-primary" />
               Job Alerts
             </SheetTitle>
+            <SheetDescription className="sr-only">Manage your job alert preferences</SheetDescription>
           </SheetHeader>
           <div className="mt-8 text-center py-12">
             <BellOff className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -258,6 +260,7 @@ const JobAlertSettings = ({ userSkills, userEmail }: JobAlertSettingsProps) => {
             <Settings2 className="h-5 w-5 text-primary" />
             Job Alert Settings
           </SheetTitle>
+          <SheetDescription className="sr-only">Configure notification frequency and match score</SheetDescription>
         </SheetHeader>
 
         <div className="mt-6 space-y-6">

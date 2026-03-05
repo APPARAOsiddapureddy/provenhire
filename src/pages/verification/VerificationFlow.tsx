@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CheckCircle, Clock, Lock, AlertTriangle, RotateCcw, Timer } from "lucide-react";
+import { CheckCircle, Clock, Lock, AlertTriangle, RotateCcw, Timer, GraduationCap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import ProfileSetupStage from "./stages/ProfileSetupStage";
@@ -21,6 +21,7 @@ import DSARoundStage from "./stages/DSARoundStage";
 import ExpertInterviewStage from "./stages/ExpertInterviewStage";
 import HumanExpertInterviewStage from "./stages/HumanExpertInterviewStage";
 import NonTechnicalAssignmentStage from "./stages/NonTechnicalAssignmentStage";
+import PracticeStageDialog from "@/components/PracticeStageDialog";
 import { checkInvalidatedTests, checkCooldownStatus, RETAKE_COOLDOWN_HOURS } from "@/utils/recordingUpload";
 import { runShortlisting, getShortlistStatus, type ShortlistResult } from "@/lib/shortlisting";
 
@@ -55,6 +56,7 @@ const VerificationFlow = () => {
   const [showAllCompletePopup, setShowAllCompletePopup] = useState(false);
   const [targetJobTitle, setTargetJobTitle] = useState<string>("");
   const [testStageStarted, setTestStageStarted] = useState<Record<string, boolean>>({});
+  const [practiceDialog, setPracticeDialog] = useState<"aptitude" | "dsa" | "interview" | null>(null);
 
   const technicalStageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
   const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'];
@@ -288,9 +290,11 @@ const VerificationFlow = () => {
 
       await api.post("/api/verification/stages/reset", { stageName });
 
+      setTestStageStarted((p) => ({ ...p, [stageName]: false }));
+
       toast({
         title: "Retry enabled",
-        description: "This step is active again.",
+        description: "Click Start to retake. You'll go through proctoring setup again.",
       });
 
       await loadVerificationStages();
@@ -443,10 +447,23 @@ const VerificationFlow = () => {
                     <Button variant="outline" onClick={() => navigate("/")}>
                       Go to Homepage
                     </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setPracticeDialog("aptitude")}
+                    >
+                      <GraduationCap className="h-4 w-4 mr-2" />
+                      Practice
+                    </Button>
                     <Button onClick={() => setTestStageStarted((p) => ({ ...p, aptitude_test: true }))}>
                       Start Aptitude Test
                     </Button>
                   </div>
+                  <PracticeStageDialog
+                    open={practiceDialog === "aptitude"}
+                    onOpenChange={(o) => !o && setPracticeDialog(null)}
+                    type="aptitude"
+                    testName="Aptitude Test"
+                  />
                 </CardContent>
               </Card>
             ) : !cooldownInfo.aptitude.inCooldown && (
@@ -502,10 +519,23 @@ const VerificationFlow = () => {
                     <Button variant="outline" onClick={() => navigate("/")}>
                       Go to Homepage
                     </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setPracticeDialog("dsa")}
+                    >
+                      <GraduationCap className="h-4 w-4 mr-2" />
+                      Practice
+                    </Button>
                     <Button onClick={() => setTestStageStarted((p) => ({ ...p, dsa_round: true }))}>
                       Start DSA Round
                     </Button>
                   </div>
+                  <PracticeStageDialog
+                    open={practiceDialog === "dsa"}
+                    onOpenChange={(o) => !o && setPracticeDialog(null)}
+                    type="dsa"
+                    testName="DSA Round"
+                  />
                 </CardContent>
               </Card>
             ) : !cooldownInfo.dsa.inCooldown && (
@@ -531,15 +561,29 @@ const VerificationFlow = () => {
                     <Button variant="outline" onClick={() => navigate("/")}>
                       Go to Homepage
                     </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setPracticeDialog("interview")}
+                    >
+                      <GraduationCap className="h-4 w-4 mr-2" />
+                      Practice
+                    </Button>
                     <Button onClick={() => setTestStageStarted((p) => ({ ...p, expert_interview: true }))}>
                       Start AI Expert Interview
                     </Button>
                   </div>
+                  <PracticeStageDialog
+                    open={practiceDialog === "interview"}
+                    onOpenChange={(o) => !o && setPracticeDialog(null)}
+                    type="interview"
+                    testName="AI Expert Interview"
+                  />
                 </CardContent>
               </Card>
             ) : (
               <>
             <ExpertInterviewStage
+              targetJobTitle={targetJobTitle}
               onComplete={() => completeAndAdvanceStage('expert_interview')}
               onReturnToDashboard={handleReturnToDashboard}
             />

@@ -116,6 +116,24 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
   return { questions, answerKey };
 }
 
+/**
+ * Return 2-3 practice questions (no session, no answer key stored).
+ */
+export function getPracticeAptitudeQuestions(): AptitudeQuestionForClient[] {
+  const all = loadQuestions();
+  const shuffled = shuffleArray(all);
+  const picked = shuffled.slice(0, 3);
+  return picked.map((q) => {
+    const id = getQuestionId(q);
+    const opts = [q.option_1, q.option_2, q.option_3, q.option_4].filter(Boolean);
+    return {
+      id,
+      question: q.question,
+      options: shuffleArray(opts),
+    };
+  });
+}
+
 /** In-memory store: userId -> { answerKey, expiresAt }. Cleared after submit or TTL. */
 const answerKeyStore = new Map<string, { answerKey: Record<string, string>; expiresAt: number }>();
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours

@@ -513,7 +513,7 @@ const PostJob = () => {
                   <Label htmlFor="location">Location</Label>
                   <Input
                     id="location"
-                    placeholder="e.g. San Francisco, CA or Remote"
+                    placeholder="e.g. Bangalore or Gurugram or Remote"
                     value={formData.location}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                   />
@@ -540,7 +540,7 @@ const PostJob = () => {
                   <Label htmlFor="salary">Salary Range</Label>
                   <Input
                     id="salary"
-                    placeholder="e.g. ₹15L - ₹25L or $100k - $150k"
+                    placeholder="e.g. ₹15L - ₹25L"
                     value={formData.salary_range}
                     onChange={(e) => setFormData({ ...formData, salary_range: e.target.value })}
                   />

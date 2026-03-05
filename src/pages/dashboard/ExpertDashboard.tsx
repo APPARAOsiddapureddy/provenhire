@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import PhoneCollectGate from "@/components/PhoneCollectGate";
 import { toast } from "sonner";
 
 export default function ExpertDashboard() {
@@ -44,8 +45,11 @@ export default function ExpertDashboard() {
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [past, setPast] = useState<any[]>([]);
   const [stats, setStats] = useState({ totalConducted: 0, passed: 0, passRate: 0 });
+  const [pending, setPending] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [addSlotOpen, setAddSlotOpen] = useState(false);
+  const [schedulingFor, setSchedulingFor] = useState<string | null>(null);
+  const [selectedSlotForSchedule, setSelectedSlotForSchedule] = useState("");
   const [slotDate, setSlotDate] = useState("");
   const [slotTime, setSlotTime] = useState("");
   const [addSlotLoading, setAddSlotLoading] = useState(false);
@@ -57,11 +61,12 @@ export default function ExpertDashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [profileRes, upcomingRes, pastRes, statsRes] = await Promise.allSettled([
+      const [profileRes, upcomingRes, pastRes, statsRes, pendingRes] = await Promise.allSettled([
         api.get("/api/expert/profile"),
         api.get("/api/expert/sessions/upcoming"),
         api.get("/api/expert/sessions/past"),
         api.get("/api/expert/stats"),
+        api.get("/api/expert/pending-candidates"),
       ]);
       if (profileRes.status === "fulfilled" && profileRes.value?.interviewer) {
         setProfile(profileRes.value.interviewer);
@@ -70,6 +75,7 @@ export default function ExpertDashboard() {
       if (upcomingRes.status === "fulfilled") setUpcoming(upcomingRes.value?.sessions ?? []);
       if (pastRes.status === "fulfilled") setPast(pastRes.value?.sessions ?? []);
       if (statsRes.status === "fulfilled") setStats(statsRes.value ?? { totalConducted: 0, passed: 0, passRate: 0 });
+      if (pendingRes.status === "fulfilled") setPending(pendingRes.value?.candidates ?? []);
     } catch (e) {
       toast.error("Failed to load dashboard");
     } finally {
@@ -155,7 +161,25 @@ export default function ExpertDashboard() {
     }
   };
 
+  const handleScheduleInterview = async (candidateUserId: string) => {
+    const slotId = selectedSlotForSchedule;
+    if (!slotId) {
+      toast.error("Select a slot first");
+      return;
+    }
+    try {
+      await api.post("/api/expert/schedule-interview", { candidateUserId, slotId });
+      toast.success("Interview scheduled");
+      setSchedulingFor(null);
+      setSelectedSlotForSchedule("");
+      fetchData();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to schedule");
+    }
+  };
+
   const formatSlot = (d: string) => new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const availableSlots = slots.filter((s: any) => s.status === "available" && new Date(s.startsAt) >= new Date());
 
   if (loading) {
     return (
@@ -166,6 +190,7 @@ export default function ExpertDashboard() {
   }
 
   return (
+    <PhoneCollectGate role="expert_interviewer">
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 flex flex-col">
       <Navbar />
       <main className="flex-1 container max-w-6xl mx-auto px-4 pt-20 pb-8">
@@ -181,7 +206,7 @@ export default function ExpertDashboard() {
           </div>
           <div className="flex items-center gap-3">
             <Badge variant="secondary" className="px-3 py-1 text-sm">
-              {profile?.track ?? "technical"}
+              {profile?.domain ?? profile?.track ?? "—"}
             </Badge>
             <Button variant="outline" size="sm" onClick={() => signOut()}>
               <LogOut className="h-4 w-4 mr-2" />
@@ -189,6 +214,75 @@ export default function ExpertDashboard() {
             </Button>
           </div>
         </div>
+
+        {/* Pending Candidates */}
+        <Card className="mb-8 border-2 shadow-lg overflow-hidden">
+          <CardHeader className="bg-gradient-to-r from-blue-500/10 to-transparent border-b">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              Pending Candidates
+            </CardTitle>
+            <CardDescription>
+              Job seekers who completed AI interview and await human expert interview. Schedule by role match.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6">
+            {pending.length === 0 ? (
+              <div className="rounded-xl border-2 border-dashed border-muted-foreground/25 p-6 text-center">
+                <Users className="h-10 w-10 mx-auto text-muted-foreground/50 mb-2" />
+                <p className="text-muted-foreground text-sm">No pending candidates for your role</p>
+                <p className="text-xs text-muted-foreground mt-1">Candidates matching {profile?.domain ?? "your role"} will appear here</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pending.map((c) => (
+                  <div
+                    key={c.userId}
+                    className="p-4 rounded-xl border-2 border-border bg-card hover:border-primary/30 transition-colors"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">{c.fullName || c.email || "Candidate"}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {c.targetJobTitle && `${c.targetJobTitle} • `}
+                          {c.experienceYears != null ? `${c.experienceYears} yrs exp` : ""}
+                        </div>
+                      </div>
+                      {schedulingFor === c.userId ? (
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <select
+                            value={selectedSlotForSchedule}
+                            onChange={(e) => setSelectedSlotForSchedule(e.target.value)}
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="">Select slot</option>
+                            {availableSlots.map((s: any) => (
+                              <option key={s.id} value={s.id}>
+                                {formatSlot(s.startsAt)}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleScheduleInterview(c.userId)} disabled={!selectedSlotForSchedule}>
+                              Schedule
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => { setSchedulingFor(null); setSelectedSlotForSchedule(""); }}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button size="sm" onClick={() => setSchedulingFor(c.userId)} disabled={availableSlots.length === 0}>
+                          Schedule interview
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
@@ -439,15 +533,16 @@ export default function ExpertDashboard() {
           <CardContent className="flex flex-wrap gap-6">
             <div className="text-sm text-muted-foreground">{user?.email ?? "—"}</div>
             <div className="text-sm">
-              <span className="text-muted-foreground">Track:</span> {profile?.track ?? "technical"}
+              <span className="text-muted-foreground">Role:</span> {profile?.domain ?? profile?.track ?? "—"}
             </div>
             <div className="text-sm">
-              <span className="text-muted-foreground">Domains:</span> {(profile?.domains as string[])?.join(", ") || "—"}
+              <span className="text-muted-foreground">Track:</span> {profile?.track ?? "technical"}
             </div>
           </CardContent>
         </Card>
       </main>
       <Footer />
     </div>
+    </PhoneCollectGate>
   );
 }

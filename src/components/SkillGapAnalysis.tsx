@@ -5,6 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -211,6 +212,7 @@ const SkillGapAnalysis = ({ jobs, userSkills }: SkillGapAnalysisProps) => {
               <Target className="h-5 w-5 text-primary" />
               Skill Gap Analysis
             </SheetTitle>
+            <SheetDescription className="sr-only">View skills to learn and recommendations</SheetDescription>
           </SheetHeader>
           <div className="mt-8 text-center py-12">
             <BookOpen className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -241,6 +243,7 @@ const SkillGapAnalysis = ({ jobs, userSkills }: SkillGapAnalysisProps) => {
             <Target className="h-5 w-5 text-primary" />
             Skill Gap Analysis
           </SheetTitle>
+          <SheetDescription className="sr-only">Skills to learn and learning resources</SheetDescription>
         </SheetHeader>
 
         <ScrollArea className="h-[calc(100vh-100px)]">

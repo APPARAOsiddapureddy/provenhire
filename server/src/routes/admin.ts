@@ -30,6 +30,7 @@ adminRouter.get("/job-seekers", async (_req, res) => {
     experience_years: p.experienceYears,
     skills: p.skills as string[] | null,
     verification_status: p.verificationStatus,
+    phone: p.phone,
     created_at: p.createdAt,
     profile: {
       full_name: p.fullName,
@@ -54,6 +55,7 @@ adminRouter.get("/recruiters", async (_req, res) => {
     user_id: p.userId,
     full_name: p.user?.name ?? null,
     email: p.user?.email ?? null,
+    phone: p.phone,
     company_name: p.companyName,
     created_at: p.createdAt,
   }));
@@ -124,6 +126,7 @@ adminRouter.get("/interviewer-applications", async (_req, res) => {
       experienceYears: a.experienceYears,
       track: a.track,
       domains: a.domains as string[] | null,
+      phone: a.phone,
       linkedIn: a.linkedIn,
       whyJoin: a.whyJoin,
       status: a.status,
@@ -165,6 +168,7 @@ adminRouter.post("/interviewer-applications/:id/approve", async (req, res) => {
       track: app.track,
       domains: app.domains as object,
       experienceYears: app.experienceYears,
+      phone: app.phone ?? null,
       status: "active",
     },
   });
@@ -208,6 +212,85 @@ adminRouter.post("/interviewer-applications/:id/reject", async (req, res) => {
     data: { status: "rejected", reviewedAt: new Date() },
   });
   res.json({ ok: true });
+});
+
+/** Export all users (job seekers, recruiters, interviewers) as CSV with mobile */
+adminRouter.get("/export-users", async (_req, res) => {
+  const [jobSeekers, recruiters, interviewers] = await Promise.all([
+    prisma.jobSeekerProfile.findMany({
+      include: { user: { select: { id: true, email: true, name: true, createdAt: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.recruiterProfile.findMany({
+      include: { user: { select: { id: true, email: true, name: true, createdAt: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.interviewer.findMany({
+      where: { userId: { not: null } },
+      include: { user: { select: { id: true, email: true, name: true, createdAt: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  const escape = (s: string | null | undefined): string => {
+    if (s == null || s === "") return "";
+    const str = String(s);
+    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const rows: string[] = [];
+  rows.push("Type,User ID,Name,Email,Phone,Company/Role,Verification Status,Created At");
+
+  for (const p of jobSeekers) {
+    rows.push(
+      [
+        "Job Seeker",
+        p.userId,
+        escape(p.fullName ?? p.user?.name),
+        escape(p.email ?? p.user?.email),
+        escape(p.phone),
+        escape(p.targetJobTitle ?? p.currentRole ?? ""),
+        escape(p.verificationStatus ?? ""),
+        p.createdAt.toISOString(),
+      ].join(",")
+    );
+  }
+  for (const p of recruiters) {
+    rows.push(
+      [
+        "Recruiter",
+        p.userId,
+        escape(p.user?.name),
+        escape(p.user?.email),
+        escape(p.phone),
+        escape(p.companyName ?? ""),
+        "",
+        p.createdAt.toISOString(),
+      ].join(",")
+    );
+  }
+  for (const i of interviewers) {
+    rows.push(
+      [
+        "Interviewer",
+        i.userId ?? "",
+        escape(i.name ?? i.user?.name),
+        escape(i.user?.email),
+        escape(i.phone),
+        escape(i.domain ?? ""),
+        "",
+        i.createdAt.toISOString(),
+      ].join(",")
+    );
+  }
+
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-users-export.csv"');
+  res.send("\uFEFF" + csv);
 });
 
 /** Delete user (job seeker or recruiter) — email is blocked from future signups */

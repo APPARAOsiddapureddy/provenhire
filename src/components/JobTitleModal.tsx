@@ -9,33 +9,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Briefcase, Search } from "lucide-react";
 import { api } from "@/lib/api";
+import { INTERVIEWER_ROLES } from "@/data/interviewerRoles";
 
 const TECHNICAL_TITLES = [
-  "Frontend Developer",
-  "Backend Developer",
-  "Full Stack Developer",
-  "Data Analyst",
-  "Data Scientist",
-  "DevOps Engineer",
-  "ML Engineer",
-  "Mobile Developer",
-  "QA Engineer",
-  "Software Engineer",
-  "Other Technical Role",
+  ...INTERVIEWER_ROLES.filter((r) => r.track === "technical").map((r) => r.label),
+  "Other",
 ];
-
 const NON_TECHNICAL_TITLES = [
-  "Product Manager",
-  "Project Manager",
-  "Marketing Manager",
-  "Content Writer",
-  "HR Manager",
-  "Business Analyst",
-  "Sales Manager",
-  "UX Designer",
-  "Customer Success Manager",
-  "Operations Manager",
-  "Other Non-Technical Role",
+  ...INTERVIEWER_ROLES.filter((r) => r.track === "non_technical").map((r) => r.label),
+  "Other",
 ];
 
 interface JobTitleModalProps {
@@ -51,9 +33,7 @@ const JobTitleModal = ({ open, roleType, onSave }: JobTitleModalProps) => {
   const titles = roleType === "technical" ? TECHNICAL_TITLES : NON_TECHNICAL_TITLES;
 
   const handleSubmit = async () => {
-    const title = selected === "Other Technical Role" || selected === "Other Non-Technical Role"
-      ? customTitle.trim()
-      : selected;
+    const title = customTitle.trim() || selected;
     if (!title) return;
     setSaving(true);
     try {
@@ -66,10 +46,7 @@ const JobTitleModal = ({ open, roleType, onSave }: JobTitleModalProps) => {
     }
   };
 
-  const canSubmit = selected && (
-    (selected !== "Other Technical Role" && selected !== "Other Non-Technical Role") ||
-    customTitle.trim().length > 0
-  );
+  const canSubmit = selected === "Other" ? customTitle.trim().length > 0 : !!selected;
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
@@ -106,7 +83,7 @@ const JobTitleModal = ({ open, roleType, onSave }: JobTitleModalProps) => {
             ))}
           </div>
 
-          {(selected === "Other Technical Role" || selected === "Other Non-Technical Role") && (
+          {selected === "Other" && (
             <div className="space-y-2">
               <label className="text-sm font-medium">Specify your role</label>
               <div className="relative">

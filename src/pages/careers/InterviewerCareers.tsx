@@ -23,22 +23,7 @@ import {
   Search,
 } from "lucide-react";
 import InterviewerConducting from "@/components/graphics/InterviewerConducting";
-
-const TRACKS = [
-  { value: "technical", label: "Technical", desc: "DSA, Full Stack, System Design, ML/AI" },
-  { value: "non_technical", label: "Non-Technical", desc: "Product, Operations, Business" },
-];
-
-const DOMAIN_OPTIONS = [
-  "DSA / Algorithms",
-  "Full Stack Development",
-  "System Design",
-  "Machine Learning / AI",
-  "DevOps / Cloud",
-  "Data Science",
-  "Product Management",
-  "Analytics",
-];
+import { INTERVIEWER_ROLES } from "@/data/interviewerRoles";
 
 export default function InterviewerCareers() {
   const [submitting, setSubmitting] = useState(false);
@@ -47,20 +32,11 @@ export default function InterviewerCareers() {
     name: "",
     email: "",
     experienceYears: "" as string | number,
-    track: "technical" as "technical" | "non_technical",
-    domains: [] as string[],
+    primaryRole: "" as string,
+    phone: "",
     linkedIn: "",
     whyJoin: "",
   });
-
-  const toggleDomain = (d: string) => {
-    setForm((p) => ({
-      ...p,
-      domains: p.domains.includes(d)
-        ? p.domains.filter((x) => x !== d)
-        : [...p.domains, d],
-    }));
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,14 +45,17 @@ export default function InterviewerCareers() {
       toast.error("Name and email are required.");
       return;
     }
+    if (!form.primaryRole) {
+      toast.error("Please select your primary role.");
+      return;
+    }
     setSubmitting(true);
     try {
       await api.post("/api/interviewer-application", {
         name: form.name.trim(),
         email: form.email.trim().toLowerCase(),
         experienceYears: form.experienceYears === "" ? undefined : Number(form.experienceYears),
-        track: form.track,
-        domains: form.domains.length ? form.domains : undefined,
+        primaryRole: form.primaryRole,
         linkedIn: form.linkedIn.trim() || undefined,
         whyJoin: form.whyJoin.trim() || undefined,
       });
@@ -269,44 +248,35 @@ export default function InterviewerCareers() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Track</Label>
-                  <div className="flex gap-3">
-                    {TRACKS.map((t) => (
-                      <label
-                        key={t.value}
-                        className={`flex-1 p-4 rounded-lg border-2 cursor-pointer transition-colors ${
-                          form.track === t.value ? "border-primary bg-primary/5" : "border-muted hover:border-primary/50"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="track"
-                          value={t.value}
-                          checked={form.track === t.value}
-                          onChange={() => setForm((p) => ({ ...p, track: t.value as any }))}
-                          className="sr-only"
-                        />
-                        <div className="font-medium">{t.label}</div>
-                        <div className="text-xs text-muted-foreground mt-1">{t.desc}</div>
-                      </label>
+                  <Label>Primary role *</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Choose the role you can interview candidates for (e.g. Backend, Frontend, Marketing).
+                  </p>
+                  <select
+                    value={form.primaryRole}
+                    onChange={(e) => setForm((p) => ({ ...p, primaryRole: e.target.value }))}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    required
+                  >
+                    <option value="">Select your role</option>
+                    {INTERVIEWER_ROLES.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label} ({r.track === "technical" ? "Technical" : "Non-Technical"})
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Domains (select all that apply)</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {DOMAIN_OPTIONS.map((d) => (
-                      <Badge
-                        key={d}
-                        variant={form.domains.includes(d) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleDomain(d)}
-                      >
-                        {d}
-                      </Badge>
-                    ))}
-                  </div>
+                  <Label htmlFor="phone">Mobile Number</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+                    placeholder="+91 9876543210"
+                  />
+                  <p className="text-xs text-muted-foreground">Helps admin connect with you easily.</p>
                 </div>
 
                 <div className="space-y-2">

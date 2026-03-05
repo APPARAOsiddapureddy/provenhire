@@ -23,7 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare } from "lucide-react";
+import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download } from "lucide-react";
 import BroadcastMessageDialog from "@/components/admin/BroadcastMessageDialog";
 import { toast } from "sonner";
 
@@ -34,6 +34,7 @@ interface JobSeeker {
   experience_years: number | null;
   skills: string[] | null;
   verification_status: string | null;
+  phone: string | null;
   created_at: string;
   profile?: { full_name?: string | null; email?: string | null };
 }
@@ -43,6 +44,7 @@ interface Recruiter {
   user_id: string;
   full_name: string | null;
   email: string | null;
+  phone: string | null;
   company_name: string | null;
   created_at: string;
 }
@@ -71,6 +73,7 @@ interface InterviewerApplication {
   experienceYears: number | null;
   track: string;
   domains: string[] | null;
+  phone: string | null;
   linkedIn: string | null;
   whyJoin: string | null;
   status: string;
@@ -331,6 +334,34 @@ const AdminDashboard = () => {
                   </Button>
                 }
               />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  const base = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL || "http://localhost:5001");
+                  const url = `${base}/api/admin/export-users`;
+                  const token = localStorage.getItem("ph_jwt") || "";
+                  try {
+                    const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+                    if (!r.ok) throw new Error("Download failed");
+                    const csv = await r.text();
+                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                    const u = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = u;
+                    a.download = "provenhire-users-export.csv";
+                    a.click();
+                    URL.revokeObjectURL(u);
+                    toast.success("Users export downloaded");
+                  } catch {
+                    toast.error("Download failed");
+                  }
+                }}
+                className="shrink-0"
+              >
+                <Download className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Download Users</span>
+              </Button>
               <Button variant="outline" size="sm" onClick={fetchAllData} className="shrink-0">
                 <RefreshCw className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Refresh</span>
@@ -562,8 +593,9 @@ const AdminDashboard = () => {
                 <div className="overflow-x-auto">
                   <Table className="min-w-[640px]">
                     <TableHeader>
-                    <TableRow>
+                      <TableRow>
                       <TableHead>Name / Email</TableHead>
+                      <TableHead>Phone</TableHead>
                       <TableHead>College</TableHead>
                       <TableHead>Experience</TableHead>
                       <TableHead>Skills</TableHead>
@@ -575,7 +607,7 @@ const AdminDashboard = () => {
                   <TableBody>
                     {filteredJobSeekers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center text-muted-foreground">
                           No job seekers match your filters.
                         </TableCell>
                       </TableRow>
@@ -586,6 +618,7 @@ const AdminDashboard = () => {
                             <div className="font-medium">{seeker.profile?.full_name || "—"}</div>
                             <div className="text-xs text-muted-foreground">{seeker.profile?.email || seeker.user_id?.slice(0, 12) + "…"}</div>
                           </TableCell>
+                          <TableCell>{seeker.phone || "-"}</TableCell>
                           <TableCell>{seeker.college || "-"}</TableCell>
                           <TableCell>{seeker.experience_years ? `${seeker.experience_years} yrs` : "-"}</TableCell>
                           <TableCell>
@@ -676,15 +709,16 @@ const AdminDashboard = () => {
                       <TableRow>
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
+                        <TableHead>Phone</TableHead>
                         <TableHead>Company</TableHead>
                         <TableHead>Joined</TableHead>
                         <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredRecruiters.length === 0 ? (
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRecruiters.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center text-muted-foreground">
                           No recruiters match your search.
                         </TableCell>
                       </TableRow>
@@ -693,6 +727,7 @@ const AdminDashboard = () => {
                         <TableRow key={recruiter.id}>
                           <TableCell className="font-medium">{recruiter.full_name || "-"}</TableCell>
                           <TableCell>{recruiter.email || "-"}</TableCell>
+                          <TableCell>{recruiter.phone || "-"}</TableCell>
                           <TableCell>{recruiter.company_name || "-"}</TableCell>
                           <TableCell>{formatDate(recruiter.created_at)}</TableCell>
                           <TableCell>
@@ -897,6 +932,7 @@ const AdminDashboard = () => {
                       <TableRow>
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
+                        <TableHead>Phone</TableHead>
                         <TableHead>Track</TableHead>
                       <TableHead>Experience</TableHead>
                       <TableHead>Domains</TableHead>
@@ -908,7 +944,7 @@ const AdminDashboard = () => {
                   <TableBody>
                     {interviewerApplications.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                           No interviewer applications yet.
                         </TableCell>
                       </TableRow>
@@ -917,6 +953,7 @@ const AdminDashboard = () => {
                         <TableRow key={app.id}>
                           <TableCell className="font-medium">{app.name}</TableCell>
                           <TableCell>{app.email}</TableCell>
+                          <TableCell>{app.phone || "-"}</TableCell>
                           <TableCell>
                             <Badge variant="outline">{app.track}</Badge>
                           </TableCell>

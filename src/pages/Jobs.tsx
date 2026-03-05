@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
@@ -52,7 +52,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Staff Frontend Engineer',
     company: 'Nimbus Labs',
     location: 'Remote',
-    salary_range: '$170k - $210k',
+    salary_range: '₹17L - ₹21L',
     required_skills: ['React', 'TypeScript', 'Tailwind'],
     description: 'Lead frontend architecture and deliver high-performance customer experiences.',
     job_type: 'Full-time',
@@ -65,8 +65,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-2',
     title: 'Senior Backend Engineer (Go)',
     company: 'Atlas Data',
-    location: 'New York, NY',
-    salary_range: '$160k - $200k',
+    location: 'Gurugram',
+    salary_range: '₹16L - ₹20L',
     required_skills: ['Go', 'PostgreSQL', 'Docker'],
     description: 'Design resilient services and optimize large-scale data pipelines.',
     job_type: 'Full-time',
@@ -78,8 +78,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-3',
     title: 'Lead Product Designer',
     company: 'Aurora Studio',
-    location: 'San Francisco, CA',
-    salary_range: '$150k - $190k',
+    location: 'Bangalore',
+    salary_range: '₹15L - ₹19L',
     required_skills: ['Figma', 'UI/UX', 'Prototyping'],
     description: 'Own design systems and lead product discovery for core experiences.',
     job_type: 'Remote',
@@ -92,8 +92,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-4',
     title: 'Principal DevOps Engineer',
     company: 'CloudScale',
-    location: 'Austin, TX',
-    salary_range: '$180k - $220k',
+    location: 'Hyderabad',
+    salary_range: '₹18L - ₹22L',
     required_skills: ['AWS', 'Kubernetes', 'Terraform'],
     description: 'Build secure, scalable infrastructure with a focus on reliability.',
     job_type: 'Contract',
@@ -106,7 +106,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Growth Marketing Lead',
     company: 'GrowthInc',
     location: 'Remote',
-    salary_range: '$130k - $160k',
+    salary_range: '₹13L - ₹16L',
     required_skills: ['SEO', 'Content Strategy', 'Analytics'],
     description: 'Drive acquisition strategy and manage full-funnel growth.',
     job_type: 'Full-time',
@@ -119,8 +119,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-6',
     title: 'Senior Full Stack Engineer',
     company: 'InnovateX',
-    location: 'Seattle, WA',
-    salary_range: '$170k - $210k',
+    location: 'Pune',
+    salary_range: '₹17L - ₹21L',
     required_skills: ['React', 'Node.js', 'GraphQL'],
     description: 'Ship end-to-end features across web and APIs with high quality.',
     job_type: 'Full-time',
@@ -133,7 +133,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Senior iOS Engineer',
     company: 'Pulse Mobile',
     location: 'Remote',
-    salary_range: '$160k - $200k',
+    salary_range: '₹16L - ₹20L',
     required_skills: ['Swift', 'iOS', 'Combine'],
     description: 'Build high-quality iOS experiences used by millions.',
     job_type: 'Full-time',
@@ -145,8 +145,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-8',
     title: 'Senior Data Scientist',
     company: 'Quanta AI',
-    location: 'Boston, MA',
-    salary_range: '$175k - $220k',
+    location: 'Chennai',
+    salary_range: '₹17L - ₹22L',
     required_skills: ['Python', 'ML', 'Statistics'],
     description: 'Develop models that power personalization and ranking.',
     job_type: 'Full-time',
@@ -158,8 +158,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-9',
     title: 'Engineering Manager',
     company: 'Vertex Cloud',
-    location: 'Chicago, IL',
-    salary_range: '$190k - $240k',
+    location: 'Delhi NCR',
+    salary_range: '₹19L - ₹24L',
     required_skills: ['Leadership', 'System Design', 'Hiring'],
     description: 'Lead a team of engineers and scale our platform.',
     job_type: 'Full-time',
@@ -172,7 +172,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Principal Security Engineer',
     company: 'Aegis Security',
     location: 'Remote',
-    salary_range: '$185k - $230k',
+    salary_range: '₹18L - ₹23L',
     required_skills: ['Security', 'Cloud', 'Threat Modeling'],
     description: 'Own security architecture and risk mitigation across products.',
     job_type: 'Full-time',
@@ -185,7 +185,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Junior Web Developer',
     company: 'StartUp V',
     location: 'Remote',
-    salary_range: '$50k - $70k',
+    salary_range: '₹5L - ₹7L',
     required_skills: ['HTML', 'CSS', 'JavaScript'],
     description: 'Great opportunity for freshers.',
     job_type: 'Part-time',
@@ -198,7 +198,7 @@ const MOCK_JOBS: Job[] = [
     title: 'QA Automation Engineer',
     company: 'FlowTest',
     location: 'Remote',
-    salary_range: '$85k - $110k',
+    salary_range: '₹8L - ₹11L',
     required_skills: ['Playwright', 'CI/CD', 'TypeScript'],
     description: 'Build reliable test automation for web applications.',
     job_type: 'Full-time',
@@ -211,7 +211,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Content Marketing Specialist',
     company: 'Storyline',
     location: 'Remote',
-    salary_range: '$70k - $90k',
+    salary_range: '₹7L - ₹9L',
     required_skills: ['Content', 'SEO', 'Writing'],
     description: 'Create high-impact content for growth campaigns.',
     job_type: 'Full-time',
@@ -223,8 +223,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-14',
     title: 'Data Analyst',
     company: 'Metricly',
-    location: 'Denver, CO',
-    salary_range: '$80k - $100k',
+    location: 'Hyderabad',
+    salary_range: '₹8L - ₹10L',
     required_skills: ['SQL', 'Tableau', 'Excel'],
     description: 'Turn data into insights for product and growth teams.',
     job_type: 'Full-time',
@@ -237,7 +237,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Customer Success Manager',
     company: 'Customerly',
     location: 'Remote',
-    salary_range: '$75k - $95k',
+    salary_range: '₹7L - ₹9L',
     required_skills: ['CRM', 'Customer Success', 'Communication'],
     description: 'Own enterprise accounts and drive retention.',
     job_type: 'Full-time',
@@ -250,7 +250,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Frontend Engineer',
     company: 'BrightWave',
     location: 'Remote',
-    salary_range: '$105k - $135k',
+    salary_range: '₹10L - ₹13L',
     required_skills: ['React', 'JavaScript', 'CSS'],
     description: 'Build delightful UI experiences for our SaaS platform.',
     job_type: 'Full-time',
@@ -262,8 +262,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-17',
     title: 'Backend Engineer',
     company: 'LogiStack',
-    location: 'Atlanta, GA',
-    salary_range: '$110k - $140k',
+    location: 'Bangalore',
+    salary_range: '₹11L - ₹14L',
     required_skills: ['Node.js', 'PostgreSQL', 'REST'],
     description: 'Develop APIs that power logistics operations.',
     job_type: 'Full-time',
@@ -276,7 +276,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Product Manager',
     company: 'LaunchPad',
     location: 'Remote',
-    salary_range: '$120k - $150k',
+    salary_range: '₹12L - ₹15L',
     required_skills: ['Product', 'Roadmaps', 'Stakeholders'],
     description: 'Lead discovery and delivery for core product lines.',
     job_type: 'Full-time',
@@ -289,8 +289,8 @@ const MOCK_JOBS: Job[] = [
     id: 'mock-19',
     title: 'UI/UX Designer',
     company: 'Mint Studio',
-    location: 'Los Angeles, CA',
-    salary_range: '$95k - $125k',
+    location: 'Mumbai',
+    salary_range: '₹9L - ₹12L',
     required_skills: ['Figma', 'Design Systems', 'Research'],
     description: 'Create user-centered designs for mobile and web.',
     job_type: 'Full-time',
@@ -304,7 +304,7 @@ const MOCK_JOBS: Job[] = [
     title: 'Sales Development Rep',
     company: 'RevenueCore',
     location: 'Remote',
-    salary_range: '$60k - $80k',
+    salary_range: '₹6L - ₹8L',
     required_skills: ['Sales', 'Outbound', 'CRM'],
     description: 'Generate pipeline and qualify inbound leads.',
     job_type: 'Full-time',
@@ -511,27 +511,44 @@ const Jobs = () => {
     return 'Senior Level';
   };
 
+  const SALARY_RANGES = ['Above ₹25L', '₹20L - ₹25L', '₹15L - ₹20L', 'Below ₹15L'] as const;
+
   const parseSalaryMax = (salaryStr: string | null): number | null => {
     if (!salaryStr) return null;
-    const match = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i) || salaryStr.match(/\$?([\d,]+)k?/i);
-    if (match) {
-      const max = match[2] ? parseInt(match[2].replace(/,/g, ''), 10) : parseInt(match[1].replace(/,/g, ''), 10);
+    const lakhMatch = salaryStr.match(/₹?\s*([\d,]+)L\s*-?\s*₹?\s*([\d,]+)L/i) || salaryStr.match(/₹?\s*([\d,]+)L/i);
+    if (lakhMatch) {
+      const max = lakhMatch[2] ? parseInt(lakhMatch[2].replace(/,/g, ''), 10) : parseInt(lakhMatch[1].replace(/,/g, ''), 10);
       return isNaN(max) ? null : max;
+    }
+    const usdMatch = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i) || salaryStr.match(/\$?([\d,]+)k?/i);
+    if (usdMatch) {
+      const max = usdMatch[2] ? parseInt(usdMatch[2].replace(/,/g, ''), 10) : parseInt(usdMatch[1].replace(/,/g, ''), 10);
+      return isNaN(max) ? null : Math.floor(max / 10);
     }
     return null;
   };
 
   const parseSalaryMin = (salaryStr: string | null): number | null => {
     if (!salaryStr) return null;
-    const match = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i);
-    if (match) {
-      const min = parseInt(match[1].replace(/,/g, ''), 10);
+    const lakhMatch = salaryStr.match(/₹?\s*([\d,]+)L\s*-?\s*₹?\s*([\d,]+)L/i);
+    if (lakhMatch) {
+      const min = parseInt(lakhMatch[1].replace(/,/g, ''), 10);
       return isNaN(min) ? null : min;
     }
-    const single = salaryStr.match(/\$?([\d,]+)k?/i);
-    if (single) {
-      const v = parseInt(single[1].replace(/,/g, ''), 10);
+    const lakhSingle = salaryStr.match(/₹?\s*([\d,]+)L/i);
+    if (lakhSingle) {
+      const v = parseInt(lakhSingle[1].replace(/,/g, ''), 10);
       return isNaN(v) ? null : v;
+    }
+    const usdMatch = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i);
+    if (usdMatch) {
+      const min = parseInt(usdMatch[1].replace(/,/g, ''), 10);
+      return isNaN(min) ? null : Math.floor(min / 10);
+    }
+    const usdSingle = salaryStr.match(/\$?([\d,]+)k?/i);
+    if (usdSingle) {
+      const v = parseInt(usdSingle[1].replace(/,/g, ''), 10);
+      return isNaN(v) ? null : Math.floor(v / 10);
     }
     return null;
   };
@@ -544,10 +561,10 @@ const Jobs = () => {
     const jobMin = min ?? 0;
     const jobMax = max ?? min ?? 999;
     switch (range) {
-      case 'Above $100k': return jobMin >= 100 || jobMax >= 100;
-      case '$80k - $100k': return jobMin <= 100 && jobMax >= 80;
-      case '$60k - $80k': return jobMin <= 80 && jobMax >= 60;
-      case 'Below $60k': return jobMax < 60;
+      case 'Above ₹25L': return jobMin >= 25 || jobMax >= 25;
+      case '₹20L - ₹25L': return jobMin <= 25 && jobMax >= 20;
+      case '₹15L - ₹20L': return jobMin <= 20 && jobMax >= 15;
+      case 'Below ₹15L': return jobMax < 15;
       default: return true;
     }
   };
@@ -912,7 +929,7 @@ const Jobs = () => {
                   <div className="mb-6">
                     <h3 className="font-semibold mb-4 text-foreground">Salary</h3>
                     <div className="space-y-3">
-                      {['Above $100k', '$80k - $100k', '$60k - $80k', 'Below $60k'].map(range => (
+                      {SALARY_RANGES.map(range => (
                         <label key={range} className="flex items-center gap-3 cursor-pointer">
                           <input
                             type="radio"
@@ -953,6 +970,8 @@ const Jobs = () => {
                       </Button>
                     </SheetTrigger>
                     <SheetContent side="bottom" className="h-[85vh] overflow-y-auto rounded-t-xl">
+                      <SheetTitle className="sr-only">Job filters</SheetTitle>
+                      <SheetDescription className="sr-only">Filter jobs by type, experience, and salary</SheetDescription>
                       <div className="pt-2 pb-6">
                         <h3 className="font-semibold text-lg mb-4">Filters</h3>
                         <div className="bg-card rounded-xl p-4 shadow-sm border border-border space-y-6">
@@ -981,7 +1000,7 @@ const Jobs = () => {
                           <div>
                             <h3 className="font-semibold mb-3 text-foreground">Salary</h3>
                             <div className="space-y-2">
-                              {['Above $100k', '$80k - $100k', '$60k - $80k', 'Below $60k'].map(range => (
+                              {SALARY_RANGES.map(range => (
                                 <label key={range} className="flex items-center gap-3 cursor-pointer">
                                   <input type="radio" name="salary-mobile" checked={selectedSalary === range} onChange={() => handleSalaryChange(range)} className="h-4 w-4" />
                                   <span className="text-sm">{range}</span>

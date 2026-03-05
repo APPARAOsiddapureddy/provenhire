@@ -37,6 +37,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import DashboardShell from "@/components/DashboardShell";
+import PhoneCollectGate from "@/components/PhoneCollectGate";
 
 interface Job {
   id: string;
@@ -348,6 +349,7 @@ const RecruiterDashboard = () => {
   const userInitials = (profile?.full_name || user?.email || 'R').toString().split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
 
   return (
+    <PhoneCollectGate role="recruiter">
     <div className="min-h-screen">
       <DashboardShell
         sidebarSections={sidebarSections}
@@ -788,6 +790,7 @@ const RecruiterDashboard = () => {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </PhoneCollectGate>
   );
 };
 

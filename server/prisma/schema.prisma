@@ -246,6 +246,7 @@ model InterviewerApplication {
   domains         Json?
   linkedIn        String?
   whyJoin         String?
+  phone           String?
   status          String   @default("pending")
   createdAt       DateTime @default(now())
   reviewedAt      DateTime?
@@ -259,6 +260,7 @@ model Interviewer {
   track          String?  @default("technical")
   domains        Json?
   experienceYears Int?
+  phone          String?
   status         String   @default("active")
   createdAt      DateTime @default(now())
 

@@ -94,22 +94,32 @@ export async function register(req: Request, res: Response) {
 }
 
 export async function login(req: Request, res: Response) {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid login payload" });
+  try {
+    if (!process.env.JWT_SECRET) {
+      console.error("[auth/login] JWT_SECRET is not configured");
+      return res.status(500).json({ error: "Server configuration error. Contact support." });
+    }
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid login payload" });
+    }
+    const { email, password } = parsed.data;
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!user) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const session = await createSession(user);
+    return res.json(session);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Login failed";
+    console.error("[auth/login]", msg, err);
+    return res.status(500).json({ error: msg });
   }
-  const { email, password } = parsed.data;
-  const normalizedEmail = email.trim().toLowerCase();
-  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (!user) {
-    return res.status(401).json({ error: "Invalid email or password" });
-  }
-  const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) {
-    return res.status(401).json({ error: "Invalid email or password" });
-  }
-  const session = await createSession(user);
-  return res.json(session);
 }
 
 export async function refresh(req: Request, res: Response) {

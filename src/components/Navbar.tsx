@@ -18,7 +18,7 @@ const Navbar = () => {
     <>
       {userRole !== "recruiter" && <Link to="/jobs" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Find Jobs</Link>}
       {userRole !== "jobseeker" && <Link to="/for-employers" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">For Employers</Link>}
-      <Link to="/careers/interviewer" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Careers</Link>
+      {userRole !== "jobseeker" && <Link to="/careers/interviewer" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Careers</Link>}
       <Link to="/about" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">About</Link>
     </>
   );

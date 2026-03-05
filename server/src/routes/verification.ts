@@ -2,7 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
-import { createAptitudeSession, storeAnswerKey, getAnswerKey, clearAnswerKey } from "../data/aptitude-loader.js";
+import { createAptitudeSession, getPracticeAptitudeQuestions, storeAnswerKey, getAnswerKey, clearAnswerKey } from "../data/aptitude-loader.js";
+import { rolesMatch } from "../data/interviewerRoles.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -121,6 +122,17 @@ verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedReq
   } catch (e) {
     console.error("[verification/aptitude/questions]", e);
     return res.status(500).json({ error: "Failed to load aptitude questions" });
+  }
+});
+
+/** GET 2-3 practice aptitude questions (no session, no scoring). Public - no auth required. */
+verificationRouter.get("/aptitude/practice", async (_req, res) => {
+  try {
+    const questions = getPracticeAptitudeQuestions();
+    return res.json({ questions });
+  } catch (e) {
+    console.error("[verification/aptitude/practice]", e);
+    return res.status(500).json({ error: "Failed to load practice questions" });
   }
 });
 
@@ -247,10 +259,11 @@ verificationRouter.get("/human-interview-session", requireAuth, async (req: Auth
   res.json({ session: session ? { id: session.id, scheduledAt: session.scheduledAt, status: session.status, meetingLink: session.meetingLink } : null });
 });
 
-/** Match interviewers by track (technical/non_technical) with available slots. Non-tech: 5+ years experience. */
+/** Match interviewers by track and role (targetJobTitle). Role must match (Backend, Frontend, etc.). */
 verificationRouter.get("/matched-interviewers", requireAuth, async (req: AuthedRequest, res) => {
   const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
   const track = (profile?.roleType as string) === "non_technical" ? "non_technical" : "technical";
+  const targetTitle = profile?.targetJobTitle ?? null;
   const from = new Date();
   const to = new Date();
   to.setDate(to.getDate() + 14);
@@ -283,9 +296,12 @@ verificationRouter.get("/matched-interviewers", requireAuth, async (req: AuthedR
 
   const byInterviewer = new Map<string, { interviewer: any; slots: any[] }>();
   for (const s of slots) {
-    const key = s.interviewer.id;
+    const inv = s.interviewer;
+    const invRole = inv.domain ?? (Array.isArray(inv.domains) ? inv.domains[0] : null);
+    if (!rolesMatch(targetTitle, invRole)) continue;
+    const key = inv.id;
     if (!byInterviewer.has(key)) {
-      byInterviewer.set(key, { interviewer: s.interviewer, slots: [] });
+      byInterviewer.set(key, { interviewer: inv, slots: [] });
     }
     byInterviewer.get(key)!.slots.push({
       id: s.id,
@@ -326,6 +342,10 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
   const track = (profile?.roleType as string) === "non_technical" ? "non_technical" : "technical";
   if (slot.interviewer.track !== track) {
     return res.status(400).json({ error: "Interviewer track does not match your profile" });
+  }
+  const invRole = slot.interviewer.domain ?? (Array.isArray(slot.interviewer.domains) ? slot.interviewer.domains[0] : null);
+  if (!rolesMatch(profile?.targetJobTitle, invRole)) {
+    return res.status(400).json({ error: "Interviewer role does not match your target job title" });
   }
 
   const existingSession = await prisma.humanInterviewSession.findFirst({
