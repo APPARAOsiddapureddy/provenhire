@@ -58,7 +58,7 @@ export function createApp() {
     res.json({ status: "running", service: "provenhire-api" });
   });
 
-  app.get("/api/diagnostic", async (_req, res) => {
+  app.get("/diagnostic", async (_req, res) => {
     const jwtOk = !!process.env.JWT_SECRET;
     let dbOk = false;
     try {

@@ -8,6 +8,10 @@
       "source": "/uploads/:path*",
       "destination": "https://provenhire-updated.onrender.com/uploads/:path*"
     },
+    {
+      "source": "/diagnostic",
+      "destination": "https://provenhire-updated.onrender.com/diagnostic"
+    },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
