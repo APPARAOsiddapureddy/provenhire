@@ -45,7 +45,7 @@ Step-by-step guide to fix and verify the full deployment flow.
 | **Root Directory** | `server` |
 | **Runtime** | Node |
 | **Build Command** | `npm install && npx prisma generate && npm run build && npm run deploy:migrate` |
-| **Start Command** | `npm run start` |
+| **Start Command** | `npm run start` — **do not use** `npm run dev` (dev runs tsx watch and can fail with PORT errors) |
 | **Instance Type** | Free (or paid) |
 
 **Important:** `prisma migrate deploy` runs during build. If `DATABASE_URL` is wrong or the database is unreachable, the **build will fail** and you'll see the error in Build Logs. Fix the database connection before the service can start.
@@ -322,6 +322,15 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 
 - **Cause:** Usually `DATABASE_URL` missing/wrong, `JWT_SECRET` missing, or `prisma migrate deploy` fails.
 - **Fix:** Check **Logs** tab for the actual error. Verify env vars. Use **Internal Database URL** from Render Postgres (same region).
+
+### "Running 'npm run dev'" or ERR_SOCKET_BAD_PORT (port NaN)
+
+- **Cause 1:** Start Command is set to `npm run dev` instead of `npm run start`. The `dev` script uses `tsx watch` (for local development only).
+- **Cause 2:** `PORT` env var is missing or invalid. Render sets it by default (10000), but in some setups it may not be available.
+- **Fix:**
+  1. Ensure **Start Command** = `npm run start`.
+  2. Add **`PORT`** = **`10000`** in Environment Variables (Render → Environment). This guarantees a valid port.
+  3. Push latest code — the server now uses 10000 as fallback when PORT is missing.
 
 ---
 
