@@ -1,7 +1,8 @@
 /**
- * Loads aptitude questions from incruiter JSON and selects 20 based on experience level.
- * - experienceYears < 1: 10 easy, 5 medium, 5 hard
- * - experienceYears >= 1: 5 easy, 10 medium, 5 hard
+ * Loads aptitude questions from incruiter JSON and selects questions to total 100 marks.
+ * Marks: easy=1, medium=2, hard=2. Pass threshold: 60/100.
+ * - experienceYears < 1: more easy (26 easy, 25 medium, 12 hard)
+ * - experienceYears >= 1: more medium (20 easy, 30 medium, 10 hard)
  */
 
 import { readFileSync } from "fs";
@@ -9,6 +10,10 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export const APTITUDE_MARKS = { easy: 1, medium: 2, hard: 2 } as const;
+export const APTITUDE_TOTAL_MARKS = 100;
+export const APTITUDE_PASS_THRESHOLD = 60;
 
 export interface McqQuestionRaw {
   _id?: { $oid?: string };
@@ -25,11 +30,13 @@ export interface AptitudeQuestionForClient {
   id: string;
   question: string;
   options: string[];
+  marks: number;
 }
 
 export interface AptitudeSession {
   questions: AptitudeQuestionForClient[];
   answerKey: Record<string, string>;
+  marksKey: Record<string, number>;
 }
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -56,7 +63,9 @@ function getQuestionId(q: McqQuestionRaw): string {
 }
 
 /**
- * Select 20 questions by experience and return both questions (for client) and answer key (for scoring).
+ * Select questions to total 100 marks. easy=1, medium=2, hard=2.
+ * - experienceYears < 1: 26 easy, 25 medium, 12 hard (= 100)
+ * - experienceYears >= 1: 20 easy, 30 medium, 10 hard (= 100)
  */
 export function createAptitudeSession(experienceYears: number): AptitudeSession {
   const all = loadQuestions();
@@ -71,13 +80,13 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
   let needHard: number;
 
   if (experienceYears < 1) {
-    needEasy = 10;
-    needMedium = 5;
-    needHard = 5;
+    needEasy = 26;
+    needMedium = 25;
+    needHard = 12;
   } else {
-    needEasy = 5;
-    needMedium = 10;
-    needHard = 5;
+    needEasy = 20;
+    needMedium = 30;
+    needHard = 10;
   }
 
   const pick = (pool: McqQuestionRaw[], n: number, exclude = new Set<McqQuestionRaw>()): McqQuestionRaw[] => {
@@ -95,25 +104,31 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
   hard.forEach((q) => used.add(q));
 
   let selected: McqQuestionRaw[] = [...easy, ...medium, ...hard];
-  const needed = 20 - selected.length;
+  const targetTotal = needEasy + needMedium + needHard;
+  const needed = targetTotal - selected.length;
   if (needed > 0) {
     const fallback = all.filter((q) => !used.has(q));
     selected = [...selected, ...pick(fallback, needed)];
   }
   selected = shuffleArray(selected);
   const answerKey: Record<string, string> = {};
+  const marksKey: Record<string, number> = {};
   const questions: AptitudeQuestionForClient[] = selected.map((q) => {
     const id = getQuestionId(q);
+    const diff = (q.difficultyLevel || "").toLowerCase();
+    const marks = diff === "easy" ? APTITUDE_MARKS.easy : diff === "medium" ? APTITUDE_MARKS.medium : APTITUDE_MARKS.hard;
     answerKey[id] = (q.answer || "").trim();
+    marksKey[id] = marks;
     const opts = [q.option_1, q.option_2, q.option_3, q.option_4].filter(Boolean);
     return {
       id,
       question: q.question,
       options: shuffleArray(opts),
+      marks,
     };
   });
 
-  return { questions, answerKey };
+  return { questions, answerKey, marksKey };
 }
 
 /**
@@ -126,20 +141,22 @@ export function getPracticeAptitudeQuestions(): AptitudeQuestionForClient[] {
   return picked.map((q) => {
     const id = getQuestionId(q);
     const opts = [q.option_1, q.option_2, q.option_3, q.option_4].filter(Boolean);
+    const m = APTITUDE_MARKS[(q.difficultyLevel || "easy").toLowerCase() as keyof typeof APTITUDE_MARKS] ?? 1;
     return {
       id,
       question: q.question,
       options: shuffleArray(opts),
+      marks: m,
     };
   });
 }
 
-/** In-memory store: userId -> { answerKey, expiresAt }. Cleared after submit or TTL. */
-const answerKeyStore = new Map<string, { answerKey: Record<string, string>; expiresAt: number }>();
+/** In-memory store: userId -> { answerKey, marksKey, expiresAt }. Cleared after submit or TTL. */
+const answerKeyStore = new Map<string, { answerKey: Record<string, string>; marksKey: Record<string, number>; expiresAt: number }>();
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-export function storeAnswerKey(userId: string, answerKey: Record<string, string>): void {
-  answerKeyStore.set(userId, { answerKey, expiresAt: Date.now() + TTL_MS });
+export function storeAnswerKey(userId: string, answerKey: Record<string, string>, marksKey: Record<string, number>): void {
+  answerKeyStore.set(userId, { answerKey, marksKey, expiresAt: Date.now() + TTL_MS });
 }
 
 export function getAnswerKey(userId: string): Record<string, string> | null {
@@ -149,6 +166,12 @@ export function getAnswerKey(userId: string): Record<string, string> | null {
     return null;
   }
   return ent.answerKey;
+}
+
+export function getMarksKey(userId: string): Record<string, number> | null {
+  const ent = answerKeyStore.get(userId);
+  if (!ent || Date.now() > ent.expiresAt) return null;
+  return ent.marksKey;
 }
 
 export function clearAnswerKey(userId: string): void {

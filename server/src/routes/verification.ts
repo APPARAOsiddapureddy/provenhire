@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, AuthedRequest } from "../middleware/auth.js";
+import { requireAuth, optionalAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
-import { createAptitudeSession, getPracticeAptitudeQuestions, storeAnswerKey, getAnswerKey, clearAnswerKey } from "../data/aptitude-loader.js";
+import { createAptitudeSession, getPracticeAptitudeQuestions, storeAnswerKey, getAnswerKey, getMarksKey, clearAnswerKey, APTITUDE_TOTAL_MARKS, APTITUDE_PASS_THRESHOLD } from "../data/aptitude-loader.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
@@ -111,14 +111,19 @@ verificationRouter.post("/stages/reset", requireAuth, async (req: AuthedRequest,
   res.json({ ok: true });
 });
 
-/** GET aptitude questions (20) based on experience: <1yr → 10 easy, 5 medium, 5 hard; >=1yr → 5 easy, 10 medium, 5 hard */
+/** GET aptitude questions (100 marks total, 20 min). easy=1, medium=2, hard=2. Pass: 60/100. */
 verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedRequest, res) => {
   try {
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const experienceYears = profile?.experienceYears ?? 0;
-    const { questions, answerKey } = createAptitudeSession(experienceYears);
-    storeAnswerKey(req.user!.id, answerKey);
-    return res.json({ questions });
+    const { questions, answerKey, marksKey } = createAptitudeSession(experienceYears);
+    storeAnswerKey(req.user!.id, answerKey, marksKey);
+    return res.json({
+      questions,
+      timeLimitMinutes: 20,
+      totalMarks: APTITUDE_TOTAL_MARKS,
+      passThreshold: APTITUDE_PASS_THRESHOLD,
+    });
   } catch (e) {
     console.error("[verification/aptitude/questions]", e);
     return res.status(500).json({ error: "Failed to load aptitude questions" });
@@ -146,21 +151,27 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
 
   let score: number;
-  let answersPayload: { questions: number; correct: number } | null = null;
+  let answersPayload: Record<string, unknown> | null = null;
 
   if (parsed.data.answers && typeof parsed.data.answers === "object" && !Array.isArray(parsed.data.answers)) {
     const answerKey = getAnswerKey(req.user!.id);
+    const marksKey = getMarksKey(req.user!.id);
     if (!answerKey) {
       return res.status(400).json({ error: "Aptitude session expired. Please refresh and retake the test." });
     }
-    let correct = 0;
+    let earnedMarks = 0;
+    let correctCount = 0;
     for (const [qId, selected] of Object.entries(parsed.data.answers)) {
       const expected = answerKey[qId];
-      if (expected != null && normalizeAnswer(selected) === normalizeAnswer(expected)) correct++;
+      const qMarks = marksKey?.[qId] ?? 1;
+      if (expected != null && normalizeAnswer(selected) === normalizeAnswer(expected)) {
+        earnedMarks += qMarks;
+        correctCount++;
+      }
     }
-    const total = Object.keys(answerKey).length;
-    score = total > 0 ? Math.round((correct / total) * 100) : 0;
-    answersPayload = { questions: total, correct };
+    score = earnedMarks; // Raw marks out of 100; pass threshold is 60
+    const totalMarksVal = marksKey ? Object.values(marksKey).reduce((a, b) => a + b, 0) : Object.keys(answerKey).length;
+    answersPayload = { questions: Object.keys(answerKey).length, correct: correctCount, earnedMarks, totalMarks: totalMarksVal };
     clearAnswerKey(req.user!.id);
   } else {
     score = parsed.data.score ?? 0;
@@ -218,11 +229,11 @@ verificationRouter.get("/dsa/latest", requireAuth, async (req: AuthedRequest, re
   res.json({ result });
 });
 
-verificationRouter.get("/cooldowns", requireAuth, async (_req, res) => {
+verificationRouter.get("/cooldowns", optionalAuth, async (_req, res) => {
   res.json({ aptitude: { inCooldown: false }, dsa: { inCooldown: false } });
 });
 
-verificationRouter.get("/invalidated", requireAuth, async (_req, res) => {
+verificationRouter.get("/invalidated", optionalAuth, async (_req, res) => {
   res.json({ aptitude: false, dsa: false });
 });
 

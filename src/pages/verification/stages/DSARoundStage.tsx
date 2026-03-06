@@ -30,7 +30,15 @@ import {
   type DSAQuestion,
   type ProgrammingLanguage,
   supportedLanguages,
+  DSA_TOTAL_MINUTES,
+  DSA_MINUTES_PER_QUESTION,
 } from "@/data/dsaQuestions";
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 interface DSARoundStageProps {
   stageStatus?: string;

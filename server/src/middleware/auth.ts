@@ -20,6 +20,21 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   }
 }
 
+/** Sets req.user if valid token present; does not 401 when missing. */
+export function optionalAuth(req: AuthedRequest, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (token) {
+    try {
+      const payload = verifyJwt(token);
+      req.user = { id: payload.userId, role: payload.role };
+    } catch {
+      // invalid token - leave req.user unset
+    }
+  }
+  next();
+}
+
 export function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;

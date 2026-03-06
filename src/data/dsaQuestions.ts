@@ -1531,6 +1531,12 @@ import { getNewDSAQuestions } from "./dsaQuestionsBank";
 
 export const allDSAQuestions = [...dsaQuestions, ...getNewDSAQuestions()];
 
+/** DSA round: 3 questions, 30 min each, 90 min total. Pass: 60/100. */
+export const DSA_QUESTIONS_COUNT = 3;
+export const DSA_MINUTES_PER_QUESTION = 30;
+export const DSA_TOTAL_MINUTES = DSA_QUESTIONS_COUNT * DSA_MINUTES_PER_QUESTION; // 90
+export const DSA_PASS_THRESHOLD = 60;
+
 export const generateDSATest = (experienceYears: number): DSAQuestion[] => {
   const pool = allDSAQuestions;
   const byDiff = (d: "Easy" | "Medium" | "Hard") =>
@@ -1544,7 +1550,7 @@ export const generateDSATest = (experienceYears: number): DSAQuestion[] => {
   } else {
     questions = [...byDiff("Medium").slice(0, 1), ...byDiff("Hard").slice(0, 2)];
   }
-  return questions.sort(() => Math.random() - 0.5).slice(0, 4);
+  return questions.sort(() => Math.random() - 0.5).slice(0, DSA_QUESTIONS_COUNT);
 };
 
 export const getLanguageIcon = (language: ProgrammingLanguage): string => {

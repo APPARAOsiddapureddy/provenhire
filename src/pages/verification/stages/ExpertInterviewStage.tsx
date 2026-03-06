@@ -89,14 +89,21 @@ const ExpertInterviewStage = ({
     };
   }, []);
 
+  // Sync stream to video when camera becomes active (video mounts after cameraActive is true)
+  useEffect(() => {
+    if (cameraActive && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [cameraActive]);
+
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 }, audio: false });
       streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
       setCameraActive(true);
     } catch (e) {
-      toast.error("Camera access denied. You can continue with typing.");
+      toast.error("Camera access denied. Please allow camera in browser settings and try again.");
     }
   };
 
@@ -112,11 +119,19 @@ const ExpertInterviewStage = ({
     else startCamera();
   };
 
-  const startVoiceInput = () => {
+  const startVoiceInput = async () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      toast.error("Voice input is not supported in this browser. Please type your answer.");
+      toast.error("Voice input is not supported in this browser. Use Chrome or Edge. You can type your answer.");
+      return;
+    }
+    try {
+      // Request microphone permission first (required by some browsers)
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+      toast.error("Microphone access denied. Please allow microphone to use voice input, or type your answer.");
       return;
     }
     const recognition = new SpeechRecognition();
@@ -126,16 +141,37 @@ const ExpertInterviewStage = ({
     recognition.onresult = (e: any) => {
       const parts = Array.from(e.results)
         .filter((r: any) => r.isFinal)
-        .map((r: any) => r[0].transcript);
+        .map((r: any) => r[0]?.transcript)
+        .filter(Boolean);
       if (parts.length) {
         const newPart = parts.join(" ");
         setAnswer((prev) => (prev ? prev + " " + newPart : newPart).trim());
       }
     };
-    recognition.onerror = () => setMicActive(false);
-    recognition.start();
-    recognitionRef.current = recognition;
-    setMicActive(true);
+    recognition.onerror = (e: any) => {
+      setMicActive(false);
+      recognitionRef.current = null;
+      if (e.error === "not-allowed") {
+        toast.error("Microphone access denied. You can type your answer.");
+      } else if (e.error === "no-speech") {
+        // User didn't speak - no need to toast
+      } else if (e.error !== "aborted") {
+        console.warn("[SpeechRecognition] error:", e.error);
+      }
+    };
+    recognition.onend = () => {
+      if (micActive && recognitionRef.current === recognition) {
+        setMicActive(false);
+        recognitionRef.current = null;
+      }
+    };
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setMicActive(true);
+    } catch (e) {
+      toast.error("Could not start voice input. Please type your answer.");
+    }
   };
 
   const stopVoiceInput = () => {

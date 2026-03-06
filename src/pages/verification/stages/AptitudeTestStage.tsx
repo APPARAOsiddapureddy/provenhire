@@ -15,11 +15,19 @@ import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 
 const ELIGIBILITY_THRESHOLD = 60;
+const APTITUDE_TIME_MINUTES = 20;
 
 interface AptitudeQuestion {
   id: string;
   question: string;
   options: string[];
+  marks?: number;
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 interface AptitudeTestStageProps {
@@ -54,11 +62,23 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
     onSoundDetected: () => setSoundAlertOpen(true),
   });
 
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState(APTITUDE_TIME_MINUTES);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get<{ questions: AptitudeQuestion[] }>("/api/verification/aptitude/questions");
+        const res = await api.get<{
+          questions: AptitudeQuestion[];
+          timeLimitMinutes?: number;
+          totalMarks?: number;
+          passThreshold?: number;
+        }>("/api/verification/aptitude/questions");
         setQuestions(res.questions ?? []);
+        const mins = res.timeLimitMinutes ?? APTITUDE_TIME_MINUTES;
+        setTimeLimitMinutes(mins);
+        setSecondsRemaining(mins * 60);
       } catch (e) {
         toast.error("Failed to load aptitude questions. Please refresh.");
       } finally {
@@ -66,6 +86,29 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!inTest || secondsRemaining == null || secondsRemaining <= 0) return;
+    timerRef.current = setInterval(() => {
+      setSecondsRemaining((s) => {
+        if (s == null || s <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [inTest]);
+
+  useEffect(() => {
+    if (secondsRemaining === 0 && inTest && questions.length > 0 && !loading) {
+      toast.warning("Time's up! Submitting your answers.");
+      handleSubmit();
+    }
+  }, [secondsRemaining]);
 
   useEffect(() => {
     return () => {
