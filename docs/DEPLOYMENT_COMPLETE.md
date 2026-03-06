@@ -11,7 +11,7 @@ Step-by-step guide to fix and verify the full deployment flow.
 ```
 
 - **Frontend (Vercel):** React app. Uses **Vercel rewrites** (`vercel.json`) to proxy `/api` and `/uploads` to Render — no CORS, same-origin requests.
-- **Backend (Render):** Express API. Edit `vercel.json` if your Render URL is not `provenhire-updated.onrender.com`.
+- **Backend (Render):** Express API. Edit `vercel.json` and `vite.config.ts` if your Render URL is not `provenhire-server1.onrender.com`.
 
 ---
 
@@ -193,7 +193,7 @@ The project uses **Vercel rewrites** (`vercel.json`) to proxy `/api` and `/uploa
 - **No `VITE_API_URL` needed** — the frontend uses same-origin requests; Vercel forwards them to Render.
 - **No CORS issues** — requests appear same-origin to the browser.
 
-**Ensure `vercel.json` has your backend URL.** If your Render URL is not `provenhire-updated.onrender.com`, edit `vercel.json` and update the `destination` in the `/api` and `/uploads` rewrites.
+**Ensure `vercel.json` has your backend URL.** If your Render URL is not `provenhire-server1.onrender.com`, edit `vercel.json` and update the `destination` in the `/api` and `/uploads` rewrites.
 
 If you prefer **direct** backend calls (no proxy), set `VITE_API_URL` to your Render URL and redeploy.
 

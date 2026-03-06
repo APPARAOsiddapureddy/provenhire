@@ -66,9 +66,10 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   const token = getAuthToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
+  const url = path.startsWith("/") ? `${API_BASE}${path}` : `${API_BASE}/${path}`;
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    res = await fetch(url, { ...options, headers });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Network error";
     const isNetworkError =

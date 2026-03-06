@@ -2,15 +2,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://provenhire-server1.onrender.com/api/:path*"
+      "destination": "https://provenhire-updated.onrender.com/api/:path*"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://provenhire-server1.onrender.com/uploads/:path*"
+      "destination": "https://provenhire-updated.onrender.com/uploads/:path*"
     },
     {
       "source": "/diagnostic",
-      "destination": "https://provenhire-server1.onrender.com/diagnostic"
+      "destination": "https://provenhire-updated.onrender.com/diagnostic"
     },
     { "source": "/(.*)", "destination": "/" }
   ]
