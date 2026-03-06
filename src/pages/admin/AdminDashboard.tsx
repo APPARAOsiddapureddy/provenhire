@@ -232,14 +232,18 @@ const AdminDashboard = () => {
   const handleApproveInterviewer = async (appId: string) => {
     setApprovingId(appId);
     try {
-      const res = await api.post<{ setPasswordLink: string; email: string }>(
+      const res = await api.post<{ setPasswordLink: string; email: string; emailSent?: boolean }>(
         `/api/admin/interviewer-applications/${appId}/approve`
       );
       setInterviewerApplications((prev) =>
         prev.map((a) => (a.id === appId ? { ...a, status: "approved", reviewedAt: new Date().toISOString() } : a))
       );
       setInviteLinkDialog({ email: res.email, link: res.setPasswordLink });
-      toast.success("Interviewer approved. Share the set-password link with them.");
+      toast.success(
+        res.emailSent
+          ? `Interviewer approved. Email sent to ${res.email}.`
+          : "Interviewer approved. Share the set-password link manually (email not configured)."
+      );
     } catch (err: any) {
       toast.error(err?.message || "Failed to approve");
     } finally {

@@ -68,3 +68,28 @@ export async function sendPasswordResetEmail(to: string, resetLink: string): Pro
   });
   return !error;
 }
+
+/** Send interviewer acceptance email with set-password link. Returns true if sent. */
+export async function sendInterviewerAcceptanceEmail(
+  to: string,
+  name: string,
+  setPasswordLink: string
+): Promise<boolean> {
+  if (!resend) return false;
+  const displayName = name?.trim() || "Interviewer";
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: "Welcome to ProvenHire — Set Your Password",
+    html: `
+      <p>Hi ${displayName},</p>
+      <p>Your application to join ProvenHire as an Expert Interviewer has been approved!</p>
+      <p>Click the link below to set your password and access your interviewer dashboard:</p>
+      <p><a href="${setPasswordLink}" style="color:#D4AF37;font-weight:bold">Set Password &amp; Get Started</a></p>
+      <p>This link expires in 7 days. If you have any questions, reply to this email.</p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+

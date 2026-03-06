@@ -4,6 +4,7 @@ import { requireAdmin } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { hashToken, generateRefreshToken } from "../utils/jwt.js";
 import { adminNotificationsRouter } from "./admin-notifications.js";
+import { sendInterviewerAcceptanceEmail } from "../services/resend.js";
 
 export const adminRouter = Router();
 
@@ -194,11 +195,15 @@ adminRouter.post("/interviewer-applications/:id/approve", async (req, res) => {
   const baseUrl = process.env.BASE_URL || "http://localhost:8080";
   const setPasswordLink = `${baseUrl}/auth?mode=reset&token=${encodeURIComponent(tokenPlain)}&email=${encodeURIComponent(user.email)}`;
 
+  const { sendInterviewerAcceptanceEmail } = await import("../services/resend.js");
+  const emailSent = await sendInterviewerAcceptanceEmail(user.email, app.name, setPasswordLink);
+
   res.json({
     ok: true,
-    message: "Interviewer approved and invite sent.",
+    message: emailSent ? "Interviewer approved. Email sent." : "Interviewer approved. Share the link manually (RESEND_API_KEY not set).",
     setPasswordLink,
     email: user.email,
+    emailSent,
   });
 });
 
