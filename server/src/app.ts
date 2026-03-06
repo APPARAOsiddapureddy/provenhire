@@ -20,10 +20,18 @@ import { expertRouter } from "./routes/expert.js";
 export function createApp() {
   const app = express();
 
-  // CORS: explicit middleware first — reflect request origin (required for preflight from Vercel)
+  // CORS: allow Vercel frontend and reflect request origin (fixes preflight from provenhire.vercel.app)
+  const allowedOrigins = [
+    "https://provenhire.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:8080",
+  ];
+  const isAllowedOrigin = (o: string) =>
+    allowedOrigins.includes(o) || o.endsWith(".vercel.app") || o.startsWith("http://localhost:");
   app.use((req, res, next) => {
-    const origin = req.headers.origin || "*";
-    res.setHeader("Access-Control-Allow-Origin", origin);
+    const origin = req.headers.origin;
+    const allow = !origin || isAllowedOrigin(origin);
+    res.setHeader("Access-Control-Allow-Origin", allow && origin ? origin : (allowedOrigins[0] as string));
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.setHeader("Access-Control-Max-Age", "86400");
@@ -35,7 +43,7 @@ export function createApp() {
 
   app.use(
     cors({
-      origin: true, // reflect request origin
+      origin: (o, cb) => cb(null, true),
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
       optionsSuccessStatus: 204,

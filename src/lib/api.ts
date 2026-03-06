@@ -1,6 +1,6 @@
-import { RENDER_API_URL } from "./config";
-// Dev: Vite proxy to Render. Prod: VITE_API_URL or Render URL.
-const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL ?? RENDER_API_URL);
+// Dev: Vite proxy. Prod: use same-origin (Vercel rewrites /api to backend) — avoids CORS.
+// Only use VITE_API_URL if you need direct backend calls (not recommended).
+const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL ?? "");
 const isDev = import.meta.env.DEV;
 
 function getAuthToken() {
