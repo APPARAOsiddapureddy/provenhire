@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -16,7 +16,7 @@ import SoundDetectedAlert from "@/components/SoundDetectedAlert";
 import FullScreenMonitor from "@/components/FullScreenMonitor";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { Mic, MicOff, Video, VideoOff, ArrowRight } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
 
 const INTERVIEW_ROLES = [
   "Frontend Developer",
@@ -287,82 +287,118 @@ const ExpertInterviewStage = ({
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Camera panel - left */}
-              <div className="lg:col-span-1 space-y-2">
-                <div className="text-sm font-medium flex items-center gap-2">
-                  <Video className="h-4 w-4" />
-                  Face camera (proctoring)
-                </div>
-                <div className="aspect-video rounded-lg border-2 border-primary/30 bg-muted overflow-hidden relative">
-                  {cameraActive ? (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                      Camera off
-                    </div>
-                  )}
-                  <div className="absolute bottom-2 right-2">
-                    <Button
-                      size="sm"
-                      variant={cameraActive ? "destructive" : "secondary"}
-                      onClick={toggleCamera}
-                    >
-                      {cameraActive ? <VideoOff className="h-4 w-4" /> : <Video className="h-4 w-4" />}
-                    </Button>
+            <div className="space-y-6">
+              {/* 1. Question at top */}
+              {question && (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">
+                      Question {questionIndex} of {totalQuestions}
+                    </span>
                   </div>
-                </div>
-              </div>
+                  <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5 font-medium text-lg">
+                    {question}
+                  </div>
 
-              {/* Question & answer - right */}
-              <div className="lg:col-span-2 space-y-4">
-                {question && (
-                  <>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span>Question {questionIndex} of {totalQuestions}</span>
+                  {/* 2. Camera in middle - prominent so user sees their face */}
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+                      <Video className="h-4 w-4" />
+                      Your camera — you&apos;ll see yourself as in a real interview
                     </div>
-                    <div className="rounded-lg border bg-muted/50 p-4 font-medium">
-                      {question}
+                    <div className="aspect-video max-w-2xl mx-auto rounded-xl border-2 border-primary/30 bg-muted overflow-hidden relative shadow-lg">
+                      {cameraActive ? (
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-muted-foreground p-6">
+                          <Video className="h-12 w-12 opacity-50" />
+                          <p className="text-sm font-medium">Camera off</p>
+                          <Button variant="secondary" size="sm" onClick={toggleCamera}>
+                            <Video className="h-4 w-4 mr-2" />
+                            Turn on camera
+                          </Button>
+                        </div>
+                      )}
+                      {cameraActive && (
+                        <div className="absolute bottom-2 right-2">
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={toggleCamera}
+                          >
+                            <VideoOff className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Your answer (type or use voice)</label>
-                    <div className="flex gap-2">
+                  </div>
+
+                  {/* 3. Answer section - voice recording prominent */}
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium block">
+                      Your answer — speak or type
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-3">
                       <Button
                         type="button"
-                        variant={micActive ? "destructive" : "outline"}
-                        size="icon"
+                        variant={micActive ? "destructive" : "default"}
+                        size="lg"
+                        className="shrink-0 font-semibold"
                         onClick={toggleVoice}
-                        title={micActive ? "Stop voice input" : "Start voice input"}
                       >
-                        {micActive ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                        {micActive ? (
+                          <>
+                            <MicOff className="h-5 w-5 mr-2" />
+                            Stop recording
+                          </>
+                        ) : (
+                          <>
+                            <Mic className="h-5 w-5 mr-2" />
+                            Click to speak your answer
+                          </>
+                        )}
                       </Button>
-                        <Input
-                          value={answer}
-                          onChange={(e) => setAnswer(e.target.value)}
-                          placeholder="Type your answer or click microphone to speak..."
-                          className="flex-1"
-                          disabled={loading}
-                        />
+                      <span className="text-sm text-muted-foreground self-center">
+                        {micActive ? "Speaking… Your words appear below." : "Or type in the box below."}
+                      </span>
+                    </div>
+                    <Textarea
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      placeholder="Your answer will appear here when you speak, or type directly..."
+                      className="min-h-[120px] text-base"
+                      disabled={loading}
+                    />
+
+                    {/* 4. Review & submit step */}
+                    {answer.trim() && (
+                      <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-primary font-medium">
+                          <CheckCircle2 className="h-5 w-5" />
+                          Review your answer
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Read your answer above. Edit if needed, then click Submit to continue to the next question.
+                        </p>
+                        <Button
+                          onClick={sendAnswer}
+                          disabled={loading || !isFullScreen}
+                          size="lg"
+                        >
+                          {loading ? "Submitting..." : "Submit & go to next question"}
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </Button>
                       </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={sendAnswer}
-                        disabled={loading || !answer.trim() || !isFullScreen}
-                      >
-                        {loading ? "Submitting..." : "Submit & Next"}
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
