@@ -136,7 +136,17 @@ Add variables one by one as follows.
 
 All other variables are optional and can be added later.
 
-### 2.4 Deploy & Verify Backend
+### 2.4 Admin Credentials (auto-created on deploy)
+
+The **Start Command** runs `seed:admin` before starting the server. This creates a test admin user if it doesn't exist:
+
+| Email | Password |
+|-------|----------|
+| `admin@test.provenhire.com` | `Admin123456` |
+
+Log in at `/admin` or `/auth`. **Change this password in production** or remove the seed from the start command once you have real admin users.
+
+### 2.5 Deploy & Verify Backend
 
 1. Click **Deploy** (or wait for auto-deploy from GitHub).
 2. Wait for build to finish (check **Logs**).
@@ -279,6 +289,16 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
   3. **DATABASE_URL** must be the **Internal Database URL** from your Render Postgres (same region). Not the External URL.
   4. **Migrations:** Build Command must include `npx prisma migrate deploy`. If migrations didn't run, the `User` table won't exist.
   5. If you see "Database unavailable" or "Database schema missing" in the toast, fix `DATABASE_URL` and redeploy.
+
+### 401 Unauthorized on admin login (`admin@test.provenhire.com`)
+
+- **Cause:** The admin user doesn't exist in the production database. The seed runs on **start**, so it only runs after a deploy.
+- **Fix:**
+  1. Push the latest code (with `seed:admin` in the start command) and trigger a **Manual Deploy** on Render.
+  2. Wait for the deploy to finish. Check **Logs** — you should see "Created test admin user" or "Test admin already exists."
+  3. If the service was already running, a **Manual Deploy** will restart it and run the seed.
+  4. If seed fails silently, create the admin via API:  
+     `curl -X POST https://YOUR-RENDER-URL/api/auth/register -H "Content-Type: application/json" -d '{"email":"admin@test.provenhire.com","password":"Admin123456","name":"Test Admin","role":"admin"}'`
 
 ### Database connection errors on Render
 
