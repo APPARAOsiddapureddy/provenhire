@@ -1,6 +1,5 @@
-// Dev: Vite proxy. Prod: use same-origin (Vercel rewrites /api to backend) — avoids CORS.
-// Only use VITE_API_URL if you need direct backend calls (not recommended).
-const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_URL ?? "");
+// Always use relative URLs: dev = Vite proxy, prod = Vercel rewrites /api to backend. Avoids CORS.
+const API_BASE = "";
 const isDev = import.meta.env.DEV;
 
 function getAuthToken() {
@@ -42,7 +41,7 @@ async function refreshAccessToken(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
   try {
-    const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+    const res = await fetch(`${API_BASE}/api/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
@@ -69,7 +68,7 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Network error";
     const isNetworkError =
