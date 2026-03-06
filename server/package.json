@@ -13,7 +13,8 @@
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
     "migrate:legacy": "tsx src/utils/migrate.ts",
-    "seed:interviewer": "tsx prisma/seed-interviewer.ts"
+    "seed:interviewer": "tsx prisma/seed-interviewer.ts",
+    "seed:admin": "tsx prisma/seed-admin.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
