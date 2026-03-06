@@ -205,7 +205,10 @@ verificationRouter.get("/aptitude/latest", requireAuth, async (req: AuthedReques
     where: { userId: req.user!.id },
     orderBy: { completedAt: "desc" },
   });
-  const result = row ? { total_score: row.score ?? 0, score: row.score } : null;
+  const score = row?.score ?? 0;
+  const answers = row?.answers as { totalMarks?: number } | null | undefined;
+  const totalMarks = answers?.totalMarks ?? 20;
+  const result = row ? { total_score: score, score, total_marks: totalMarks } : null;
   res.json({ result });
 });
 
@@ -230,8 +233,9 @@ verificationRouter.get("/dsa/latest", requireAuth, async (req: AuthedRequest, re
     orderBy: { completedAt: "desc" },
   });
   const score = row?.score ?? 0;
+  const totalProblems = 3;
   const result = row
-    ? { total_score: score, problems_solved: Math.min(4, Math.max(0, Math.floor(score / 25))), total_problems: 4 }
+    ? { total_score: score, problems_solved: Math.min(totalProblems, Math.max(0, Math.round((score / 100) * totalProblems))), total_problems: totalProblems }
     : null;
   res.json({ result });
 });

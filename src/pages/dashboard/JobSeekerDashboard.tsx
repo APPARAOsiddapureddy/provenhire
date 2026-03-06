@@ -253,11 +253,14 @@ const JobSeekerDashboard = () => {
           else if (pct >= 60) setCertificationLevel("B");
           else setCertificationLevel("C");
         } else {
-          const aptitudeScore = aptitudeResult?.total_score ?? 0;
-          const dsaScore = dsaResult?.total_score ?? 0;
-          const overallAvg = (aptitudeScore + dsaScore + interviewScore) / 3;
-          if (overallAvg >= 12) setCertificationLevel("A");
-          else if (overallAvg >= 9) setCertificationLevel("B");
+          const aptScore = aptitudeResult?.total_score ?? 0;
+          const aptTotal = aptitudeResult?.total_marks ?? (aptitudeResult?.answers as { totalMarks?: number })?.totalMarks ?? 20;
+          const aptitudePct = aptTotal > 0 ? (aptScore / aptTotal) * 100 : 0;
+          const dsaPct = dsaResult?.total_score ?? 0;
+          const interviewPct = interviewScore ? (interviewScore / 15) * 100 : 0;
+          const overallAvg = (aptitudePct + dsaPct + interviewPct) / 3;
+          if (overallAvg >= 80) setCertificationLevel("A");
+          else if (overallAvg >= 60) setCertificationLevel("B");
           else setCertificationLevel("C");
         }
       }
@@ -431,8 +434,12 @@ const JobSeekerDashboard = () => {
                 verificationStatus={profile.verificationStatus ?? profile.verification_status}
                 roleType={roleType}
                 completedUpToStage={completedUpToStage}
-                aptitudeScore={testResults.aptitude ? Math.round(testResults.aptitude.total_score ?? 0) : undefined}
-                dsaScore={testResults.dsa ? Math.round((testResults.dsa.total_score / 15) * 100) : undefined}
+                aptitudeScore={testResults.aptitude ? (() => {
+                  const s = testResults.aptitude.total_score ?? 0;
+                  const t = testResults.aptitude.total_marks ?? 20;
+                  return t > 0 ? Math.round((s / t) * 100) : Math.round(s);
+                })() : undefined}
+                dsaScore={testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : undefined}
                 interviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score ? Math.round((verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score / 15) * 100) : undefined}
               />
             )}
@@ -580,8 +587,12 @@ const JobSeekerDashboard = () => {
                   const isCompleted = status === 'done';
                   const isActive = status === 'active';
                   const isLocked = status === 'locked';
-                  const aptitudePct = testResults.aptitude ? Math.round(testResults.aptitude.total_score ?? 0) : null;
-                  const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 4}` : null;
+                  const aptitudeScore = testResults.aptitude?.total_score ?? 0;
+                  const aptitudeTotal = testResults.aptitude?.total_marks ?? 20;
+                  const aptitudePct = testResults.aptitude && aptitudeTotal > 0 ? Math.round((aptitudeScore / aptitudeTotal) * 100) : null;
+                  const aptitudeDisplay = testResults.aptitude ? `${aptitudeScore}/${aptitudeTotal} (${aptitudePct ?? 0}%)` : null;
+                  const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 3}` : null;
+                  const dsaPct = testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : null;
                   const stageDesc: Record<string, string> = {
                     profile_setup: 'AI-assisted profile creation with resume parsing and consistency checks.',
                     aptitude_test: 'Proctored 60-minute test covering logical reasoning, quantitative aptitude, and verbal ability.',
@@ -613,11 +624,11 @@ const JobSeekerDashboard = () => {
                         {stageName === 'expert_interview' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Recording Active</span><span className="dashboard-trust-chip"><span style={{ background: 'var(--dash-gold)' }} className="w-1.5 h-1.5 rounded-full" /> AI Adaptive</span></>}
                       </div>
                       {isCompleted && stageName === 'profile_setup' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
-                      {isCompleted && stageName === 'aptitude_test' && aptitudePct != null && (
-                        <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${aptitudePct}%` }} /></div><div className="dashboard-score-text">Score: {aptitudePct}%</div></>
+                      {isCompleted && stageName === 'aptitude_test' && aptitudeDisplay && (
+                        <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${aptitudePct ?? 0}%` }} /></div><div className="dashboard-score-text">Score: {aptitudeDisplay}</div></>
                       )}
                       {isCompleted && stageName === 'dsa_round' && dsaSolved && (
-                        <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: '75%' }} /></div><div className="dashboard-score-text">{dsaSolved} Problems Solved</div></>
+                        <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${dsaPct ?? 0}%` }} /></div><div className="dashboard-score-text">{dsaSolved} Problems Solved{dsaPct != null ? ` (${dsaPct}%)` : ''}</div></>
                       )}
                       {isCompleted && stageName === 'non_tech_assignment' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
                       {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
