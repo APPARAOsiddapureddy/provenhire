@@ -1,8 +1,9 @@
 /**
- * Loads aptitude questions from incruiter JSON and selects questions to total 100 marks.
- * Marks: easy=1, medium=2, hard=2. Pass threshold: 60/100.
- * - experienceYears < 1: more easy (26 easy, 25 medium, 12 hard)
- * - experienceYears >= 1: more medium (20 easy, 30 medium, 10 hard)
+ * Loads aptitude questions and selects 20 questions with experience-based difficulty.
+ * Marks: easy=1, medium=2, hard=2. Pass: 60% of total.
+ * - Fresher (< 1 year): 15 easy, 5 medium (25 marks, pass 15)
+ * - 1–3 years: 10 easy, 5 medium, 5 hard (30 marks, pass 18)
+ * - 5+ years: 5 easy, 5 medium, 10 hard (35 marks, pass 21)
  */
 
 import { readFileSync } from "fs";
@@ -12,8 +13,7 @@ import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const APTITUDE_MARKS = { easy: 1, medium: 2, hard: 2 } as const;
-export const APTITUDE_TOTAL_MARKS = 100;
-export const APTITUDE_PASS_THRESHOLD = 60;
+export const APTITUDE_QUESTION_COUNT = 20;
 
 export interface McqQuestionRaw {
   _id?: { $oid?: string };
@@ -37,6 +37,8 @@ export interface AptitudeSession {
   questions: AptitudeQuestionForClient[];
   answerKey: Record<string, string>;
   marksKey: Record<string, number>;
+  totalMarks: number;
+  passThreshold: number;
 }
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -63,9 +65,10 @@ function getQuestionId(q: McqQuestionRaw): string {
 }
 
 /**
- * Select questions to total 100 marks. easy=1, medium=2, hard=2.
- * - experienceYears < 1: 26 easy, 25 medium, 12 hard (= 100)
- * - experienceYears >= 1: 20 easy, 30 medium, 10 hard (= 100)
+ * Select 20 questions with experience-based difficulty. Marks: easy=1, medium=2, hard=2.
+ * - Fresher (< 1 year): 15 easy, 5 medium (25 marks, pass 15)
+ * - 1–3 years: 10 easy, 5 medium, 5 hard (30 marks, pass 18)
+ * - 5+ years: 5 easy, 5 medium, 10 hard (35 marks, pass 21)
  */
 export function createAptitudeSession(experienceYears: number): AptitudeSession {
   const all = loadQuestions();
@@ -80,12 +83,16 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
   let needHard: number;
 
   if (experienceYears < 1) {
-    needEasy = 26;
-    needMedium = 25;
-    needHard = 12;
+    needEasy = 15;
+    needMedium = 5;
+    needHard = 0;
+  } else if (experienceYears <= 3) {
+    needEasy = 10;
+    needMedium = 5;
+    needHard = 5;
   } else {
-    needEasy = 20;
-    needMedium = 30;
+    needEasy = 5;
+    needMedium = 5;
     needHard = 10;
   }
 
@@ -128,7 +135,9 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
     };
   });
 
-  return { questions, answerKey, marksKey };
+  const totalMarks = questions.reduce((sum, q) => sum + (marksKey[q.id] ?? 1), 0);
+  const passThreshold = Math.ceil(totalMarks * 0.6); // 60% to pass
+  return { questions, answerKey, marksKey, totalMarks, passThreshold };
 }
 
 /**

@@ -20,12 +20,15 @@ interface ProctoringSetupGateProps {
   onReady: (state: ProctoringState) => void;
   /** Optional: allow proceeding if screen share fails (e.g. unsupported browser) */
   screenShareOptional?: boolean;
+  /** When true, show retry-friendly copy and try to re-use permissions (avoids repeated prompts) */
+  isRetry?: boolean;
 }
 
 const ProctoringSetupGate = ({
   testName,
   onReady,
   screenShareOptional = false,
+  isRetry = false,
 }: ProctoringSetupGateProps) => {
   const [state, setState] = useState<ProctoringState>({
     screenShare: "pending",
@@ -123,6 +126,13 @@ const ProctoringSetupGate = ({
     await requestMicrophone();
   };
 
+  // On retry, auto-request permissions so browser may reuse recently granted access (avoids repeated prompts)
+  useEffect(() => {
+    if (isRetry && (state.camera === "pending" || state.microphone === "pending")) {
+      requestAll();
+    }
+  }, [isRetry]);
+
   const canProceed =
     state.camera === "granted" &&
     state.microphone === "granted" &&
@@ -150,10 +160,11 @@ const ProctoringSetupGate = ({
             <Shield className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <CardTitle>Proctoring setup required</CardTitle>
+            <CardTitle>{isRetry ? "Re-enable proctoring" : "Proctoring setup required"}</CardTitle>
             <CardDescription>
-              To ensure a fair assessment, please grant the following permissions before starting the {testName}.
-              Your session will be monitored throughout the test.
+              {isRetry
+                ? `You're retrying the ${testName}. Click "Re-enable & Start" below — camera and mic may not prompt again if you recently granted access.`
+                : `To ensure a fair assessment, please grant the following permissions before starting the ${testName}. Your session will be monitored throughout the test.`}
             </CardDescription>
           </div>
         </div>
@@ -281,7 +292,7 @@ const ProctoringSetupGate = ({
               className="bg-green-600 hover:bg-green-700"
             >
               <CheckCircle2 className="h-4 w-4 mr-2" />
-              All set — Start {testName}
+              {isRetry ? "Re-enable & Start" : "All set — Start"} {testName}
             </Button>
           ) : (
             <div className="flex items-center gap-2 text-amber-600 text-sm">

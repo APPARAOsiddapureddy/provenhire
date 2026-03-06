@@ -30,6 +30,7 @@ model User {
   savedJobs        SavedJob[]
   verificationStages VerificationStage[]
   aptitudeResults    AptitudeTestResult[]
+  aptitudeSessions   AptitudeSession[]
   dsaResults          DsaRoundResult[]
   notifications       Notification[]
   appeals             Appeal[]
@@ -148,6 +149,17 @@ model AptitudeTestResult {
   invalidated Boolean @default(false)
 
   user User @relation(fields: [userId], references: [id])
+}
+
+/// Stores answer key + marks key for scoring aptitude submissions. Persisted so retries work across server restarts/instances.
+model AptitudeSession {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  answerKey Json     // Record<string, string>
+  marksKey  Json     // Record<string, number>
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model DsaRoundResult {

@@ -12,9 +12,8 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck } from "lucide-react";
 
-const ELIGIBILITY_THRESHOLD = 60;
 const APTITUDE_TIME_MINUTES = 20;
 
 interface AptitudeQuestion {
@@ -34,21 +33,25 @@ interface AptitudeTestStageProps {
   stageStatus?: string;
   stageScore?: number;
   onComplete: () => void;
+  onSessionExpired?: () => void;
+  isRetry?: boolean;
 }
 
-const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTestStageProps) => {
+const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpired, isRetry = false }: AptitudeTestStageProps) => {
   const navigate = useNavigate();
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
   const [questions, setQuestions] = useState<AptitudeQuestion[]>([]);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [reviewed, setReviewed] = useState<Set<string>>(new Set());
   const [currentIndex, setCurrentIndex] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [submittedScore, setSubmittedScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [justPassed, setJustPassed] = useState(false);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
+  const submittingRef = useRef(false);
   const isFailed = stageStatus === "failed" || (submitted && !justPassed);
   const displayScore = submittedScore ?? stageScore ?? 0;
 
@@ -64,6 +67,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
 
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(APTITUDE_TIME_MINUTES);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [totalMarks, setTotalMarks] = useState(20);
+  const [passThreshold, setPassThreshold] = useState(12);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -79,6 +84,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
         const mins = res.timeLimitMinutes ?? APTITUDE_TIME_MINUTES;
         setTimeLimitMinutes(mins);
         setSecondsRemaining(mins * 60);
+        setTotalMarks(res.totalMarks ?? 20);
+        setPassThreshold(res.passThreshold ?? 12);
       } catch (e) {
         toast.error("Failed to load aptitude questions. Please refresh.");
       } finally {
@@ -127,6 +134,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
 
   const handleSubmit = async () => {
     if (questions.length === 0) return;
+    if (submittingRef.current) return; // Double-submit guard
+    submittingRef.current = true;
     setLoading(true);
     try {
       const res = await api.post<{ result: { score?: number }; score?: number }>(
@@ -134,20 +143,26 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
         { answers }
       );
       const score = res.score ?? res.result?.score ?? 0;
-      if (score >= ELIGIBILITY_THRESHOLD) {
+      if (score >= passThreshold) {
         await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "completed", score });
-        toast.success(`Aptitude test completed. Score: ${score}/100.`);
+        toast.success(`Aptitude test completed. Score: ${score}/${totalMarks}.`);
         setJustPassed(true);
       } else {
         await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score });
         setSubmittedScore(score);
         setSubmitted(true);
-        toast.error(`Score ${score}/100. Minimum ${ELIGIBILITY_THRESHOLD} required to proceed. You can retry when ready.`);
+        toast.error(`Score ${score}/${totalMarks}. Minimum ${passThreshold} required to proceed. You can retry when ready.`);
       }
     } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Failed to submit aptitude test.");
+      const msg = error instanceof Error ? error.message : "Failed to submit aptitude test.";
+      toast.error(msg);
+      if (msg.toLowerCase().includes("session expired")) {
+        toast.info("Starting over — click Start to get fresh questions.");
+        onSessionExpired?.();
+      }
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   };
 
@@ -155,7 +170,15 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
   const currentQuestion = questions[currentIndex];
   const isLastQuestion = currentIndex === questions.length - 1;
   const isFirstQuestion = currentIndex === 0;
-  const canGoNext = currentQuestion && (answers[currentQuestion.id] != null && answers[currentQuestion.id] !== "");
+  const canGoNext = true; // Allow navigation without answering (user can mark for review)
+  const toggleReview = (qId: string) => {
+    setReviewed((prev) => {
+      const next = new Set(prev);
+      if (next.has(qId)) next.delete(qId);
+      else next.add(qId);
+      return next;
+    });
+  };
 
   if (loadingQuestions) {
     return (
@@ -182,6 +205,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
     return (
       <ProctoringSetupGate
         testName="Aptitude Test"
+        isRetry={isRetry}
         onReady={(state) => {
           setProctoringState(state);
           setProctoringReady(true);
@@ -192,20 +216,32 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Aptitude Test</CardTitle>
-        <CardDescription>
-          {!isFailed && !justPassed
-            ? `Answer each question one by one. Question ${currentIndex + 1} of ${questions.length}. You need at least ${ELIGIBILITY_THRESHOLD}/100 to proceed.`
-            : `Answer all ${questions.length} questions. You need at least ${ELIGIBILITY_THRESHOLD}/100 to proceed.`}
-        </CardDescription>
+      <CardHeader className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <CardTitle>Aptitude Test</CardTitle>
+            <CardDescription>
+              {!isFailed && !justPassed
+                ? `Question ${currentIndex + 1} of ${questions.length}. Need ${passThreshold}/${totalMarks} to pass.`
+                : `Answer all ${questions.length} questions. Need ${passThreshold}/${totalMarks} to pass.`}
+            </CardDescription>
+          </div>
+          {secondsRemaining != null && inTest && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 border">
+              <span className="text-sm text-muted-foreground">Time left</span>
+              <span className={`font-mono font-semibold tabular-nums ${secondsRemaining <= 300 ? "text-destructive" : ""}`}>
+                {formatTime(secondsRemaining)}
+              </span>
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {isFailed ? (
           <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Your score: {displayScore}/100. Minimum {ELIGIBILITY_THRESHOLD} required to proceed to the DSA round.
+              Your score: {displayScore}/{totalMarks}. Minimum {passThreshold} required to proceed to the DSA round.
             </p>
             <p className="mt-2 text-sm">Use the &quot;Retry This Step&quot; button above when you are ready to retake the test.</p>
           </div>
@@ -225,6 +261,56 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
         ) : (
           <>
             <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
+            <div className="flex flex-wrap items-center justify-between gap-4 py-2 px-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center gap-4">
+                <span className="font-mono font-semibold text-lg tabular-nums" title="Time remaining">
+                  {secondsRemaining != null ? formatTime(secondsRemaining) : "--:--"}
+                </span>
+                <span className="text-sm text-muted-foreground">remaining</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {questions.map((q, i) => {
+                  const answered = answers[q.id] != null && answers[q.id] !== "";
+                  const markedReview = reviewed.has(q.id);
+                  const current = i === currentIndex;
+                  const status = current
+                    ? "current"
+                    : answered
+                      ? "answered"
+                      : markedReview
+                        ? "reviewed"
+                        : "yet_to_answer";
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => setCurrentIndex(i)}
+                      disabled={inTest && !isFullScreen}
+                      className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
+                        status === "current"
+                          ? "ring-2 ring-primary bg-primary text-primary-foreground"
+                          : status === "answered"
+                            ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/40"
+                            : status === "reviewed"
+                              ? "bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-500/40"
+                              : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
+                      }`}
+                      title={
+                        status === "current"
+                          ? `Q${i + 1}: Current`
+                          : status === "answered"
+                            ? `Q${i + 1}: Answered`
+                            : status === "reviewed"
+                              ? `Q${i + 1}: Marked for review`
+                              : `Q${i + 1}: Yet to answer`
+                      }
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <TestProctoringBar />
             <LiveProctoringPreview
               cameraStream={proctoringState?.cameraStream ?? null}
@@ -234,7 +320,31 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete }: AptitudeTest
             <div className="space-y-6">
               {currentQuestion && (
                 <div key={currentQuestion.id} className="space-y-4">
-                  <p className="font-medium text-lg">Q{currentIndex + 1}: {currentQuestion.question}</p>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="font-medium text-lg flex-1">
+                      Q{currentIndex + 1} <span className="text-sm font-normal text-muted-foreground">({currentQuestion.marks ?? 1} mark{((currentQuestion.marks ?? 1) > 1) ? "s" : ""})</span>
+                      {" — "}{currentQuestion.question}
+                    </p>
+                    <Button
+                      type="button"
+                      variant={reviewed.has(currentQuestion.id) ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => toggleReview(currentQuestion.id)}
+                      className="shrink-0"
+                    >
+                      {reviewed.has(currentQuestion.id) ? (
+                        <>
+                          <BookmarkCheck className="h-4 w-4 mr-1.5" />
+                          Marked for review
+                        </>
+                      ) : (
+                        <>
+                          <Bookmark className="h-4 w-4 mr-1.5" />
+                          Mark for review
+                        </>
+                      )}
+                    </Button>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {currentQuestion.options.map((opt, i) => (
                       <Button

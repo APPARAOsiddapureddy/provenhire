@@ -80,8 +80,11 @@ const Auth = () => {
   }, [user, userRole, navigate, authMode]);
 
   useEffect(() => {
-    if (emailFromUrl) setSignInEmail(emailFromUrl);
-  }, [emailFromUrl]);
+    if (emailFromUrl) {
+      setSignInEmail(emailFromUrl);
+      if (authMode === "signup") setEmail(emailFromUrl);
+    }
+  }, [emailFromUrl, authMode]);
 
   useEffect(() => {
     if (isReset && emailFromUrl) setResetUserEmail(emailFromUrl);
@@ -93,8 +96,10 @@ const Auth = () => {
     if (roleFromUrl) params.set("role", roleFromUrl);
     if (referralCodeFromUrl) params.set("ref", referralCodeFromUrl);
     if (mode === "login" && email?.trim()) params.set("email", email.trim());
+    if (mode === "signup" && signInEmail?.trim()) params.set("email", signInEmail.trim());
     navigate(`/auth?${params.toString()}`, { replace: true });
     setAuthMode(mode);
+    if (mode === "signup" && signInEmail?.trim()) setEmail(signInEmail.trim());
   };
 
   const handleSignIn = async (e: React.FormEvent) => {

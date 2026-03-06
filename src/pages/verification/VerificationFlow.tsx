@@ -57,6 +57,7 @@ const VerificationFlow = () => {
   const [targetJobTitle, setTargetJobTitle] = useState<string>("");
   const [testStageStarted, setTestStageStarted] = useState<Record<string, boolean>>({});
   const [practiceDialog, setPracticeDialog] = useState<"aptitude" | "dsa" | "interview" | null>(null);
+  const [retryingStage, setRetryingStage] = useState<string | null>(null);
 
   const technicalStageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
   const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'];
@@ -291,10 +292,11 @@ const VerificationFlow = () => {
       await api.post("/api/verification/stages/reset", { stageName });
 
       setTestStageStarted((p) => ({ ...p, [stageName]: false }));
+      setRetryingStage(stageName);
 
       toast({
         title: "Retry enabled",
-        description: "Click Start to retake. You'll go through proctoring setup again.",
+        description: "Click Start to retake. Proctoring may reuse your previous permissions.",
       });
 
       await loadVerificationStages();
@@ -468,9 +470,15 @@ const VerificationFlow = () => {
               </Card>
             ) : !cooldownInfo.aptitude.inCooldown && (
               <AptitudeTestStage
+                key={retryingStage === 'aptitude_test' ? 'aptitude-retry' : 'aptitude-first'}
                 stageStatus={getStageStatus('aptitude_test')}
                 stageScore={stages.find((s) => s.stage_name === 'aptitude_test')?.score}
-                onComplete={() => completeAndAdvanceStage('aptitude_test')}
+                onComplete={() => {
+                  setRetryingStage(null);
+                  completeAndAdvanceStage('aptitude_test');
+                }}
+                onSessionExpired={() => setTestStageStarted((p) => ({ ...p, aptitude_test: false }))}
+                isRetry={retryingStage === 'aptitude_test'}
               />
             )}
           </div>

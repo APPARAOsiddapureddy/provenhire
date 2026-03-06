@@ -2,7 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, optionalAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
-import { createAptitudeSession, getPracticeAptitudeQuestions, storeAnswerKey, getAnswerKey, getMarksKey, clearAnswerKey, APTITUDE_TOTAL_MARKS, APTITUDE_PASS_THRESHOLD } from "../data/aptitude-loader.js";
+import { createAptitudeSession, getPracticeAptitudeQuestions } from "../data/aptitude-loader.js";
+import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
@@ -99,6 +100,9 @@ verificationRouter.post("/stages/reset", requireAuth, async (req: AuthedRequest,
   const stageOrder = roleType === "non_technical" ? nonTechnicalStages : [...technicalStages, "human_expert_interview"];
   const currentIndex = stageOrder.indexOf(parsed.data.stageName);
   if (currentIndex < 0) return res.status(400).json({ error: "Invalid stage for this path" });
+  if (parsed.data.stageName === "aptitude_test") {
+    await clearAptitudeSession(req.user!.id);
+  }
   await Promise.all(
     stageOrder.slice(currentIndex).map((stage, i) => {
       const status = i === 0 ? "in_progress" : "locked";
@@ -116,13 +120,13 @@ verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedReq
   try {
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const experienceYears = profile?.experienceYears ?? 0;
-    const { questions, answerKey, marksKey } = createAptitudeSession(experienceYears);
-    storeAnswerKey(req.user!.id, answerKey, marksKey);
+    const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSession(experienceYears);
+    await storeAptitudeSession(req.user!.id, answerKey, marksKey);
     return res.json({
       questions,
       timeLimitMinutes: 20,
-      totalMarks: APTITUDE_TOTAL_MARKS,
-      passThreshold: APTITUDE_PASS_THRESHOLD,
+      totalMarks,
+      passThreshold,
     });
   } catch (e) {
     console.error("[verification/aptitude/questions]", e);
@@ -154,10 +158,13 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
   let answersPayload: Record<string, unknown> | null = null;
 
   if (parsed.data.answers && typeof parsed.data.answers === "object" && !Array.isArray(parsed.data.answers)) {
-    const answerKey = getAnswerKey(req.user!.id);
-    const marksKey = getMarksKey(req.user!.id);
-    if (!answerKey) {
-      return res.status(400).json({ error: "Aptitude session expired. Please refresh and retake the test." });
+    const session = await getAptitudeSession(req.user!.id);
+    const answerKey = session?.answerKey ?? null;
+    const marksKey = session?.marksKey ?? null;
+    if (!answerKey || typeof answerKey !== "object" || Object.keys(answerKey).length === 0) {
+      return res.status(400).json({
+        error: "Your test session has expired. Please click 'Retry This Step' above, then 'Start Aptitude Test' to begin a fresh attempt.",
+      });
     }
     let earnedMarks = 0;
     let correctCount = 0;
@@ -172,7 +179,7 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
     score = earnedMarks; // Raw marks out of 100; pass threshold is 60
     const totalMarksVal = marksKey ? Object.values(marksKey).reduce((a, b) => a + b, 0) : Object.keys(answerKey).length;
     answersPayload = { questions: Object.keys(answerKey).length, correct: correctCount, earnedMarks, totalMarks: totalMarksVal };
-    clearAnswerKey(req.user!.id);
+    await clearAptitudeSession(req.user!.id);
   } else {
     score = parsed.data.score ?? 0;
   }
