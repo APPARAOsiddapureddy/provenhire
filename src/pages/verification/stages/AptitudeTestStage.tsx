@@ -34,10 +34,11 @@ interface AptitudeTestStageProps {
   stageScore?: number;
   onComplete: () => void;
   onSessionExpired?: () => void;
+  onRetry?: () => void;
   isRetry?: boolean;
 }
 
-const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpired, isRetry = false }: AptitudeTestStageProps) => {
+const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpired, onRetry, isRetry = false }: AptitudeTestStageProps) => {
   const navigate = useNavigate();
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
@@ -63,6 +64,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     threshold: 40,
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
+    existingAudioStream: proctoringState?.microphoneStream ?? undefined,
   });
 
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(APTITUDE_TIME_MINUTES);
@@ -201,6 +203,33 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     );
   }
 
+  // When the stage is already failed (e.g. user returning after a previous attempt),
+  // show the retry UI directly without requiring proctoring setup again.
+  // Proctoring is only needed when the user is actually about to take the test.
+  if (isFailed && !proctoringReady) {
+    return (
+      <Card>
+        <CardContent className="py-8">
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
+            <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
+            <p className="text-sm text-muted-foreground">
+              Your score: {displayScore}/{totalMarks}. Minimum {passThreshold} required to proceed to the DSA round.
+            </p>
+            {onRetry ? (
+              <Button onClick={onRetry} className="mt-2">
+                Retry Test
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Return to the dashboard and come back when you&apos;re ready to retry.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!proctoringReady) {
     return (
       <ProctoringSetupGate
@@ -238,12 +267,18 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       </CardHeader>
       <CardContent className="space-y-6">
         {isFailed ? (
-          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center">
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Your score: {displayScore}/{totalMarks}. Minimum {passThreshold} required to proceed to the DSA round.
             </p>
-            <p className="mt-2 text-sm">Use the &quot;Retry This Step&quot; button above when you are ready to retake the test.</p>
+            {onRetry ? (
+              <Button onClick={onRetry} className="mt-2">
+                Retry Test
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">Return to the dashboard and come back when you&apos;re ready to retry.</p>
+            )}
           </div>
         ) : justPassed ? (
           <div className="p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">

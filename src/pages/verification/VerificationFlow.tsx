@@ -282,7 +282,7 @@ const VerificationFlow = () => {
     return false;
   };
 
-  const retryStage = async (stageName: string) => {
+  const retryStage = async (stageName: string, restartImmediately = false) => {
     try {
       if (!user) return;
       const order = roleType === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
@@ -296,13 +296,47 @@ const VerificationFlow = () => {
 
       toast({
         title: "Retry enabled",
-        description: "Click Start to retake. Proctoring may reuse your previous permissions.",
+        description: restartImmediately ? "Starting fresh test..." : "Click Start to retake. Proctoring may reuse your previous permissions.",
       });
 
       await loadVerificationStages();
       setCurrentStage(stageName);
+
+      if (restartImmediately) {
+        setTestStageStarted((p) => ({ ...p, [stageName]: true }));
+      }
     } catch (error: any) {
       toast({ title: "Unable to retry step", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const retryAptitudeAndRestart = async () => {
+    try {
+      if (!user || cooldownInfo.aptitude.inCooldown) return;
+      await api.post("/api/verification/stages/reset", { stageName: "aptitude_test" });
+      setTestStageStarted((p) => ({ ...p, aptitude_test: false }));
+      setRetryingStage("aptitude_test");
+      await loadVerificationStages();
+      setCurrentStage("aptitude_test");
+      setTestStageStarted((p) => ({ ...p, aptitude_test: true }));
+      toast({ title: "Retry enabled", description: "Starting fresh aptitude test." });
+    } catch (error: any) {
+      toast({ title: "Unable to retry", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const retryDsaAndRestart = async () => {
+    try {
+      if (!user || cooldownInfo.dsa.inCooldown) return;
+      await api.post("/api/verification/stages/reset", { stageName: "dsa_round" });
+      setTestStageStarted((p) => ({ ...p, dsa_round: false }));
+      setRetryingStage("dsa_round");
+      await loadVerificationStages();
+      setCurrentStage("dsa_round");
+      setTestStageStarted((p) => ({ ...p, dsa_round: true }));
+      toast({ title: "Retry enabled", description: "Starting fresh DSA round." });
+    } catch (error: any) {
+      toast({ title: "Unable to retry", description: error.message, variant: "destructive" });
     }
   };
 
@@ -478,6 +512,7 @@ const VerificationFlow = () => {
                   completeAndAdvanceStage('aptitude_test');
                 }}
                 onSessionExpired={() => setTestStageStarted((p) => ({ ...p, aptitude_test: false }))}
+                onRetry={!cooldownInfo.aptitude.inCooldown ? retryAptitudeAndRestart : undefined}
                 isRetry={retryingStage === 'aptitude_test'}
               />
             )}
@@ -551,6 +586,8 @@ const VerificationFlow = () => {
                 stageStatus={getStageStatus('dsa_round')}
                 stageScore={stages.find((s) => s.stage_name === 'dsa_round')?.score}
                 onComplete={() => completeAndAdvanceStage('dsa_round')}
+                onRetry={!cooldownInfo.dsa.inCooldown ? retryDsaAndRestart : undefined}
+                isRetry={retryingStage === 'dsa_round'}
               />
             )}
           </div>

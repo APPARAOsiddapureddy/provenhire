@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, ShieldAlert, Camera, Mic, Activity } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   generateDSATest,
@@ -44,6 +44,8 @@ interface DSARoundStageProps {
   stageStatus?: string;
   stageScore?: number;
   onComplete: () => void;
+  onRetry?: () => void;
+  isRetry?: boolean;
   experienceYears?: number;
 }
 
@@ -54,7 +56,7 @@ interface TestResult {
   actual: string;
 }
 
-const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 2 }: DSARoundStageProps) => {
+const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, experienceYears = 2 }: DSARoundStageProps) => {
   const navigate = useNavigate();
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
@@ -69,9 +71,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
   const [scores, setScores] = useState<Record<string, number>>({});
   const [justPassed, setJustPassed] = useState(false);
   const [hasFailed, setHasFailed] = useState(false);
+  const [localFinalScore, setLocalFinalScore] = useState<number | null>(null);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [questionSecondsRemaining, setQuestionSecondsRemaining] = useState<number>(DSA_MINUTES_PER_QUESTION * 60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeUpSubmittedRef = useRef(false);
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
@@ -82,6 +87,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
     threshold: 40,
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
+    existingAudioStream: proctoringState?.microphoneStream ?? undefined,
   });
 
   useEffect(() => {
@@ -193,7 +199,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
       .replace(/\s+/g, " ");
 
   const ELIGIBILITY_THRESHOLD = 60;
-  const isFailed = stageStatus === "failed";
+  // Include local hasFailed so the failed UI shows immediately after a zero-score submission
+  // without needing the parent to reload stage status from the server
+  const isFailed = stageStatus === "failed" || hasFailed;
   const isLastQuestion = currentIndex === questions.length - 1;
   const isFirstQuestion = currentIndex === 0;
 
@@ -243,6 +251,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
         toast.success(`DSA round completed. Score: ${finalScore}/100.`);
         setJustPassed(true);
       } else {
+        setLocalFinalScore(finalScore);
         setHasFailed(true);
         await api.post("/api/verification/stages/update", {
           stageName: "dsa_round",
@@ -267,6 +276,30 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
     }
   }, [secondsRemaining]);
 
+  // Per-question 30-minute countdown — resets whenever the user switches questions
+  useEffect(() => {
+    setQuestionSecondsRemaining(DSA_MINUTES_PER_QUESTION * 60);
+  }, [currentIndex]);
+
+  useEffect(() => {
+    if (!inTest) {
+      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+      return;
+    }
+    questionTimerRef.current = setInterval(() => {
+      setQuestionSecondsRemaining((s) => {
+        if (s <= 1) {
+          if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => {
+      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+    };
+  }, [inTest, currentIndex]);
+
   if (questions.length === 0) {
     return (
       <Card>
@@ -284,10 +317,41 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
     );
   }
 
+  // When the stage is already failed (e.g. user returning after a previous attempt),
+  // show the retry UI directly without requiring proctoring setup again.
+  // Proctoring is only needed when the user is actually about to take the test.
+  if (isFailed && !proctoringReady) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>DSA Round</CardTitle>
+        </CardHeader>
+        <CardContent className="py-4">
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
+            <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
+            <p className="text-sm text-muted-foreground">
+              Your last score: {stageScore ?? 0}/100. Minimum {ELIGIBILITY_THRESHOLD} required to proceed.
+            </p>
+            {onRetry ? (
+              <Button onClick={onRetry} className="mt-2">
+                Retry Test
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Return to the dashboard and come back when you&apos;re ready to retry.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!proctoringReady) {
     return (
       <ProctoringSetupGate
         testName="DSA Round"
+        isRetry={isRetry}
         onReady={(state) => {
           setProctoringState(state);
           setProctoringReady(true);
@@ -329,7 +393,40 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
       </CardHeader>
       <CardContent className="space-y-4">
         <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-        <TestProctoringBar />
+
+        {/* Attractive AI monitoring banner */}
+        {inTest && (
+          <div className="rounded-xl border-2 border-red-500/40 bg-gradient-to-r from-red-950/30 via-red-900/20 to-red-950/30 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="relative flex items-center justify-center">
+                <span className="absolute inline-flex h-8 w-8 rounded-full bg-red-500/20 animate-ping" />
+                <ShieldAlert className="relative h-5 w-5 text-red-500" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-red-400 uppercase tracking-widest">AI Proctoring Active</p>
+                <p className="text-xs text-red-300/70">This session is being recorded and monitored in real-time</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-red-300/80">
+              <span className="flex items-center gap-1.5">
+                <Camera className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Webcam</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Mic className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Audio</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Activity className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Screen</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              </span>
+            </div>
+          </div>
+        )}
+
         {!isFullScreen && inTest && (
           <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -343,23 +440,44 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
           brandName="ProvenHire"
           position="top-right"
         />
+
+        {/* Failed state — shown immediately after a low-score submission (no need to reload page) */}
         {isFailed && (
-          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Your last score: {stageScore ?? 0}/100. Minimum {ELIGIBILITY_THRESHOLD} required. Improve your solutions and submit again, or use &quot;Retry This Step&quot; to reset.
+            <p className="text-sm text-muted-foreground">
+              Your score: {localFinalScore ?? stageScore ?? 0}/100. Minimum {ELIGIBILITY_THRESHOLD} required to proceed.
             </p>
+            {onRetry && (
+              <Button onClick={onRetry} className="mt-2">Retry Test</Button>
+            )}
           </div>
         )}
-        {/* Question progress + timer */}
+
+        {/* Question progress + timers — only shown while in test and not failed */}
+        {!isFailed && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm text-muted-foreground">
             Question {currentIndex + 1} of {questions.length}
           </span>
           <div className="flex items-center gap-4">
+            {/* Per-question countdown */}
+            {inTest && (
+              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-semibold border ${
+                questionSecondsRemaining <= 300
+                  ? "bg-red-500/10 border-red-500/40 text-red-500"
+                  : questionSecondsRemaining <= 600
+                    ? "bg-amber-500/10 border-amber-500/40 text-amber-500"
+                    : "bg-muted border-border text-muted-foreground"
+              }`}>
+                <span>Q{currentIndex + 1} time:</span>
+                <span className="tabular-nums">{formatTime(questionSecondsRemaining)}</span>
+              </div>
+            )}
+            {/* Global timer */}
             {secondsRemaining != null && inTest && (
               <span className={`text-sm font-mono font-medium ${secondsRemaining <= 300 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-                Time: {formatTime(secondsRemaining)}
+                Total: {formatTime(secondsRemaining)}
               </span>
             )}
             <div className="flex gap-1">
@@ -373,8 +491,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
           </div>
           </div>
         </div>
+        )}
 
-        {selectedQuestion && (
+        {selectedQuestion && !isFailed && (
           <>
             {/* Question description */}
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
@@ -439,9 +558,24 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
               height="360px"
             />
 
-            {/* Run tests & Navigate — clear separation from Submit entire round */}
+            {/* Navigation + Run tests + Submit — all in one clear row */}
             <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t">
               <div className="flex flex-wrap gap-3">
+                {/* Previous question — always visible, disabled on first question */}
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="font-medium"
+                  onClick={() => {
+                    setCurrentIndex((i) => Math.max(0, i - 1));
+                    setResults(null);
+                  }}
+                  disabled={isFirstQuestion || (inTest && !isFullScreen)}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Previous
+                </Button>
+
                 <Button
                   onClick={runTests}
                   disabled={running || (inTest && !isFullScreen)}
@@ -456,6 +590,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
                   )}
                   Run test cases
                 </Button>
+
                 {!isLastQuestion && (
                   <Button
                     size="lg"
@@ -471,6 +606,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
                     <ChevronRight className="h-4 w-4 ml-2" />
                   </Button>
                 )}
+
                 <Button
                   size="lg"
                   variant={isLastQuestion ? "default" : "outline"}
@@ -480,30 +616,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                   Submit entire round
-                </Button>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setCurrentIndex((i) => Math.max(0, i - 1));
-                    setResults(null);
-                  }}
-                  disabled={isFirstQuestion || (inTest && !isFullScreen)}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
-                    setResults(null);
-                  }}
-                  disabled={isLastQuestion || (inTest && !isFullScreen)}
-                >
-                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
             </div>

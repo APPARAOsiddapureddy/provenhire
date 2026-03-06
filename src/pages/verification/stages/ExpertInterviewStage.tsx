@@ -66,8 +66,10 @@ const ExpertInterviewStage = ({
   const inTest = !!interviewId && !result;
   const isFullScreen = useFullScreenState(inTest);
 
+  // Disable sound detection while the user is actively recording their answer —
+  // speaking is expected during voice input so we must not flag it as a violation.
   useSoundDetection({
-    enabled: inTest,
+    enabled: inTest && !micActive,
     threshold: 40,
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
@@ -139,13 +141,17 @@ const ExpertInterviewStage = ({
     recognition.interimResults = true;
     recognition.lang = "en-US";
     recognition.onresult = (e: any) => {
-      const parts = Array.from(e.results)
-        .filter((r: any) => r.isFinal)
-        .map((r: any) => r[0]?.transcript)
-        .filter(Boolean);
-      if (parts.length) {
-        const newPart = parts.join(" ");
-        setAnswer((prev) => (prev ? prev + " " + newPart : newPart).trim());
+      // Use e.resultIndex to process only NEW results since the last event.
+      // Without this, iterating all e.results on every event causes every
+      // previous transcript to be re-appended, producing garbled duplicates.
+      let newText = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          newText += e.results[i][0]?.transcript ?? "";
+        }
+      }
+      if (newText.trim()) {
+        setAnswer((prev) => (prev ? prev + " " + newText.trim() : newText.trim()));
       }
     };
     recognition.onerror = (e: any) => {

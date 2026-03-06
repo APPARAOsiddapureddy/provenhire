@@ -12,6 +12,8 @@ export interface ProctoringState {
   microphone: PermissionStatus;
   screenStream: MediaStream | null;
   cameraStream: MediaStream | null;
+  /** Microphone stream (may be same as camera when requested together) — pass to useSoundDetection to avoid duplicate prompts */
+  microphoneStream: MediaStream | null;
 }
 
 interface ProctoringSetupGateProps {
@@ -36,6 +38,7 @@ const ProctoringSetupGate = ({
     microphone: "pending",
     screenStream: null,
     cameraStream: null,
+    microphoneStream: null,
   });
   const [requesting, setRequesting] = useState<string | null>(null);
   const [skippedScreenShare, setSkippedScreenShare] = useState(false);
@@ -90,30 +93,26 @@ const ProctoringSetupGate = ({
     }
   };
 
-  const requestCamera = async () => {
+  /** Request camera + microphone in one call to avoid duplicate permission prompts */
+  const requestCameraAndMic = async () => {
     setRequesting("camera");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setState((s) => ({ ...s, camera: "granted", cameraStream: stream }));
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setState((s) => ({ ...s, camera: "granted", microphone: "granted", cameraStream: stream, microphoneStream: stream }));
     } catch (e) {
-      setState((s) => ({ ...s, camera: "denied" }));
-      toast.error("Camera access is required for proctoring.");
+      setState((s) => ({ ...s, camera: "denied", microphone: "denied" }));
+      toast.error("Camera and microphone access are required for proctoring.");
     } finally {
       setRequesting(null);
     }
   };
 
+  const requestCamera = async () => {
+    await requestCameraAndMic();
+  };
+
   const requestMicrophone = async () => {
-    setRequesting("mic");
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      setState((s) => ({ ...s, microphone: "granted" }));
-    } catch (e) {
-      setState((s) => ({ ...s, microphone: "denied" }));
-      toast.error("Microphone access is required for proctoring.");
-    } finally {
-      setRequesting(null);
-    }
+    await requestCameraAndMic();
   };
 
   const requestAll = async () => {
@@ -122,8 +121,7 @@ const ProctoringSetupGate = ({
     } else {
       setState((s) => ({ ...s, screenShare: "unsupported" }));
     }
-    await requestCamera();
-    await requestMicrophone();
+    await requestCameraAndMic();
   };
 
   // On retry, auto-request permissions so browser may reuse recently granted access (avoids repeated prompts)
@@ -278,38 +276,61 @@ const ProctoringSetupGate = ({
           </div>
         )}
 
-        {/* Grant all / Start test */}
+        {/* Single "Enable & Start" button — one click triggers all prompts (screen, camera/mic, fullscreen) to avoid feeling like two separate flows */}
         <div className="flex flex-wrap items-center gap-3 pt-2">
-          {state.camera === "pending" || state.microphone === "pending" ? (
-            <Button onClick={requestAll} disabled={!!requesting}>
-              {requesting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-              Grant all permissions
-            </Button>
-          ) : canProceed ? (
-            <Button
-              onClick={async () => {
-                try {
-                  await document.documentElement.requestFullscreen();
-                } catch {
-                  // Fullscreen requires user gesture - we have it here; if it fails, proceed anyway
-                }
-                handedOffRef.current = true;
-                onReady(state);
-              }}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-              {isRetry ? "Re-enable & Start" : "All set — Start"} {testName}
-            </Button>
-          ) : (
+          {state.screenShare === "denied" && !screenShareOptional ? (
             <div className="flex items-center gap-2 text-amber-600 text-sm">
               <AlertCircle className="h-4 w-4" />
-              <span>
-                {state.camera === "denied" || state.microphone === "denied"
-                  ? "Camera and microphone are required. Please grant access and try again."
-                  : "Please grant all permissions to proceed."}
-              </span>
+              <span>Screen share is required. Please try again or use a supported browser.</span>
             </div>
+          ) : state.camera === "denied" || state.microphone === "denied" ? (
+            <div className="flex items-center gap-2 text-amber-600 text-sm">
+              <AlertCircle className="h-4 w-4" />
+              <span>Camera and microphone are required. Please grant access and try again.</span>
+            </div>
+          ) : (
+            <Button
+              onClick={async () => {
+                setRequesting("all");
+                try {
+                  if (!canProceed) {
+                    if (supportsScreenShare && state.screenShare !== "granted" && state.screenShare !== "unsupported") {
+                      await requestScreenShare();
+                    }
+                    if (state.camera !== "granted" || state.microphone !== "granted") {
+                      await requestCameraAndMic();
+                    }
+                  }
+                  try {
+                    await document.documentElement.requestFullscreen();
+                  } catch {
+                    // Fullscreen requires user gesture; if it fails, proceed anyway
+                  }
+                  handedOffRef.current = true;
+                  onReady(state);
+                } catch (e) {
+                  // requestAll/requestScreenShare/requestCameraAndMic already show toasts
+                } finally {
+                  setRequesting(null);
+                }
+              }}
+              disabled={!!requesting}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {requesting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Setting up…
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  {canProceed
+                    ? (isRetry ? "Re-enable & Start" : "Enter fullscreen & Start") + ` ${testName}`
+                    : (isRetry ? "Re-enable & Start" : "Enable proctoring & Start") + ` ${testName}`}
+                </>
+              )}
+            </Button>
           )}
         </div>
       </CardContent>

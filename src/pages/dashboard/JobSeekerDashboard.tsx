@@ -102,14 +102,17 @@ const JobSeekerDashboard = () => {
 
   const getStageStatus = (stageName: string): 'done' | 'active' | 'locked' => {
     const stage = verificationStages.find((s: any) => s.stage_name === stageName);
+    const idx = stageOrder.indexOf(stageName);
+    const allPrevCompleted = idx <= 0 || stageOrder.slice(0, idx).every((prev) =>
+      verificationStages.some((s: any) => s.stage_name === prev && s.status === 'completed')
+    );
     if (!stage) {
-      const idx = stageOrder.indexOf(stageName);
-      const prevDone = idx > 0 && verificationStages.some((s: any) => s.stage_name === stageOrder[idx - 1] && s.status === 'completed');
-      return prevDone ? 'active' : idx === 0 ? 'active' : 'locked';
+      return allPrevCompleted ? 'active' : idx === 0 ? 'active' : 'locked';
     }
     if (stage.status === 'completed') return 'done';
-    if (stage.status === 'in_progress') return 'active';
-    return 'locked';
+    if (stage.status === 'in_progress' || stage.status === 'failed') return 'active';
+    // Locked but all previous completed = next to do, show Start button
+    return allPrevCompleted ? 'active' : 'locked';
   };
 
   const activeStageIndex = stageOrder.findIndex((s) => getStageStatus(s) === 'active');
@@ -597,10 +600,12 @@ const JobSeekerDashboard = () => {
 
               <div className="dashboard-stages-grid">
                 {stageOrder.filter((s) => s !== 'human_expert_interview').map((stageName, idx) => {
+                  const stageData = verificationStages.find((s: any) => s.stage_name === stageName);
                   const status = getStageStatus(stageName);
                   const isCompleted = status === 'done';
                   const isActive = status === 'active';
                   const isLocked = status === 'locked';
+                  const isFailed = stageData?.status === 'failed';
                   const aptitudeScore = testResults.aptitude?.total_score ?? 0;
                   const aptitudeTotal = testResults.aptitude?.total_marks ?? 20;
                   const aptitudePct = testResults.aptitude && aptitudeTotal > 0 ? Math.round((aptitudeScore / aptitudeTotal) * 100) : null;
@@ -648,7 +653,7 @@ const JobSeekerDashboard = () => {
                       {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
                       {isActive && (
                         <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
-                          Continue {STAGE_LABELS[stageName]} →
+                          {isFailed ? `Retry ${STAGE_LABELS[stageName]} →` : `Start ${STAGE_LABELS[stageName]} →`}
                         </Button>
                       )}
                     </div>
@@ -677,7 +682,9 @@ const JobSeekerDashboard = () => {
                       </div>
                       {getStageStatus('human_expert_interview') === 'active' && (
                         <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
-                          Continue Human Expert Interview →
+                          {verificationStages.find((s: any) => s.stage_name === 'human_expert_interview')?.status === 'failed'
+                            ? 'Retry Human Expert Interview →'
+                            : 'Start Human Expert Interview →'}
                         </Button>
                       )}
                     </div>

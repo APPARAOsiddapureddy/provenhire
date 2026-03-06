@@ -9,6 +9,8 @@ interface UseSoundDetectionOptions {
   onSoundDetected?: () => void;
   /** Whether detection is active */
   enabled?: boolean;
+  /** Use existing stream from ProctoringSetupGate to avoid duplicate permission prompts */
+  existingAudioStream?: MediaStream | null;
 }
 
 /**
@@ -19,12 +21,14 @@ export function useSoundDetection({
   debounceMs = 3000,
   onSoundDetected,
   enabled = true,
+  existingAudioStream,
 }: UseSoundDetectionOptions = {}) {
   const streamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const lastDetectedRef = useRef<number>(0);
   const animationRef = useRef<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const ownsStreamRef = useRef(false);
 
   const handleDetected = useCallback(() => {
     if (!onSoundDetected) return;
@@ -40,9 +44,13 @@ export function useSoundDetection({
     let cancelled = false;
     const init = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const hasExisting = existingAudioStream && existingAudioStream.getAudioTracks().length > 0;
+        const stream = hasExisting
+          ? existingAudioStream
+          : await navigator.mediaDevices.getUserMedia({ audio: true });
+        ownsStreamRef.current = !hasExisting;
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
+          if (ownsStreamRef.current) stream.getTracks().forEach((t) => t.stop());
           return;
         }
         streamRef.current = stream;
@@ -91,7 +99,9 @@ export function useSoundDetection({
     return () => {
       cancelled = true;
       cancelAnimationFrame(animationRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (ownsStreamRef.current && streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
       streamRef.current = null;
       analyserRef.current = null;
       const ctx = audioContextRef.current;
@@ -100,7 +110,7 @@ export function useSoundDetection({
         ctx?.close().catch(() => {});
       }
     };
-  }, [enabled, threshold, onSoundDetected, handleDetected]);
+  }, [enabled, threshold, onSoundDetected, handleDetected, existingAudioStream]);
 
   return { isActive: enabled };
 }
