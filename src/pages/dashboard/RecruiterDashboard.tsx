@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LogOut, LayoutGrid, ChevronRight, FileText, Lock, CheckCircle2 } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
@@ -354,6 +355,7 @@ const RecruiterDashboard = () => {
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{ name: userName, role: profile?.company_name || 'Recruiter', initials: userInitials }}
+        onSignOut={signOut}
       >
         {loading && (
           <div className="dashboard-section-content space-y-6">
@@ -701,11 +703,11 @@ const RecruiterDashboard = () => {
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number</Label>
-              <Input
+              <PhoneInput
                 id="phone"
                 value={editedProfile.phone}
-                onChange={(e) => setEditedProfile(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="+1 (555) 123-4567"
+                onChange={(v) => setEditedProfile(prev => ({ ...prev, phone: v }))}
+                placeholder="555 123 4567"
               />
             </div>
             <div className="flex gap-3 pt-4">

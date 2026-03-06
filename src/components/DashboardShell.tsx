@@ -23,6 +23,8 @@ export interface DashboardShellProps {
   children: ReactNode;
   sidebarSections: DashboardSidebarSection[];
   user: { name: string; role: string; initials: string };
+  /** Optional: called when user clicks Sign Out in the sidebar bottom section */
+  onSignOut?: () => void;
 }
 
 function SidebarContent({
@@ -30,11 +32,13 @@ function SidebarContent({
   user,
   isActive,
   onItemClick,
+  onSignOut,
 }: {
   sidebarSections: DashboardSidebarSection[];
   user: { name: string; role: string; initials: string };
   isActive: (item: DashboardSidebarItem) => boolean;
   onItemClick?: () => void;
+  onSignOut?: () => void;
 }) {
   return (
     <>
@@ -49,7 +53,7 @@ function SidebarContent({
                 {item.label}
                 {item.badge && (
                   <span
-                    className="ml-auto text-[11px] font-semibold px-[7px] py-0.5 rounded-[10px]"
+                    className="ml-auto shrink-0 text-[11px] font-semibold px-[7px] py-0.5 rounded-[10px]"
                     style={{
                       background: "var(--dash-emerald-light)",
                       color: "var(--dash-emerald)",
@@ -88,29 +92,39 @@ function SidebarContent({
           })}
         </div>
       ))}
-      <div className="dashboard-sidebar-divider" />
       <div
-        className="flex items-center gap-[10px] pt-4 px-6 border-t border-[var(--dash-navy-border)] mt-4"
+        className="flex flex-col gap-3 pt-4 px-6 border-t border-[var(--dash-navy-border)] mt-4"
         style={{ padding: "16px 24px" }}
       >
-        <div
-          className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-[13px] font-bold shrink-0 border-2 flex-shrink-0"
-          style={{
-            background: "linear-gradient(135deg, var(--dash-navy-light), var(--dash-slate))",
-            color: "var(--dash-gold)",
-            borderColor: "var(--dash-gold-dim)",
-          }}
-        >
-          {user.initials}
-        </div>
-        <div className="min-w-0">
-          <div className="text-[13.5px] font-semibold truncate" style={{ color: "var(--dash-text-primary)" }}>
-            {user.name}
+        <div className="flex items-center gap-[10px] min-w-0">
+          <div
+            className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-[13px] font-bold shrink-0 border-2 flex-shrink-0"
+            style={{
+              background: "linear-gradient(135deg, var(--dash-navy-light), var(--dash-slate))",
+              color: "var(--dash-gold)",
+              borderColor: "var(--dash-gold-dim)",
+            }}
+          >
+            {user.initials}
           </div>
-          <div className="text-[11.5px] truncate" style={{ color: "var(--dash-text-muted)" }}>
-            {user.role}
+          <div className="min-w-0 flex-1">
+            <div className="text-[13.5px] font-semibold truncate" style={{ color: "var(--dash-text-primary)" }}>
+              {user.name}
+            </div>
+            <div className="text-[11.5px] truncate" style={{ color: "var(--dash-text-muted)" }}>
+              {user.role}
+            </div>
           </div>
         </div>
+        {onSignOut && (
+          <button
+            type="button"
+            onClick={() => { onSignOut(); onItemClick?.(); }}
+            className="dashboard-sidebar-item w-full justify-center text-[12px] py-2 rounded-md hover:bg-red-500/10 text-red-400 hover:text-red-300"
+          >
+            Sign Out
+          </button>
+        )}
       </div>
     </>
   );
@@ -120,6 +134,7 @@ export default function DashboardShell({
   children,
   sidebarSections,
   user,
+  onSignOut,
 }: DashboardShellProps) {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -132,8 +147,8 @@ export default function DashboardShell({
 
   return (
     <div className="dashboard-shell">
-      <aside className="dashboard-sidebar hidden lg:block">
-        <SidebarContent sidebarSections={sidebarSections} user={user} isActive={isActive} />
+      <aside className="dashboard-sidebar hidden lg:block overflow-hidden">
+        <SidebarContent sidebarSections={sidebarSections} user={user} isActive={isActive} onSignOut={onSignOut} />
       </aside>
       <div className="dashboard-main-wrapper flex-1 min-w-0 flex flex-col">
         <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-[var(--dash-navy-border)] bg-[var(--dash-navy)] shrink-0">
@@ -147,7 +162,7 @@ export default function DashboardShell({
               <SheetTitle className="sr-only">Dashboard menu</SheetTitle>
               <SheetDescription className="sr-only">Navigation and account links</SheetDescription>
               <div className="pt-8 pb-4 overflow-y-auto h-full">
-                <SidebarContent sidebarSections={sidebarSections} user={user} isActive={isActive} onItemClick={() => setMobileMenuOpen(false)} />
+                <SidebarContent sidebarSections={sidebarSections} user={user} isActive={isActive} onItemClick={() => setMobileMenuOpen(false)} onSignOut={onSignOut} />
               </div>
             </SheetContent>
           </Sheet>

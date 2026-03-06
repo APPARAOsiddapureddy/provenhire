@@ -1537,18 +1537,19 @@ export const DSA_MINUTES_PER_QUESTION = 30;
 export const DSA_TOTAL_MINUTES = DSA_QUESTIONS_COUNT * DSA_MINUTES_PER_QUESTION; // 90
 export const DSA_PASS_THRESHOLD = 60;
 
+/** Question distribution by experience: freshers → 2 easy + 1 med; 1–3yr → 1 easy + 1 med + 1 hard; 3+yr → 2 med + 1 hard */
 export const generateDSATest = (experienceYears: number): DSAQuestion[] => {
   const pool = allDSAQuestions;
   const byDiff = (d: "Easy" | "Medium" | "Hard") =>
     pool.filter((q) => q.difficulty === d).sort(() => Math.random() - 0.5);
 
   let questions: DSAQuestion[] = [];
-  if (experienceYears <= 1) {
+  if (experienceYears < 1) {
     questions = [...byDiff("Easy").slice(0, 2), ...byDiff("Medium").slice(0, 1)];
-  } else if (experienceYears <= 4) {
-    questions = [...byDiff("Easy").slice(0, 1), ...byDiff("Medium").slice(0, 2)];
+  } else if (experienceYears <= 3) {
+    questions = [...byDiff("Easy").slice(0, 1), ...byDiff("Medium").slice(0, 1), ...byDiff("Hard").slice(0, 1)];
   } else {
-    questions = [...byDiff("Medium").slice(0, 1), ...byDiff("Hard").slice(0, 2)];
+    questions = [...byDiff("Medium").slice(0, 2), ...byDiff("Hard").slice(0, 1)];
   }
   return questions.sort(() => Math.random() - 0.5).slice(0, DSA_QUESTIONS_COUNT);
 };

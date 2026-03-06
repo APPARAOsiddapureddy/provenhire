@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/PhoneInput";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
@@ -44,7 +45,6 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState(user?.email ?? "");
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
   const [currentRole, setCurrentRole] = useState("");
@@ -61,7 +61,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
 
   const applyParsed = useCallback((p: ParsedProfile) => {
     setFullName(p.fullName || "");
-    setEmail(p.email || "");
+    // Never overwrite email from resume — sign-up email (User.email) is the main, immutable email
     setPhone(p.phone || "");
     setLocation(p.location || "");
     setCurrentRole(p.currentRole || "");
@@ -85,10 +85,6 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
   const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
-    if (user?.email && !email) setEmail(user.email);
-  }, [user?.email]);
-
-  useEffect(() => {
     let cancelled = false;
     api
       .get<{ profile: Record<string, unknown> | null }>("/api/users/job-seeker-profile")
@@ -96,7 +92,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         if (cancelled || !profile) return;
         if (profile.fullName) {
           setFullName(String(profile.fullName));
-          setEmail(profile.email ? String(profile.email) : (user?.email ?? ""));
+          // Email always comes from User (sign-up) — never from profile
           setPhone(profile.phone ? String(profile.phone) : "");
           setLocation(profile.location ? String(profile.location) : "");
           setCurrentRole(profile.currentRole ? String(profile.currentRole) : "");
@@ -153,7 +149,6 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     setManualMode(true);
     setShowForm(true);
     setParseError(null);
-    if (user?.email && !email) setEmail(user.email);
   };
 
   const scrollToField = (fieldId: string) => {
@@ -166,9 +161,6 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     const errs: Record<string, string> = {};
     if (!fullName.trim()) {
       errs.fullName = "Please enter your full name.";
-    }
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      errs.email = "Please enter a valid email address.";
     }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -187,7 +179,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         .filter(Boolean);
       await api.post("/api/users/job-seeker-profile", {
         fullName: fullName.trim(),
-        email: email?.trim() || undefined,
+        // email is never sent — sign-up email (User.email) is the main, immutable email
         phone: phone || undefined,
         location: location || undefined,
         currentRole,
@@ -314,23 +306,22 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 )}
               </div>
               <div ref={(r) => { fieldRefs.current.email = r; }} id="field-email" className="space-y-2">
-                <Label>Email</Label>
+                <Label>Email (from sign-up, cannot be changed)</Label>
                 <Input
                   type="email"
-                  value={email}
-                  onChange={(e) => { setEmail(e.target.value); setFieldErrors((p) => ({ ...p, email: "" })); }}
+                  value={user?.email ?? ""}
+                  readOnly
+                  disabled
                   placeholder="email@example.com"
-                  className={fieldErrors.email ? "border-destructive focus-visible:ring-destructive" : ""}
+                  className="bg-muted cursor-not-allowed"
                 />
-                {fieldErrors.email && (
-                  <p className="text-sm text-destructive">{fieldErrors.email}</p>
-                )}
+                <p className="text-xs text-muted-foreground">Your sign-up email is your main account email.</p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Phone</Label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 9876543210" />
+                <PhoneInput value={phone} onChange={setPhone} placeholder="9876543210" />
               </div>
               <div className="space-y-2">
                 <Label>Location</Label>

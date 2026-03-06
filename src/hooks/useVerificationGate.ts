@@ -11,6 +11,8 @@ interface VerificationStatus {
   isExpertVerified: boolean;
   /** PRD v4.1: Non-tech Stage 2 pass — can apply to non-technical jobs */
   isNonTechVerified: boolean;
+  /** Completed DSA (tech) or Assignment (non-tech) — can access jobs < 8 LPA */
+  hasCompletedDsaOrEquivalent: boolean;
 }
 
 export const useVerificationGate = () => {
@@ -22,13 +24,14 @@ export const useVerificationGate = () => {
     currentStage: null,
     isExpertVerified: false,
     isNonTechVerified: false,
+    hasCompletedDsaOrEquivalent: false,
   });
 
   useEffect(() => {
     if (user && userRole === 'jobseeker') {
       checkVerificationStatus();
     } else {
-      setStatus(prev => ({ ...prev, isLoading: false, isVerified: true, isExpertVerified: true, isNonTechVerified: true }));
+      setStatus(prev => ({ ...prev, isLoading: false, isVerified: true, isExpertVerified: true, isNonTechVerified: true, hasCompletedDsaOrEquivalent: true }));
     }
   }, [user, userRole]);
 
@@ -51,6 +54,11 @@ export const useVerificationGate = () => {
       const isExpertVerified = profile?.verificationStatus === 'expert_verified' || profile?.verificationStatus === 'verified';
       const isNonTechVerified = roleType === 'non_technical' && isExpertVerified;
       const isVerified = isExpertVerified || isNonTechVerified;
+
+      const completedStages = stages?.filter((s: { status?: string }) => s.status === 'completed') ?? [];
+      const hasCompletedDsaOrEquivalent = roleType === 'technical'
+        ? completedStages.some((s: { stage_name?: string }) => s.stage_name === 'dsa_round')
+        : completedStages.some((s: { stage_name?: string }) => s.stage_name === 'non_tech_assignment');
       
       const totalStages = roleType === 'non_technical' ? 3 : 5;
       let progress = 0;
@@ -73,10 +81,11 @@ export const useVerificationGate = () => {
         currentStage,
         isExpertVerified,
         isNonTechVerified,
+        hasCompletedDsaOrEquivalent: Boolean(hasCompletedDsaOrEquivalent),
       });
     } catch (error) {
       console.error('Error checking verification status:', error);
-      setStatus(prev => ({ ...prev, isLoading: false, isExpertVerified: false, isNonTechVerified: false }));
+      setStatus(prev => ({ ...prev, isLoading: false, isExpertVerified: false, isNonTechVerified: false, hasCompletedDsaOrEquivalent: false }));
     }
   };
 

@@ -19,7 +19,7 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
   try {
   const schema = z.object({
     fullName: z.string().optional(),
-    email: z.union([z.string().email(), z.literal("")]).optional(),
+    // email is NOT accepted — sign-up email (User.email) is the main, immutable email
     currentRole: z.string().optional(),
     experienceYears: z.number().optional(),
     resumeUrl: z.string().optional(),
@@ -50,9 +50,12 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     const data = Object.fromEntries(
       Object.entries(raw).filter(([, v]) => v !== undefined && v !== null)
     ) as Record<string, unknown>;
+    // Never update email from profile — sign-up email (User.email) is the main, immutable email
+    delete data.email;
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { email: true } });
     const profile = await prisma.jobSeekerProfile.upsert({
       where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...data },
+      create: { userId: req.user!.id, email: user?.email ?? null, ...data },
       update: data,
     });
     return res.json({ profile });

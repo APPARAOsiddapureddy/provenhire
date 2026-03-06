@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +57,7 @@ export default function InterviewerCareers() {
         email: form.email.trim().toLowerCase(),
         experienceYears: form.experienceYears === "" ? undefined : Number(form.experienceYears),
         primaryRole: form.primaryRole,
+        phone: form.phone.trim() || undefined,
         linkedIn: form.linkedIn.trim() || undefined,
         whyJoin: form.whyJoin.trim() || undefined,
       });
@@ -269,12 +271,11 @@ export default function InterviewerCareers() {
 
                 <div className="space-y-2">
                   <Label htmlFor="phone">Mobile Number</Label>
-                  <Input
+                  <PhoneInput
                     id="phone"
-                    type="tel"
                     value={form.phone}
-                    onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
-                    placeholder="+91 9876543210"
+                    onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
+                    placeholder="9876543210"
                   />
                   <p className="text-xs text-muted-foreground">Helps admin connect with you easily.</p>
                 </div>

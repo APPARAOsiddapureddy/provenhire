@@ -347,11 +347,41 @@ const Jobs = () => {
     requiresVerification,
     isExpertVerified,
     isNonTechVerified,
+    hasCompletedDsaOrEquivalent,
   } = useVerificationGate();
+
+  const parseSalaryMaxLpa = (salaryStr: string | null | undefined): number | null => {
+    if (!salaryStr) return null;
+    const lakhMatch = salaryStr.match(/₹?\s*([\d,]+)L\s*-?\s*₹?\s*([\d,]+)L/i) || salaryStr.match(/₹?\s*([\d,]+)L/i);
+    if (lakhMatch) {
+      const max = lakhMatch[2] ? parseInt(lakhMatch[2].replace(/,/g, ''), 10) : parseInt(lakhMatch[1].replace(/,/g, ''), 10);
+      return isNaN(max) ? null : max;
+    }
+    const usdMatch = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i) || salaryStr.match(/\$?([\d,]+)k?/i);
+    if (usdMatch) {
+      const max = usdMatch[2] ? parseInt(usdMatch[2].replace(/,/g, ''), 10) : parseInt(usdMatch[1].replace(/,/g, ''), 10);
+      return isNaN(max) ? null : Math.floor(max / 10);
+    }
+    return null;
+  };
 
   const isJobLocked = (job: Job) => {
     if (job.job_track === 'non_technical') return !isNonTechVerified;
-    return Boolean(job.isPremium && !isExpertVerified);
+    // Tech: DSA-complete → jobs < 8 LPA; Expert-complete → all jobs
+    if (!hasCompletedDsaOrEquivalent) return true;
+    const salaryStr = job.salary_range ?? (job as { salaryRange?: string }).salaryRange;
+    const maxLpa = parseSalaryMaxLpa(salaryStr ?? null);
+    if (maxLpa != null && maxLpa > 8) return !isExpertVerified;
+    return false;
+  };
+
+  const getLockedJobMessage = (job: Job): string => {
+    if (job.job_track === 'non_technical') return 'Complete non-tech verification to apply';
+    if (!hasCompletedDsaOrEquivalent) return 'Complete DSA round to access jobs (< 8 LPA)';
+    const salaryStr = job.salary_range ?? (job as { salaryRange?: string }).salaryRange;
+    const maxLpa = parseSalaryMaxLpa(salaryStr ?? null);
+    if (maxLpa != null && maxLpa > 8) return 'Complete AI Expert Interview to access roles above 8 LPA';
+    return 'This role is available after verification';
   };
 
   // Search States
@@ -599,7 +629,7 @@ const Jobs = () => {
   const handleToggleCompare = (jobId: string) => {
     const job = jobsToShow.find(j => j.id === jobId);
     if (job && isJobLocked(job)) {
-      toast(job.job_track === 'non_technical' ? 'Complete non-tech verification to compare' : 'Verify your profile to compare premium roles', { icon: '🔒' });
+      toast(getLockedJobMessage(job), { icon: '🔒' });
       setShowVerificationDialog(true);
       return;
     }
@@ -642,7 +672,7 @@ const Jobs = () => {
 
   const handleViewJobDetails = (job: Job) => {
     if (isJobLocked(job)) {
-      toast(job.job_track === 'non_technical' ? 'Complete non-tech verification to apply' : 'This role is available after verification', { icon: '🔒' });
+      toast(getLockedJobMessage(job), { icon: '🔒' });
       setShowVerificationDialog(true);
       return;
     }
@@ -750,7 +780,7 @@ const Jobs = () => {
 
     const job = jobsToShow.find(j => j.id === jobId);
     if (job && isJobLocked(job)) {
-      toast(job.job_track === 'non_technical' ? 'Complete non-tech verification to save' : 'Verify your profile to save premium roles', { icon: '🔒' });
+      toast(getLockedJobMessage(job), { icon: '🔒' });
       setShowVerificationDialog(true);
       return;
     }

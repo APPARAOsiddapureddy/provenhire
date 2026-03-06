@@ -34,7 +34,8 @@ adminRouter.get("/job-seekers", async (_req, res) => {
     created_at: p.createdAt,
     profile: {
       full_name: p.fullName,
-      email: p.email ?? p.user?.email ?? null,
+      // User.email (sign-up) is the main email; profile.email is legacy/fallback
+      email: p.user?.email ?? p.email ?? null,
     },
   }));
   res.json({ jobSeekers: mapped });

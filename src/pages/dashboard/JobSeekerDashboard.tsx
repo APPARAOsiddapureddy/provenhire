@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import SkillPassport from "@/components/SkillPassport";
@@ -388,7 +389,16 @@ const JobSeekerDashboard = () => {
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{ name: userName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
+        onSignOut={signOut}
       >
+        {/* Top-right account actions — always visible for quick access */}
+        {!loading && (
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-b border-[var(--dash-navy-border)] bg-[var(--dash-navy)] shrink-0">
+            <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowProfileDialog(true)}>Edit Profile</Button>
+            <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowPasswordDialog(true)}>Reset Password</Button>
+            <Button className="dashboard-btn-ghost" size="sm" onClick={signOut}><LogOut className="h-4 w-4 mr-2" />Sign Out</Button>
+          </div>
+        )}
         {loadError && (
           <div className="dashboard-section-content">
             <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
@@ -526,9 +536,6 @@ const JobSeekerDashboard = () => {
                 <Button className="dashboard-btn-gold" onClick={() => navigate('/verification')}>
                   Continue {nextStageLabel} →
                 </Button>
-                <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowProfileDialog(true)}>Edit Profile</Button>
-                <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowPasswordDialog(true)}>Reset Password</Button>
-                <Button className="dashboard-btn-ghost" size="sm" onClick={signOut}><LogOut className="h-4 w-4 mr-2" />Sign Out</Button>
               </div>
             </div>
             <div className="dashboard-section-content">
@@ -616,7 +623,7 @@ const JobSeekerDashboard = () => {
                       {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
                       {isActive && (
                         <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
-                          Begin {STAGE_LABELS[stageName]} →
+                          Continue {STAGE_LABELS[stageName]} →
                         </Button>
                       )}
                     </div>
@@ -624,11 +631,12 @@ const JobSeekerDashboard = () => {
                 })}
 
                 {roleType === 'technical' && (
-                <div className={`dashboard-stage-card locked-stage full-width ${getStageStatus('human_expert_interview') === 'locked' ? 'locked-stage' : ''}`}>
+                <div className={`dashboard-stage-card full-width ${getStageStatus('human_expert_interview') === 'active' ? 'active-stage' : 'locked-stage'}`}>
                   <div className="flex items-start justify-between mb-4">
-                    <div className="dashboard-stage-num locked-num">05</div>
-                    <div className="dashboard-pill-locked flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px]">
-                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--dash-text-muted)' }} /> Locked
+                    <div className={`dashboard-stage-num ${getStageStatus('human_expert_interview') === 'active' ? 'active-num' : 'locked-num'}`}>05</div>
+                    <div className={`flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px] ${getStageStatus('human_expert_interview') === 'active' ? 'dashboard-pill-active' : 'dashboard-pill-locked'}`}>
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: getStageStatus('human_expert_interview') === 'active' ? 'var(--dash-gold)' : 'var(--dash-text-muted)' }} />
+                      {getStageStatus('human_expert_interview') === 'active' ? 'In Progress' : 'Locked'}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-5 items-start">
@@ -642,6 +650,11 @@ const JobSeekerDashboard = () => {
                         <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> ID Verified</span>
                         <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> NDA Expert</span>
                       </div>
+                      {getStageStatus('human_expert_interview') === 'active' && (
+                        <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
+                          Continue Human Expert Interview →
+                        </Button>
+                      )}
                     </div>
                     <div className="rounded-xl p-4 bg-white/5 border border-[var(--dash-navy-border)]">
                       <div className="text-sm font-semibold uppercase tracking-wide text-[var(--dash-text-muted)] mb-2">Slot availability (after Stage 4)</div>
@@ -685,10 +698,10 @@ const JobSeekerDashboard = () => {
               </div>
               <div className="space-y-2">
                 <Label>Phone</Label>
-                <Input
-                  placeholder="+91 98765 43210"
+                <PhoneInput
                   value={editingProfile.phone}
-                  onChange={(e) => setEditingProfile(prev => ({ ...prev, phone: e.target.value }))}
+                  onChange={(v) => setEditingProfile(prev => ({ ...prev, phone: v }))}
+                  placeholder="98765 43210"
                 />
               </div>
             </div>

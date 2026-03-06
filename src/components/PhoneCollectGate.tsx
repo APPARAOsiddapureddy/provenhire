@@ -11,8 +11,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneInput } from "@/components/PhoneInput";
 import { Phone } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -98,12 +98,11 @@ export default function PhoneCollectGate({ role, children }: PhoneCollectGatePro
           <form onSubmit={handleSubmit} className="space-y-4 pt-2">
             <div className="space-y-2">
               <Label htmlFor="phone">Mobile Number *</Label>
-              <Input
+              <PhoneInput
                 id="phone"
-                type="tel"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+91 9876543210"
+                onChange={setPhone}
+                placeholder="9876543210"
                 required
                 autoFocus
               />

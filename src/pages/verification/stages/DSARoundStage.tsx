@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,6 +70,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
   const [justPassed, setJustPassed] = useState(false);
   const [hasFailed, setHasFailed] = useState(false);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeUpSubmittedRef = useRef(false);
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
@@ -96,6 +99,28 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
       setCode(initial);
     }
   }, [experienceYears]);
+
+  useEffect(() => {
+    if (proctoringReady && questions.length > 0 && secondsRemaining === null) {
+      setSecondsRemaining(DSA_TOTAL_MINUTES * 60);
+    }
+  }, [proctoringReady, questions.length, secondsRemaining]);
+
+  useEffect(() => {
+    if (!inTest || secondsRemaining == null || secondsRemaining <= 0) return;
+    timerRef.current = setInterval(() => {
+      setSecondsRemaining((s) => {
+        if (s == null || s <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [inTest]);
 
   const selectedQuestion = questions[currentIndex];
 
@@ -187,7 +212,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
     }
   }, [justPassed, hasFailed, proctoringState]);
 
-  const handleSubmitRound = async () => {
+  const handleSubmitRound = useCallback(async () => {
     const totalScore =
       questions.length > 0
         ? Math.round(
@@ -232,7 +257,15 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
       setSubmitting(false);
       setSubmitConfirmOpen(false);
     }
-  };
+  }, [questions, scores, code, language]);
+
+  useEffect(() => {
+    if (secondsRemaining === 0 && inTest && questions.length > 0 && !submitting && !timeUpSubmittedRef.current) {
+      timeUpSubmittedRef.current = true;
+      toast.warning("Time's up! Submitting your round.");
+      handleSubmitRound();
+    }
+  }, [secondsRemaining]);
 
   if (questions.length === 0) {
     return (
@@ -318,12 +351,18 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
             </p>
           </div>
         )}
-        {/* Question progress */}
+        {/* Question progress + timer */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm text-muted-foreground">
             Question {currentIndex + 1} of {questions.length}
           </span>
-          <div className="flex gap-1">
+          <div className="flex items-center gap-4">
+            {secondsRemaining != null && inTest && (
+              <span className={`text-sm font-mono font-medium ${secondsRemaining <= 300 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                Time: {formatTime(secondsRemaining)}
+              </span>
+            )}
+            <div className="flex gap-1">
             {questions.map((q, i) => (
               <div
                 key={q.id}
@@ -331,6 +370,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, experienceYears = 
                 title={`Q${i + 1}: ${scores[q.id] !== undefined ? scores[q.id] + "%" : "Pending"}`}
               />
             ))}
+          </div>
           </div>
         </div>
 

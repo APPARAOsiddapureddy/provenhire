@@ -14,7 +14,7 @@ import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { Loader2, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck } from "lucide-react";
 
-const APTITUDE_TIME_MINUTES = 20;
+const APTITUDE_TIME_MINUTES = 90; // 1.5 hours total
 
 interface AptitudeQuestion {
   id: string;

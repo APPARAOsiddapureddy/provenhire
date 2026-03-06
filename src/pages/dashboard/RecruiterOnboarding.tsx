@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -170,18 +171,13 @@ const RecruiterOnboarding = () => {
                 {/* Phone */}
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number *</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="+91 999 999 9999"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      className="pl-10"
-                      required
-                    />
-                  </div>
+                  <PhoneInput
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(v) => setFormData({ ...formData, phone: v })}
+                    placeholder="999 999 9999"
+                    required
+                  />
                 </div>
 
                 {/* Company Website */}

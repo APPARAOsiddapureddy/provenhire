@@ -196,10 +196,17 @@ const ProctoringSetupGate = ({
               {state.screenShare === "unsupported" && (
                 <span className="text-xs text-muted-foreground">Not supported</span>
               )}
-              {state.screenShare === "denied" && screenShareOptional && (
-                <Button size="sm" variant="outline" onClick={handleSkipScreenShare}>
-                  Skip
-                </Button>
+              {state.screenShare === "denied" && (
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={requestScreenShare} disabled={!!requesting}>
+                    {requesting === "screen" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Allow screen share"}
+                  </Button>
+                  {screenShareOptional && (
+                    <Button size="sm" variant="outline" onClick={handleSkipScreenShare}>
+                      Skip
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           </div>
