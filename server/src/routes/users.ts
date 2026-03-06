@@ -35,6 +35,9 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     workExperience: z.any().optional(),
     roleType: z.enum(["technical", "non_technical"]).optional(),
     targetJobTitle: z.string().optional(),
+    noticePeriod: z.string().optional(),
+    currentSalary: z.string().optional(),
+    expectedSalary: z.string().optional(),
   });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
@@ -93,6 +96,27 @@ usersRouter.post("/recruiter-profile", requireAuth, async (req: AuthedRequest, r
 });
 
 usersRouter.get("/candidates", requireAuth, async (_req, res) => {
-  const profiles = await prisma.jobSeekerProfile.findMany({ take: 50, orderBy: { createdAt: "desc" } });
+  const rows = await prisma.jobSeekerProfile.findMany({ take: 50, orderBy: { createdAt: "desc" } });
+  const profiles = rows.map((p) => {
+    const skills = Array.isArray(p.skills) ? p.skills : p.skills ? [String(p.skills)] : [];
+    const activelyLookingRoles = p.targetJobTitle ? [p.targetJobTitle] : [];
+    return {
+      id: p.id,
+      user_id: p.userId,
+      full_name: p.fullName,
+      current_role: p.currentRole,
+      experience_years: p.experienceYears,
+      verification_status: p.verificationStatus,
+      skills,
+      actively_looking_roles: activelyLookingRoles,
+      bio: p.about,
+      phone: p.phone,
+      location: p.location,
+      college: p.college,
+      graduation_year: p.graduationYear,
+      resume_url: p.resumeUrl,
+      created_at: p.createdAt?.toISOString?.() ?? null,
+    };
+  });
   res.json({ profiles });
 });

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { CheckCircle2, Loader2, FileText } from "lucide-react";
 
 interface ParsedProfile {
   fullName: string;
@@ -55,9 +56,13 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
   const [graduationYear, setGraduationYear] = useState("");
   const [education, setEducation] = useState<string>("");
   const [workExperience, setWorkExperience] = useState<string>("");
+  const [noticePeriod, setNoticePeriod] = useState("");
+  const [currentSalary, setCurrentSalary] = useState("");
+  const [expectedSalary, setExpectedSalary] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [parseStep, setParseStep] = useState<"parsing" | "extracting" | "done">("parsing");
 
   const applyParsed = useCallback((p: ParsedProfile) => {
     setFullName(p.fullName || "");
@@ -100,6 +105,9 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
           setExperienceYears(profile.experienceYears != null ? Number(profile.experienceYears) : "");
           setCollege(profile.college ? String(profile.college) : "");
           setGraduationYear(profile.graduationYear ? String(profile.graduationYear) : "");
+          setNoticePeriod(profile.noticePeriod ? String(profile.noticePeriod) : "");
+          setCurrentSalary(profile.currentSalary ? String(profile.currentSalary) : "");
+          setExpectedSalary(profile.expectedSalary ? String(profile.expectedSalary) : "");
           const sk = profile.skills;
           setSkills(Array.isArray(sk) ? sk.join(", ") : typeof sk === "string" ? sk : "");
         }
@@ -114,15 +122,20 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     setResumeFile(file);
     setParseError(null);
     setParsing(true);
+    setParseStep("parsing");
     setManualMode(false);
+    const phaseTimer = setTimeout(() => setParseStep("extracting"), 1200);
     try {
       const form = new FormData();
       form.append("file", file);
       const { parsed } = await api.post<{ parsed: ParsedProfile }>("/api/ai/parse-resume", form);
+      clearTimeout(phaseTimer);
+      setParseStep("done");
       applyParsed(parsed);
       setShowForm(true);
       toast.success("Resume parsed. Review and save.");
     } catch (err: unknown) {
+      clearTimeout(phaseTimer);
       let msg = err instanceof Error ? err.message : "Could not parse resume";
       if (msg.includes("429") || msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("billing")) {
         msg = "Resume parsing is temporarily unavailable (API quota exceeded). Please fill in your details manually.";
@@ -190,6 +203,9 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         graduationYear: graduationYear || undefined,
         education: education.trim() ? education.trim().split("\n").filter(Boolean) : undefined,
         workExperience: workExperience.trim() ? workExperience.trim().split("\n").filter(Boolean) : undefined,
+        noticePeriod: noticePeriod.trim() || undefined,
+        currentSalary: currentSalary.trim() || undefined,
+        expectedSalary: expectedSalary.trim() || undefined,
       });
       await api.post("/api/verification/stages/update", { stageName: "profile_setup", status: "completed" });
       toast.success("Profile saved successfully!");
@@ -228,7 +244,49 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!showForm && (
+        {parsing && (
+          <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-8 text-center space-y-6">
+            <div className="flex justify-center gap-2">
+              <div className={`h-1.5 w-12 rounded-full transition-colors ${parseStep !== "parsing" ? "bg-primary" : "bg-primary/40"}`} />
+              <div className={`h-1.5 w-12 rounded-full transition-colors ${parseStep === "extracting" || parseStep === "done" ? "bg-primary" : "bg-muted"}`} />
+              <div className={`h-1.5 w-12 rounded-full transition-colors ${parseStep === "done" ? "bg-primary" : "bg-muted"}`} />
+            </div>
+            <h2 className="text-2xl font-bold text-foreground">You are almost done!</h2>
+            <div className="flex justify-center">
+              <FileText className="h-16 w-16 text-muted-foreground/60" />
+            </div>
+            <div className="h-1.5 w-full max-w-xs mx-auto rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-500"
+                style={{ width: parseStep === "parsing" ? "40%" : parseStep === "extracting" ? "80%" : "100%" }}
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Developers are signing up to find their dream role. You&apos;re next!
+            </p>
+            <div className="space-y-3 text-left max-w-sm mx-auto">
+              <div className="flex items-center gap-3">
+                {parseStep !== "parsing" ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                ) : (
+                  <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />
+                )}
+                <span className="text-sm font-medium">Parsing Resume</span>
+              </div>
+              <div className="flex items-center gap-3">
+                {parseStep === "done" ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                ) : parseStep === "extracting" ? (
+                  <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />
+                ) : (
+                  <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30 shrink-0" />
+                )}
+                <span className="text-sm font-medium">Extracting Data</span>
+              </div>
+            </div>
+          </div>
+        )}
+        {!showForm && !parsing && (
           <div className="space-y-3">
             <Label className="text-base font-medium">Upload your resume</Label>
             <p className="text-sm text-muted-foreground">PDF, DOC, DOCX, or TXT — our LLM will extract and auto-fill your profile.</p>
@@ -252,14 +310,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 disabled={parsing}
               />
               <label htmlFor="resume-upload" className="cursor-pointer block">
-                {parsing ? (
-                  <span className="text-muted-foreground">Analyzing your resume…</span>
-                ) : (
-                  <>
-                    <p className="text-sm text-muted-foreground">PDF, DOC, DOCX, or TXT</p>
-                    <p className="mt-2 text-primary font-medium">Drop file here or click to upload</p>
-                  </>
-                )}
+                <p className="text-sm text-muted-foreground">PDF, DOC, DOCX, or TXT</p>
+                <p className="mt-2 text-primary font-medium">Drop file here or click to upload</p>
               </label>
             </div>
             <Button variant="ghost" size="sm" onClick={handleSkipToManual}>
@@ -388,6 +440,32 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 placeholder="Role at Company (Years)"
                 rows={3}
               />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Notice period</Label>
+                <Input
+                  value={noticePeriod}
+                  onChange={(e) => setNoticePeriod(e.target.value)}
+                  placeholder="e.g. 15 days, 1 month, Immediate"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Current salary</Label>
+                <Input
+                  value={currentSalary}
+                  onChange={(e) => setCurrentSalary(e.target.value)}
+                  placeholder="e.g. 10 LPA, 15-20 L"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Expected salary</Label>
+                <Input
+                  value={expectedSalary}
+                  onChange={(e) => setExpectedSalary(e.target.value)}
+                  placeholder="e.g. 20 LPA, 25-30 L"
+                />
+              </div>
             </div>
 
             {!resumeFile && (

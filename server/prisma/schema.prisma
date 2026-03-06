@@ -60,6 +60,9 @@ model JobSeekerProfile {
   workExperience    Json?
   roleType          String?  @default("technical")
   targetJobTitle    String?
+  noticePeriod      String?  // e.g. "15 days", "1 month", "Immediate"
+  currentSalary     String?  // e.g. "10 LPA", "15-20 L"
+  expectedSalary    String?  // e.g. "20 LPA", "25-30 L"
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

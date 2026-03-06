@@ -106,7 +106,7 @@
 
 /* Section header — dark */
 .dashboard-section-header {
-  padding: 36px 48px 28px;
+  padding: 36px 48px 48px;
   border-bottom: 1px solid var(--dash-navy-border);
   background: var(--dash-navy);
   display: flex;
@@ -683,7 +683,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 16px;
-  padding: 0 48px 24px;
+  padding: 56px 48px 24px;
+  margin-top: 32px;
   background: var(--dash-navy);
 }
 .dashboard-stat-card {

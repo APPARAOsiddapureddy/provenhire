@@ -67,6 +67,9 @@ const JobSeekerDashboard = () => {
     location: '',
     phone: '',
     skills: [] as string[],
+    noticePeriod: '',
+    currentSalary: '',
+    expectedSalary: '',
   });
   const [skillInput, setSkillInput] = useState('');
   const [loadError, setLoadError] = useState(false);
@@ -230,10 +233,13 @@ const JobSeekerDashboard = () => {
       if (profile) {
         setProfile(profile);
         setEditingProfile({
-          bio: profile.bio || '',
+          bio: profile.about ?? profile.bio ?? '',
           location: profile.location || '',
           phone: profile.phone || '',
           skills: profile.skills || [],
+          noticePeriod: profile.noticePeriod || '',
+          currentSalary: profile.currentSalary || '',
+          expectedSalary: profile.expectedSalary || '',
         });
       } else {
         setProfile(null);
@@ -302,10 +308,13 @@ const JobSeekerDashboard = () => {
   const handleUpdateProfile = async () => {
     try {
       await api.post("/api/users/job-seeker-profile", {
-        bio: editingProfile.bio,
+        about: editingProfile.bio,
         location: editingProfile.location,
         phone: editingProfile.phone,
         skills: editingProfile.skills,
+        noticePeriod: editingProfile.noticePeriod || undefined,
+        currentSalary: editingProfile.currentSalary || undefined,
+        expectedSalary: editingProfile.expectedSalary || undefined,
       });
 
       setProfile((prev: any) => ({
@@ -377,8 +386,9 @@ const JobSeekerDashboard = () => {
     },
   ];
 
+  const hasCompletedProfileSetup = Boolean((profile?.fullName ?? profile?.full_name)?.trim());
   const userName = (profile?.fullName ?? profile?.full_name) || user?.email?.split('@')[0] || 'Candidate';
-  const userInitials = ((profile?.fullName ?? profile?.full_name) || user?.email || 'U').split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
+  const userInitials = (hasCompletedProfileSetup ? ((profile?.fullName ?? profile?.full_name) || user?.email || 'U') : 'W').split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
 
   return (
     <div className="min-h-screen">
@@ -391,7 +401,7 @@ const JobSeekerDashboard = () => {
       />
       <DashboardShell
         sidebarSections={sidebarSections}
-        user={{ name: userName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
+        user={{ name: hasCompletedProfileSetup ? userName : "Welcome", role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
         onSignOut={signOut}
       >
         {/* Top-right account actions — always visible for quick access */}
@@ -549,12 +559,16 @@ const JobSeekerDashboard = () => {
               <div className="dashboard-stage-header-card">
                 <div className="flex justify-between items-start flex-wrap gap-4 mb-7">
                   <div>
-                    <div className="dashboard-stage-greeting">Welcome back,</div>
-                    <div className="dashboard-stage-name">{userName.split(' ')[0]} <span>{userName.split(' ').slice(1).join(' ') || ''}</span></div>
-                    <div className="flex items-center gap-2 mt-2 text-base font-medium text-white/60">
-                      <span>{profile?.current_role || profile?.current_company || 'Candidate'}</span>
-                      {isVerified && <><span style={{ width: 4, height: 4, background: 'var(--dash-gold)', borderRadius: '50%', display: 'inline-block' }} /><span>Expert Verified Path</span></>}
-                    </div>
+                    <div className="dashboard-stage-greeting">{hasCompletedProfileSetup ? "Welcome back," : "Welcome"}</div>
+                    {hasCompletedProfileSetup && (
+                      <>
+                        <div className="dashboard-stage-name">{userName.split(' ')[0]} <span>{userName.split(' ').slice(1).join(' ') || ''}</span></div>
+                        <div className="flex items-center gap-2 mt-2 text-base font-medium text-white/60">
+                          <span>{profile?.currentRole ?? profile?.current_role ?? profile?.current_company ?? 'Candidate'}</span>
+                          {isVerified && <><span style={{ width: 4, height: 4, background: 'var(--dash-gold)', borderRadius: '50%', display: 'inline-block' }} /><span>Expert Verified Path</span></>}
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="dashboard-stage-time-badge">
                     <div className="dashboard-stage-time-label">Time to full verify</div>
@@ -713,6 +727,32 @@ const JobSeekerDashboard = () => {
                   value={editingProfile.phone}
                   onChange={(v) => setEditingProfile(prev => ({ ...prev, phone: v }))}
                   placeholder="98765 43210"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Notice period</Label>
+                <Input
+                  placeholder="e.g. 15 days, 1 month, Immediate"
+                  value={editingProfile.noticePeriod}
+                  onChange={(e) => setEditingProfile(prev => ({ ...prev, noticePeriod: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Current salary</Label>
+                <Input
+                  placeholder="e.g. 10 LPA, 15-20 L"
+                  value={editingProfile.currentSalary}
+                  onChange={(e) => setEditingProfile(prev => ({ ...prev, currentSalary: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Expected salary</Label>
+                <Input
+                  placeholder="e.g. 20 LPA, 25-30 L"
+                  value={editingProfile.expectedSalary}
+                  onChange={(e) => setEditingProfile(prev => ({ ...prev, expectedSalary: e.target.value }))}
                 />
               </div>
             </div>

@@ -91,6 +91,7 @@ interface TalentCandidate {
   skills: string[] | null;
   actively_looking_roles: string[] | null;
   resume_url: string | null;
+  created_at?: string | null;
 }
 
 const RecruiterDashboard = () => {
@@ -306,7 +307,7 @@ const RecruiterDashboard = () => {
       });
     }
     if (talentSort === 'highest_score') list = [...list].sort((a, b) => (b.experience_years ?? 0) - (a.experience_years ?? 0));
-    if (talentSort === 'newest') list = [...list];
+    if (talentSort === 'newest') list = [...list].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     return list;
   }, [candidates, domainFilter, talentSort]);
 
@@ -340,6 +341,7 @@ const RecruiterDashboard = () => {
       sectionLabel: "Recruiter",
       items: [
         { label: "Talent Pool", active: activeTab === 'discover', onClick: () => setActiveTab('discover'), icon: <Users className="w-[18px] h-[18px]" /> },
+        { label: "Search Candidates", to: "/candidate-search", icon: <Search className="w-[18px] h-[18px]" /> },
         { label: "My Jobs", active: activeTab === 'jobs', onClick: () => setActiveTab('jobs'), icon: <Briefcase className="w-[18px] h-[18px]" /> },
         { label: "Pipeline & Tracking", active: activeTab === 'pipeline', onClick: () => setActiveTab('pipeline'), icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
         { label: "Log out", onClick: () => signOut(), icon: <LogOut className="w-[18px] h-[18px]" /> },

@@ -25,8 +25,9 @@ import {
 interface JobSeekerProfile {
   id: string;
   user_id: string;
+  full_name?: string | null;
   college: string | null;
-  graduation_year: number | null;
+  graduation_year: number | string | null;
   experience_years: number | null;
   skills: string[] | null;
   actively_looking_roles: string[] | null;
@@ -35,7 +36,7 @@ interface JobSeekerProfile {
   location: string | null;
   resume_url: string | null;
   verification_status: string | null;
-  profile_views: number | null;
+  profile_views?: number | null;
   created_at: string | null;
 }
 
@@ -69,18 +70,21 @@ const CandidateSearch = () => {
   const fetchCandidates = async () => {
     try {
       const { profiles } = await api.get<{ profiles: JobSeekerProfile[] }>("/api/users/candidates");
-      setCandidates(profiles || []);
+      const list = profiles || [];
+      setCandidates(list);
 
       // Extract all unique skills
       const skills = new Set<string>();
-      data?.forEach(candidate => {
+      list.forEach(candidate => {
         candidate.skills?.forEach(skill => skills.add(skill));
       });
       setAllSkills(Array.from(skills).sort());
     } catch (error: any) {
+      const msg = error?.message || "";
+      const isAuthError = msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("invalid token") || msg.toLowerCase().includes("credentials");
       toast({
         title: "Error loading candidates",
-        description: error.message,
+        description: isAuthError ? "Please log in again and try again." : (msg || "Please try again."),
         variant: "destructive",
       });
     } finally {
@@ -316,7 +320,7 @@ const CandidateSearch = () => {
                   <div className="flex items-start justify-between">
                     <div>
                       <CardTitle className="text-lg">
-                        {candidate.actively_looking_roles?.[0] || "Job Seeker"}
+                        {candidate.full_name || candidate.actively_looking_roles?.[0] || "Job Seeker"}
                       </CardTitle>
                       <CardDescription className="flex items-center gap-1 mt-1">
                         {candidate.location && (
@@ -385,7 +389,7 @@ const CandidateSearch = () => {
                       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle className="flex items-center justify-between">
-                            <span>{candidate.actively_looking_roles?.[0] || "Job Seeker"}</span>
+                            <span>{candidate.full_name || candidate.actively_looking_roles?.[0] || "Job Seeker"}</span>
                             {getVerificationBadge(candidate.verification_status)}
                           </DialogTitle>
                           <DialogDescription>
@@ -514,7 +518,7 @@ const CandidateSearch = () => {
               Express Interest
             </DialogTitle>
             <DialogDescription>
-              Send a notification to {candidateToContact?.actively_looking_roles?.[0] || 'this candidate'} letting them know you're interested in their profile.
+              Send a notification to {candidateToContact?.full_name || candidateToContact?.actively_looking_roles?.[0] || 'this candidate'} letting them know you're interested in their profile.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-4">
