@@ -12,6 +12,6 @@
       "source": "/diagnostic",
       "destination": "https://provenhire-updated.onrender.com/diagnostic"
     },
-    { "source": "/(.*)", "destination": "/" }
+    { "source": "/((?!assets/).*)", "destination": "/" }
   ]
 }
