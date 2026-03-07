@@ -132,7 +132,25 @@ export async function generateLearningResources(profile: string) {
 
 export async function evaluateInterview(transcript: string): Promise<string> {
   const system = `You are a senior technical interviewer. Return STRICT JSON only:
-{"technical_accuracy":0-10,"depth_of_knowledge":0-10,"problem_solving":0-10,"communication_clarity":0-10,"strengths":[],"weaknesses":[],"final_verdict":"","confidence_level":"Low|Medium|High"}`;
+{
+  "technical_accuracy": 0-10,
+  "depth_of_knowledge": 0-10,
+  "problem_solving": 0-10,
+  "communication_clarity": 0-10,
+  "concept_score": 0-100,
+  "communication_score": 0-100,
+  "reasoning_score": 0-100,
+  "confidence_score": 0-100,
+  "strengths": [],
+  "weaknesses": [],
+  "final_verdict": "",
+  "confidence_level": "Low|Medium|High"
+}
+Scoring rubric:
+- concept_score reflects conceptual knowledge and technical understanding.
+- reasoning_score reflects structured thinking and problem decomposition.
+- communication_score reflects clarity, coherence, and articulation.
+- confidence_score reflects answer structure and confidence under questioning.`;
   try {
     return await geminiChat([{ role: "system", content: system }, { role: "user", content: transcript }]);
   } catch (e) {
@@ -142,6 +160,10 @@ export async function evaluateInterview(transcript: string): Promise<string> {
       depth_of_knowledge: 5,
       problem_solving: 5,
       communication_clarity: 5,
+      concept_score: 50,
+      communication_score: 50,
+      reasoning_score: 50,
+      confidence_score: 50,
       strengths: ["Completed interview"],
       weaknesses: ["Evaluation unavailable"],
       final_verdict: "Interview completed. Evaluation service temporarily unavailable.",

@@ -6,6 +6,7 @@ import { createAptitudeSession, getPracticeAptitudeQuestions } from "../data/apt
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
+import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -150,6 +151,12 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
   const schema = z.object({
     score: z.number().optional(),
     answers: z.record(z.string(), z.string()).optional(), // { questionId: selectedOption }
+    meta: z
+      .object({
+        timeTakenSeconds: z.number().nonnegative().optional(),
+        timeLimitSeconds: z.number().positive().optional(),
+      })
+      .optional(),
     invalidated: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -179,7 +186,14 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
     }
     score = earnedMarks; // Raw marks out of 100; pass threshold is 60
     const totalMarksVal = marksKey ? Object.values(marksKey).reduce((a, b) => a + b, 0) : Object.keys(answerKey).length;
-    answersPayload = { questions: Object.keys(answerKey).length, correct: correctCount, earnedMarks, totalMarks: totalMarksVal };
+    answersPayload = {
+      questions: Object.keys(answerKey).length,
+      correct: correctCount,
+      earnedMarks,
+      totalMarks: totalMarksVal,
+      ...(parsed.data.meta?.timeTakenSeconds != null ? { timeTakenSeconds: parsed.data.meta.timeTakenSeconds } : {}),
+      ...(parsed.data.meta?.timeLimitSeconds != null ? { timeLimitSeconds: parsed.data.meta.timeLimitSeconds } : {}),
+    };
     await clearAptitudeSession(req.user!.id);
   } else {
     score = parsed.data.score ?? 0;
@@ -239,6 +253,44 @@ verificationRouter.get("/dsa/latest", requireAuth, async (req: AuthedRequest, re
     ? { total_score: score, problems_solved: Math.min(totalProblems, Math.max(0, Math.round((score / 100) * totalProblems))), total_problems: totalProblems }
     : null;
   res.json({ result });
+});
+
+verificationRouter.get("/technical-scorecard", requireAuth, async (req: AuthedRequest, res) => {
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: req.user!.id },
+    select: { roleType: true },
+  });
+  if ((profile?.roleType ?? "technical") !== "technical") {
+    return res.status(400).json({ error: "Technical scorecard is only available for technical candidates." });
+  }
+
+  const scorecard = await buildTechnicalScorecard(req.user!.id);
+
+  // Keep human expert stage aligned with new shortlist logic.
+  const humanStage = await prisma.verificationStage.findFirst({
+    where: { userId: req.user!.id, stageName: "human_expert_interview" },
+  });
+  if (scorecard.shortlisted) {
+    if (humanStage) {
+      if (humanStage.status === "locked" || humanStage.status === "failed") {
+        await prisma.verificationStage.update({
+          where: { id: humanStage.id },
+          data: { status: "in_progress" },
+        });
+      }
+    } else {
+      await prisma.verificationStage.create({
+        data: { userId: req.user!.id, stageName: "human_expert_interview", status: "in_progress" },
+      });
+    }
+  } else if (humanStage && humanStage.status === "in_progress") {
+    await prisma.verificationStage.update({
+      where: { id: humanStage.id },
+      data: { status: "locked" },
+    });
+  }
+
+  return res.json(scorecard);
 });
 
 verificationRouter.post("/non-tech-assignment/submit", requireAuth, async (req: AuthedRequest, res) => {

@@ -154,7 +154,14 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     try {
       const res = await api.post<{ result: { score?: number }; score?: number }>(
         "/api/verification/aptitude",
-        { answers }
+        {
+          answers,
+          meta: {
+            timeTakenSeconds:
+              secondsRemaining != null ? Math.max(0, timeLimitMinutes * 60 - secondsRemaining) : undefined,
+            timeLimitSeconds: timeLimitMinutes * 60,
+          },
+        }
       );
       const score = res.score ?? res.result?.score ?? 0;
       if (score >= passThreshold) {
