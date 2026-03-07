@@ -19,15 +19,15 @@ import { toast } from "sonner";
 
 interface ProctoringAlert {
   id: string;
-  user_id: string;
-  test_id: string;
-  test_type: string;
-  alert_type: string;
+  userId: string;
+  sessionId: string;
+  testType?: string | null;
+  type: string;
   severity: string;
   message: string;
-  violation_details: Record<string, unknown> | null;
-  is_read: boolean;
-  created_at: string;
+  details?: Record<string, unknown> | null;
+  riskScore?: number;
+  createdAt: string;
 }
 
 const RealtimeProctoringAlerts = () => {
@@ -63,9 +63,7 @@ const RealtimeProctoringAlerts = () => {
     try {
       await api.post("/api/proctoring/alerts/read", { alertId });
 
-      setAlerts(prev => 
-        prev.map(a => a.id === alertId ? { ...a, is_read: true } : a)
-      );
+      setAlerts(prev => prev.filter((a) => a.id !== alertId));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error: any) {
       toast.error('Failed to mark as read');
@@ -74,11 +72,11 @@ const RealtimeProctoringAlerts = () => {
 
   const markAllAsRead = async () => {
     try {
-      const unreadIds = alerts.filter(a => !a.is_read).map(a => a.id);
+      const unreadIds = alerts.map((a) => a.id);
       if (unreadIds.length === 0) return;
       await api.post("/api/proctoring/alerts/read", { alertIds: unreadIds });
 
-      setAlerts(prev => prev.map(a => ({ ...a, is_read: true })));
+      setAlerts([]);
       setUnreadCount(0);
       toast.success('All alerts marked as read');
     } catch (error: any) {
@@ -170,13 +168,9 @@ const RealtimeProctoringAlerts = () => {
                 <div
                   key={alert.id}
                   className={`p-3 rounded-lg border ${
-                    !alert.is_read 
-                      ? 'bg-primary/5 border-primary/20' 
-                      : 'bg-muted/30 border-border'
-                  } ${
-                    alert.severity === 'high' && !alert.is_read
+                    alert.severity === 'high'
                       ? 'border-red-500/50 bg-red-50 dark:bg-red-950/20'
-                      : ''
+                      : 'bg-muted/30 border-border'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -186,7 +180,7 @@ const RealtimeProctoringAlerts = () => {
                           ? 'bg-red-100 dark:bg-red-900' 
                           : 'bg-amber-100 dark:bg-amber-900'
                       }`}>
-                        {getAlertIcon(alert.alert_type)}
+                        {getAlertIcon(alert.type)}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
@@ -194,29 +188,30 @@ const RealtimeProctoringAlerts = () => {
                             {alert.severity.toUpperCase()}
                           </Badge>
                           <Badge variant="outline">
-                            {alert.test_type === 'aptitude' ? 'Aptitude' : 
-                             alert.test_type === 'dsa' ? 'DSA' : 
-                             alert.test_type === 'ai_interview' ? 'AI Interview' : alert.test_type}
+                            {alert.testType === 'aptitude' ? 'Aptitude' : 
+                             alert.testType === 'dsa' ? 'DSA' : 
+                             alert.testType === 'ai_interview' ? 'AI Interview' : (alert.testType || 'Assessment')}
                           </Badge>
+                          {typeof alert.riskScore === "number" && (
+                            <Badge variant="secondary">Risk {alert.riskScore}</Badge>
+                          )}
                           <span className="text-xs text-muted-foreground">
-                            {formatTime(alert.created_at)}
+                            {formatTime(alert.createdAt)}
                           </span>
                         </div>
                         <p className="text-sm mt-1">{alert.message}</p>
                         <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                          User: {alert.user_id.slice(0, 8)}...
+                          User: {(alert.userId || "").slice(0, 8)}...
                         </p>
                       </div>
                     </div>
-                    {!alert.is_read && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => markAsRead(alert.id)}
-                      >
-                        <Eye className="h-3 w-3" />
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => markAsRead(alert.id)}
+                    >
+                      <Eye className="h-3 w-3" />
+                    </Button>
                   </div>
                 </div>
               ))}

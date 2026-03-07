@@ -11,11 +11,13 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import TestProctoringBar from "@/components/TestProctoringBar";
 import SoundDetectedAlert from "@/components/SoundDetectedAlert";
 import FullScreenMonitor from "@/components/FullScreenMonitor";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
+import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
 
 const INTERVIEW_ROLES = [
@@ -45,6 +47,8 @@ const ExpertInterviewStage = ({
   onComplete,
   onReturnToDashboard,
 }: ExpertInterviewStageProps) => {
+  const { user } = useAuth();
+  const fallbackTestIdRef = useRef(`AI_INTERVIEW_${Date.now()}`);
   const [jobRole, setJobRole] = useState(
     targetJobTitle && INTERVIEW_ROLES.includes(targetJobTitle)
       ? targetJobTitle
@@ -65,6 +69,16 @@ const ExpertInterviewStage = ({
 
   const inTest = !!interviewId && !result;
   const isFullScreen = useFullScreenState(inTest);
+  const { riskLevel, riskScore } = useProctoringRiskMonitor({
+    enabled: inTest,
+    candidateId: user?.id,
+    testId: interviewId ?? fallbackTestIdRef.current,
+    testType: "ai_interview",
+    cameraStream: cameraActive ? streamRef.current : null,
+    // During AI interview, microphone is expected for answers; browser/window/fullscreen
+    // monitoring remains active even when mic stream is not passed here.
+    microphoneStream: null,
+  });
 
   // Disable sound detection while the user is actively recording their answer —
   // speaking is expected during voice input so we must not flag it as a violation.
@@ -301,6 +315,21 @@ const ExpertInterviewStage = ({
                     <span className="text-sm font-medium text-muted-foreground">
                       Question {questionIndex} of {totalQuestions}
                     </span>
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-md border bg-muted/40">
+                      <span className="text-xs text-muted-foreground">Risk</span>
+                      <span
+                        className={`text-xs font-semibold uppercase tracking-wide ${
+                          riskLevel === "high_risk"
+                            ? "text-red-500"
+                            : riskLevel === "suspicious"
+                              ? "text-amber-500"
+                              : "text-emerald-600"
+                        }`}
+                      >
+                        {riskLevel.replace("_", " ")}
+                      </span>
+                      <span className="text-xs font-mono tabular-nums text-muted-foreground">({riskScore})</span>
+                    </div>
                   </div>
                   <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5 font-medium text-lg">
                     {question}

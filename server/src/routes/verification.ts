@@ -5,6 +5,7 @@ import { prisma } from "../config/prisma.js";
 import { createAptitudeSession, getPracticeAptitudeQuestions } from "../data/aptitude-loader.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
+import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -238,6 +239,74 @@ verificationRouter.get("/dsa/latest", requireAuth, async (req: AuthedRequest, re
     ? { total_score: score, problems_solved: Math.min(totalProblems, Math.max(0, Math.round((score / 100) * totalProblems))), total_problems: totalProblems }
     : null;
   res.json({ result });
+});
+
+verificationRouter.post("/non-tech-assignment/submit", requireAuth, async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    prompt: z.string().min(1),
+    response: z.string().min(1),
+    targetJobTitle: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+  const threshold = 60;
+  const evalResult = await evaluateNonTechnicalAssignment({
+    prompt: parsed.data.prompt,
+    response: parsed.data.response,
+    targetJobTitle: parsed.data.targetJobTitle,
+    threshold,
+  });
+
+  // Update assignment stage with AI score.
+  await prisma.verificationStage.updateMany({
+    where: { userId: req.user!.id, stageName: "non_tech_assignment" },
+    data: {
+      status: evalResult.qualified ? "completed" : "failed",
+      score: evalResult.score,
+    },
+  });
+
+  if (evalResult.qualified) {
+    // Unlock/progress to human expert interview.
+    const existing = await prisma.verificationStage.findFirst({
+      where: { userId: req.user!.id, stageName: "human_expert_interview" },
+    });
+    if (existing) {
+      await prisma.verificationStage.update({
+        where: { id: existing.id },
+        data: { status: "in_progress" },
+      });
+    } else {
+      await prisma.verificationStage.create({
+        data: {
+          userId: req.user!.id,
+          stageName: "human_expert_interview",
+          status: "in_progress",
+        },
+      });
+    }
+  } else {
+    // Keep human interview locked when assignment score is below threshold.
+    const existing = await prisma.verificationStage.findFirst({
+      where: { userId: req.user!.id, stageName: "human_expert_interview" },
+    });
+    if (existing) {
+      await prisma.verificationStage.update({
+        where: { id: existing.id },
+        data: { status: "locked" },
+      });
+    }
+  }
+
+  return res.json({
+    score: evalResult.score,
+    qualified: evalResult.qualified,
+    threshold: evalResult.threshold,
+    summary: evalResult.summary,
+    strengths: evalResult.strengths,
+    gaps: evalResult.gaps,
+  });
 });
 
 verificationRouter.get("/cooldowns", optionalAuth, async (_req, res) => {

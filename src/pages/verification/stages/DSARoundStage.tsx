@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/contexts/AuthContext";
 import TestProctoringBar from "@/components/TestProctoringBar";
 import ProctoringSetupGate from "@/components/ProctoringSetupGate";
 import LiveProctoringPreview from "@/components/LiveProctoringPreview";
@@ -10,6 +11,7 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
+import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -58,6 +60,8 @@ interface TestResult {
 
 const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, experienceYears = 2 }: DSARoundStageProps) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const testIdRef = useRef<string>(`DSA_${Date.now()}`);
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
   const [questions, setQuestions] = useState<DSAQuestion[]>([]);
@@ -81,6 +85,14 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
+  const { riskScore, riskLevel } = useProctoringRiskMonitor({
+    enabled: inTest,
+    candidateId: user?.id,
+    testId: testIdRef.current,
+    testType: "dsa",
+    cameraStream: proctoringState?.cameraStream ?? null,
+    microphoneStream: proctoringState?.microphoneStream ?? null,
+  });
 
   useSoundDetection({
     enabled: inTest,
@@ -461,6 +473,21 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             Question {currentIndex + 1} of {questions.length}
           </span>
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-md border bg-muted/40">
+              <span className="text-xs text-muted-foreground">Risk</span>
+              <span
+                className={`text-xs font-semibold uppercase tracking-wide ${
+                  riskLevel === "high_risk"
+                    ? "text-red-500"
+                    : riskLevel === "suspicious"
+                      ? "text-amber-500"
+                      : "text-emerald-600"
+                }`}
+              >
+                {riskLevel.replace("_", " ")}
+              </span>
+              <span className="text-xs font-mono tabular-nums text-muted-foreground">({riskScore})</span>
+            </div>
             {/* Per-question countdown */}
             {inTest && (
               <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-semibold border ${

@@ -255,3 +255,103 @@ Focus on non-technical skills: strategic analysis, stakeholder communication, pr
     throw new Error("Failed to generate assignment. Please try again.");
   }
 }
+
+export interface NonTechnicalAssignmentEvaluation {
+  score: number;
+  qualified: boolean;
+  threshold: number;
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+}
+
+/**
+ * Evaluate non-technical assignment answers and produce a qualification decision for Human Expert Interview.
+ * Score is 0-100. Default qualification threshold = 60.
+ */
+export async function evaluateNonTechnicalAssignment(params: {
+  targetJobTitle?: string;
+  prompt: string;
+  response: string;
+  threshold?: number;
+}): Promise<NonTechnicalAssignmentEvaluation> {
+  const threshold = Math.max(0, Math.min(100, params.threshold ?? 60));
+  const trimmedResponse = (params.response || "").trim();
+  if (!trimmedResponse) {
+    return {
+      score: 0,
+      qualified: false,
+      threshold,
+      summary: "No response submitted.",
+      strengths: [],
+      gaps: ["Response is empty"],
+    };
+  }
+
+  // Fallback deterministic heuristic when Gemini is unavailable.
+  if (!gemini) {
+    const wordCount = trimmedResponse.split(/\s+/).filter(Boolean).length;
+    const score = Math.max(0, Math.min(100, Math.round((wordCount / 350) * 100)));
+    return {
+      score,
+      qualified: score >= threshold,
+      threshold,
+      summary: "AI evaluator unavailable; fallback rubric used based on response completeness.",
+      strengths: score >= threshold ? ["Response has sufficient detail and structure"] : [],
+      gaps: score < threshold ? ["Add more concrete examples and role-specific depth"] : [],
+    };
+  }
+
+  const system = `You are an expert evaluator for non-technical hiring assignments.
+Return ONLY strict JSON with keys:
+{
+  "score": number (0-100),
+  "summary": "short paragraph",
+  "strengths": ["..."],
+  "gaps": ["..."]
+}
+Rules:
+- Judge relevance to prompt, depth, structure, practicality, and communication clarity.
+- Be fair and strict. Do not inflate scores.
+- No markdown, no extra text.`;
+
+  const user = `Target role: ${params.targetJobTitle || "Non-technical role"}
+
+Assignment prompt:
+${params.prompt}
+
+Candidate response:
+${trimmedResponse}`;
+
+  try {
+    const raw = await geminiChat([{ role: "system", content: system }, { role: "user", content: user }]);
+    const clean = raw.trim().replace(/^```json\n?|```$/g, "").trim();
+    const parsed = JSON.parse(clean) as {
+      score?: number;
+      summary?: string;
+      strengths?: string[];
+      gaps?: string[];
+    };
+    const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score ?? 0))));
+    return {
+      score,
+      qualified: score >= threshold,
+      threshold,
+      summary: String(parsed.summary ?? ""),
+      strengths: Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : [],
+      gaps: Array.isArray(parsed.gaps) ? parsed.gaps.map(String) : [],
+    };
+  } catch (e) {
+    console.error("[evaluateNonTechnicalAssignment]", e);
+    const wordCount = trimmedResponse.split(/\s+/).filter(Boolean).length;
+    const score = Math.max(0, Math.min(100, Math.round((wordCount / 350) * 100)));
+    return {
+      score,
+      qualified: score >= threshold,
+      threshold,
+      summary: "Evaluation service was unstable; fallback rubric used.",
+      strengths: score >= threshold ? ["Response appears reasonably complete"] : [],
+      gaps: score < threshold ? ["Provide stronger structure and examples"] : [],
+    };
+  }
+}

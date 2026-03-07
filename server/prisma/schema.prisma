@@ -329,8 +329,12 @@ model ProctoringEvent {
   id        String   @id @default(uuid())
   sessionId String
   userId    String?
+  testType  String?
   type      String
+  severity  String?
+  riskScore Int      @default(0)
   message   String?
+  details   Json?
   createdAt DateTime @default(now())
 }
 

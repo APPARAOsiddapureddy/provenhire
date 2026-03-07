@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Shield, Monitor, Video, Mic, CheckCircle2, XCircle, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,6 +43,7 @@ const ProctoringSetupGate = ({
   });
   const [requesting, setRequesting] = useState<string | null>(null);
   const [skippedScreenShare, setSkippedScreenShare] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const supportsScreenShare =
@@ -260,6 +262,29 @@ const ProctoringSetupGate = ({
           </div>
         </div>
 
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+          <p className="text-sm font-semibold text-foreground">Before starting, confirm the checklist</p>
+          <div className="grid gap-2 text-sm text-muted-foreground">
+            <p>✓ Camera access required</p>
+            <p>✓ Microphone access required</p>
+            <p>✓ Fullscreen required</p>
+            <p>✓ No tab switching allowed</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Your camera, microphone, and screen activity will be monitored during this assessment to ensure fairness.
+          </p>
+          <div className="flex items-start gap-2 pt-1">
+            <Checkbox
+              id="proctoring-consent"
+              checked={consentAccepted}
+              onCheckedChange={(checked) => setConsentAccepted(!!checked)}
+            />
+            <label htmlFor="proctoring-consent" className="text-sm leading-relaxed cursor-pointer">
+              I agree and consent to proctoring for this assessment.
+            </label>
+          </div>
+        </div>
+
         {/* Camera preview when granted */}
         {state.camera === "granted" && (
           <div className="rounded-lg border-2 border-primary/20 overflow-hidden bg-muted">
@@ -291,6 +316,10 @@ const ProctoringSetupGate = ({
           ) : (
             <Button
               onClick={async () => {
+                if (!consentAccepted) {
+                  toast.error("Please accept the proctoring consent to continue.");
+                  return;
+                }
                 setRequesting("all");
                 try {
                   if (!canProceed) {
@@ -314,7 +343,7 @@ const ProctoringSetupGate = ({
                   setRequesting(null);
                 }
               }}
-              disabled={!!requesting}
+              disabled={!!requesting || !consentAccepted}
               className="bg-green-600 hover:bg-green-700"
             >
               {requesting ? (

@@ -599,7 +599,7 @@ const JobSeekerDashboard = () => {
               </div>
 
               <div className="dashboard-stages-grid">
-                {stageOrder.filter((s) => s !== 'human_expert_interview').map((stageName, idx) => {
+                {(roleType === "technical" ? stageOrder.filter((s) => s !== "human_expert_interview") : stageOrder).map((stageName, idx) => {
                   const stageData = verificationStages.find((s: any) => s.stage_name === stageName);
                   const status = getStageStatus(stageName);
                   const isCompleted = status === 'done';
@@ -618,6 +618,7 @@ const JobSeekerDashboard = () => {
                     dsa_round: 'Proctored coding round with 2–4 algorithmic problems of increasing difficulty.',
                     non_tech_assignment: 'Role-based written assignment tailored to your target job title.',
                     expert_interview: 'Adaptive AI video interview. Questions generated from your resume, role, and experience level.',
+                    human_expert_interview: 'Live interview with a domain expert. Final stage for role verification and approval.',
                   };
                   return (
                     <div
@@ -641,6 +642,7 @@ const JobSeekerDashboard = () => {
                         {stageName === 'dsa_round' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Sandbox Executed</span></>}
                         {stageName === 'non_tech_assignment' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Job-Specific</span>}
                         {stageName === 'expert_interview' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Recording Active</span><span className="dashboard-trust-chip"><span style={{ background: 'var(--dash-gold)' }} className="w-1.5 h-1.5 rounded-full" /> AI Adaptive</span></>}
+                        {stageName === 'human_expert_interview' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Live Recorded</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Expert Panel</span></>}
                       </div>
                       {isCompleted && stageName === 'profile_setup' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
                       {isCompleted && stageName === 'aptitude_test' && aptitudeDisplay && (
@@ -649,8 +651,9 @@ const JobSeekerDashboard = () => {
                       {isCompleted && stageName === 'dsa_round' && dsaSolved && (
                         <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${dsaPct ?? 0}%` }} /></div><div className="dashboard-score-text">{dsaSolved} Problems Solved{dsaPct != null ? ` (${dsaPct}%)` : ''}</div></>
                       )}
-                      {isCompleted && stageName === 'non_tech_assignment' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
+                      {isCompleted && stageName === 'non_tech_assignment' && <div className="dashboard-score-text">Score: {stageData?.score ?? 0}/100</div>}
                       {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
+                      {isCompleted && stageName === 'human_expert_interview' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
                       {isActive && (
                         <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
                           {isFailed ? `Retry ${STAGE_LABELS[stageName]} →` : `Start ${STAGE_LABELS[stageName]} →`}

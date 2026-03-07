@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import TestProctoringBar from "@/components/TestProctoringBar";
 import ProctoringSetupGate from "@/components/ProctoringSetupGate";
 import LiveProctoringPreview from "@/components/LiveProctoringPreview";
@@ -12,6 +13,7 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
+import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { Loader2, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck } from "lucide-react";
 
 const APTITUDE_TIME_MINUTES = 90; // 1.5 hours total
@@ -40,6 +42,8 @@ interface AptitudeTestStageProps {
 
 const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpired, onRetry, isRetry = false }: AptitudeTestStageProps) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const testIdRef = useRef<string>(`APTITUDE_${Date.now()}`);
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
   const [questions, setQuestions] = useState<AptitudeQuestion[]>([]);
@@ -58,6 +62,14 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
 
   const inTest = proctoringReady && !justPassed && !isFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
+  const { riskScore, riskLevel } = useProctoringRiskMonitor({
+    enabled: inTest,
+    candidateId: user?.id,
+    testId: testIdRef.current,
+    testType: "aptitude",
+    cameraStream: proctoringState?.cameraStream ?? null,
+    microphoneStream: proctoringState?.microphoneStream ?? null,
+  });
 
   useSoundDetection({
     enabled: inTest,
@@ -255,6 +267,23 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 : `Answer all ${questions.length} questions. Need ${passThreshold}/${totalMarks} to pass.`}
             </CardDescription>
           </div>
+          {inTest && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-muted/40">
+              <span className="text-xs text-muted-foreground">Risk</span>
+              <span
+                className={`text-xs font-semibold uppercase tracking-wide ${
+                  riskLevel === "high_risk"
+                    ? "text-red-500"
+                    : riskLevel === "suspicious"
+                      ? "text-amber-500"
+                      : "text-emerald-600"
+                }`}
+              >
+                {riskLevel.replace("_", " ")}
+              </span>
+              <span className="text-xs font-mono tabular-nums text-muted-foreground">({riskScore})</span>
+            </div>
+          )}
           {secondsRemaining != null && inTest && (
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 border">
               <span className="text-sm text-muted-foreground">Time left</span>

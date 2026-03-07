@@ -18,6 +18,7 @@ import { useFullScreenState } from "@/hooks/useFullScreenState";
 interface NonTechnicalAssignmentStageProps {
   targetJobTitle?: string;
   onComplete: () => void;
+  onRetry?: () => void;
 }
 
 const ASSIGNMENT_PROMPTS: Record<string, string> = {
@@ -41,13 +42,23 @@ const ASSIGNMENT_PROMPTS: Record<string, string> = {
 
 const DEFAULT_PROMPT = "Describe your relevant experience and approach for this role. Include 2-3 concrete examples of work you've done (or would do) that align with the job title.";
 
-const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete }: NonTechnicalAssignmentStageProps) => {
+interface AssignmentEvaluation {
+  score: number;
+  qualified: boolean;
+  threshold: number;
+  summary?: string;
+  strengths?: string[];
+  gaps?: string[];
+}
+
+const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete, onRetry }: NonTechnicalAssignmentStageProps) => {
   const navigate = useNavigate();
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
   const [response, setResponse] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [assignmentJustSubmitted, setAssignmentJustSubmitted] = useState(false);
+  const [evaluation, setEvaluation] = useState<AssignmentEvaluation | null>(null);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
 
   const inTest = proctoringReady && !assignmentJustSubmitted;
@@ -86,11 +97,19 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete }: NonTechnica
     }
     setSubmitting(true);
     try {
-      await api.post("/api/verification/stages/update", {
-        stageName: "non_tech_assignment",
-        status: "completed",
+      const evalResult = await api.post<AssignmentEvaluation>("/api/verification/non-tech-assignment/submit", {
+        prompt,
+        response,
+        targetJobTitle,
       });
-      toast.success("Assignment submitted successfully!");
+      setEvaluation(evalResult);
+      if (evalResult.qualified) {
+        toast.success(`Assignment scored ${evalResult.score}/100. Qualified for Human Expert Interview.`);
+      } else {
+        toast.error(
+          `Assignment scored ${evalResult.score}/100. Minimum ${evalResult.threshold}/100 required for Human Expert Interview.`
+        );
+      }
       setAssignmentJustSubmitted(true);
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "Failed to submit assignment.");
@@ -172,15 +191,42 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete }: NonTechnica
 
         {assignmentJustSubmitted && (
           <div className="mt-6 p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">Assignment submitted! What&apos;s next?</h3>
-            <p className="text-sm text-muted-foreground">You can go to the homepage or continue to the Human Expert Interview.</p>
+            <h3 className="text-lg font-semibold text-foreground">Assignment evaluated by AI</h3>
+            <p className="text-sm text-muted-foreground">
+              Score: <span className="font-semibold text-foreground">{evaluation?.score ?? 0}/100</span> (minimum{" "}
+              {evaluation?.threshold ?? 60}/100)
+            </p>
+            <p className={`text-sm font-medium ${evaluation?.qualified ? "text-emerald-600" : "text-amber-600"}`}>
+              {evaluation?.qualified
+                ? "Qualified for Human Expert Interview."
+                : "Not qualified yet for Human Expert Interview. Please improve and retry this assignment."}
+            </p>
+            {evaluation?.summary && (
+              <p className="text-sm text-muted-foreground">{evaluation.summary}</p>
+            )}
+            {!!evaluation?.strengths?.length && (
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Strengths:</span> {evaluation.strengths.join(", ")}
+              </div>
+            )}
+            {!!evaluation?.gaps?.length && (
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Improvement areas:</span> {evaluation.gaps.join(", ")}
+              </div>
+            )}
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={() => navigate("/")}>
                 Go to Homepage
               </Button>
-              <Button onClick={() => onComplete()}>
-                Continue to Human Expert Interview
-              </Button>
+              {evaluation?.qualified ? (
+                <Button onClick={() => onComplete()}>
+                  Continue to Human Expert Interview
+                </Button>
+              ) : (
+                <Button variant="secondary" onClick={() => onRetry?.()}>
+                  Retry Assignment
+                </Button>
+              )}
             </div>
           </div>
         )}

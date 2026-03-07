@@ -13,6 +13,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
     alertType: z.string(),
     severity: z.string(),
     message: z.string(),
+    riskScore: z.number().optional(),
     violationDetails: z.any().optional(),
   });
   const parsed = schema.safeParse(_req.body);
@@ -21,8 +22,14 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
     data: {
       sessionId: parsed.data.testId,
       userId: parsed.data.userId,
+      testType: parsed.data.testType,
       type: parsed.data.alertType,
+      severity: parsed.data.severity,
+      riskScore:
+        parsed.data.riskScore ??
+        ((parsed.data.violationDetails as { riskScore?: number } | undefined)?.riskScore ?? 0),
       message: parsed.data.message,
+      details: parsed.data.violationDetails ?? null,
     },
   });
   res.json({ ok: true });

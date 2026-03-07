@@ -436,7 +436,11 @@ const VerificationFlow = () => {
         ) : (
           <NonTechnicalAssignmentStage
             targetJobTitle={targetJobTitle}
-            onComplete={() => completeAndAdvanceStage('non_tech_assignment')}
+            onComplete={async () => {
+              await loadVerificationStages();
+              setCurrentStage("human_expert_interview");
+            }}
+            onRetry={() => retryStage('non_tech_assignment', true)}
           />
         );
       case 'aptitude_test':
