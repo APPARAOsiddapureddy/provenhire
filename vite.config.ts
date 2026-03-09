@@ -10,14 +10,37 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     proxy: {
       "/api": {
-        target: "https://provenhire-updated.onrender.com",
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
       "/uploads": {
-        target: "https://provenhire-updated.onrender.com",
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
         changeOrigin: true,
-        secure: true,
+        secure: false,
+      },
+      "/health": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy) => {
+          proxy.on("error", (_err, _req, res: any) => {
+            if (!res.headersSent) {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ ok: true }));
+            }
+          });
+        },
+      },
+      "/ping": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/diagnostic": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        changeOrigin: true,
+        secure: false,
       },
     },
   },

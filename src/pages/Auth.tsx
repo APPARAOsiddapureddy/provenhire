@@ -9,6 +9,14 @@ import { api } from "@/lib/api";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).+$/;
+
+const isValidEmail = (value: string) => EMAIL_REGEX.test(value.trim());
+const isStrongPassword = (value: string) =>
+  value.length >= PASSWORD_MIN_LENGTH && PASSWORD_REGEX.test(value);
+
 const Auth = () => {
   const [searchParams] = useSearchParams();
   const roleFromUrl = searchParams.get("role");
@@ -52,6 +60,14 @@ const Auth = () => {
   const [jobSeekerTrack, setJobSeekerTrack] = useState<"tech" | "non_tech">("tech");
   const [companyName, setCompanyName] = useState("");
   const [companySize, setCompanySize] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [verifiedEmail, setVerifiedEmail] = useState("");
+  const [verificationCodeSent, setVerificationCodeSent] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<string>("");
+  const [isSendingVerificationCode, setIsSendingVerificationCode] = useState(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   // Forgot / Reset
   const [resetEmail, setResetEmail] = useState("");
@@ -65,11 +81,27 @@ const Auth = () => {
   const [showSignUpConfirmPassword, setShowSignUpConfirmPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [signInErrors, setSignInErrors] = useState<{ email?: string; password?: string; form?: string }>({});
+  const [signUpErrors, setSignUpErrors] = useState<{
+    email?: string;
+    verificationCode?: string;
+    password?: string;
+    confirmPassword?: string;
+    companyName?: string;
+    companySize?: string;
+    form?: string;
+  }>({});
 
   const { signUp, signIn, user, userRole, loading, resetPassword } = useAuth();
   const navigate = useNavigate();
 
   const isRedirecting = Boolean(user && userRole === null && authMode !== "reset" && !isReset);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((c) => (c <= 1 ? 0 : c - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
 
   useEffect(() => {
     if (!user || authMode === "reset") return;
@@ -90,6 +122,20 @@ const Auth = () => {
     if (isReset && emailFromUrl) setResetUserEmail(emailFromUrl);
   }, [isReset, emailFromUrl]);
 
+  useEffect(() => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || normalizedEmail !== verifiedEmail) {
+      setVerificationToken("");
+      if (verifiedEmail) {
+        setVerificationStatus("Email changed. Please verify this email again.");
+      }
+      if (normalizedEmail !== verifiedEmail) {
+        setVerificationCode("");
+        setVerificationCodeSent(false);
+      }
+    }
+  }, [email, verifiedEmail]);
+
   const switchMode = (mode: "login" | "signup") => {
     const params = new URLSearchParams();
     params.set("mode", mode);
@@ -99,80 +145,210 @@ const Auth = () => {
     if (mode === "signup" && signInEmail?.trim()) params.set("email", signInEmail.trim());
     navigate(`/auth?${params.toString()}`, { replace: true });
     setAuthMode(mode);
+    setSignInErrors({});
+    setSignUpErrors({});
+    setVerificationCode("");
+    setVerificationToken("");
+    setVerifiedEmail("");
+    setVerificationCodeSent(false);
+    setVerificationStatus("");
     if (mode === "signup" && signInEmail?.trim()) setEmail(signInEmail.trim());
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!signInEmail?.trim()) {
-      toast.error("Please enter your email");
-      return;
+    const normalizedEmail = signInEmail.trim().toLowerCase();
+    const nextErrors: { email?: string; password?: string; form?: string } = {};
+    if (!normalizedEmail) {
+      nextErrors.email = "Please enter your email address.";
+    }
+    if (normalizedEmail && !isValidEmail(normalizedEmail)) {
+      nextErrors.email = "Please enter a valid email address.";
     }
     const isDemo = searchParams.get("demo") === "1";
     if (!isDemo && !signInPassword?.trim()) {
-      toast.error("Please enter your password");
+      nextErrors.password = "Please enter your password.";
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setSignInErrors(nextErrors);
       return;
     }
+    setSignInErrors({});
     try {
       if (isDemo) {
-        await signIn(signInEmail.trim(), signInPassword || "any", loginRole);
+        await signIn(normalizedEmail, signInPassword || "any", loginRole);
       } else {
-        await signIn(signInEmail.trim(), signInPassword || "");
+        await signIn(normalizedEmail, signInPassword || "");
       }
     } catch (err: any) {
       const msg = err?.message ?? "Sign in failed";
-      toast.error(msg.includes("Invalid") ? "Invalid email or password." : msg);
+      setSignInErrors({
+        form: msg.toLowerCase().includes("invalid")
+          ? "Invalid email or password. Please try again."
+          : msg,
+      });
+    }
+  };
+
+  const handleSendVerificationCode = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setSignUpErrors((prev) => ({ ...prev, email: "Please enter your email address." }));
+      return;
+    }
+    if (!isValidEmail(normalizedEmail)) {
+      setSignUpErrors((prev) => ({ ...prev, email: "Please enter a valid email address." }));
+      return;
+    }
+
+    setSignUpErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined, form: undefined }));
+    setVerificationStatus("");
+    setIsSendingVerificationCode(true);
+    try {
+      const response = await api.post<{ message?: string; devCode?: string }>("/api/auth/email-verification/send", {
+        email: normalizedEmail,
+      });
+      setVerificationCodeSent(true);
+      setVerificationToken("");
+      setVerifiedEmail("");
+      setVerificationCode("");
+      setResendCooldown(60);
+      if (response?.devCode) {
+        setVerificationStatus(`Dev mode code: ${response.devCode}. Enter it below.`);
+      } else {
+        setVerificationStatus(response?.message || "Code sent to your email. Enter it below.");
+      }
+    } catch (error: any) {
+      const msg = error?.message || "Failed to send verification code. Please try again.";
+      const isAlreadyRegistered = msg.toLowerCase().includes("already registered");
+      setSignUpErrors((prev) => ({
+        ...prev,
+        form: isAlreadyRegistered
+          ? "This email is already registered. Sign in instead."
+          : msg,
+      }));
+      if (isAlreadyRegistered) {
+        setSignUpErrors((prev) => ({ ...prev, email: "Already registered" }));
+      }
+    } finally {
+      setIsSendingVerificationCode(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const code = verificationCode.trim();
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+      setSignUpErrors((prev) => ({ ...prev, email: "Please enter a valid email address first." }));
+      return;
+    }
+    if (!/^\d{6}$/.test(code)) {
+      setSignUpErrors((prev) => ({ ...prev, verificationCode: "Enter the 6-digit verification code." }));
+      return;
+    }
+
+    setIsVerifyingCode(true);
+    setSignUpErrors((prev) => ({ ...prev, verificationCode: undefined, form: undefined }));
+    try {
+      const response = await api.post<{ verificationToken: string; message?: string }>("/api/auth/email-verification/verify", {
+        email: normalizedEmail,
+        code,
+      });
+      setVerificationToken(response.verificationToken);
+      setVerifiedEmail(normalizedEmail);
+      setVerificationStatus(response?.message || "Email verified successfully.");
+    } catch (error: any) {
+      setVerificationToken("");
+      setVerifiedEmail("");
+      setSignUpErrors((prev) => ({
+        ...prev,
+        verificationCode: error?.message || "Invalid verification code.",
+      }));
+    } finally {
+      setIsVerifyingCode(false);
     }
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
-      toast.error("Please enter your email address");
-      return;
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCompanyName = companyName.trim();
+    const nextErrors: {
+      email?: string;
+      verificationCode?: string;
+      password?: string;
+      confirmPassword?: string;
+      companyName?: string;
+      companySize?: string;
+      form?: string;
+    } = {};
+    if (!normalizedEmail) {
+      nextErrors.email = "Please enter your email address.";
+    }
+    if (normalizedEmail && !isValidEmail(normalizedEmail)) {
+      nextErrors.email = "Please enter a valid email address.";
+    }
+    if (!verificationToken || verifiedEmail !== normalizedEmail) {
+      nextErrors.verificationCode = "Please verify your email with the 6-digit code before creating account.";
     }
     if (!signUpPassword || !signUpConfirmPassword) {
-      toast.error("Please enter and confirm your password");
+      if (!signUpPassword) nextErrors.password = "Please enter your password.";
+      if (!signUpConfirmPassword) nextErrors.confirmPassword = "Please confirm your password.";
+    }
+    if (signUpPassword && !isStrongPassword(signUpPassword)) {
+      nextErrors.password = `Use at least ${PASSWORD_MIN_LENGTH} characters with at least 1 letter and 1 number.`;
+    }
+    if (signUpPassword && signUpConfirmPassword && signUpPassword !== signUpConfirmPassword) {
+      nextErrors.confirmPassword = "Passwords do not match.";
+    }
+    if (role === "recruiter" && !normalizedCompanyName) {
+      nextErrors.companyName = "Please enter company name.";
+    }
+    if (role === "recruiter" && normalizedCompanyName.length < 2) {
+      nextErrors.companyName = "Company name must be at least 2 characters.";
+    }
+    if (role === "recruiter" && !companySize) {
+      nextErrors.companySize = "Please select your team size.";
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setSignUpErrors(nextErrors);
       return;
     }
-    if (signUpPassword !== signUpConfirmPassword) {
-      toast.error("Passwords do not match");
-      return;
-    }
-    if (signUpPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
-      return;
-    }
-    if (role === "recruiter" && !companyName) {
-      toast.error("Please enter your company name");
-      return;
-    }
+    setSignUpErrors({});
     try {
       const roleType = role === "jobseeker" ? (jobSeekerTrack === "tech" ? "technical" : "non_technical") : undefined;
       await signUp(
-        email,
+        normalizedEmail,
         signUpPassword,
         role,
+        verificationToken,
         undefined,
-        role === "recruiter" ? companyName : undefined,
+        role === "recruiter" ? normalizedCompanyName : undefined,
         role === "recruiter" ? companySize : undefined,
         roleType
       );
       switchMode("login");
-      setSignInEmail(email.trim());
-    } catch (error) {
-      // Error handled in context
+      setSignInEmail(normalizedEmail);
+    } catch (error: any) {
+      setSignUpErrors({
+        form: error?.message || "Unable to create account. Please try again.",
+      });
     }
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resetEmail) {
-      toast.error("Please enter your email address");
+    const normalizedEmail = resetEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error("Email required", { description: "Enter your account email to receive a password reset link." });
+      return;
+    }
+    if (!isValidEmail(normalizedEmail)) {
+      toast.error("Invalid email format", { description: "Please enter a valid registered email address." });
       return;
     }
     try {
-      await resetPassword(resetEmail);
+      await resetPassword(normalizedEmail);
       setResetEmail("");
     } catch (error) {
       // Error handled in context
@@ -182,19 +358,21 @@ const Auth = () => {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPassword || !confirmNewPassword) {
-      toast.error("Please fill in all fields");
+      toast.error("Missing required fields", { description: "Enter and confirm your new password." });
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      toast.error("Passwords do not match");
+      toast.error("Passwords do not match", { description: "Please ensure both new password fields match exactly." });
       return;
     }
-    if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    if (!isStrongPassword(newPassword)) {
+      toast.error("Weak password", {
+        description: `Use at least ${PASSWORD_MIN_LENGTH} characters with at least 1 letter and 1 number.`,
+      });
       return;
     }
     if (!resetTokenFromUrl) {
-      toast.error("Please use the reset link from your email. The link contains a secure token.");
+      toast.error("Invalid reset session", { description: "Please open the secure reset link sent to your email." });
       return;
     }
     try {
@@ -234,7 +412,7 @@ const Auth = () => {
               <h1 className="text-2xl font-bold text-foreground">Forgot Password?</h1>
               <p className="text-muted-foreground mt-2">Enter your email and we'll send you a link to reset your password.</p>
             </div>
-            <form onSubmit={handleForgotPassword} className="space-y-4">
+            <form onSubmit={handleForgotPassword} className="space-y-4" noValidate>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Email Address</label>
                 <div className="relative">
@@ -302,7 +480,7 @@ const Auth = () => {
                 Use the reset link from your email. The link contains a secure token required to set a new password.
               </div>
             )}
-            <form onSubmit={handleResetPassword} className="space-y-4">
+              <form onSubmit={handleResetPassword} className="space-y-4" noValidate>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Email</label>
                 <div className="relative">
@@ -319,13 +497,13 @@ const Auth = () => {
                 <label className="text-sm font-medium text-foreground">New Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
+                    <input
                     type={showNewPassword ? "text" : "password"}
-                    placeholder="Min. 6 characters"
+                      placeholder={`Min. ${PASSWORD_MIN_LENGTH} chars, 1 letter + 1 number`}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    minLength={6}
+                      minLength={PASSWORD_MIN_LENGTH}
                     className="w-full pl-10 pr-10 py-3 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                   <button
@@ -341,13 +519,13 @@ const Auth = () => {
                 <label className="text-sm font-medium text-foreground">Confirm New Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
+                    <input
                     type={showConfirmNewPassword ? "text" : "password"}
                     placeholder="Repeat password"
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                     required
-                    minLength={6}
+                      minLength={PASSWORD_MIN_LENGTH}
                     className="w-full pl-10 pr-10 py-3 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                   <button
@@ -468,13 +646,28 @@ const Auth = () => {
               <h1 className="auth-form-title">Welcome<br /><span className="gold">Back.</span></h1>
               <p className="auth-form-sub">Your verified profile is waiting. Pick up where you left off.</p>
 
-              <form onSubmit={handleSignIn} className="space-y-0">
+              <form onSubmit={handleSignIn} className="space-y-0" noValidate>
+                {signInErrors.form && (
+                  <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signInErrors.form}</p>
+                )}
                 <div>
                   <label className="auth-label">Email</label>
                   <div className="auth-input-wrap">
                     <Mail className="iw-icon" />
-                    <input type="email" placeholder="you@example.com" value={signInEmail} onChange={(e) => setSignInEmail(e.target.value)} required autoComplete="email" />
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={signInEmail}
+                      onChange={(e) => {
+                        setSignInEmail(e.target.value);
+                        setSignInErrors((prev) => ({ ...prev, email: undefined, form: undefined }));
+                      }}
+                      required
+                      autoComplete="email"
+                      className={signInErrors.email ? "border-red-500/80 !bg-red-500/5" : ""}
+                    />
                   </div>
+                  {signInErrors.email && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signInErrors.email}</p>}
                 </div>
                 <div>
                   <label className="auth-label">Password</label>
@@ -484,12 +677,17 @@ const Auth = () => {
                       type={showLoginPassword ? "text" : "password"}
                       placeholder="Your password"
                       value={signInPassword}
-                      onChange={(e) => setSignInPassword(e.target.value)}
+                      onChange={(e) => {
+                        setSignInPassword(e.target.value);
+                        setSignInErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
+                      }}
+                      className={signInErrors.password ? "border-red-500/80 !bg-red-500/5" : ""}
                     />
                     <button type="button" className="iw-eye" onClick={() => setShowLoginPassword((p) => !p)} aria-label="Toggle password">
                       {showLoginPassword ? "🙈" : "👁"}
                     </button>
                   </div>
+                  {signInErrors.password && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signInErrors.password}</p>}
                 </div>
                 <div className="text-right mb-3">
                   <button type="button" onClick={() => setAuthMode("forgot")} className="text-xs font-semibold text-primary hover:underline transition-opacity">
@@ -514,13 +712,91 @@ const Auth = () => {
               <h1 className="auth-form-title">Start Your<br /><span className="gold">Verification.</span></h1>
               <p className="auth-form-sub">Join free. Prove your skills. Get hired by companies that trust evidence.</p>
 
-              <form onSubmit={handleSignUp} className="space-y-0">
+              <form onSubmit={handleSignUp} className="space-y-0" noValidate>
+                {signUpErrors.form && (
+                  <div className="mb-2 text-xs text-red-400/95 tracking-wide">
+                    • {signUpErrors.form}
+                    {signUpErrors.form?.toLowerCase().includes("already registered") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode("login");
+                          setSignInEmail(email.trim());
+                          setSignUpErrors({});
+                        }}
+                        className="ml-1 underline font-semibold text-amber-300 hover:text-amber-200"
+                      >
+                        Sign in instead
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="auth-label">Email</label>
                   <div className="auth-input-wrap">
                     <Mail className="iw-icon" />
-                    <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        setSignUpErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined, form: undefined }));
+                      }}
+                      required
+                      className={signUpErrors.email ? "border-red-500/80 !bg-red-500/5" : ""}
+                    />
                   </div>
+                  {signUpErrors.email && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.email}</p>}
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSendVerificationCode}
+                      disabled={isSendingVerificationCode || resendCooldown > 0}
+                      className="rounded-md border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSendingVerificationCode
+                        ? "Sending..."
+                        : resendCooldown > 0
+                          ? `Resend OTP (${resendCooldown}s)`
+                          : verificationCodeSent
+                            ? "Resend OTP"
+                            : "Send Verification Code"}
+                    </button>
+                    {verificationToken && verifiedEmail === email.trim().toLowerCase() && (
+                      <span className="text-[11px] text-emerald-400">Email verified</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="auth-label">Verification Code</label>
+                  <div className="flex gap-2">
+                    <div className="auth-input-wrap flex-1">
+                      <Shield className="iw-icon" />
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="Enter code sent to your email"
+                        value={verificationCode}
+                        onChange={(e) => {
+                          setVerificationCode(e.target.value.replace(/[^\d]/g, "").slice(0, 6));
+                          setSignUpErrors((prev) => ({ ...prev, verificationCode: undefined, form: undefined }));
+                        }}
+                        className={signUpErrors.verificationCode ? "border-red-500/80 !bg-red-500/5" : ""}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyCode}
+                      disabled={isVerifyingCode || !verificationCodeSent}
+                      className="rounded-md border border-emerald-500/40 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isVerifyingCode ? "Verifying..." : "Verify"}
+                    </button>
+                  </div>
+                  {verificationStatus && <p className="mb-2 mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
+                  {signUpErrors.verificationCode && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.verificationCode}</p>}
                 </div>
                 <div>
                   <label className="auth-label">I am a</label>
@@ -566,16 +842,30 @@ const Auth = () => {
                       <label className="auth-label">Company Name *</label>
                       <div className="auth-input-wrap">
                         <Briefcase className="iw-icon" />
-                        <input type="text" placeholder="Your company" value={companyName} onChange={(e) => setCompanyName(e.target.value)} required={role === "recruiter"} />
+                      <input
+                          type="text"
+                          placeholder="Your company"
+                          value={companyName}
+                          onChange={(e) => {
+                            setCompanyName(e.target.value);
+                            setSignUpErrors((prev) => ({ ...prev, companyName: undefined, form: undefined }));
+                          }}
+                          required={role === "recruiter"}
+                          className={signUpErrors.companyName ? "border-red-500/80 !bg-red-500/5" : ""}
+                        />
                       </div>
+                      {signUpErrors.companyName && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.companyName}</p>}
                     </div>
                     <div>
                       <label className="auth-label">Team Size</label>
                       <select
                         value={companySize}
-                        onChange={(e) => setCompanySize(e.target.value)}
+                        onChange={(e) => {
+                          setCompanySize(e.target.value);
+                          setSignUpErrors((prev) => ({ ...prev, companySize: undefined, form: undefined }));
+                        }}
                         required={role === "recruiter"}
-                        className="w-full py-3 px-4 rounded-md bg-white/5 border border-border text-foreground text-sm focus:outline-none focus:border-primary/50"
+                        className={`w-full py-3 px-4 rounded-md bg-white/5 border text-foreground text-sm focus:outline-none focus:border-primary/50 ${signUpErrors.companySize ? "border-red-500/80 !bg-red-500/5" : "border-border"}`}
                       >
                         <option value="">Select</option>
                         <option value="1-10">1-10</option>
@@ -584,6 +874,7 @@ const Auth = () => {
                         <option value="201-500">201-500</option>
                         <option value="501+">501+</option>
                       </select>
+                      {signUpErrors.companySize && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.companySize}</p>}
                     </div>
                   </>
                 )}
@@ -593,14 +884,19 @@ const Auth = () => {
                     <Lock className="iw-icon" />
                     <input
                       type={showSignUpPassword ? "text" : "password"}
-                      placeholder="Min. 6 characters"
+                      placeholder={`Min. ${PASSWORD_MIN_LENGTH} chars, 1 letter + 1 number`}
                       value={signUpPassword}
-                      onChange={(e) => setSignUpPassword(e.target.value)}
+                      onChange={(e) => {
+                        setSignUpPassword(e.target.value);
+                        setSignUpErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
+                      }}
                       required
-                      minLength={6}
+                      minLength={PASSWORD_MIN_LENGTH}
+                      className={signUpErrors.password ? "border-red-500/80 !bg-red-500/5" : ""}
                     />
                     <button type="button" className="iw-eye" onClick={() => setShowSignUpPassword((p) => !p)}>{showSignUpPassword ? "🙈" : "👁"}</button>
                   </div>
+                  {signUpErrors.password && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.password}</p>}
                 </div>
                 <div>
                   <label className="auth-label">Confirm Password</label>
@@ -610,12 +906,17 @@ const Auth = () => {
                       type={showSignUpConfirmPassword ? "text" : "password"}
                       placeholder="Repeat password"
                       value={signUpConfirmPassword}
-                      onChange={(e) => setSignUpConfirmPassword(e.target.value)}
+                      onChange={(e) => {
+                        setSignUpConfirmPassword(e.target.value);
+                        setSignUpErrors((prev) => ({ ...prev, confirmPassword: undefined, form: undefined }));
+                      }}
                       required
-                      minLength={6}
+                      minLength={PASSWORD_MIN_LENGTH}
+                      className={signUpErrors.confirmPassword ? "border-red-500/80 !bg-red-500/5" : ""}
                     />
                     <button type="button" className="iw-eye" onClick={() => setShowSignUpConfirmPassword((p) => !p)}>{showSignUpConfirmPassword ? "🙈" : "👁"}</button>
                   </div>
+                  {signUpErrors.confirmPassword && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.confirmPassword}</p>}
                 </div>
                 <button type="submit" className="auth-cta w-full" disabled={loading}>{loading ? "Creating..." : "Start Verification →"}</button>
               </form>
@@ -637,7 +938,8 @@ const Auth = () => {
               {resetSuccess && (
                 <div className="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-200">Password updated. Please sign in.</div>
               )}
-              <form onSubmit={handleSignIn} className="space-y-4">
+              <form onSubmit={handleSignIn} className="space-y-4" noValidate>
+                {signInErrors.form && <p className="text-xs text-red-400/95 tracking-wide">• {signInErrors.form}</p>}
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
                   <div className="relative">
@@ -646,11 +948,15 @@ const Auth = () => {
                       type="email"
                       placeholder="you@example.com"
                       value={signInEmail}
-                      onChange={(e) => setSignInEmail(e.target.value)}
+                      onChange={(e) => {
+                        setSignInEmail(e.target.value);
+                        setSignInErrors((prev) => ({ ...prev, email: undefined, form: undefined }));
+                      }}
                       required
-                      className="w-full pl-10 pr-4 py-3 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 ${signInErrors.email ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
                     />
                   </div>
+                  {signInErrors.email && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signInErrors.email}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Password</label>
@@ -660,13 +966,17 @@ const Auth = () => {
                       type={showLoginPassword ? "text" : "password"}
                       placeholder="Password"
                       value={signInPassword}
-                      onChange={(e) => setSignInPassword(e.target.value)}
-                      className="w-full pl-10 pr-10 py-3 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      onChange={(e) => {
+                        setSignInPassword(e.target.value);
+                        setSignInErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
+                      }}
+                      className={`w-full pl-10 pr-10 py-3 border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 ${signInErrors.password ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
                     />
                     <button type="button" onClick={() => setShowLoginPassword((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                       {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {signInErrors.password && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signInErrors.password}</p>}
                 </div>
                 <div className="text-right">
                   <button type="button" onClick={() => setAuthMode("forgot")} className="text-sm text-primary hover:underline">Forgot password?</button>
@@ -682,10 +992,85 @@ const Auth = () => {
           ) : (
             <>
               <h2 className="text-lg font-semibold mb-4">Create Account</h2>
-              <form onSubmit={handleSignUp} className="space-y-4">
+              <form onSubmit={handleSignUp} className="space-y-4" noValidate>
+                {signUpErrors.form && (
+                  <div className="text-xs text-red-400/95 tracking-wide">
+                    • {signUpErrors.form}
+                    {signUpErrors.form?.toLowerCase().includes("already registered") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode("login");
+                          setSignInEmail(email.trim());
+                          setSignUpErrors({});
+                        }}
+                        className="ml-1 underline font-semibold text-amber-300 hover:text-amber-200"
+                      >
+                        Sign in instead
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
-                  <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 border border-border rounded-lg bg-background" />
+                  <input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setSignUpErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined, form: undefined }));
+                    }}
+                    required
+                    className={`w-full px-4 py-3 border rounded-lg bg-background ${signUpErrors.email ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
+                  />
+                  {signUpErrors.email && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.email}</p>}
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSendVerificationCode}
+                      disabled={isSendingVerificationCode || resendCooldown > 0}
+                      className="rounded-md border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSendingVerificationCode
+                        ? "Sending..."
+                        : resendCooldown > 0
+                          ? `Resend OTP (${resendCooldown}s)`
+                          : verificationCodeSent
+                            ? "Resend OTP"
+                            : "Send Verification Code"}
+                    </button>
+                    {verificationToken && verifiedEmail === email.trim().toLowerCase() && (
+                      <span className="text-[11px] text-emerald-400">Verified</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Verification Code</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="Enter code sent to your email"
+                      value={verificationCode}
+                      onChange={(e) => {
+                        setVerificationCode(e.target.value.replace(/[^\d]/g, "").slice(0, 6));
+                        setSignUpErrors((prev) => ({ ...prev, verificationCode: undefined, form: undefined }));
+                      }}
+                      className={`w-full px-4 py-3 border rounded-lg bg-background ${signUpErrors.verificationCode ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVerifyCode}
+                      disabled={isVerifyingCode || !verificationCodeSent}
+                      className="rounded-md border border-emerald-500/40 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isVerifyingCode ? "Verifying..." : "Verify"}
+                    </button>
+                  </div>
+                  {verificationStatus && <p className="mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
+                  {signUpErrors.verificationCode && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.verificationCode}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">I am a</label>
@@ -717,11 +1102,30 @@ const Auth = () => {
                   <>
                     <div>
                       <label className="block text-sm font-medium mb-1">Company Name *</label>
-                      <input type="text" placeholder="Your company" value={companyName} onChange={(e) => setCompanyName(e.target.value)} required className="w-full px-4 py-3 border border-border rounded-lg bg-background" />
+                      <input
+                        type="text"
+                        placeholder="Your company"
+                        value={companyName}
+                        onChange={(e) => {
+                          setCompanyName(e.target.value);
+                          setSignUpErrors((prev) => ({ ...prev, companyName: undefined, form: undefined }));
+                        }}
+                        required
+                        className={`w-full px-4 py-3 border rounded-lg bg-background ${signUpErrors.companyName ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
+                      />
+                      {signUpErrors.companyName && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.companyName}</p>}
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Team Size *</label>
-                      <select value={companySize} onChange={(e) => setCompanySize(e.target.value)} required className="w-full px-4 py-3 border border-border rounded-lg bg-background">
+                      <select
+                        value={companySize}
+                        onChange={(e) => {
+                          setCompanySize(e.target.value);
+                          setSignUpErrors((prev) => ({ ...prev, companySize: undefined, form: undefined }));
+                        }}
+                        required
+                        className={`w-full px-4 py-3 border rounded-lg bg-background ${signUpErrors.companySize ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
+                      >
                         <option value="">Select</option>
                         <option value="1-10">1-10</option>
                         <option value="11-50">11-50</option>
@@ -729,6 +1133,7 @@ const Auth = () => {
                         <option value="201-500">201-500</option>
                         <option value="501+">501+</option>
                       </select>
+                      {signUpErrors.companySize && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.companySize}</p>}
                     </div>
                   </>
                 )}
@@ -738,17 +1143,21 @@ const Auth = () => {
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <input
                       type={showSignUpPassword ? "text" : "password"}
-                      placeholder="Min. 6 characters"
+                      placeholder={`Min. ${PASSWORD_MIN_LENGTH} chars, 1 letter + 1 number`}
                       value={signUpPassword}
-                      onChange={(e) => setSignUpPassword(e.target.value)}
+                      onChange={(e) => {
+                        setSignUpPassword(e.target.value);
+                        setSignUpErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
+                      }}
                       required
-                      minLength={6}
-                      className="w-full pl-10 pr-10 py-3 border border-border rounded-lg bg-background"
+                      minLength={PASSWORD_MIN_LENGTH}
+                      className={`w-full pl-10 pr-10 py-3 border rounded-lg bg-background ${signUpErrors.password ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
                     />
                     <button type="button" onClick={() => setShowSignUpPassword((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                       {showSignUpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {signUpErrors.password && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.password}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Confirm Password</label>
@@ -758,15 +1167,19 @@ const Auth = () => {
                       type={showSignUpConfirmPassword ? "text" : "password"}
                       placeholder="Repeat password"
                       value={signUpConfirmPassword}
-                      onChange={(e) => setSignUpConfirmPassword(e.target.value)}
+                      onChange={(e) => {
+                        setSignUpConfirmPassword(e.target.value);
+                        setSignUpErrors((prev) => ({ ...prev, confirmPassword: undefined, form: undefined }));
+                      }}
                       required
-                      minLength={6}
-                      className="w-full pl-10 pr-10 py-3 border border-border rounded-lg bg-background"
+                      minLength={PASSWORD_MIN_LENGTH}
+                      className={`w-full pl-10 pr-10 py-3 border rounded-lg bg-background ${signUpErrors.confirmPassword ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
                     />
                     <button type="button" onClick={() => setShowSignUpConfirmPassword((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                       {showSignUpConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {signUpErrors.confirmPassword && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.confirmPassword}</p>}
                 </div>
                 <button type="submit" disabled={loading} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
                   {loading ? "Creating..." : "Create Account"}

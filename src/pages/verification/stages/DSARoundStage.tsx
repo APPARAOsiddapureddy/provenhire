@@ -13,6 +13,7 @@ import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -25,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, ShieldAlert, Camera, Mic, Activity } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, ShieldAlert, Camera, Mic, Activity, CircleHelp } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   generateDSATest,
@@ -48,6 +49,7 @@ interface DSARoundStageProps {
   onComplete: () => void;
   onRetry?: () => void;
   isRetry?: boolean;
+  targetJobTitle?: string | null;
   experienceYears?: number;
 }
 
@@ -58,7 +60,7 @@ interface TestResult {
   actual: string;
 }
 
-const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, experienceYears = 2 }: DSARoundStageProps) => {
+const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, targetJobTitle, experienceYears = 2 }: DSARoundStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const testIdRef = useRef<string>(`DSA_${Date.now()}`);
@@ -78,6 +80,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [localFinalScore, setLocalFinalScore] = useState<number | null>(null);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [hasEvaluatedQuestions, setHasEvaluatedQuestions] = useState(false);
+  const [noDsaSubmitting, setNoDsaSubmitting] = useState(false);
   const [questionSecondsRemaining, setQuestionSecondsRemaining] = useState<number>(DSA_MINUTES_PER_QUESTION * 60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -85,7 +89,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
-  const { riskScore, riskLevel } = useProctoringRiskMonitor({
+  useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: testIdRef.current,
@@ -107,8 +111,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   }, [stageStatus]);
 
   useEffect(() => {
-    const q = generateDSATest(experienceYears);
+    const q = generateDSATest(experienceYears, targetJobTitle);
     setQuestions(q);
+    setHasEvaluatedQuestions(true);
     if (q.length > 0) {
       const initial: Record<string, string> = {};
       q.forEach((qu) => {
@@ -116,7 +121,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       });
       setCode(initial);
     }
-  }, [experienceYears]);
+  }, [experienceYears, targetJobTitle]);
 
   useEffect(() => {
     if (proctoringReady && questions.length > 0 && secondsRemaining === null) {
@@ -312,7 +317,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     };
   }, [inTest, currentIndex]);
 
-  if (questions.length === 0) {
+  if (!hasEvaluatedQuestions) {
     return (
       <Card>
         <CardHeader>
@@ -323,6 +328,46 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             Please wait
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (questions.length === 0) {
+    const handleNoDsaComplete = async () => {
+      setNoDsaSubmitting(true);
+      try {
+        await api.post("/api/verification/dsa", { score: 100, answers: {} });
+        await api.post("/api/verification/stages/update", {
+          stageName: "dsa_round",
+          status: "completed",
+          score: 100,
+        });
+        toast.success("DSA is not required for your role. You've automatically passed this step.");
+        onComplete();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to complete DSA step.");
+      } finally {
+        setNoDsaSubmitting(false);
+      }
+    };
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>DSA Round</CardTitle>
+          <CardDescription>No DSA evaluation for your role</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-6 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              For your target role (e.g. Data Analyst, Business Analyst), DSA (Data Structures & Algorithms) is not evaluated.
+              Your assessment focuses on SQL, data interpretation, and business case questions instead.
+            </p>
+            <Button onClick={handleNoDsaComplete} disabled={noDsaSubmitting}>
+              {noDsaSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Continue to AI Expert Interview
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -363,6 +408,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     return (
       <ProctoringSetupGate
         testName="DSA Round"
+        enableScreenShare={false}
         isRetry={isRetry}
         onReady={(state) => {
           setProctoringState(state);
@@ -474,19 +520,27 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           </span>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-md border bg-muted/40">
-              <span className="text-xs text-muted-foreground">Risk</span>
-              <span
-                className={`text-xs font-semibold uppercase tracking-wide ${
-                  riskLevel === "high_risk"
-                    ? "text-red-500"
-                    : riskLevel === "suspicious"
-                      ? "text-amber-500"
-                      : "text-emerald-600"
-                }`}
-              >
-                {riskLevel.replace("_", " ")}
-              </span>
-              <span className="text-xs font-mono tabular-nums text-muted-foreground">({riskScore})</span>
+              <span className="text-xs text-muted-foreground">AI Monitoring</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Proctoring rules information"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground hover:text-foreground"
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[320px] p-3">
+                  <p className="font-semibold mb-1">Proctoring signals tracked</p>
+                  <p className="text-xs text-muted-foreground">
+                    Voice detection, mobile phone detection, multiple/dual face detection, tab switching, and fullscreen exits.
+                  </p>
+                  <p className="text-xs mt-2">
+                    Each violation adds risk points. If cumulative risk reaches <span className="font-semibold">400</span>, the attempt may be disqualified.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             </div>
             {/* Per-question countdown */}
             {inTest && (

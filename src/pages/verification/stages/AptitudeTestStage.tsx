@@ -14,7 +14,8 @@ import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
-import { Loader2, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Loader2, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck, CircleHelp, Sparkles, Trophy, Target } from "lucide-react";
 
 const APTITUDE_TIME_MINUTES = 90; // 1.5 hours total
 
@@ -62,7 +63,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
 
   const inTest = proctoringReady && !justPassed && !isFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
-  const { riskScore, riskLevel } = useProctoringRiskMonitor({
+  useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: testIdRef.current,
@@ -166,7 +167,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       const score = res.score ?? res.result?.score ?? 0;
       if (score >= passThreshold) {
         await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "completed", score });
-        toast.success(`Aptitude test completed. Score: ${score}/${totalMarks}.`);
+        toast.success(`Boom! Level 1 unlocked. Aptitude score: ${score}/${totalMarks}.`);
         setJustPassed(true);
       } else {
         await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score });
@@ -253,6 +254,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     return (
       <ProctoringSetupGate
         testName="Aptitude Test"
+        enableScreenShare={false}
         isRetry={isRetry}
         onReady={(state) => {
           setProctoringState(state);
@@ -276,19 +278,27 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           </div>
           {inTest && (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-muted/40">
-              <span className="text-xs text-muted-foreground">Risk</span>
-              <span
-                className={`text-xs font-semibold uppercase tracking-wide ${
-                  riskLevel === "high_risk"
-                    ? "text-red-500"
-                    : riskLevel === "suspicious"
-                      ? "text-amber-500"
-                      : "text-emerald-600"
-                }`}
-              >
-                {riskLevel.replace("_", " ")}
-              </span>
-              <span className="text-xs font-mono tabular-nums text-muted-foreground">({riskScore})</span>
+              <span className="text-xs text-muted-foreground">AI Monitoring</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Proctoring rules information"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background/70 text-muted-foreground hover:text-foreground"
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[320px] p-3">
+                  <p className="font-semibold mb-1">Proctoring signals tracked</p>
+                  <p className="text-xs text-muted-foreground">
+                    Voice detection, mobile phone detection, multiple/dual face detection, tab switching, and fullscreen exits.
+                  </p>
+                  <p className="text-xs mt-2">
+                    Each violation adds risk points. If cumulative risk reaches <span className="font-semibold">400</span>, the attempt may be disqualified.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           )}
           {secondsRemaining != null && inTest && (
@@ -317,15 +327,51 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             )}
           </div>
         ) : justPassed ? (
-          <div className="p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">Aptitude test passed! What&apos;s next?</h3>
-            <p className="text-sm text-muted-foreground">You can go to the homepage or continue to the DSA round.</p>
+          <div className="p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-5">
+            <div className="flex items-center gap-2 text-primary animate-pulse">
+              <Sparkles className="h-5 w-5" />
+              <span className="text-xs font-semibold tracking-[0.18em] uppercase">Boom Moment</span>
+            </div>
+            <h3 className="text-xl font-bold text-foreground">
+              Level 1 Certification Earned! <span className="inline-block">🏆</span>
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Strong start. You cleared Aptitude and unlocked <span className="font-semibold text-foreground">L1: Cognitive Verified</span>.
+              Now keep your momentum and complete DSA + AI Interview + Human Expert Interview to reach <span className="font-semibold text-foreground">Level 3 (Elite Verified)</span>.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border bg-background/80 p-3">
+                <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+                  <Trophy className="h-4 w-4" />
+                  L1 Unlocked
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">Profile + Aptitude completed</p>
+              </div>
+              <div className="rounded-lg border bg-background/80 p-3">
+                <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+                  <Target className="h-4 w-4" />
+                  Next Goal
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">Finish DSA and AI Interview for L2 signal</p>
+              </div>
+              <div className="rounded-lg border bg-background/80 p-3">
+                <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+                  <Sparkles className="h-4 w-4" />
+                  Final Push
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">Crack Human Expert Interview for L3</p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Your current score: <span className="font-semibold text-foreground">{submittedScore ?? stageScore ?? "-"}/{totalMarks}</span>.
+              Keep going - each completed stage increases your recruiter visibility.
+            </p>
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={() => navigate("/")}>
                 Go to Homepage
               </Button>
               <Button onClick={() => onComplete()}>
-                Continue to DSA Round
+                Continue to DSA Round (Level 2 Path)
               </Button>
             </div>
           </div>
@@ -416,17 +462,24 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                       )}
                     </Button>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {currentQuestion.options.map((opt, i) => (
-                      <Button
-                        key={i}
-                        variant={answers[currentQuestion.id] === opt ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setAnswers((prev) => ({ ...prev, [currentQuestion.id]: opt }))}
-                      >
-                        {opt}
-                      </Button>
-                    ))}
+                  <div className="space-y-3">
+                    {currentQuestion.options.map((opt, i) => {
+                      const selected = answers[currentQuestion.id] === opt;
+                      return (
+                        <Button
+                          key={i}
+                          type="button"
+                          variant={selected ? "default" : "outline"}
+                          className="w-full h-auto py-3 px-4 justify-start text-left whitespace-normal leading-relaxed"
+                          onClick={() => setAnswers((prev) => ({ ...prev, [currentQuestion.id]: opt }))}
+                        >
+                          <span className="mr-3 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
+                            {String.fromCharCode(65 + i)}
+                          </span>
+                          <span>{opt}</span>
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

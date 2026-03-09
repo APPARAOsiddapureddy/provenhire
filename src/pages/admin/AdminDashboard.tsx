@@ -37,6 +37,8 @@ interface JobSeeker {
   phone: string | null;
   created_at: string;
   profile?: { full_name?: string | null; email?: string | null };
+  certification_level?: number;
+  certification_label?: string;
 }
 
 interface Recruiter {
@@ -99,6 +101,7 @@ const AdminDashboard = () => {
     totalJobs: 0,
     totalApplications: 0,
     totalVerified: 0,
+    certificationLevels: { 0: 0, 1: 0, 2: 0, 3: 0 } as Record<number, number>,
   });
   const [applications, setApplications] = useState<any[]>([]);
   const [interviewerApplications, setInterviewerApplications] = useState<InterviewerApplication[]>([]);
@@ -135,7 +138,7 @@ const AdminDashboard = () => {
         api.get<{ jobs: Job[] }>("/api/jobs"),
         api.get<{ jobSeekers: JobSeeker[] }>("/api/admin/job-seekers"),
         api.get<{ recruiters: Recruiter[] }>("/api/admin/recruiters"),
-        api.get<{ totalJobSeekers: number; totalRecruiters: number; totalInterviewers: number; totalJobs: number; totalApplications: number; totalVerified: number }>("/api/admin/stats"),
+        api.get<{ totalJobSeekers: number; totalRecruiters: number; totalInterviewers: number; totalJobs: number; totalApplications: number; totalVerified: number; certificationLevels?: Record<number, number> }>("/api/admin/stats"),
         api.get<{ applications: any[] }>("/api/admin/applications"),
         api.get<{ applications: InterviewerApplication[] }>("/api/admin/interviewer-applications"),
       ]);
@@ -160,6 +163,7 @@ const AdminDashboard = () => {
         totalJobs: statsData?.totalJobs ?? jobsData.length,
         totalApplications: statsData?.totalApplications ?? appsData.length,
         totalVerified: statsData?.totalVerified ?? 0,
+        certificationLevels: statsData?.certificationLevels ?? { 0: 0, 1: 0, 2: 0, 3: 0 },
       });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Failed to fetch data";
@@ -463,6 +467,31 @@ const AdminDashboard = () => {
 
         <Card className="mb-6 sm:mb-8">
           <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="text-base sm:text-lg">Certification Level Funnel</CardTitle>
+            <CardDescription>Candidate distribution across certification tiers</CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Level 0</div>
+              <div className="text-2xl font-bold">{stats.certificationLevels[0] ?? 0}</div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Level 1</div>
+              <div className="text-2xl font-bold">{stats.certificationLevels[1] ?? 0}</div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Level 2</div>
+              <div className="text-2xl font-bold">{stats.certificationLevels[2] ?? 0}</div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Level 3</div>
+              <div className="text-2xl font-bold">{stats.certificationLevels[3] ?? 0}</div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6 sm:mb-8">
+          <CardHeader className="p-4 sm:p-6">
             <CardTitle className="text-base sm:text-lg">Recent Admin Actions</CardTitle>
             <CardDescription>Quick activity log for this session</CardDescription>
           </CardHeader>
@@ -602,6 +631,7 @@ const AdminDashboard = () => {
                       <TableHead>College</TableHead>
                       <TableHead>Experience</TableHead>
                       <TableHead>Skills</TableHead>
+                      <TableHead>Certification</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead>Actions</TableHead>
@@ -610,7 +640,7 @@ const AdminDashboard = () => {
                   <TableBody>
                     {filteredJobSeekers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center text-muted-foreground">
                           No job seekers match your filters.
                         </TableCell>
                       </TableRow>
@@ -636,6 +666,12 @@ const AdminDashboard = () => {
                                   +{(seeker.skills?.length || 0) - 3}
                                 </Badge>
                               )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="outline">L{seeker.certification_level ?? 0}</Badge>
+                              <span className="text-xs text-muted-foreground">{seeker.certification_label ?? "Level 0 - Not Yet Certified"}</span>
                             </div>
                           </TableCell>
                           <TableCell>

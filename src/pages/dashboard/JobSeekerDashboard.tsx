@@ -40,6 +40,26 @@ const STAGE_LABELS: Record<string, string> = {
   human_expert_interview: 'Human Expert Interview',
 };
 
+const deriveCertificationFromStages = (
+  roleType: "technical" | "non_technical",
+  stages: Array<{ stage_name?: string; status?: string }>
+): { level: number; label: string } => {
+  const completed = new Set(
+    stages.filter((s) => s.status === "completed").map((s) => s.stage_name).filter(Boolean) as string[]
+  );
+  if (roleType === "non_technical") {
+    if (completed.has("human_expert_interview")) return { level: 2, label: "Level 2 - Expert Verified Candidate" };
+    if (completed.has("profile_setup") && completed.has("non_tech_assignment")) {
+      return { level: 1, label: "Level 1 - Skill Assignment Verified" };
+    }
+    return { level: 0, label: "Level 0 - Not Yet Certified" };
+  }
+  if (completed.has("human_expert_interview")) return { level: 3, label: "Level 3 - Elite ProvenHire Candidate" };
+  if (completed.has("dsa_round") && completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
+  if (completed.has("profile_setup") && completed.has("aptitude_test")) return { level: 1, label: "Level 1 - Cognitive Verified" };
+  return { level: 0, label: "Level 0 - Not Yet Certified" };
+};
+
 const JobSeekerDashboard = () => {
   const { user, signOut, changePassword } = useAuth();
   const navigate = useNavigate();
@@ -47,6 +67,8 @@ const JobSeekerDashboard = () => {
   const [applications, setApplications] = useState<any[]>([]);
   const [savedJobs, setSavedJobs] = useState<any[]>([]);
   const [verificationStages, setVerificationStages] = useState<any[]>([]);
+  const [certificationLevelNumber, setCertificationLevelNumber] = useState<number>(0);
+  const [certificationLabel, setCertificationLabel] = useState<string>("Level 0 - Not Yet Certified");
   const [testResults, setTestResults] = useState<{ aptitude: any; dsa: any }>({ aptitude: null, dsa: null });
   const [certificationLevel, setCertificationLevel] = useState<"A" | "B" | "C" | null>(null);
   const [stats, setStats] = useState({
@@ -119,6 +141,38 @@ const JobSeekerDashboard = () => {
   const nextStageLabel = activeStageIndex >= 0 && activeStageIndex < stageOrder.length
     ? STAGE_LABELS[stageOrder[activeStageIndex]]
     : 'Verification';
+
+  const levelBlueprint =
+    roleType === "non_technical"
+      ? [
+          {
+            level: 1,
+            label: "Level 1 - Assignment Verified",
+            stages: ["profile_setup", "non_tech_assignment"],
+          },
+          {
+            level: 2,
+            label: "Level 2 - Expert Verified",
+            stages: ["human_expert_interview"],
+          },
+        ]
+      : [
+          {
+            level: 1,
+            label: "Level 1 - Cognitive Verified",
+            stages: ["profile_setup", "aptitude_test"],
+          },
+          {
+            level: 2,
+            label: "Level 2 - Skill Passport",
+            stages: ["dsa_round", "expert_interview"],
+          },
+          {
+            level: 3,
+            label: "Level 3 - Elite Verified",
+            stages: ["human_expert_interview"],
+          },
+        ];
 
   const {
  
@@ -201,37 +255,34 @@ const JobSeekerDashboard = () => {
   }, []);
 
   const loadDashboardData = async () => {
-    const FETCH_TIMEOUT_MS = 20000;
     try {
-      const queries = [
+      // Phase 1 (critical): render quickly with profile + stage pipeline.
+      // Phase 2 (secondary): load applications/saved/results in background.
+      const [profileRes, stagesRes] = await Promise.allSettled([
         api.get<{ profile: any }>("/api/users/job-seeker-profile"),
-        api.get<{ applications: any[] }>("/api/jobs/me/applications"),
-        api.get<{ saved: any[] }>("/api/jobs/me/saved"),
-        api.get<{ stages: any[] }>("/api/verification/stages"),
-        api.get<{ result: any }>("/api/verification/aptitude/latest"),
-        api.get<{ result: any }>("/api/verification/dsa/latest"),
-      ];
-      const fetchPromise = Promise.allSettled(queries).then((results) =>
-        results.map((r) => (r.status === 'fulfilled' ? r.value : { error: r.reason }))
-      );
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Dashboard request timed out. Check your connection and try again.')), FETCH_TIMEOUT_MS)
-      );
-      const resolved = await Promise.race([fetchPromise, timeoutPromise]);
-      const [profileData, applicationsData, savedJobsData, stagesData, aptitudeData, dsaData] = resolved;
+        api.get<{ stages: any[]; certification_level?: number; certification_label?: string }>("/api/verification/stages"),
+      ]);
 
-      const hasError = resolved.some((r: { error?: unknown }) => r?.error);
-      setLoadError(hasError);
-      if (hasError) {
-        toast.error('Some data could not be loaded. Showing what’s available. Use Retry below if needed.');
-      }
-
+      const profileData = profileRes.status === "fulfilled" ? profileRes.value : null;
+      const stagesData = stagesRes.status === "fulfilled" ? stagesRes.value : null;
       const profile = profileData?.profile ?? null;
-      const applicationsList = Array.isArray(applicationsData?.applications) ? applicationsData.applications : [];
-      const savedList = Array.isArray(savedJobsData?.saved) ? savedJobsData.saved : [];
       const stagesList = Array.isArray(stagesData?.stages) ? stagesData.stages : [];
-      const aptitudeResult = aptitudeData?.result ?? null;
-      const dsaResult = dsaData?.result ?? null;
+      const role = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
+      const derivedCertification = deriveCertificationFromStages(role, stagesList);
+      const apiLevel = stagesData?.certification_level ?? 0;
+      const effectiveLevel = Math.max(apiLevel, derivedCertification.level);
+      const effectiveLabel =
+        effectiveLevel === derivedCertification.level
+          ? derivedCertification.label
+          : (stagesData?.certification_label ?? derivedCertification.label);
+      setCertificationLevelNumber(effectiveLevel);
+      setCertificationLabel(effectiveLabel);
+
+      const criticalError = profileRes.status === "rejected" || stagesRes.status === "rejected";
+      setLoadError(criticalError);
+      if (criticalError) {
+        toast.error("Some dashboard sections are still loading. Showing available data first.");
+      }
 
       if (profile) {
         setProfile(profile);
@@ -247,14 +298,57 @@ const JobSeekerDashboard = () => {
       } else {
         setProfile(null);
       }
+      setVerificationStages(stagesList);
+      setStats({
+        applicationsSent: 0,
+        interviews: 0,
+        profileViews: profile?.profileViews ?? 0,
+      });
+
+      if (stagesList.length > 0) {
+        const completed = stagesList.filter((s: { status?: string }) => s.status === 'completed').length;
+        const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
+        const total = role === "non_technical" ? 3 : 5;
+        setVerificationProgress((completed / total) * 100);
+      }
+
+      setLoading(false);
+
+      // Phase 2 (non-blocking): load secondary data and enrich dashboard.
+      const secondary = await Promise.allSettled([
+        api.get<{ applications: any[] }>("/api/jobs/me/applications"),
+        api.get<{ saved: any[] }>("/api/jobs/me/saved"),
+        api.get<{ result: any }>("/api/verification/aptitude/latest"),
+        api.get<{ result: any }>("/api/verification/dsa/latest"),
+      ]);
+
+      const applicationsData = secondary[0].status === "fulfilled" ? secondary[0].value : null;
+      const savedJobsData = secondary[1].status === "fulfilled" ? secondary[1].value : null;
+      const aptitudeData = secondary[2].status === "fulfilled" ? secondary[2].value : null;
+      const dsaData = secondary[3].status === "fulfilled" ? secondary[3].value : null;
+
+      const secondaryError = secondary.some((r) => r.status === "rejected");
+      if (secondaryError) {
+        setLoadError(true);
+      }
+
+      const applicationsList = Array.isArray(applicationsData?.applications) ? applicationsData.applications : [];
+      const savedList = Array.isArray(savedJobsData?.saved) ? savedJobsData.saved : [];
+      const aptitudeResult = aptitudeData?.result ?? null;
+      const dsaResult = dsaData?.result ?? null;
+
       setApplications(applicationsList);
       setSavedJobs(savedList);
-      setVerificationStages(stagesList);
       setTestResults({ aptitude: aptitudeResult, dsa: dsaResult });
+      setStats({
+        applicationsSent: applicationsList.length,
+        interviews: applicationsList.filter((a: { status?: string }) => a.status === "interview_scheduled").length,
+        profileViews: profile?.profileViews ?? 0,
+      });
 
-      if (profile?.verificationStatus === 'expert_verified' || profile?.verificationStatus === 'verified') {
+      if (profile?.verificationStatus === "expert_verified" || profile?.verificationStatus === "verified") {
         const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
-        const interviewStage = stagesList.find((s: { stage_name?: string }) => s.stage_name === 'expert_interview');
+        const interviewStage = stagesList.find((s: { stage_name?: string }) => s.stage_name === "expert_interview");
         const interviewScore = interviewStage?.score ?? 0;
         if (role === "non_technical") {
           const pct = interviewScore ? Math.round((interviewScore / 15) * 100) : 0;
@@ -273,25 +367,11 @@ const JobSeekerDashboard = () => {
           else setCertificationLevel("C");
         }
       }
-
-      setStats({
-        applicationsSent: applicationsList.length,
-        interviews: applicationsList.filter((a: { status?: string }) => a.status === 'interview_scheduled').length,
-        profileViews: profile?.profileViews ?? 0,
-      });
-
-      if (stagesList.length > 0) {
-        const completed = stagesList.filter((s: { status?: string }) => s.status === 'completed').length;
-        const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
-        const total = role === "non_technical" ? 3 : 5;
-        setVerificationProgress((completed / total) * 100);
-      }
     } catch (error: unknown) {
       console.error('Error loading dashboard data:', error);
       setLoadError(true);
       const msg = error instanceof Error ? error.message : 'Failed to load dashboard';
       toast.error(msg);
-    } finally {
       setLoading(false);
     }
   };
@@ -553,12 +633,60 @@ const JobSeekerDashboard = () => {
                   <span className="dashboard-rec-dot" />
                   Session Proctored
                 </span>
+                {certificationLevelNumber >= 1 && (
+                  <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
+                    <Award className="h-3.5 w-3.5 mr-1.5" />
+                    {roleType === "technical" ? "Cognitive Verified Badge Earned" : "Assignment Verified Badge Earned"}
+                  </Badge>
+                )}
                 <Button className="dashboard-btn-gold" onClick={() => navigate('/verification')}>
                   Continue {nextStageLabel} →
                 </Button>
               </div>
             </div>
             <div className="dashboard-section-content">
+              <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/5 p-4 mb-4">
+                {certificationLevelNumber >= 1 && (
+                  <div className="mb-3 rounded-lg border border-emerald-400/35 bg-emerald-500/10 p-3">
+                    <div className="flex items-center gap-2 text-emerald-200 font-semibold">
+                      <Award className="h-4 w-4" />
+                      {roleType === "technical" ? "Congratulations! Cognitive Verified badge unlocked." : "Congratulations! Assignment Verified badge unlocked."}
+                    </div>
+                    <p className="mt-1 text-xs text-emerald-100/85">
+                      Strong progress. Keep going to unlock higher certification levels and improve recruiter trust.
+                    </p>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <div className="text-sm font-semibold text-white">Certification Level Progress</div>
+                  <Badge variant="outline" className="bg-black/20 border-[var(--dash-navy-border)] text-white">
+                    {certificationLabel}
+                  </Badge>
+                </div>
+                <div className="space-y-3">
+                  {levelBlueprint.map((level) => (
+                    <div key={level.level} className="rounded-lg border border-[var(--dash-navy-border)] p-3">
+                      <div className="text-sm font-semibold text-white mb-2">{level.label}</div>
+                      <div className="space-y-1.5">
+                        {level.stages.map((stage) => {
+                          const done = verificationStages.some((s: any) => s.stage_name === stage && s.status === "completed");
+                          return (
+                            <div key={stage} className="flex items-center gap-2 text-sm">
+                              <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${done ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/60"}`}>
+                                {done ? "✓" : "•"}
+                              </span>
+                              <span className={done ? "text-emerald-200" : "text-white/70"}>{STAGE_LABELS[stage]}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-white/60">
+                  Your current level: <span className="font-semibold text-white">L{certificationLevelNumber}</span>. Higher-level jobs unlock automatically as you complete stages.
+                </p>
+              </div>
               <div className="dashboard-stage-header-card">
                 <div className="flex justify-between items-start flex-wrap gap-4 mb-7">
                   <div>

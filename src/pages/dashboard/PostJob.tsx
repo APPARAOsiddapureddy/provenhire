@@ -36,10 +36,23 @@ const PostJob = () => {
     company_context: "",
     assignment_threshold: 60,
     assignment: "", // AI-generated for non-technical jobs
+    minimum_certification_level: 1,
   });
   const [skillInput, setSkillInput] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [assignmentGenerating, setAssignmentGenerating] = useState(false);
+
+  const parseSalaryMaxLpa = (salaryRange?: string): number | null => {
+    if (!salaryRange) return null;
+    const lakhMatch =
+      salaryRange.match(/₹?\s*([\d,]+)L\s*-\s*₹?\s*([\d,]+)L/i) ||
+      salaryRange.match(/₹?\s*([\d,]+)L/i);
+    if (!lakhMatch) return null;
+    const max = lakhMatch[2] ? parseInt(lakhMatch[2].replace(/,/g, ""), 10) : parseInt(lakhMatch[1].replace(/,/g, ""), 10);
+    return Number.isNaN(max) ? null : max;
+  };
+
+  const isEliteGatedBySalary = formData.job_track === "tech" && (parseSalaryMaxLpa(formData.salary_range) ?? 0) >= 25;
 
   const getSubmitErrorMessage = (error: any): string => {
     if (!error) return 'Something went wrong. Please check the form and try again.';
@@ -204,6 +217,7 @@ const PostJob = () => {
         assignment: formData.job_track === "non_technical" && formData.assignment?.trim() ? formData.assignment.trim() : null,
         roleCategory: formData.role_category || null,
         companyContext: formData.company_context || null,
+        minimumCertificationLevel: formData.minimum_certification_level,
       });
 
       if (newJob) {
@@ -391,7 +405,19 @@ const PostJob = () => {
 
               <div className="space-y-2">
                 <Label>Job track (PRD v4.1) *</Label>
-                <Select value={formData.job_track} onValueChange={(v: "tech" | "non_technical") => setFormData({ ...formData, job_track: v })}>
+                <Select
+                  value={formData.job_track}
+                  onValueChange={(v: "tech" | "non_technical") =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      job_track: v,
+                      minimum_certification_level:
+                        v === "non_technical"
+                          ? Math.min(2, prev.minimum_certification_level)
+                          : prev.minimum_certification_level,
+                    }))
+                  }
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -401,6 +427,18 @@ const PostJob = () => {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">Technical: expert-verified candidates. Non-technical: non-tech verified + per-job assignment.</p>
+              </div>
+
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <Label>Application eligibility policy</Label>
+                <p className="text-sm text-foreground">
+                  {isEliteGatedBySalary
+                    ? "This is a high-package technical job (>= ₹25L). Only Level 3 (Elite Verified) candidates can apply."
+                    : "This job is open to all candidates (no certification gate)."}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Platform rule: only high-package technical roles are Level 3 gated. Other roles are open so candidates can discover and apply early.
+                </p>
               </div>
 
               {formData.job_track === 'non_technical' && (

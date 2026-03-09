@@ -15,12 +15,13 @@ enum UserRole {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  name         String?
-  email        String   @unique
-  passwordHash String
-  role         UserRole @default(jobseeker)
-  createdAt    DateTime @default(now())
+  id            String   @id @default(uuid())
+  name          String?
+  email         String   @unique
+  passwordHash  String
+  role          UserRole @default(jobseeker)
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
   jobSeekerProfile JobSeekerProfile?
   recruiterProfile RecruiterProfile?
@@ -100,6 +101,7 @@ model Job {
   assignment     String?  // Non-technical: AI-generated assignment for applicants
   roleCategory   String?  // e.g. Marketing, Sales, HR
   companyContext String?  // Brief company description for assignment context
+  minimumCertificationLevel Int @default(1)
   createdAt      DateTime @default(now())
   postedById     String?
 
@@ -371,4 +373,18 @@ model BlockedEmail {
   id        String   @id @default(uuid())
   email     String   @unique
   blockedAt DateTime @default(now())
+}
+
+model EmailVerificationCode {
+  id                    String   @id @default(uuid())
+  email                 String
+  codeHash              String
+  verificationTokenHash String?
+  expiresAt             DateTime
+  attempts              Int      @default(0)
+  verifiedAt            DateTime?
+  consumedAt            DateTime?
+  createdAt             DateTime @default(now())
+
+  @@index([email, createdAt])
 }

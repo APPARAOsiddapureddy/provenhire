@@ -5,6 +5,7 @@ import { prisma } from "../config/prisma.js";
 import { hashToken, generateRefreshToken } from "../utils/jwt.js";
 import { adminNotificationsRouter } from "./admin-notifications.js";
 import { sendInterviewerAcceptanceEmail } from "../services/resend.js";
+import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 
 export const adminRouter = Router();
 
@@ -24,7 +25,15 @@ adminRouter.get("/job-seekers", async (_req, res) => {
     },
     orderBy: { createdAt: "desc" },
   });
+  const certByUserId = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
+  await Promise.all(
+    profiles.map(async (p) => {
+      certByUserId.set(p.userId, await calculateCertificationLevel(p.userId));
+    })
+  );
   const mapped = profiles.map((p) => ({
+    certification_level: certByUserId.get(p.userId)?.level ?? 0,
+    certification_label: certByUserId.get(p.userId)?.label ?? "Level 0 - Not Yet Certified",
     id: p.id,
     user_id: p.userId,
     college: p.college,
@@ -79,6 +88,19 @@ adminRouter.get("/stats", async (_req, res) => {
         },
       }),
     ]);
+
+  const seekers = await prisma.jobSeekerProfile.findMany({
+    select: { userId: true },
+  });
+  const levelBuckets: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  await Promise.all(
+    seekers.map(async (s) => {
+      const cert = await calculateCertificationLevel(s.userId);
+      const lvl = Math.max(0, Math.min(3, cert.level));
+      levelBuckets[lvl] = (levelBuckets[lvl] ?? 0) + 1;
+    })
+  );
+
   res.json({
     totalJobSeekers,
     totalRecruiters,
@@ -86,6 +108,12 @@ adminRouter.get("/stats", async (_req, res) => {
     totalJobs,
     totalApplications,
     totalVerified,
+    certificationLevels: levelBuckets,
+    levelProgressionFunnel: {
+      level1OrAbove: (levelBuckets[1] ?? 0) + (levelBuckets[2] ?? 0) + (levelBuckets[3] ?? 0),
+      level2OrAbove: (levelBuckets[2] ?? 0) + (levelBuckets[3] ?? 0),
+      level3: levelBuckets[3] ?? 0,
+    },
   });
 });
 

@@ -55,9 +55,12 @@ const VerificationFlow = () => {
   const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
   const [showAllCompletePopup, setShowAllCompletePopup] = useState(false);
   const [targetJobTitle, setTargetJobTitle] = useState<string>("");
+  const [experienceYears, setExperienceYears] = useState<number>(2);
   const [testStageStarted, setTestStageStarted] = useState<Record<string, boolean>>({});
   const [practiceDialog, setPracticeDialog] = useState<"aptitude" | "dsa" | "interview" | null>(null);
   const [retryingStage, setRetryingStage] = useState<string | null>(null);
+  const [certificationLevel, setCertificationLevel] = useState(0);
+  const [certificationLabel, setCertificationLabel] = useState("Level 0 - Not Yet Certified");
 
   const technicalStageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
   const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'];
@@ -114,10 +117,17 @@ const VerificationFlow = () => {
     setLoadError(null);
     try {
       const loadWithTimeout = async () => {
-        const res = await api.get<{ stages: VerificationStage[]; roleType?: string }>("/api/verification/stages");
+        const res = await api.get<{
+          stages: VerificationStage[];
+          roleType?: string;
+          certification_level?: number;
+          certification_label?: string;
+        }>("/api/verification/stages");
         let data = res.stages;
         const rt = (res.roleType as "technical" | "non_technical") || "technical";
         setRoleType(rt);
+        setCertificationLevel(res.certification_level ?? 0);
+        setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
         // Migrate non-tech: expert_interview -> human_expert_interview for existing users
         if (rt === "non_technical" && data?.length) {
           data = data.map((s: VerificationStage) =>
@@ -128,8 +138,16 @@ const VerificationFlow = () => {
         }
         const order = rt === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
         const insertNames = rt === "non_technical" ? nonTechnicalStageOrder : ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
-        const profileRes = await api.get<{ profile: { targetJobTitle?: string } }>("/api/users/job-seeker-profile").catch(() => ({ profile: null }));
-        setTargetJobTitle(profileRes?.profile?.targetJobTitle ?? "");
+        // Fetch job-title context and experience in background so stage pipeline can render immediately.
+        void api
+          .get<{ profile: { targetJobTitle?: string; experienceYears?: number } }>("/api/users/job-seeker-profile")
+          .then((profileRes) => {
+            const p = profileRes?.profile;
+            setTargetJobTitle(p?.targetJobTitle ?? "");
+            const exp = p?.experienceYears;
+            setExperienceYears(typeof exp === "number" && exp >= 0 ? exp : 2);
+          })
+          .catch(() => { setTargetJobTitle(""); setExperienceYears(2); });
 
         if (!data || data.length === 0) {
           await initializeStages(rt);
@@ -592,6 +610,8 @@ const VerificationFlow = () => {
                 onComplete={() => completeAndAdvanceStage('dsa_round')}
                 onRetry={!cooldownInfo.dsa.inCooldown ? retryDsaAndRestart : undefined}
                 isRetry={retryingStage === 'dsa_round'}
+                targetJobTitle={targetJobTitle || undefined}
+                experienceYears={experienceYears}
               />
             )}
           </div>
@@ -735,6 +755,17 @@ const VerificationFlow = () => {
             </div>
           </CardHeader>
           <CardContent>
+            <div className="mb-4 rounded-lg border bg-muted/20 p-3">
+              <p className="text-sm font-medium">Current certification: L{certificationLevel} - {certificationLabel}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Complete the remaining stages to unlock higher-level opportunities.
+              </p>
+              {roleType === "technical" && certificationLevel === 1 && (
+                <p className="text-xs font-medium text-primary mt-2">
+                  Great momentum! You have earned Level 1. Complete DSA + AI Interview + Human Expert Interview to reach Level 3 and maximize recruiter trust.
+                </p>
+              )}
+            </div>
             <Progress value={calculateProgress()} className="h-3 mb-6" />
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               {stageOrder.map((stage) => (

@@ -44,6 +44,8 @@ interface Job {
   job_track?: 'tech' | 'non_technical';
   /** Non-technical: AI-generated assignment applicants must complete */
   assignment?: string | null;
+  minimumCertificationLevel?: number;
+  minimum_certification_level?: number;
 }
 
 const MOCK_JOBS: Job[] = [
@@ -337,51 +339,71 @@ const Jobs = () => {
   const [userSkills, setUserSkills] = useState<string[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
   const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
+  const [candidateCertificationLevel, setCandidateCertificationLevel] = useState(0);
+  const [candidateCertificationLabel, setCandidateCertificationLabel] = useState("Level 0 - Not Yet Certified");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const {
     isVerified, 
-    isLoading: verificationLoading, 
     verificationProgress, 
     currentStage,
-    requiresVerification,
-    isExpertVerified,
-    isNonTechVerified,
-    hasCompletedDsaOrEquivalent,
   } = useVerificationGate();
 
-  const parseSalaryMaxLpa = (salaryStr: string | null | undefined): number | null => {
-    if (!salaryStr) return null;
-    const lakhMatch = salaryStr.match(/₹?\s*([\d,]+)L\s*-?\s*₹?\s*([\d,]+)L/i) || salaryStr.match(/₹?\s*([\d,]+)L/i);
-    if (lakhMatch) {
-      const max = lakhMatch[2] ? parseInt(lakhMatch[2].replace(/,/g, ''), 10) : parseInt(lakhMatch[1].replace(/,/g, ''), 10);
-      return isNaN(max) ? null : max;
+  const deriveCertificationFromStages = (
+    role: "technical" | "non_technical",
+    stages: Array<{ stage_name?: string; status?: string }>
+  ): { level: number; label: string } => {
+    const completed = new Set(
+      stages.filter((s) => s.status === "completed").map((s) => s.stage_name).filter(Boolean) as string[]
+    );
+    if (role === "non_technical") {
+      if (completed.has("human_expert_interview")) return { level: 2, label: "Level 2 - Expert Verified Candidate" };
+      if (completed.has("profile_setup") && completed.has("non_tech_assignment")) {
+        return { level: 1, label: "Level 1 - Skill Assignment Verified" };
+      }
+      return { level: 0, label: "Level 0 - Not Yet Certified" };
     }
-    const usdMatch = salaryStr.match(/\$?([\d,]+)k?\s*-?\s*\$?([\d,]+)k?/i) || salaryStr.match(/\$?([\d,]+)k?/i);
-    if (usdMatch) {
-      const max = usdMatch[2] ? parseInt(usdMatch[2].replace(/,/g, ''), 10) : parseInt(usdMatch[1].replace(/,/g, ''), 10);
-      return isNaN(max) ? null : Math.floor(max / 10);
+    if (completed.has("human_expert_interview")) return { level: 3, label: "Level 3 - Elite ProvenHire Candidate" };
+    if (completed.has("dsa_round") && completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
+    if (completed.has("profile_setup") && completed.has("aptitude_test")) return { level: 1, label: "Level 1 - Cognitive Verified" };
+    return { level: 0, label: "Level 0 - Not Yet Certified" };
+  };
+
+  const parseSalaryMaxLpa = (salaryStr: string | null): number | null => {
+    if (!salaryStr) return null;
+    const lakhMatch =
+      salaryStr.match(/₹?\s*([\d,]+)L\s*-\s*₹?\s*([\d,]+)L/i) ||
+      salaryStr.match(/₹?\s*([\d,]+)L/i);
+    if (lakhMatch) {
+      const max = lakhMatch[2] ? parseInt(lakhMatch[2].replace(/,/g, ""), 10) : parseInt(lakhMatch[1].replace(/,/g, ""), 10);
+      return Number.isNaN(max) ? null : max;
     }
     return null;
   };
 
-  const isJobLocked = (job: Job) => {
-    if (job.job_track === 'non_technical') return !isNonTechVerified;
-    // Tech: DSA-complete → jobs < 8 LPA; Expert-complete → all jobs
-    if (!hasCompletedDsaOrEquivalent) return true;
-    const salaryStr = job.salary_range ?? (job as { salaryRange?: string }).salaryRange;
-    const maxLpa = parseSalaryMaxLpa(salaryStr ?? null);
-    if (maxLpa != null && maxLpa > 8) return !isExpertVerified;
-    return false;
+  const isHighPackageJob = (job: Job): boolean => {
+    if (job.job_track === "non_technical") return false;
+    const maxLpa = parseSalaryMaxLpa(job.salary_range);
+    return (maxLpa ?? 0) >= 25;
   };
 
+  const getJobMinimumLevel = (job: Job) => {
+    // Policy: all jobs open to all users, only high-package technical roles require Level 3.
+    return isHighPackageJob(job) ? 3 : 0;
+  };
+
+  const isApplyLocked = (job: Job) => candidateCertificationLevel < getJobMinimumLevel(job);
+
   const getLockedJobMessage = (job: Job): string => {
-    if (job.job_track === 'non_technical') return 'Complete non-tech verification to apply';
-    if (!hasCompletedDsaOrEquivalent) return 'Complete DSA round to access jobs (< 8 LPA)';
-    const salaryStr = job.salary_range ?? (job as { salaryRange?: string }).salaryRange;
-    const maxLpa = parseSalaryMaxLpa(salaryStr ?? null);
-    if (maxLpa != null && maxLpa > 8) return 'Complete AI Expert Interview to access roles above 8 LPA';
-    return 'This role is available after verification';
+    const level = getJobMinimumLevel(job);
+    if (level === 0) return "";
+    if (job.job_track === "non_technical") {
+      if (level === 1) return "This job requires Level 1 Skill Assignment Verified. Complete Profile Setup and Assignment.";
+      return "This job requires Level 2 Expert Verified Candidate. Complete Human Expert Interview to unlock.";
+    }
+    if (level === 1) return "This job requires Level 1 Cognitive Verified. Complete Profile Setup and Aptitude Test.";
+    if (level === 2) return "This job requires Level 2 Skill Passport. Complete DSA and AI Interview to unlock.";
+    return "This job requires Level 3 Elite Verified. Complete Human Expert Interview to unlock.";
   };
 
   // Search States
@@ -442,6 +464,7 @@ const Jobs = () => {
       loadSavedJobs();
       loadAppliedJobs();
       loadUserSkills();
+      loadCandidateCertification();
       setUserEmail(user.email || '');
     }
   }, [user, userRole]);
@@ -454,6 +477,30 @@ const Jobs = () => {
       setRoleType(rt);
     } catch (error: any) {
       console.error('Error loading user skills:', error);
+    }
+  };
+
+  const loadCandidateCertification = async () => {
+    try {
+      const res = await api.get<{
+        certification_level?: number;
+        certification_label?: string;
+        roleType?: "technical" | "non_technical";
+        stages?: Array<{ stage_name?: string; status?: string }>;
+      }>("/api/verification/stages");
+      const rt = (res.roleType ?? roleType) as "technical" | "non_technical";
+      const derived = deriveCertificationFromStages(rt, res.stages ?? []);
+      const apiLevel = res.certification_level ?? 0;
+      const effectiveLevel = Math.max(apiLevel, derived.level);
+      setCandidateCertificationLevel(effectiveLevel);
+      setCandidateCertificationLabel(
+        effectiveLevel === derived.level
+          ? derived.label
+          : (res.certification_label ?? derived.label)
+      );
+    } catch {
+      setCandidateCertificationLevel(0);
+      setCandidateCertificationLabel("Level 0 - Not Yet Certified");
     }
   };
 
@@ -486,6 +533,10 @@ const Jobs = () => {
           ...job,
           job_track: (jt === 'non_technical' ? 'non_technical' : 'tech') as 'tech' | 'non_technical',
           isPremium: jt !== 'non_technical' && (job as any).verification_required === 'premium',
+          minimum_certification_level:
+            job.minimum_certification_level ??
+            job.minimumCertificationLevel ??
+            1,
         };
       });
       const mockFiltered = track
@@ -624,15 +675,9 @@ const Jobs = () => {
   });
 
   const displayedJobs = filteredJobs.slice(0, displayLimit);
-  const lockedJobsCount = filteredJobs.filter(job => isJobLocked(job)).length;
+  const lockedJobsCount = filteredJobs.filter(job => isApplyLocked(job)).length;
 
   const handleToggleCompare = (jobId: string) => {
-    const job = jobsToShow.find(j => j.id === jobId);
-    if (job && isJobLocked(job)) {
-      toast(getLockedJobMessage(job), { icon: '🔒' });
-      setShowVerificationDialog(true);
-      return;
-    }
     setCompareJobs(prev => {
       const newSet = new Set(prev);
       if (newSet.has(jobId)) {
@@ -671,17 +716,17 @@ const Jobs = () => {
   };
 
   const handleViewJobDetails = (job: Job) => {
-    if (isJobLocked(job)) {
-      toast(getLockedJobMessage(job), { icon: '🔒' });
-      setShowVerificationDialog(true);
-      return;
-    }
     setSelectedJob(job);
     setShowJobDetails(true);
   };
 
   const handleApplyFromDetails = async (assignmentResponse?: string) => {
     if (!selectedJob) return;
+    if (isApplyLocked(selectedJob)) {
+      toast.error(getLockedJobMessage(selectedJob));
+      setShowVerificationDialog(true);
+      return;
+    }
     
     if (!user) {
       toast('Please sign in to apply', { icon: '🔒' });
@@ -694,9 +739,6 @@ const Jobs = () => {
       toast.error('Only job seekers can apply to jobs');
       return;
     }
-
-    // Verification is now optional - users can apply without it
-    // The benefits banner shows what they unlock by getting verified
 
     // For mock jobs, just show success
     if (selectedJob.id.startsWith('mock-')) {
@@ -778,15 +820,6 @@ const Jobs = () => {
       return;
     }
 
-    const job = jobsToShow.find(j => j.id === jobId);
-    if (job && isJobLocked(job)) {
-      toast(getLockedJobMessage(job), { icon: '🔒' });
-      setShowVerificationDialog(true);
-      return;
-    }
-
-    // Verification is now optional for saving jobs
-
     // For mock jobs, just toggle locally
     if (jobId.startsWith('mock-')) {
       setSavedJobs(prev => {
@@ -858,7 +891,7 @@ const Jobs = () => {
                   <div>
                     <p className="font-semibold">Unlock premium roles</p>
                     <p className="text-sm text-muted-foreground">
-                      {lockedJobsCount} high‑package roles are available after verification.
+                      Current: {candidateCertificationLabel}. {lockedJobsCount} roles need a higher certification level.
                     </p>
                   </div>
                 </div>
@@ -1057,7 +1090,8 @@ const Jobs = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {displayedJobs.map((job) => {
-                  const isPremiumLocked = isJobLocked(job);
+                  const isPremiumLocked = isApplyLocked(job);
+                  const minLevel = getJobMinimumLevel(job);
                   return (
                   <div key={job.id} className={`job-card bg-card rounded-xl p-4 sm:p-6 shadow-sm border transition-all ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${isPremiumLocked ? 'opacity-70' : ''}`}>
                     {/* Badges + Compare — top row, no overlap */}
@@ -1074,6 +1108,9 @@ const Jobs = () => {
                             </span>
                           )
                         )}
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted border border-border text-xs font-semibold">
+                          {minLevel === 3 ? "Elite Gate: Level 3" : "Open to All"}
+                        </span>
                       </div>
                       <button
                         onClick={() => handleToggleCompare(job.id)}
@@ -1083,7 +1120,6 @@ const Jobs = () => {
                             : 'bg-secondary hover:bg-secondary/80 text-muted-foreground'
                         }`}
                         title={compareJobs.has(job.id) ? 'Remove from comparison' : 'Add to comparison'}
-                        disabled={isPremiumLocked}
                       >
                         {compareJobs.has(job.id) ? (
                           <X className="h-4 w-4" />
@@ -1146,7 +1182,6 @@ const Jobs = () => {
                         variant="outline"
                         className="flex-1"
                         onClick={() => handleViewJobDetails(job)}
-                        disabled={isPremiumLocked}
                       >
                         <Eye className="h-4 w-4 mr-2" />
                         View Details
@@ -1163,7 +1198,6 @@ const Jobs = () => {
                         size="icon"
                         onClick={() => handleSaveJob(job.id)}
                         className={savedJobs.has(job.id) ? 'text-primary border-primary' : ''}
-                        disabled={isPremiumLocked}
                       >
                         {savedJobs.has(job.id) ? (
                           <BookmarkCheck className="h-4 w-4" />
@@ -1174,7 +1208,7 @@ const Jobs = () => {
                     </div>
                     {isPremiumLocked && (
                       <div className="mt-3 bg-secondary/70 border border-border rounded-lg p-3 text-sm text-muted-foreground flex items-center justify-between gap-3">
-                        <span>{job.job_track === 'non_technical' ? 'Complete non-tech verification to apply.' : 'Verify to unlock this premium role.'}</span>
+                        <span>Requires Level {minLevel}. {getLockedJobMessage(job)}</span>
                         <Button size="sm" onClick={() => navigate(user ? '/verification' : '/auth')}>
                           Get Verified
                         </Button>

@@ -54,9 +54,7 @@ export function createApp() {
   app.use(pinoHttp());
   app.use("/uploads", express.static(UPLOADS_DIR));
 
-  app.get("/health", (_req, res) => {
-    res.json({ ok: true });
-  });
+  app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
 
   app.get("/ping", (_req, res) => {
     res.json({ ping: "pong", timestamp: new Date().toISOString() });
@@ -69,15 +67,19 @@ export function createApp() {
   app.get("/diagnostic", async (_req, res) => {
     const jwtOk = !!process.env.JWT_SECRET;
     let dbOk = false;
+    let emailVerificationTableOk = false;
     try {
       const { prisma } = await import("./config/prisma.js");
       await prisma.$queryRaw`SELECT 1`;
       dbOk = true;
-    } catch {
+      await prisma.emailVerificationCode.findFirst({ take: 1 });
+      emailVerificationTableOk = true;
+    } catch (e) {
       // ignore
     }
     res.json({
       ok: jwtOk && dbOk,
+      emailVerificationTableOk,
       jwt: jwtOk ? "configured" : "missing",
       database: dbOk ? "connected" : "unavailable",
     });

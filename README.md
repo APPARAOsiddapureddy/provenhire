@@ -11,33 +11,40 @@
 
 ## Local development
 
-### 1) Install frontend dependencies
+### Quick start (recommended)
 
-```
+```bash
 npm install
+cd server && npm install && cd ..
+npm run start
 ```
 
-### 2) Configure backend
+Then open **http://localhost:8080**. This starts both frontend (8080) and backend (10000).
 
-Create `server/.env`:
+### Manual start
 
-```
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
-JWT_SECRET="your-secret"
-GEMINI_API_KEY="your-gemini-key"
-PORT=5000
-```
-
-### 3) Start backend
-
-```
+**Terminal 1 – backend:**
+```bash
 cd server
 npm install
 npm run dev
 ```
 
-### 4) Start frontend
-
-```
+**Terminal 2 – frontend:**
+```bash
+npm install
 npm run dev
 ```
+
+### Configure backend
+
+Create `server/.env`:
+
+```
+PORT=10000
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
+JWT_SECRET="your-secret"
+GEMINI_API_KEY="your-gemini-key"
+```
+
+> **Note:** `PORT=10000` must match the Vite proxy target in `vite.config.ts`.

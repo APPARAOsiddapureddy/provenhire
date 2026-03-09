@@ -20,6 +20,7 @@ interface AuthContextType {
     email: string,
     password: string,
     role: UserRole,
+    verificationToken: string,
     fullName?: string,
     companyName?: string,
     companySize?: string,
@@ -67,6 +68,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     email: string,
     password: string,
     role: UserRole,
+    verificationToken: string,
     fullName?: string,
     companyName?: string,
     companySize?: string,
@@ -80,6 +82,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         role: role ?? "jobseeker",
         name: fullName ?? undefined,
         roleType: roleType ?? undefined,
+        verificationToken,
       });
       setAuthToken(data.token);
       if (data.refreshToken) setRefreshToken(data.refreshToken);
@@ -88,9 +91,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (role === "recruiter") {
         await api.post("/api/users/recruiter-profile", { companyName, companySize });
       }
-      toast.success("Account created successfully.");
     } catch (err: any) {
-      toast.error(err?.message || "Sign up failed");
       throw err;
     } finally {
       setLoading(false);
@@ -108,9 +109,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.refreshToken) setRefreshToken(data.refreshToken);
       setUser(data.user);
       setUserRole(data.user.role);
-      toast.success("Signed in successfully!");
     } catch (err: any) {
-      toast.error(err?.message || "Sign in failed");
       throw err;
     } finally {
       setLoading(false);

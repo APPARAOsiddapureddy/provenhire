@@ -21,6 +21,8 @@ interface ProctoringSetupGateProps {
   /** Test name for display (e.g. "Aptitude Test", "DSA Round") */
   testName: string;
   onReady: (state: ProctoringState) => void;
+  /** When false, skip screen-share/screen-capture permission completely */
+  enableScreenShare?: boolean;
   /** Optional: allow proceeding if screen share fails (e.g. unsupported browser) */
   screenShareOptional?: boolean;
   /** When true, show retry-friendly copy and try to re-use permissions (avoids repeated prompts) */
@@ -30,6 +32,7 @@ interface ProctoringSetupGateProps {
 const ProctoringSetupGate = ({
   testName,
   onReady,
+  enableScreenShare = true,
   screenShareOptional = false,
   isRetry = false,
 }: ProctoringSetupGateProps) => {
@@ -47,6 +50,7 @@ const ProctoringSetupGate = ({
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const supportsScreenShare =
+    enableScreenShare &&
     typeof navigator !== "undefined" &&
     "mediaDevices" in navigator &&
     "getDisplayMedia" in navigator.mediaDevices;
@@ -121,7 +125,7 @@ const ProctoringSetupGate = ({
     if (supportsScreenShare) {
       await requestScreenShare();
     } else {
-      setState((s) => ({ ...s, screenShare: "unsupported" }));
+      setState((s) => ({ ...s, screenShare: "unsupported", screenStream: null }));
     }
     await requestCameraAndMic();
   };
@@ -136,7 +140,8 @@ const ProctoringSetupGate = ({
   const canProceed =
     state.camera === "granted" &&
     state.microphone === "granted" &&
-    (state.screenShare === "granted" ||
+    (!enableScreenShare ||
+      state.screenShare === "granted" ||
       state.screenShare === "unsupported" ||
       (screenShareOptional && (state.screenShare === "denied" || skippedScreenShare)));
 
@@ -171,45 +176,46 @@ const ProctoringSetupGate = ({
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid gap-4">
-          {/* Screen Share */}
-          <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-3">
-              <Monitor className="h-5 w-5 text-primary" />
-              <div>
-                <p className="font-medium">Screen sharing</p>
-                <p className="text-sm text-muted-foreground">
-                  Share your screen so we can monitor your activity during the test
-                </p>
+          {enableScreenShare && (
+            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+              <div className="flex items-center gap-3">
+                <Monitor className="h-5 w-5 text-primary" />
+                <div>
+                  <p className="font-medium">Screen sharing</p>
+                  <p className="text-sm text-muted-foreground">
+                    Share your screen so we can monitor your activity during the test
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <StatusIcon status={state.screenShare} />
+                {state.screenShare === "pending" && supportsScreenShare && (
+                  <Button
+                    size="sm"
+                    onClick={requestScreenShare}
+                    disabled={!!requesting}
+                  >
+                    {requesting === "screen" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Grant"}
+                  </Button>
+                )}
+                {state.screenShare === "unsupported" && (
+                  <span className="text-xs text-muted-foreground">Not supported</span>
+                )}
+                {state.screenShare === "denied" && (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={requestScreenShare} disabled={!!requesting}>
+                      {requesting === "screen" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Allow screen share"}
+                    </Button>
+                    {screenShareOptional && (
+                      <Button size="sm" variant="outline" onClick={handleSkipScreenShare}>
+                        Skip
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <StatusIcon status={state.screenShare} />
-              {state.screenShare === "pending" && supportsScreenShare && (
-                <Button
-                  size="sm"
-                  onClick={requestScreenShare}
-                  disabled={!!requesting}
-                >
-                  {requesting === "screen" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Grant"}
-                </Button>
-              )}
-              {state.screenShare === "unsupported" && (
-                <span className="text-xs text-muted-foreground">Not supported</span>
-              )}
-              {state.screenShare === "denied" && (
-                <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={requestScreenShare} disabled={!!requesting}>
-                    {requesting === "screen" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Allow screen share"}
-                  </Button>
-                  {screenShareOptional && (
-                    <Button size="sm" variant="outline" onClick={handleSkipScreenShare}>
-                      Skip
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Camera */}
           <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
@@ -269,9 +275,10 @@ const ProctoringSetupGate = ({
             <p>✓ Microphone access required</p>
             <p>✓ Fullscreen required</p>
             <p>✓ No tab switching allowed</p>
+            {enableScreenShare && <p>✓ Screen sharing required</p>}
           </div>
           <p className="text-xs text-muted-foreground">
-            Your camera, microphone, and screen activity will be monitored during this assessment to ensure fairness.
+            Your camera and microphone activity will be monitored during this assessment to ensure fairness.
           </p>
           <div className="flex items-start gap-2 pt-1">
             <Checkbox
@@ -303,7 +310,7 @@ const ProctoringSetupGate = ({
 
         {/* Single "Enable & Start" button — one click triggers all prompts (screen, camera/mic, fullscreen) to avoid feeling like two separate flows */}
         <div className="flex flex-wrap items-center gap-3 pt-2">
-          {state.screenShare === "denied" && !screenShareOptional ? (
+          {enableScreenShare && state.screenShare === "denied" && !screenShareOptional ? (
             <div className="flex items-center gap-2 text-amber-600 text-sm">
               <AlertCircle className="h-4 w-4" />
               <span>Screen share is required. Please try again or use a supported browser.</span>
@@ -323,7 +330,7 @@ const ProctoringSetupGate = ({
                 setRequesting("all");
                 try {
                   if (!canProceed) {
-                    if (supportsScreenShare && state.screenShare !== "granted" && state.screenShare !== "unsupported") {
+                    if (enableScreenShare && supportsScreenShare && state.screenShare !== "granted" && state.screenShare !== "unsupported") {
                       await requestScreenShare();
                     }
                     if (state.camera !== "granted" || state.microphone !== "granted") {

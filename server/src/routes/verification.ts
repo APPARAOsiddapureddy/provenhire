@@ -7,6 +7,7 @@ import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession } from "
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
+import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -40,8 +41,16 @@ verificationRouter.get("/stages", requireAuth, async (req: AuthedRequest, res) =
         skipDuplicates: true,
       });
     }
-    const stages = await prisma.verificationStage.findMany({ where: { userId: req.user!.id } });
-    return res.json({ stages: toStageResponse(stages), roleType });
+    const [stages, certification] = await Promise.all([
+      prisma.verificationStage.findMany({ where: { userId: req.user!.id } }),
+      calculateCertificationLevel(req.user!.id),
+    ]);
+    return res.json({
+      stages: toStageResponse(stages),
+      roleType,
+      certification_level: certification.level,
+      certification_label: certification.label,
+    });
   } catch (e) {
     console.error("[verification/stages]", e);
     return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to load stages" });

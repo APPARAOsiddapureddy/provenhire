@@ -2,8 +2,31 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
+import {
+  calculateCertificationLevel,
+  getCertificationLabel,
+  minimumLevelHint,
+  type CertificationTrack,
+} from "../services/verificationLevel.service.js";
 
 export const jobsRouter = Router();
+
+function parseSalaryMaxLpa(salaryRange?: string | null): number | null {
+  if (!salaryRange) return null;
+  const lakhMatch =
+    salaryRange.match(/₹?\s*([\d,]+)L\s*-\s*₹?\s*([\d,]+)L/i) ||
+    salaryRange.match(/₹?\s*([\d,]+)L/i);
+  if (!lakhMatch) return null;
+  const max = lakhMatch[2] ? parseInt(lakhMatch[2].replace(/,/g, ""), 10) : parseInt(lakhMatch[1].replace(/,/g, ""), 10);
+  return Number.isNaN(max) ? null : max;
+}
+
+function getEffectiveMinimumCertificationLevel(jobTrack: "tech" | "non_technical", salaryRange?: string | null): number {
+  // Policy: all jobs are open to all users, only high-package technical roles are Level 3 gated.
+  if (jobTrack !== "tech") return 0;
+  const maxLpa = parseSalaryMaxLpa(salaryRange);
+  return (maxLpa ?? 0) >= 25 ? 3 : 0;
+}
 
 jobsRouter.get("/", async (req, res) => {
   const track = req.query.track as string | undefined;
@@ -32,6 +55,7 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
     assignment: z.string().nullish(),
     roleCategory: z.string().nullish(),
     companyContext: z.string().nullish(),
+    minimumCertificationLevel: z.number().int().min(1).max(3).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -46,14 +70,18 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
     return res.status(400).json({ error: firstMsg, fieldErrors });
   }
 
+  const normalizedTrack = (parsed.data.jobTrack ?? "tech") as "tech" | "non_technical";
+  const effectiveMinLevel = getEffectiveMinimumCertificationLevel(normalizedTrack, parsed.data.salaryRange ?? null);
+
   const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
   const job = await prisma.job.create({
     data: {
       ...parsed.data,
-      jobTrack: parsed.data.jobTrack ?? "tech",
+      jobTrack: normalizedTrack,
       assignment: parsed.data.assignment ?? null,
       roleCategory: parsed.data.roleCategory ?? null,
       companyContext: parsed.data.companyContext ?? null,
+      minimumCertificationLevel: effectiveMinLevel,
       postedById: recruiter?.id ?? null,
     },
   });
@@ -77,6 +105,20 @@ jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
     if (jobTrack !== userTrack) {
       return res.status(403).json({ error: "This job does not match your profile. Technical seekers apply to technical jobs; non-technical seekers apply to non-technical jobs." });
     }
+  }
+  const jobTrack = (job.jobTrack === "non_technical" ? "non_technical" : "tech") as "tech" | "non_technical";
+  const certTrack: CertificationTrack = jobTrack === "non_technical" ? "non_technical" : "technical";
+  const candidateCertification = await calculateCertificationLevel(req.user!.id);
+  const minimumLevel = getEffectiveMinimumCertificationLevel(jobTrack, job.salaryRange);
+  if (candidateCertification.level < minimumLevel) {
+    const requiredLabel = getCertificationLabel(certTrack, minimumLevel);
+    return res.status(403).json({
+      error: `This job requires ${requiredLabel}. ${minimumLevelHint(certTrack, minimumLevel)}`,
+      minimumCertificationLevel: minimumLevel,
+      minimumCertificationLabel: requiredLabel,
+      candidateCertificationLevel: candidateCertification.level,
+      candidateCertificationLabel: candidateCertification.label,
+    });
   }
   if (job.assignment && !parsed.data.assignmentResponse?.trim()) {
     return res.status(400).json({ error: "This job requires an assignment submission. Please complete the assignment and try again." });

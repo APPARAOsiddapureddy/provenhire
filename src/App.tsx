@@ -57,6 +57,13 @@ const AuthHashRedirect = () => {
   return null;
 };
 
+const ApiWarmup = () => {
+  useEffect(() => {
+    fetch("/health", { cache: "no-store" }).catch(() => {});
+  }, []);
+  return null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -64,6 +71,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthHashRedirect />
+        <ApiWarmup />
         <ScrollToTop />
         <AuthProvider>
           <Suspense fallback={<PageLoaderFullScreen />}>

@@ -175,6 +175,34 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     if (!fullName.trim()) {
       errs.fullName = "Please enter your full name.";
     }
+    if (!phone.trim()) {
+      errs.phone = "Please enter your phone number.";
+    }
+    if (!location.trim()) {
+      errs.location = "Please enter your location.";
+    }
+    if (!currentRole.trim()) {
+      errs.currentRole = "Please enter your current role.";
+    }
+    if (experienceYears === "" || Number.isNaN(Number(experienceYears)) || Number(experienceYears) < 0) {
+      errs.experienceYears = "Please enter valid experience in years.";
+    }
+    const skillsList = skills
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (skillsList.length === 0) {
+      errs.skills = "Please add at least one skill.";
+    }
+    if (!noticePeriod.trim()) {
+      errs.noticePeriod = "Please enter your notice period.";
+    }
+    if (!currentSalary.trim()) {
+      errs.currentSalary = "Please enter your current salary.";
+    }
+    if (!expectedSalary.trim()) {
+      errs.expectedSalary = "Please enter your expected salary.";
+    }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       toast.error("Please fix the highlighted fields.");
@@ -186,26 +214,23 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     setSaving(true);
     try {
       // Resume not stored for now; full profile saved in DB. AWS storage in future.
-      const skillsList = skills
-        .split(/[,;]/)
-        .map((s) => s.trim())
-        .filter(Boolean);
       await api.post("/api/users/job-seeker-profile", {
         fullName: fullName.trim(),
         // email is never sent — sign-up email (User.email) is the main, immutable email
-        phone: phone || undefined,
-        location: location || undefined,
-        currentRole,
-        about,
+        phone: phone.trim() || undefined,
+        location: location.trim() || undefined,
+        currentRole: currentRole.trim() || undefined,
+        about: about.trim() || undefined,
         experienceYears: experienceYears === "" ? undefined : Number(experienceYears),
         skills: skillsList.length ? skillsList : undefined,
-        college: college || undefined,
-        graduationYear: graduationYear || undefined,
+        college: college.trim() || undefined,
+        graduationYear: graduationYear.trim() || undefined,
         education: education.trim() ? education.trim().split("\n").filter(Boolean) : undefined,
         workExperience: workExperience.trim() ? workExperience.trim().split("\n").filter(Boolean) : undefined,
         noticePeriod: noticePeriod.trim() || undefined,
         currentSalary: currentSalary.trim() || undefined,
         expectedSalary: expectedSalary.trim() || undefined,
+        enforceRequiredFields: true,
       });
       await api.post("/api/verification/stages/update", { stageName: "profile_setup", status: "completed" });
       toast.success("Profile saved successfully!");
@@ -371,29 +396,52 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.phone = r; }} id="field-phone" className="space-y-2">
                 <Label>Phone</Label>
-                <PhoneInput value={phone} onChange={setPhone} placeholder="9876543210" />
+                <PhoneInput value={phone} onChange={(v) => { setPhone(v); setFieldErrors((p) => ({ ...p, phone: "" })); }} placeholder="9876543210" />
+                {fieldErrors.phone && (
+                  <p className="text-sm text-destructive">{fieldErrors.phone}</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.location = r; }} id="field-location" className="space-y-2">
                 <Label>Location</Label>
-                <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" />
+                <Input
+                  value={location}
+                  onChange={(e) => { setLocation(e.target.value); setFieldErrors((p) => ({ ...p, location: "" })); }}
+                  placeholder="City, Country"
+                  className={fieldErrors.location ? "border-destructive focus-visible:ring-destructive" : ""}
+                />
+                {fieldErrors.location && (
+                  <p className="text-sm text-destructive">{fieldErrors.location}</p>
+                )}
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.currentRole = r; }} id="field-currentRole" className="space-y-2">
                 <Label>Current role</Label>
-                <Input value={currentRole} onChange={(e) => setCurrentRole(e.target.value)} placeholder="e.g. Data Analyst" />
+                <Input
+                  value={currentRole}
+                  onChange={(e) => { setCurrentRole(e.target.value); setFieldErrors((p) => ({ ...p, currentRole: "" })); }}
+                  placeholder="e.g. Data Analyst"
+                  className={fieldErrors.currentRole ? "border-destructive focus-visible:ring-destructive" : ""}
+                />
+                {fieldErrors.currentRole && (
+                  <p className="text-sm text-destructive">{fieldErrors.currentRole}</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.experienceYears = r; }} id="field-experienceYears" className="space-y-2">
                 <Label>Experience (years)</Label>
                 <Input
                   type="number"
                   min={0}
                   value={experienceYears}
-                  onChange={(e) => setExperienceYears(e.target.value === "" ? "" : Number(e.target.value))}
+                  onChange={(e) => { setExperienceYears(e.target.value === "" ? "" : Number(e.target.value)); setFieldErrors((p) => ({ ...p, experienceYears: "" })); }}
                   placeholder="3"
+                  className={fieldErrors.experienceYears ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {fieldErrors.experienceYears && (
+                  <p className="text-sm text-destructive">{fieldErrors.experienceYears}</p>
+                )}
               </div>
             </div>
             <div className="space-y-2">
@@ -405,13 +453,17 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 rows={3}
               />
             </div>
-            <div className="space-y-2">
+            <div ref={(r) => { fieldRefs.current.skills = r; }} id="field-skills" className="space-y-2">
               <Label>Skills (comma-separated)</Label>
               <Input
                 value={skills}
-                onChange={(e) => setSkills(e.target.value)}
+                onChange={(e) => { setSkills(e.target.value); setFieldErrors((p) => ({ ...p, skills: "" })); }}
                 placeholder={roleType === "technical" ? "Python, SQL, JavaScript, React, Node.js, …" : "Communication, Excel, Project Management, Presentation, Customer Service, …"}
+                className={fieldErrors.skills ? "border-destructive focus-visible:ring-destructive" : ""}
               />
+              {fieldErrors.skills && (
+                <p className="text-sm text-destructive">{fieldErrors.skills}</p>
+              )}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -442,29 +494,41 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
               />
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.noticePeriod = r; }} id="field-noticePeriod" className="space-y-2">
                 <Label>Notice period</Label>
                 <Input
                   value={noticePeriod}
-                  onChange={(e) => setNoticePeriod(e.target.value)}
+                  onChange={(e) => { setNoticePeriod(e.target.value); setFieldErrors((p) => ({ ...p, noticePeriod: "" })); }}
                   placeholder="e.g. 15 days, 1 month, Immediate"
+                  className={fieldErrors.noticePeriod ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {fieldErrors.noticePeriod && (
+                  <p className="text-sm text-destructive">{fieldErrors.noticePeriod}</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.currentSalary = r; }} id="field-currentSalary" className="space-y-2">
                 <Label>Current salary</Label>
                 <Input
                   value={currentSalary}
-                  onChange={(e) => setCurrentSalary(e.target.value)}
+                  onChange={(e) => { setCurrentSalary(e.target.value); setFieldErrors((p) => ({ ...p, currentSalary: "" })); }}
                   placeholder="e.g. 10 LPA, 15-20 L"
+                  className={fieldErrors.currentSalary ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {fieldErrors.currentSalary && (
+                  <p className="text-sm text-destructive">{fieldErrors.currentSalary}</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div ref={(r) => { fieldRefs.current.expectedSalary = r; }} id="field-expectedSalary" className="space-y-2">
                 <Label>Expected salary</Label>
                 <Input
                   value={expectedSalary}
-                  onChange={(e) => setExpectedSalary(e.target.value)}
+                  onChange={(e) => { setExpectedSalary(e.target.value); setFieldErrors((p) => ({ ...p, expectedSalary: "" })); }}
                   placeholder="e.g. 20 LPA, 25-30 L"
+                  className={fieldErrors.expectedSalary ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {fieldErrors.expectedSalary && (
+                  <p className="text-sm text-destructive">{fieldErrors.expectedSalary}</p>
+                )}
               </div>
             </div>
 

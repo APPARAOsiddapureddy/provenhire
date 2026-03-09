@@ -3,6 +3,8 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { prisma } from "../config/prisma.js";
 import { signJwt, hashToken, generateRefreshToken } from "../utils/jwt.js";
+import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { sendSignupVerificationCodeEmail } from "../services/resend.js";
 
 const REFRESH_EXPIRY_DAYS = 7;
 
@@ -12,6 +14,7 @@ const registerSchema = z.object({
   password: z.string().min(6),
   role: z.enum(["jobseeker", "recruiter", "admin", "expert_interviewer"]).optional(),
   roleType: z.enum(["technical", "non_technical"]).optional(),
+  verificationToken: z.string().min(8, "verification token required"),
 });
 
 const loginSchema = z.object({
@@ -30,6 +33,108 @@ const resetSchema = z.object({
 const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
+
+const emailVerificationSendSchema = z.object({
+  email: z.string().email(),
+});
+
+const emailVerificationVerifySchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/),
+});
+
+function generateSixDigitCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+export async function sendEmailVerificationCode(req: Request, res: Response) {
+  try {
+    const parsed = emailVerificationSendSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "Invalid email" });
+
+    const email = parsed.data.email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(409).json({ error: "Email already registered" });
+
+    const code = generateSixDigitCode();
+    const codeHash = hashToken(code);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await prisma.emailVerificationCode.create({
+      data: { email, codeHash, expiresAt },
+    });
+
+    const sent = await sendSignupVerificationCodeEmail(email, code);
+    if (!sent) {
+      return res.json({
+        ok: true,
+        message: `Email could not be sent to ${email}. Use the code below to verify.`,
+        devCode: code,
+      });
+    }
+
+    return res.json({ ok: true, message: `Verification code sent to ${email}. Check your inbox and enter the 6-digit code.` });
+  } catch (err) {
+    const errObj = err instanceof Error ? err : new Error(String(err));
+    console.error("[sendEmailVerificationCode]", errObj);
+    const isPrisma = err && typeof err === "object" && ("code" in err || "meta" in err);
+    const prismaCode = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : null;
+    let hint: string;
+    if (isPrisma) {
+      if (prismaCode === "P2021" || prismaCode === "P2003") {
+        hint = "EmailVerificationCode table missing. Run: cd server && npx prisma db push && npx prisma generate";
+      } else {
+        hint = "Database error. Run: cd server && npx prisma db push && npx prisma generate";
+      }
+    } else {
+      hint = String(errObj.message);
+    }
+    const devHint = process.env.NODE_ENV !== "production" ? ` ${hint}` : "";
+    return res.status(500).json({ error: `Failed to send verification code.${devHint}` });
+  }
+}
+
+export async function verifyEmailVerificationCode(req: Request, res: Response) {
+  const parsed = emailVerificationVerifySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+  const email = parsed.data.email.trim().toLowerCase();
+  const codeHash = hashToken(parsed.data.code);
+
+  const record = await prisma.emailVerificationCode.findFirst({
+    where: {
+      email,
+      codeHash,
+      verifiedAt: null,
+      consumedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!record) {
+    await prisma.emailVerificationCode.updateMany({
+      where: { email, verifiedAt: null, consumedAt: null, expiresAt: { gt: new Date() } },
+      data: { attempts: 1 },
+    });
+    return res.status(400).json({ error: "Invalid or expired verification code." });
+  }
+
+  const verificationToken = generateRefreshToken();
+  await prisma.emailVerificationCode.update({
+    where: { id: record.id },
+    data: {
+      verifiedAt: new Date(),
+      verificationTokenHash: hashToken(verificationToken),
+    },
+  });
+
+  return res.json({
+    ok: true,
+    verificationToken,
+    message: "Email verified successfully.",
+  });
+}
 
 async function createSession(user: { id: string; role: string; name: string | null; email: string }) {
   const accessToken = signJwt({ userId: user.id, role: user.role });
@@ -66,7 +171,7 @@ export async function register(req: Request, res: Response) {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid registration payload" });
     }
-    const { name, email, password, role, roleType } = parsed.data;
+    const { name, email, password, role, roleType, verificationToken } = parsed.data;
     const normalizedEmail = email.trim().toLowerCase();
     const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
     if (blocked) {
@@ -76,6 +181,20 @@ export async function register(req: Request, res: Response) {
     if (existing) {
       return res.status(409).json({ error: "Email already registered" });
     }
+
+    const verification = await prisma.emailVerificationCode.findFirst({
+      where: {
+        email: normalizedEmail,
+        verifiedAt: { not: null },
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+        verificationTokenHash: hashToken(verificationToken),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!verification) {
+      return res.status(400).json({ error: "Email verification is required before signup." });
+    }
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: {
@@ -83,6 +202,7 @@ export async function register(req: Request, res: Response) {
         email: normalizedEmail,
         passwordHash,
         role: role ?? "jobseeker",
+        emailVerified: true,
       },
     });
     if (user.role === "jobseeker") {
@@ -97,6 +217,10 @@ export async function register(req: Request, res: Response) {
         update: { roleType: roleType ?? "technical" },
       });
     }
+    await prisma.emailVerificationCode.update({
+      where: { id: verification.id },
+      data: { consumedAt: new Date() },
+    });
     let session;
     try {
       session = await createSession(user);
@@ -194,9 +318,17 @@ export async function me(req: Request, res: Response) {
   if (!userId) {
     return res.status(401).json({ error: "Unauthorized" });
   }
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const [user, certification] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId } }),
+    calculateCertificationLevel(userId),
+  ]);
   if (!user) return res.status(404).json({ error: "User not found" });
-  return res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  return res.json({
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    certification_level: certification.level,
+    certification_label: certification.label,
+    role_type: certification.roleType,
+  });
 }
 
 export async function forgotPassword(req: Request, res: Response) {

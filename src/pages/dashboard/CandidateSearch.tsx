@@ -38,6 +38,16 @@ interface JobSeekerProfile {
   verification_status: string | null;
   profile_views?: number | null;
   created_at: string | null;
+  certification_level?: number;
+  certification_label?: string;
+  aptitude_score?: number | null;
+  dsa_score?: number | null;
+  ai_interview_score?: number | null;
+  integrity_score?: number | null;
+  assignment_score?: number | null;
+  notice_period?: string | null;
+  current_salary?: string | null;
+  expected_salary?: string | null;
 }
 
 const CandidateSearch = () => {
@@ -50,6 +60,7 @@ const CandidateSearch = () => {
   const [skillFilter, setSkillFilter] = useState("");
   const [experienceFilter, setExperienceFilter] = useState<string>("all");
   const [verificationFilter, setVerificationFilter] = useState<string>("all");
+  const [certificationFilter, setCertificationFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("verified_first");
   const [allSkills, setAllSkills] = useState<string[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<JobSeekerProfile | null>(null);
@@ -65,7 +76,7 @@ const CandidateSearch = () => {
 
   useEffect(() => {
     filterCandidates();
-  }, [candidates, searchQuery, skillFilter, experienceFilter, verificationFilter, sortBy]);
+  }, [candidates, searchQuery, skillFilter, experienceFilter, verificationFilter, certificationFilter, sortBy]);
 
   const fetchCandidates = async () => {
     try {
@@ -133,6 +144,15 @@ const CandidateSearch = () => {
       filtered = filtered.filter(c => c.verification_status === verificationFilter);
     }
 
+    // Certification level filter
+    if (certificationFilter === "level_3") {
+      filtered = filtered.filter((c) => (c.certification_level ?? 0) >= 3);
+    } else if (certificationFilter === "level_2_plus") {
+      filtered = filtered.filter((c) => (c.certification_level ?? 0) >= 2);
+    } else if (certificationFilter === "level_1_plus") {
+      filtered = filtered.filter((c) => (c.certification_level ?? 0) >= 1);
+    }
+
     // Sort candidates
     if (sortBy === "verified_first") {
       filtered.sort((a, b) => {
@@ -147,6 +167,10 @@ const CandidateSearch = () => {
       filtered.sort((a, b) => (a.experience_years || 0) - (b.experience_years || 0));
     } else if (sortBy === "newest") {
       filtered.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    } else if (sortBy === "dsa_desc") {
+      filtered.sort((a, b) => (b.dsa_score ?? -1) - (a.dsa_score ?? -1));
+    } else if (sortBy === "integrity_desc") {
+      filtered.sort((a, b) => (b.integrity_score ?? -1) - (a.integrity_score ?? -1));
     }
 
     setFilteredCandidates(filtered);
@@ -161,6 +185,19 @@ const CandidateSearch = () => {
       default:
         return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" /> Pending</Badge>;
     }
+  };
+
+  const getCertificationBadge = (candidate: JobSeekerProfile) => {
+    const lvl = candidate.certification_level ?? 0;
+    const label = candidate.certification_label ?? `Level ${lvl}`;
+    const tone = lvl >= 3
+      ? "bg-purple-500/10 text-purple-600 border-purple-500/20"
+      : lvl === 2
+        ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
+        : lvl === 1
+          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+          : "bg-muted text-muted-foreground border-border";
+    return <Badge className={tone}>{label}</Badge>;
   };
 
   const incrementProfileView = async (candidateId: string) => {
@@ -219,7 +256,7 @@ const CandidateSearch = () => {
         {/* Filters */}
         <Card className="mb-8">
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -266,6 +303,18 @@ const CandidateSearch = () => {
                 </SelectContent>
               </Select>
 
+              <Select value={certificationFilter} onValueChange={setCertificationFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Certification Level" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Levels</SelectItem>
+                  <SelectItem value="level_1_plus">Level 1+</SelectItem>
+                  <SelectItem value="level_2_plus">Level 2+</SelectItem>
+                  <SelectItem value="level_3">Level 3 only</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sort By" />
@@ -280,6 +329,8 @@ const CandidateSearch = () => {
                   <SelectItem value="newest">Newest First</SelectItem>
                   <SelectItem value="experience_desc">Most Experience</SelectItem>
                   <SelectItem value="experience_asc">Least Experience</SelectItem>
+                  <SelectItem value="dsa_desc">Highest DSA Score</SelectItem>
+                  <SelectItem value="integrity_desc">Highest Integrity Score</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -331,7 +382,10 @@ const CandidateSearch = () => {
                         )}
                       </CardDescription>
                     </div>
-                    {getVerificationBadge(candidate.verification_status)}
+                    <div className="flex flex-col items-end gap-1">
+                      {getCertificationBadge(candidate)}
+                      {getVerificationBadge(candidate.verification_status)}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -355,6 +409,19 @@ const CandidateSearch = () => {
                           {candidate.graduation_year}
                         </Badge>
                       )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {candidate.aptitude_score != null && <Badge variant="outline">Aptitude: {candidate.aptitude_score}</Badge>}
+                      {candidate.dsa_score != null && <Badge variant="outline">DSA: {candidate.dsa_score}</Badge>}
+                      {candidate.ai_interview_score != null && <Badge variant="outline">AI Interview: {candidate.ai_interview_score}</Badge>}
+                      {candidate.integrity_score != null && <Badge variant="outline">Integrity: {candidate.integrity_score}</Badge>}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                      {candidate.notice_period && <span>Notice: {candidate.notice_period}</span>}
+                      {candidate.current_salary && <span>Current CTC: {candidate.current_salary}</span>}
+                      {candidate.expected_salary && <span>Expected CTC: {candidate.expected_salary}</span>}
                     </div>
 
                     {candidate.skills && candidate.skills.length > 0 && (
@@ -390,7 +457,10 @@ const CandidateSearch = () => {
                         <DialogHeader>
                           <DialogTitle className="flex items-center justify-between">
                             <span>{candidate.full_name || candidate.actively_looking_roles?.[0] || "Job Seeker"}</span>
-                            {getVerificationBadge(candidate.verification_status)}
+                            <div className="flex items-center gap-2">
+                              {getCertificationBadge(candidate)}
+                              {getVerificationBadge(candidate.verification_status)}
+                            </div>
                           </DialogTitle>
                           <DialogDescription>
                             {candidate.location && (
@@ -424,6 +494,21 @@ const CandidateSearch = () => {
                                 {candidate.college || "Not specified"}
                                 {candidate.graduation_year && ` (${candidate.graduation_year})`}
                               </p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <h4 className="font-semibold mb-1">Notice period</h4>
+                              <p className="text-muted-foreground">{candidate.notice_period || "Not specified"}</p>
+                            </div>
+                            <div>
+                              <h4 className="font-semibold mb-1">Current salary</h4>
+                              <p className="text-muted-foreground">{candidate.current_salary || "Not specified"}</p>
+                            </div>
+                            <div>
+                              <h4 className="font-semibold mb-1">Expected salary</h4>
+                              <p className="text-muted-foreground">{candidate.expected_salary || "Not specified"}</p>
                             </div>
                           </div>
 

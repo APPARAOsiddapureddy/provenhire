@@ -13,6 +13,8 @@ interface VerificationStatus {
   isNonTechVerified: boolean;
   /** Completed DSA (tech) or Assignment (non-tech) — can access jobs < 8 LPA */
   hasCompletedDsaOrEquivalent: boolean;
+  certificationLevel: number;
+  certificationLabel: string;
 }
 
 export const useVerificationGate = () => {
@@ -25,13 +27,24 @@ export const useVerificationGate = () => {
     isExpertVerified: false,
     isNonTechVerified: false,
     hasCompletedDsaOrEquivalent: false,
+    certificationLevel: 0,
+    certificationLabel: "Level 0 - Not Yet Certified",
   });
 
   useEffect(() => {
     if (user && userRole === 'jobseeker') {
       checkVerificationStatus();
     } else {
-      setStatus(prev => ({ ...prev, isLoading: false, isVerified: true, isExpertVerified: true, isNonTechVerified: true, hasCompletedDsaOrEquivalent: true }));
+      setStatus(prev => ({
+        ...prev,
+        isLoading: false,
+        isVerified: true,
+        isExpertVerified: true,
+        isNonTechVerified: true,
+        hasCompletedDsaOrEquivalent: true,
+        certificationLevel: 3,
+        certificationLabel: "Level 3 - Elite ProvenHire Candidate",
+      }));
     }
   }, [user, userRole]);
 
@@ -40,7 +53,7 @@ export const useVerificationGate = () => {
     try {
       const fetchPromise = Promise.allSettled([
         api.get<{ profile: any }>("/api/users/job-seeker-profile"),
-        api.get<{ stages: any[] }>("/api/verification/stages"),
+        api.get<{ stages: any[]; certification_level?: number; certification_label?: string }>("/api/verification/stages"),
       ]);
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Verification check timed out')), FETCH_TIMEOUT_MS)
@@ -49,11 +62,18 @@ export const useVerificationGate = () => {
 
       const profile = profileRes.status === 'fulfilled' ? profileRes.value.profile : null;
       const stages = stagesRes.status === 'fulfilled' ? stagesRes.value.stages : null;
+      const certificationLevel = stagesRes.status === "fulfilled" ? (stagesRes.value.certification_level ?? 0) : 0;
+      const certificationLabel = stagesRes.status === "fulfilled"
+        ? (stagesRes.value.certification_label ?? "Level 0 - Not Yet Certified")
+        : "Level 0 - Not Yet Certified";
 
       const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
-      const isExpertVerified = profile?.verificationStatus === 'expert_verified' || profile?.verificationStatus === 'verified';
-      const isNonTechVerified = roleType === 'non_technical' && isExpertVerified;
-      const isVerified = isExpertVerified || isNonTechVerified;
+      const isExpertVerified =
+        certificationLevel >= (roleType === "technical" ? 3 : 2) ||
+        profile?.verificationStatus === "expert_verified" ||
+        profile?.verificationStatus === "verified";
+      const isNonTechVerified = roleType === 'non_technical' && certificationLevel >= 1;
+      const isVerified = certificationLevel >= 1 || isExpertVerified || isNonTechVerified;
 
       const completedStages = stages?.filter((s: { status?: string }) => s.status === 'completed') ?? [];
       const hasCompletedDsaOrEquivalent = roleType === 'technical'
@@ -82,10 +102,20 @@ export const useVerificationGate = () => {
         isExpertVerified,
         isNonTechVerified,
         hasCompletedDsaOrEquivalent: Boolean(hasCompletedDsaOrEquivalent),
+        certificationLevel,
+        certificationLabel,
       });
     } catch (error) {
       console.error('Error checking verification status:', error);
-      setStatus(prev => ({ ...prev, isLoading: false, isExpertVerified: false, isNonTechVerified: false, hasCompletedDsaOrEquivalent: false }));
+      setStatus(prev => ({
+        ...prev,
+        isLoading: false,
+        isExpertVerified: false,
+        isNonTechVerified: false,
+        hasCompletedDsaOrEquivalent: false,
+        certificationLevel: 0,
+        certificationLabel: "Level 0 - Not Yet Certified",
+      }));
     }
   };
 
