@@ -116,6 +116,20 @@ Add variables one by one as follows.
 
 ---
 
+#### Step 5b: Add `RESEND_API_KEY` (required for email verification)
+
+1. Sign up at [resend.com](https://resend.com) (free tier: 100 emails/day).
+2. Go to **API Keys** → **Create API Key** → copy the key.
+3. In Render **Environment Variables**:
+   - **Name:** `RESEND_API_KEY`
+   - **Value:** Your Resend API key (starts with `re_`).
+4. **Save** and **Manual Deploy** — env changes require a redeploy.
+5. Verify: Open `https://YOUR-RENDER-URL/diagnostic`. You should see `"emailConfigured": true`.
+
+**Alternative (less reliable from Render):** `GMAIL_USER` + `GMAIL_APP_PASSWORD`. Gmail often blocks emails from cloud IPs — Resend is recommended.
+
+---
+
 #### Step 6: Add `GEMINI_API_KEY` (optional — for AI features)
 
 1. Click **+ Add Environment Variable**.
@@ -133,6 +147,7 @@ Add variables one by one as follows.
 |--------------------|----------------------|-----------|
 | `DATABASE_URL`     | Internal Database URL from Render Postgres | **Yes** |
 | `JWT_SECRET`       | Long random string (use **Generate** or `openssl rand -hex 32`) | **Yes** |
+| `RESEND_API_KEY`   | API key from [resend.com](https://resend.com) | **Yes** (for email verification) |
 
 All other variables are optional and can be added later.
 
@@ -264,7 +279,13 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 
 ### 502 Bad Gateway (CORS error is a side effect)
 
-- **Cause:** The request reaches Render's proxy, but your backend app doesn't respond. The 502 comes from Render, not your app — so no CORS headers are sent. The browser then reports CORS.
+- **Cause:** Vercel’s rewrite to Render fails. On **Render free tier**, the backend sleeps after ~15 min inactivity. The first request triggers a cold start (30–60s). Vercel may timeout before Render responds → 502.
+- **Quick fix:** Open `https://YOUR-RENDER-URL.onrender.com/health` in a new tab, wait 30–60 seconds for Render to wake up, then retry.
+- **Permanent fix (keep Render warm):** Use a free cron service to ping your backend every 5–10 minutes:
+  - [UptimeRobot](https://uptimerobot.com): Add monitor → HTTP(s) → URL `https://provenhire-updated.onrender.com/health` → Interval 5 min
+  - [cron-job.org](https://cron-job.org): Create job → URL `https://provenhire-updated.onrender.com/health` → Every 5 minutes
+  - Or upgrade to Render paid plan (no spin-down).
+- **Other causes:** Render service down, wrong URL in `vercel.json`, build/start failure. Check Render Dashboard → Logs.
 - **Immediate fix — update Render Build Command:**
   1. Render Dashboard → your backend service (e.g. `provenhire-updated`) → **Settings**.
   2. Find **Build Command**. Change it to:  

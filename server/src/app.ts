@@ -66,6 +66,9 @@ export function createApp() {
 
   app.get("/diagnostic", async (_req, res) => {
     const jwtOk = !!process.env.JWT_SECRET;
+    const resendConfigured = !!process.env.RESEND_API_KEY;
+    const gmailConfigured = !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+    const emailConfigured = resendConfigured || gmailConfigured;
     let dbOk = false;
     let emailVerificationTableOk = false;
     try {
@@ -80,6 +83,11 @@ export function createApp() {
     res.json({
       ok: jwtOk && dbOk,
       emailVerificationTableOk,
+      emailConfigured,
+      emailProviders: {
+        resend: resendConfigured ? "configured" : "missing",
+        gmail: gmailConfigured ? "configured" : "missing",
+      },
       jwt: jwtOk ? "configured" : "missing",
       database: dbOk ? "connected" : "unavailable",
     });

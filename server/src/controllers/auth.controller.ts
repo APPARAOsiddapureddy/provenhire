@@ -64,16 +64,19 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       data: { email, codeHash, expiresAt },
     });
 
-    const sent = await sendSignupVerificationCodeEmail(email, code);
-    if (!sent) {
-      return res.json({
-        ok: true,
-        message: `Email could not be sent to ${email}. Use the code below to verify.`,
-        devCode: code,
-      });
-    }
+    // Send email in background so API responds immediately (avoids timeouts on Render/Vercel)
+    sendSignupVerificationCodeEmail(email, code)
+      .then((sent) => {
+        if (!sent) {
+          console.warn("[sendEmailVerificationCode] Email failed to send to", email);
+        }
+      })
+      .catch((e) => console.error("[sendEmailVerificationCode] Background send error:", e));
 
-    return res.json({ ok: true, message: `Verification code sent to ${email}. Check your inbox and enter the 6-digit code.` });
+    return res.json({
+      ok: true,
+      message: `Verification code sent to ${email}. Check your inbox and spam folder—it may take up to a minute to arrive.`,
+    });
   } catch (err) {
     const errObj = err instanceof Error ? err : new Error(String(err));
     console.error("[sendEmailVerificationCode]", errObj);

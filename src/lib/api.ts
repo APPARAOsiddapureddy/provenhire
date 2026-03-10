@@ -100,7 +100,11 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
       if (msg && msg !== "Request failed" && !msg.toLowerCase().includes("proxy")) {
         throw new Error(msg);
       }
-      throw new Error(isDev ? "Backend not running or service unavailable. Run: npm run dev:all" : "Service temporarily unavailable. Please try again later.");
+      throw new Error(
+        isDev
+          ? "Backend not running or service unavailable. Run: npm run dev:all"
+          : "Backend is starting up. Please wait 30 seconds and try again."
+      );
     }
     if (path.startsWith("/api/") && (res.status === 500 || res.status === 503)) {
       const code = (errorBody as { code?: string })?.code;
