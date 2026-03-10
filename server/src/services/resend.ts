@@ -126,7 +126,7 @@ const OTP_EMAIL_HTML = (code: string, recipientEmail: string) => `
 /** Send signup OTP verification email. Tries Resend first, then Gmail SMTP. Returns true if sent. Never throws. */
 export async function sendSignupVerificationCodeEmail(to: string, code: string): Promise<boolean> {
   try {
-    // 1. Try Resend
+    // 1. Try Resend (free tier: only to your own email unless domain verified)
     if (resend) {
       try {
         const { error } = await resend.emails.send({
@@ -137,12 +137,13 @@ export async function sendSignupVerificationCodeEmail(to: string, code: string):
         });
         if (!error) return true;
         console.warn("[Email] Resend failed:", error?.message ?? error);
+        // Resend free tier restricts recipients—fall through to Gmail if configured
       } catch (e) {
         console.warn("[Email] Resend threw:", e instanceof Error ? e.message : e);
       }
     }
 
-    // 2. Fallback to Gmail SMTP
+    // 2. Fallback to Gmail SMTP (works for any recipient; required when Resend restricts)
     if (gmailTransporter && process.env.GMAIL_USER) {
       try {
         await gmailTransporter.sendMail({
@@ -154,11 +155,10 @@ export async function sendSignupVerificationCodeEmail(to: string, code: string):
         return true;
       } catch (err) {
         console.error("[Email] Gmail failed:", err instanceof Error ? err.message : err);
-        return false;
       }
-    }
-
-    if (!resend) {
+    } else if (resend) {
+      console.warn("[Email] Resend restricted recipients. Add GMAIL_USER and GMAIL_APP_PASSWORD to Render for fallback.");
+    } else {
       console.warn("[Email] No provider. Set RESEND_API_KEY or GMAIL_USER+GMAIL_APP_PASSWORD");
     }
   } catch (e) {
