@@ -214,7 +214,7 @@ const Auth = () => {
       setVerificationCode("");
       setResendCooldown(60);
       if (response?.devCode) {
-        setVerificationStatus(`Dev mode code: ${response.devCode}. Enter it below.`);
+        setVerificationStatus(`Your verification code: ${response.devCode}. Enter it below.`);
       } else {
         setVerificationStatus(response?.message || "Code sent to your email. Enter it below.");
       }

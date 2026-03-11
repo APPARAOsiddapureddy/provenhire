@@ -532,7 +532,7 @@ export const useAntiCheat = (options: UseAntiCheatOptions = {}) => {
       const canvas = document.createElement('canvas');
       canvas.width = 320;
       canvas.height = 240;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);

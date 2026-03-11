@@ -14,7 +14,9 @@
     "generate": "prisma generate",
     "migrate:legacy": "tsx src/utils/migrate.ts",
     "seed:interviewer": "tsx prisma/seed-interviewer.ts",
-    "seed:admin": "tsx prisma/seed-admin.ts"
+    "seed:admin": "tsx prisma/seed-admin.ts",
+    "seed:ai-interview": "tsx prisma/seed-ai-interview-user.ts",
+    "seed:test-credentials": "tsx prisma/seed-test-credentials.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
@@ -32,6 +34,7 @@
     "pino": "^9.4.0",
     "pino-http": "^9.0.0",
     "resend": "^6.9.3",
+    "socket.io": "^4.8.3",
     "tsx": "^4.19.0",
     "uuid": "^9.0.1",
     "zod": "^3.25.76"

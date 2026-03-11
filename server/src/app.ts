@@ -1,4 +1,5 @@
 import express from "express";
+import path from "path";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
@@ -11,6 +12,7 @@ import { notificationsRouter } from "./routes/notifications.js";
 import { uploadsRouter, UPLOADS_DIR } from "./routes/uploads.js";
 import { usersRouter } from "./routes/users.js";
 import { proctoringRouter } from "./routes/proctoring.js";
+import { proctorRouter } from "./routes/proctor.js";
 import { appealsRouter } from "./routes/appeals.js";
 import { executeRouter } from "./routes/execute.js";
 import { adminRouter } from "./routes/admin.js";
@@ -53,6 +55,8 @@ export function createApp() {
   app.use(express.json({ limit: "2mb" }));
   app.use(pinoHttp());
   app.use("/uploads", express.static(UPLOADS_DIR));
+  const proctorScreenshotsDir = process.env.PROCTOR_SCREENSHOTS_DIR || path.join(process.cwd(), "..", "proctoring");
+  app.use("/proctoring", express.static(proctorScreenshotsDir));
 
   app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
 
@@ -107,6 +111,7 @@ export function createApp() {
         "/api/uploads",
         "/api/users",
         "/api/proctoring",
+        "/api/proctor",
         "/api/appeals",
         "/api/execute",
         "/api/admin",
@@ -125,6 +130,7 @@ export function createApp() {
   app.use("/api/uploads", uploadsRouter);
   app.use("/api/users", usersRouter);
   app.use("/api/proctoring", proctoringRouter);
+  app.use("/api/proctor", proctorRouter);
   app.use("/api/appeals", appealsRouter);
   app.use("/api/execute", executeRouter);
   app.use("/api/admin", adminRouter);

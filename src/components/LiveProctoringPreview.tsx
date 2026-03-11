@@ -5,12 +5,12 @@ interface LiveProctoringPreviewProps {
   cameraStream: MediaStream | null;
   /** Brand name for "Monitored by X" label */
   brandName?: string;
-  /** Position: 'top-right' | 'right' */
-  position?: "top-right" | "right";
+  /** Position: 'top-right' | 'right' | 'bottom-inside' (inside card, bottom, larger) */
+  position?: "top-right" | "right" | "bottom-inside";
 }
 
 /**
- * Floating camera preview shown during proctored tests so the job seeker
+ * Camera preview shown during proctored tests so the job seeker
  * sees they are being monitored — deters cheating.
  */
 const LiveProctoringPreview = ({
@@ -28,15 +28,18 @@ const LiveProctoringPreview = ({
 
   if (!cameraStream) return null;
 
-  const positionClasses =
-    position === "top-right"
-      ? "top-20 right-4"
-      : "top-1/2 -translate-y-1/2 right-4";
+  const isBottomInside = position === "bottom-inside";
+  const positionClasses = isBottomInside
+    ? "shrink-0"
+    : position === "top-right"
+      ? "fixed top-20 right-4 z-30"
+      : "fixed top-1/2 -translate-y-1/2 right-4 z-30";
+  const width = isBottomInside ? "260px" : "180px";
 
   return (
     <div
-      className={`fixed z-30 flex flex-col gap-2 rounded-lg border-2 border-primary/40 bg-background/95 backdrop-blur shadow-lg overflow-hidden ${positionClasses}`}
-      style={{ width: "180px" }}
+      className={`flex flex-col gap-2 rounded-lg border-2 border-primary/40 bg-background/95 backdrop-blur shadow-lg overflow-hidden ${positionClasses}`}
+      style={{ width }}
     >
       <div className="flex items-center gap-2 px-2 py-1.5 bg-primary/10 border-b border-primary/20">
         <Shield className="h-3.5 w-3.5 text-primary shrink-0" />

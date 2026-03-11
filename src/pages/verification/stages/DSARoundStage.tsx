@@ -12,6 +12,7 @@ import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, ShieldAlert, Camera, Mic, Activity, CircleHelp } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   generateDSATest,
@@ -89,13 +90,24 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
-  useProctoringRiskMonitor({
+  const MAX_TAB_SWITCHES = 3;
+  const { tabSwitchCount } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: testIdRef.current,
     testType: "dsa",
     cameraStream: proctoringState?.cameraStream ?? null,
     microphoneStream: proctoringState?.microphoneStream ?? null,
+    maxTabSwitches: MAX_TAB_SWITCHES,
+    onMaxTabSwitches: () => {
+      if (questions.length > 0 && !submitting) {
+        toast.error("Test terminated. Maximum 3 tab switches allowed.");
+        void api.post("/api/verification/dsa", { score: 0, answers: {} }).catch(() => {});
+        void api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed", score: 0 }).catch(() => {});
+        setHasFailed(true);
+        setLocalFinalScore(0);
+      }
+    },
   });
 
   useSoundDetection({
@@ -104,6 +116,13 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
     existingAudioStream: proctoringState?.microphoneStream ?? undefined,
+  });
+
+  useProctorFrameCapture({
+    enabled: inTest,
+    sessionId: testIdRef.current,
+    testType: "dsa",
+    cameraStream: proctoringState?.cameraStream ?? null,
   });
 
   useEffect(() => {
@@ -451,39 +470,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       </CardHeader>
       <CardContent className="space-y-4">
         <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-
-        {/* Attractive AI monitoring banner */}
-        {inTest && (
-          <div className="rounded-xl border-2 border-red-500/40 bg-gradient-to-r from-red-950/30 via-red-900/20 to-red-950/30 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="relative flex items-center justify-center">
-                <span className="absolute inline-flex h-8 w-8 rounded-full bg-red-500/20 animate-ping" />
-                <ShieldAlert className="relative h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-red-400 uppercase tracking-widest">AI Proctoring Active</p>
-                <p className="text-xs text-red-300/70">This session is being recorded and monitored in real-time</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 text-xs text-red-300/80">
-              <span className="flex items-center gap-1.5">
-                <Camera className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Webcam</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Mic className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Audio</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Activity className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Screen</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              </span>
-            </div>
-          </div>
-        )}
+        <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={MAX_TAB_SWITCHES} />
 
         {!isFullScreen && inTest && (
           <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">

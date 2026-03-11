@@ -4,22 +4,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Bell, 
-  AlertTriangle, 
-  Eye, 
-  Monitor, 
-  User, 
+import {
+  Bell,
+  AlertTriangle,
+  Eye,
+  Monitor,
+  User,
   Mic,
   CheckCircle,
-  XCircle,
-  Volume2
+  Volume2,
+  Smartphone,
+  Users,
+  ArrowLeftRight,
+  MessageCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useProctorSocket } from "@/hooks/useProctorSocket";
 
 interface ProctoringAlert {
-  id: string;
-  userId: string;
+  id?: string;
+  userId?: string;
   sessionId: string;
   testType?: string | null;
   type: string;
@@ -28,12 +32,41 @@ interface ProctoringAlert {
   details?: Record<string, unknown> | null;
   riskScore?: number;
   createdAt: string;
+  screenshotPath?: string | null;
 }
+
+const API_BASE = "";
 
 const RealtimeProctoringAlerts = () => {
   const [alerts, setAlerts] = useState<ProctoringAlert[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  useProctorSocket({
+    recruiterMode: true,
+    onEvent: (payload) => {
+      setAlerts((prev) => [
+        {
+          id: `live-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          sessionId: payload.sessionId,
+          type: payload.event,
+          severity: "high",
+          message: `⚠ ${payload.event.replace(/_/g, " ")}`,
+          createdAt: payload.timestamp ?? new Date().toISOString(),
+          screenshotPath: payload.screenshotPath,
+        },
+        ...prev,
+      ].slice(0, 50));
+      setUnreadCount((c) => c + 1);
+      if (soundEnabled) {
+        try {
+          const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQAHe9TL1mJaAAN5yKvSWmQABXK3g7pYbQQMbb+D2lhsAwdrsnHTVGoDC3Czi81PagMNcbOL1FFnAhFwr43STmYDEG+ujdRQZgMRbq2O005mAxJurY7TT2YDEW6sjtNPZQMSbqyO005lAxJurI7TTmUDEm6sjtNOZQMSbqyO005lAxJurI7TTmUDEm6sjtNOZQMSbqyO005lAxJurI7TTmUDEm6sjtNOZQMSbqyO005lAxJurI7TTmUDEm6sjtNOZQMSbqyO005lAxJurI7TTmUDEm6sjtNOZQMSbqyO005lAxJurI7TTmUDEm6sjtNOZQMSbqyO005lAxJurI7TTmUDEm6sjtNOZQM=");
+          audio.volume = 0.5;
+          audio.play().catch(() => {});
+        } catch {}
+      }
+    },
+  });
 
   useEffect(() => {
     fetchAlerts();
@@ -60,13 +93,14 @@ const RealtimeProctoringAlerts = () => {
   };
 
   const markAsRead = async (alertId: string) => {
-    try {
-      await api.post("/api/proctoring/alerts/read", { alertId });
-
-      setAlerts(prev => prev.filter((a) => a.id !== alertId));
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (error: any) {
-      toast.error('Failed to mark as read');
+    setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    setUnreadCount((prev) => Math.max(0, prev - 1));
+    if (!alertId.startsWith("live-")) {
+      try {
+        await api.post("/api/proctoring/alerts/read", { alertId });
+      } catch (error: unknown) {
+        toast.error("Failed to mark as read");
+      }
     }
   };
 
@@ -86,11 +120,22 @@ const RealtimeProctoringAlerts = () => {
 
   const getAlertIcon = (alertType: string) => {
     switch (alertType) {
-      case 'tab_switch':
+      case "tab_switch":
         return <Monitor className="h-4 w-4" />;
-      case 'face_violation':
+      case "face_violation":
+      case "FACE_MISSING":
         return <User className="h-4 w-4" />;
-      case 'audio_violation':
+      case "PHONE_DETECTED":
+        return <Smartphone className="h-4 w-4" />;
+      case "MULTIPLE_PERSONS":
+        return <Users className="h-4 w-4" />;
+      case "LOOKING_AWAY":
+        return <ArrowLeftRight className="h-4 w-4" />;
+      case "MOUTH_OPEN":
+        return <MessageCircle className="h-4 w-4" />;
+      case "SPOOF_DETECTED":
+        return <AlertTriangle className="h-4 w-4" />;
+      case "audio_violation":
         return <Mic className="h-4 w-4" />;
       default:
         return <AlertTriangle className="h-4 w-4" />;
@@ -200,18 +245,32 @@ const RealtimeProctoringAlerts = () => {
                           </span>
                         </div>
                         <p className="text-sm mt-1">{alert.message}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                          User: {(alert.userId || "").slice(0, 8)}...
-                        </p>
+                        {alert.userId && (
+                          <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                            User: {(alert.userId || "").slice(0, 8)}...
+                          </p>
+                        )}
+                        {alert.screenshotPath && (
+                          <a
+                            href={`${API_BASE}${alert.screenshotPath}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline mt-1 inline-block"
+                          >
+                            View screenshot →
+                          </a>
+                        )}
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => markAsRead(alert.id)}
-                    >
-                      <Eye className="h-3 w-3" />
-                    </Button>
+                    {alert.id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => markAsRead(alert.id!)}
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

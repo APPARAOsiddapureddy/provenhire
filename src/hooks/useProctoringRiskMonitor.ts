@@ -38,6 +38,10 @@ interface UseProctoringRiskMonitorOptions {
   testType: "aptitude" | "dsa" | "ai_interview";
   cameraStream?: MediaStream | null;
   microphoneStream?: MediaStream | null;
+  /** Max tab switches before test is stopped (default 3). Set to 0 to disable. */
+  maxTabSwitches?: number;
+  /** Called when tab switch count reaches maxTabSwitches — use to stop/terminate the test */
+  onMaxTabSwitches?: () => void;
 }
 
 const EVENT_RISK_WEIGHTS: Record<ProctoringEventCode, number> = {
@@ -91,8 +95,11 @@ export function useProctoringRiskMonitor({
   testType,
   cameraStream,
   microphoneStream,
+  maxTabSwitches = 3,
+  onMaxTabSwitches,
 }: UseProctoringRiskMonitorOptions) {
   const [riskScore, setRiskScore] = useState(0);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [events, setEvents] = useState<ProctoringEventLog[]>([]);
   const warningCountsRef = useRef<Record<string, number>>({});
   const lastEventTsRef = useRef<Partial<Record<ProctoringEventCode, number>>>({});
@@ -197,7 +204,16 @@ export function useProctoringRiskMonitor({
 
     const onVisibility = () => {
       if (document.hidden) {
-        warnFirstThenLog("TAB_SWITCH", "TAB_SWITCH", "Warning: tab switching is not allowed during this test.");
+        setTabSwitchCount((prev) => {
+          const next = prev + 1;
+          if (maxTabSwitches > 0 && next >= maxTabSwitches) {
+            toast.error(`Tab switch limit reached (${next}/${maxTabSwitches}). Test will be terminated.`);
+            onMaxTabSwitches?.();
+          } else {
+            warnFirstThenLog("TAB_SWITCH", "TAB_SWITCH", `Warning: tab switch detected (${next}/${maxTabSwitches}).`);
+          }
+          return next;
+        });
       }
     };
 
@@ -266,7 +282,7 @@ export function useProctoringRiskMonitor({
       document.removeEventListener("contextmenu", onContextMenu);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [enabled, logViolation, warnFirstThenLog]);
+  }, [enabled, logViolation, warnFirstThenLog, maxTabSwitches, onMaxTabSwitches]);
 
   // Audio checks: speaking duration, suspicious noise, multiple voices, mute attempts.
   useEffect(() => {
@@ -335,8 +351,9 @@ export function useProctoringRiskMonitor({
   }, [enabled, logViolation, microphoneStream]);
 
   // Face checks: no face, multiple faces, looking away, low visibility.
+  // Skip for ai_interview to avoid canvas/getImageData warnings and because speaking is expected.
   useEffect(() => {
-    if (!enabled || !cameraStream) return;
+    if (!enabled || !cameraStream || testType === "ai_interview") return;
 
     let cancelled = false;
     const video = document.createElement("video");
@@ -348,7 +365,7 @@ export function useProctoringRiskMonitor({
     const canvas = document.createElement("canvas");
     canvas.width = 96;
     canvas.height = 72;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
     const getAvgPoint = (pts: Array<{ x: number; y: number }>) => ({
       x: pts.reduce((sum, p) => sum + p.x, 0) / pts.length,
@@ -457,6 +474,7 @@ export function useProctoringRiskMonitor({
   return {
     riskScore,
     riskLevel,
+    tabSwitchCount,
     events,
     recordEvent,
     resetRisk,

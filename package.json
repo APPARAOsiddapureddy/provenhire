@@ -6,6 +6,8 @@
   "scripts": {
     "start": "concurrently -k \"npm run dev\" \"npm run dev:server\"",
     "dev": "vite",
+    "setup:ai-proctor": "cd ai-proctor && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+    "dev:ai-proctor": "cd ai-proctor && .venv/bin/python -m uvicorn api:app --host 127.0.0.1 --port 8001",
     "dev:server": "cd server && npm run dev",
     "dev:all": "npm run start",
     "build": "vite build",
@@ -66,6 +68,7 @@
     "react-resizable-panels": "^2.1.9",
     "react-router-dom": "^7.12.0",
     "recharts": "^2.15.4",
+    "socket.io-client": "^4.8.3",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",

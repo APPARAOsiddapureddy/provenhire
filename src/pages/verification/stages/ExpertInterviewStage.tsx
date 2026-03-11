@@ -18,6 +18,7 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
 
 const INTERVIEW_ROLES = [
@@ -59,13 +60,21 @@ const ExpertInterviewStage = ({
   const [interviewId, setInterviewId] = useState<string | null>(null);
   const [question, setQuestion] = useState<string | null>(null);
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [totalQuestions] = useState(10);
+  const [totalQuestions, setTotalQuestions] = useState(11);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordedAudioRef = useRef<Blob | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
 
   const inTest = !!interviewId && !result;
   const isFullScreen = useFullScreenState(inTest);
@@ -80,17 +89,15 @@ const ExpertInterviewStage = ({
     microphoneStream: null,
   });
 
-  // Disable sound detection while the user is actively recording their answer —
-  // speaking is expected during voice input so we must not flag it as a violation.
-  useSoundDetection({
-    enabled: inTest && !micActive,
-    threshold: 40,
-    debounceMs: 4000,
-    onSoundDetected: () => setSoundAlertOpen(true),
+  // Voice/sound detection OFF for AI interview — speaking is expected when answering.
+  useSoundDetection({ enabled: false });
+
+  useProctorFrameCapture({
+    enabled: inTest && cameraActive,
+    sessionId: interviewId ?? fallbackTestIdRef.current,
+    testType: "ai_interview",
+    cameraStream: cameraActive ? streamRef.current : null,
   });
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     if (targetJobTitle && INTERVIEW_ROLES.includes(targetJobTitle)) {
@@ -143,68 +150,96 @@ const ExpertInterviewStage = ({
       return;
     }
     try {
-      // Request microphone permission first (required by some browsers)
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-    } catch (e) {
-      toast.error("Microphone access denied. Please allow microphone to use voice input, or type your answer.");
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    recognition.onresult = (e: any) => {
-      // Use e.resultIndex to process only NEW results since the last event.
-      // Without this, iterating all e.results on every event causes every
-      // previous transcript to be re-appended, producing garbled duplicates.
-      let newText = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          newText += e.results[i][0]?.transcript ?? "";
+      audioStreamRef.current = stream;
+
+      // MediaRecorder: record audio only (no video storage)
+      audioChunksRef.current = [];
+      recordedAudioRef.current = null;
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.onresult = (e: any) => {
+        let newText = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            newText += e.results[i][0]?.transcript ?? "";
+          }
         }
-      }
-      if (newText.trim()) {
-        setAnswer((prev) => (prev ? prev + " " + newText.trim() : newText.trim()));
-      }
-    };
-    recognition.onerror = (e: any) => {
-      setMicActive(false);
-      recognitionRef.current = null;
-      if (e.error === "not-allowed") {
-        toast.error("Microphone access denied. You can type your answer.");
-      } else if (e.error === "no-speech") {
-        // User didn't speak - no need to toast
-      } else if (e.error !== "aborted") {
-        console.warn("[SpeechRecognition] error:", e.error);
-      }
-    };
-    recognition.onend = () => {
-      if (micActive && recognitionRef.current === recognition) {
+        if (newText.trim()) {
+          setAnswer((prev) => (prev ? prev + " " + newText.trim() : newText.trim()));
+        }
+      };
+      recognition.onerror = (e: any) => {
         setMicActive(false);
         recognitionRef.current = null;
-      }
-    };
-    try {
+        if (e.error === "not-allowed") {
+          toast.error("Microphone access denied. You can type your answer.");
+        } else if (e.error === "no-speech") {
+          // no toast needed
+        } else if (e.error !== "aborted") {
+          console.warn("[SpeechRecognition] error:", e.error);
+        }
+      };
+      recognition.onend = () => {
+        if (micActive && recognitionRef.current === recognition) {
+          setMicActive(false);
+          recognitionRef.current = null;
+        }
+      };
       recognition.start();
       recognitionRef.current = recognition;
       setMicActive(true);
     } catch (e) {
-      toast.error("Could not start voice input. Please type your answer.");
+      toast.error("Microphone access denied. Please allow microphone to use voice input, or type your answer.");
     }
   };
 
-  const stopVoiceInput = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-    setMicActive(false);
+  const stopVoiceInput = (): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      const finish = (blob: Blob | null) => {
+        audioStreamRef.current?.getTracks().forEach((t) => t.stop());
+        audioStreamRef.current = null;
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+          recognitionRef.current = null;
+        }
+        setMicActive(false);
+        resolve(blob);
+      };
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.onstop = () => {
+          let blob: Blob | null = null;
+          if (audioChunksRef.current.length > 0) {
+            const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+            blob = new Blob(audioChunksRef.current, { type: mime });
+          }
+          mediaRecorderRef.current = null;
+          finish(blob);
+        };
+        mediaRecorderRef.current.stop();
+      } else {
+        finish(recordedAudioRef.current);
+      }
+    });
   };
 
-  const toggleVoice = () => {
-    if (micActive) stopVoiceInput();
-    else startVoiceInput();
+  const toggleVoice = async () => {
+    if (micActive) {
+      const blob = await stopVoiceInput();
+      recordedAudioRef.current = blob;
+    } else {
+      startVoiceInput();
+    }
   };
 
   const startInterview = async () => {
@@ -223,6 +258,7 @@ const ExpertInterviewStage = ({
       setInterviewId(res.interviewId);
       setQuestion(res.question);
       setQuestionIndex(res.questionIndex ?? 1);
+      if (res.totalQuestions != null) setTotalQuestions(res.totalQuestions);
       if (!cameraActive) startCamera();
     } catch (error: any) {
       toast.error(error?.message || "Failed to start interview.");
@@ -235,12 +271,24 @@ const ExpertInterviewStage = ({
     if (!interviewId || !answer.trim()) return;
     setLoading(true);
     try {
+      let audioUrl: string | undefined;
+      if (micActive) {
+        const blob = await stopVoiceInput();
+        recordedAudioRef.current = blob;
+      }
+      if (recordedAudioRef.current) {
+        const formData = new FormData();
+        formData.append("file", recordedAudioRef.current, "answer.webm");
+        const uploadRes = await api.post<{ url: string }>("/api/uploads", formData);
+        audioUrl = uploadRes.url;
+        recordedAudioRef.current = null;
+      }
       const res = await api.post<any>("/api/interview/respond", {
         interviewId,
         answer: answer.trim(),
+        ...(audioUrl && { audioUrl: `${window.location.origin}${audioUrl}` }),
       });
       setAnswer("");
-      if (micActive) stopVoiceInput();
       if (res.completed) {
         setResult(res);
         stopCamera();
@@ -250,6 +298,7 @@ const ExpertInterviewStage = ({
       } else {
         setQuestion(res.question);
         setQuestionIndex(res.questionIndex ?? 0);
+        if (res.totalQuestions != null) setTotalQuestions(res.totalQuestions);
       }
     } catch (error: any) {
       toast.error(error?.message || "Failed to submit answer.");
@@ -274,7 +323,7 @@ const ExpertInterviewStage = ({
         <CardHeader>
           <CardTitle>AI Expert Interview</CardTitle>
           <CardDescription>
-            Answer 10 questions (7 role-specific + 3 HR). Use voice or type. Camera is on for proctoring.
+            Answer 11 questions (7 role-specific + 4 HR). Use voice or type. Camera is on for proctoring.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -438,11 +487,53 @@ const ExpertInterviewStage = ({
           )}
 
           {result && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <h4 className="font-semibold mb-2">Interview completed</h4>
-              <p className="text-sm text-muted-foreground">
-                Score: <strong>{result.totalScore}</strong> — {result.badgeLevel}
-              </p>
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+              <h4 className="font-semibold">Interview completed</h4>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm">
+                  Total score: <strong className="text-lg">{result.totalScore ?? 0}/100</strong>
+                </span>
+                <span className="badge bg-primary/20 text-primary px-2 py-0.5 rounded">{result.badgeLevel ?? "Not Verified"}</span>
+              </div>
+              {result.evaluation && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                  {result.evaluation.concept_score != null && (
+                    <div className="rounded bg-muted/50 px-2 py-1">
+                      <span className="text-muted-foreground">Concept</span> {result.evaluation.concept_score}
+                    </div>
+                  )}
+                  {result.evaluation.reasoning_score != null && (
+                    <div className="rounded bg-muted/50 px-2 py-1">
+                      <span className="text-muted-foreground">Reasoning</span> {result.evaluation.reasoning_score}
+                    </div>
+                  )}
+                  {result.evaluation.communication_score != null && (
+                    <div className="rounded bg-muted/50 px-2 py-1">
+                      <span className="text-muted-foreground">Communication</span> {result.evaluation.communication_score}
+                    </div>
+                  )}
+                  {result.evaluation.confidence_score != null && (
+                    <div className="rounded bg-muted/50 px-2 py-1">
+                      <span className="text-muted-foreground">Confidence</span> {result.evaluation.confidence_score}
+                    </div>
+                  )}
+                </div>
+              )}
+              {result.evaluation?.final_verdict && (
+                <p className="text-sm">{result.evaluation.final_verdict}</p>
+              )}
+              {Array.isArray(result.evaluation?.strengths) && result.evaluation.strengths.length > 0 && (
+                <div>
+                  <span className="text-sm font-medium text-emerald-600">Strengths:</span>
+                  <ul className="list-disc list-inside text-sm text-muted-foreground">{result.evaluation.strengths.map((s: string) => <li key={s}>{s}</li>)}</ul>
+                </div>
+              )}
+              {Array.isArray(result.evaluation?.weaknesses) && result.evaluation.weaknesses.length > 0 && (
+                <div>
+                  <span className="text-sm font-medium text-amber-600">Areas to improve:</span>
+                  <ul className="list-disc list-inside text-sm text-muted-foreground">{result.evaluation.weaknesses.map((w: string) => <li key={w}>{w}</li>)}</ul>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

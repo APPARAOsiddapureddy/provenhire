@@ -732,63 +732,70 @@ const VerificationFlow = () => {
     );
   }
 
+  const isInActiveTest =
+    (currentStage === "aptitude_test" && testStageStarted.aptitude_test) ||
+    (currentStage === "dsa_round" && testStageStarted.dsa_round) ||
+    (currentStage === "expert_interview" && testStageStarted.expert_interview);
+
   return (
-    <div className="min-h-screen bg-gradient-subtle p-4">
-      <div className="container mx-auto max-w-6xl py-8">
-        <Card className="mb-8">
-          <CardHeader>
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <CardTitle>Verification Process</CardTitle>
-                <CardDescription>Complete each stage to become a verified job seeker</CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                {canRetryStage(currentStage) && (
-                  <Button variant="outline" onClick={() => retryStage(currentStage)}>
-                    Retry This Step
-                  </Button>
-                )}
-                <Button onClick={handleReturnToDashboard}>
-                  Return to Dashboard
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4 rounded-lg border bg-muted/20 p-3">
-              <p className="text-sm font-medium">Current certification: L{certificationLevel} - {certificationLabel}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Complete the remaining stages to unlock higher-level opportunities.
-              </p>
-              {roleType === "technical" && certificationLevel === 1 && (
-                <p className="text-xs font-medium text-primary mt-2">
-                  Great momentum! You have earned Level 1. Complete DSA + AI Interview + Human Expert Interview to reach Level 3 and maximize recruiter trust.
-                </p>
-              )}
-            </div>
-            <Progress value={calculateProgress()} className="h-3 mb-6" />
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              {stageOrder.map((stage) => (
-                <div
-                  key={stage}
-                  className={`p-4 rounded-lg border ${
-                    currentStage === stage ? 'border-primary bg-primary/5' : 'border-border'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    {getStageIcon(getStageStatus(stage))}
-                    <span className="text-sm font-medium">
-                      {getStageLabel(stage)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground capitalize">
-                    {getStageStatus(stage).split('_').join(' ')}
-                  </p>
+    <div className={`min-h-screen bg-gradient-subtle ${isInActiveTest ? "p-0 sm:p-2" : "p-4"}`}>
+      <div className={`mx-auto ${isInActiveTest ? "w-full max-w-none px-3 sm:px-6 py-2 sm:py-3" : "container max-w-6xl py-8"}`}>
+        {!isInActiveTest && (
+          <Card className="mb-8">
+            <CardHeader>
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle>Verification Process</CardTitle>
+                  <CardDescription>Complete each stage to become a verified job seeker</CardDescription>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                <div className="flex items-center gap-2">
+                  {canRetryStage(currentStage) && (
+                    <Button variant="outline" onClick={() => retryStage(currentStage)}>
+                      Retry This Step
+                    </Button>
+                  )}
+                  <Button onClick={handleReturnToDashboard}>
+                    Return to Dashboard
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4 rounded-lg border bg-muted/20 p-3">
+                <p className="text-sm font-medium">Current certification: L{certificationLevel} - {certificationLabel}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Complete the remaining stages to unlock higher-level opportunities.
+                </p>
+                {roleType === "technical" && certificationLevel === 1 && (
+                  <p className="text-xs font-medium text-primary mt-2">
+                    Great momentum! You have earned Level 1. Complete DSA + AI Interview + Human Expert Interview to reach Level 3 and maximize recruiter trust.
+                  </p>
+                )}
+              </div>
+              <Progress value={calculateProgress()} className="h-3 mb-6" />
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                {stageOrder.map((stage) => (
+                  <div
+                    key={stage}
+                    className={`p-4 rounded-lg border ${
+                      currentStage === stage ? 'border-primary bg-primary/5' : 'border-border'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      {getStageIcon(getStageStatus(stage))}
+                      <span className="text-sm font-medium">
+                        {getStageLabel(stage)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {getStageStatus(stage).split('_').join(' ')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {renderCurrentStage()}
 

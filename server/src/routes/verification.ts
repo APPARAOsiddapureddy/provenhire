@@ -135,7 +135,7 @@ verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedReq
     await storeAptitudeSession(req.user!.id, answerKey, marksKey);
     return res.json({
       questions,
-      timeLimitMinutes: 90, // 1.5 hours total
+      timeLimitMinutes: 30, // 30 minutes total
       totalMarks,
       passThreshold,
     });

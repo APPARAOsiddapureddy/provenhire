@@ -203,6 +203,7 @@ model InterviewMessage {
   message     String
   questionType String?
   isFollowup  Boolean @default(false)
+  audioUrl    String?  // Stored audio for user answers (no video storage)
   createdAt   DateTime @default(now())
 
   interview Interview @relation(fields: [interviewId], references: [id])
@@ -328,16 +329,18 @@ model HumanInterviewSession {
 }
 
 model ProctoringEvent {
-  id        String   @id @default(uuid())
-  sessionId String
-  userId    String?
-  testType  String?
-  type      String
-  severity  String?
-  riskScore Int      @default(0)
-  message   String?
-  details   Json?
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  sessionId      String
+  userId         String?
+  testType       String?
+  type           String   // PHONE_DETECTED, LOOKING_AWAY, MULTIPLE_PERSONS, FACE_MISSING, etc.
+  severity       String?
+  riskScore      Int      @default(0)
+  message        String?
+  details        Json?
+  screenshotPath String?
+  confidence     Float?
+  createdAt      DateTime @default(now())
 }
 
 model RefreshToken {

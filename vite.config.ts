@@ -42,6 +42,12 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         secure: false,
       },
+      "/socket.io": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
     },
   },
   plugins: [react()],

@@ -23,6 +23,14 @@ server/.env.*
 # Uploads (user-generated)
 server/uploads/
 
+# AI proctor (Python)
+ai-proctor/__pycache__/
+ai-proctor/.venv/
+ai-proctor/*.pt
+
+# Proctoring screenshots (local only, may contain faces)
+proctoring/screenshots/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

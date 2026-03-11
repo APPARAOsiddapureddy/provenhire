@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import { requireAuth } from "../middleware/auth.js";
 
-const ALLOWED_EXT = /\.(pdf|doc|docx|txt|odt|png|jpg|jpeg|gif|webp)$/i;
+const ALLOWED_EXT = /\.(pdf|doc|docx|txt|odt|png|jpg|jpeg|gif|webp|webm|ogg|m4a|mp3|wav)$/i;
 
 // Use absolute path so uploads work regardless of cwd (dev, prod, Render)
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
@@ -24,8 +24,16 @@ const storage = multer.diskStorage({
   },
   filename: (_req, file, cb) => {
     const orig = (file.originalname || "").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.{2,}/g, "_");
-    const ext = ALLOWED_EXT.exec(orig)?.[0] || ".bin";
-    const safeName = `${crypto.randomUUID()}${ext}`;
+    let ext = ALLOWED_EXT.exec(orig)?.[0];
+    if (!ext) {
+      const mime = (file.mimetype || "").toLowerCase();
+      if (mime.includes("webm")) ext = ".webm";
+      else if (mime.includes("ogg")) ext = ".ogg";
+      else if (mime.includes("mpeg") || mime.includes("mp3")) ext = ".mp3";
+      else if (mime.includes("wav")) ext = ".wav";
+      else if (mime.includes("mp4") || mime.includes("m4a")) ext = ".m4a";
+    }
+    const safeName = `${crypto.randomUUID()}${ext || ".webm"}`;
     cb(null, safeName);
   },
 });

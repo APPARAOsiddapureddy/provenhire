@@ -14,10 +14,11 @@ import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck, CircleHelp, Sparkles, Trophy, Target } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, RotateCcw, Bookmark, BookmarkCheck, CircleHelp, Sparkles, Trophy, Target } from "lucide-react";
 
-const APTITUDE_TIME_MINUTES = 90; // 1.5 hours total
+const APTITUDE_TIME_MINUTES = 30; // 30 minutes total
 
 interface AptitudeQuestion {
   id: string;
@@ -51,6 +52,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const [loadingQuestions, setLoadingQuestions] = useState(true);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [reviewed, setReviewed] = useState<Set<string>>(new Set());
+  const [visited, setVisited] = useState<Set<string>>(new Set());
   const [currentIndex, setCurrentIndex] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [submittedScore, setSubmittedScore] = useState<number | null>(null);
@@ -63,13 +65,24 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
 
   const inTest = proctoringReady && !justPassed && !isFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
-  useProctoringRiskMonitor({
+  const MAX_TAB_SWITCHES = 3;
+  const { tabSwitchCount } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: testIdRef.current,
     testType: "aptitude",
     cameraStream: proctoringState?.cameraStream ?? null,
     microphoneStream: proctoringState?.microphoneStream ?? null,
+    maxTabSwitches: MAX_TAB_SWITCHES,
+    onMaxTabSwitches: () => {
+      if (questions.length > 0 && !submittingRef.current) {
+        toast.error("Test terminated due to tab switching. Maximum 3 switches allowed.");
+        void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
+        void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
+        setSubmitted(true);
+        setSubmittedScore(0);
+      }
+    },
   });
 
   useSoundDetection({
@@ -78,6 +91,13 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
     existingAudioStream: proctoringState?.microphoneStream ?? undefined,
+  });
+
+  useProctorFrameCapture({
+    enabled: inTest,
+    sessionId: testIdRef.current,
+    testType: "aptitude",
+    cameraStream: proctoringState?.cameraStream ?? null,
   });
 
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(APTITUDE_TIME_MINUTES);
@@ -147,6 +167,12 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     }
   }, [justPassed, isFailed, proctoringState]);
 
+  useEffect(() => {
+    if (questions[currentIndex]) {
+      setVisited((prev) => new Set(prev).add(questions[currentIndex].id));
+    }
+  }, [currentIndex, questions]);
+
   const handleSubmit = async () => {
     if (questions.length === 0) return;
     if (submittingRef.current) return; // Double-submit guard
@@ -200,6 +226,19 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       else next.add(qId);
       return next;
     });
+  };
+
+  const clearCurrentAnswer = () => {
+    if (currentQuestion) {
+      setAnswers((prev) => ({ ...prev, [currentQuestion.id]: "" }));
+    }
+  };
+
+  const goToQuestion = (index: number) => {
+    if (questions[index]) {
+      setVisited((prev) => new Set(prev).add(questions[index].id));
+      setCurrentIndex(index);
+    }
   };
 
   if (loadingQuestions) {
@@ -265,19 +304,19 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   }
 
   return (
-    <Card>
-      <CardHeader className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+    <Card className="flex flex-col w-full min-h-[calc(100dvh-2rem)] sm:min-h-[calc(100dvh-3rem)] rounded-none sm:rounded-lg border-0 sm:border shadow-none sm:shadow">
+      <CardHeader className="py-4 pb-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <CardTitle>Aptitude Test</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-lg sm:text-xl">Aptitude Test</CardTitle>
+            <CardDescription className="text-sm">
               {!isFailed && !justPassed
                 ? `Question ${currentIndex + 1} of ${questions.length}. Need ${passThreshold}/${totalMarks} to pass.`
                 : `Answer all ${questions.length} questions. Need ${passThreshold}/${totalMarks} to pass.`}
             </CardDescription>
           </div>
           {inTest && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-muted/40">
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-md border bg-muted/40">
               <span className="text-xs text-muted-foreground">AI Monitoring</span>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -302,16 +341,16 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             </div>
           )}
           {secondsRemaining != null && inTest && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 border">
-              <span className="text-sm text-muted-foreground">Time left</span>
-              <span className={`font-mono font-semibold tabular-nums ${secondsRemaining <= 300 ? "text-destructive" : ""}`}>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50 border">
+              <span className="text-xs text-muted-foreground">Time</span>
+              <span className={`font-mono font-semibold tabular-nums text-sm ${secondsRemaining <= 300 ? "text-destructive" : ""}`}>
                 {formatTime(secondsRemaining)}
               </span>
             </div>
           )}
         </div>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="flex flex-col flex-1 min-h-0 px-4 sm:px-8 pt-2 pb-4 space-y-4">
         {isFailed ? (
           <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
@@ -378,17 +417,15 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         ) : (
           <>
             <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-            <div className="flex flex-wrap items-center justify-between gap-4 py-2 px-3 rounded-lg bg-muted/50 border">
-              <div className="flex items-center gap-4">
-                <span className="font-mono font-semibold text-lg tabular-nums" title="Time remaining">
-                  {secondsRemaining != null ? formatTime(secondsRemaining) : "--:--"}
-                </span>
-                <span className="text-sm text-muted-foreground">remaining</span>
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 py-2 px-3 rounded-lg bg-muted/50 border shrink-0">
+              <span className="font-mono font-semibold tabular-nums text-sm text-muted-foreground">
+                {secondsRemaining != null ? formatTime(secondsRemaining) : "--:--"} left
+              </span>
               <div className="flex flex-wrap gap-1.5 items-center">
                 {questions.map((q, i) => {
                   const answered = answers[q.id] != null && answers[q.id] !== "";
                   const markedReview = reviewed.has(q.id);
+                  const hasVisited = visited.has(q.id);
                   const current = i === currentIndex;
                   const status = current
                     ? "current"
@@ -396,12 +433,14 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                       ? "answered"
                       : markedReview
                         ? "reviewed"
-                        : "yet_to_answer";
+                        : hasVisited && !answered
+                          ? "skipped"
+                          : "unvisited";
                   return (
                     <button
                       key={q.id}
                       type="button"
-                      onClick={() => setCurrentIndex(i)}
+                      onClick={() => goToQuestion(i)}
                       disabled={inTest && !isFullScreen}
                       className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
                         status === "current"
@@ -410,7 +449,9 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                             ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/40"
                             : status === "reviewed"
                               ? "bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-500/40"
-                              : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
+                              : status === "skipped"
+                                ? "bg-destructive/20 text-destructive border border-destructive/40 hover:bg-destructive/30"
+                                : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
                       }`}
                       title={
                         status === "current"
@@ -419,7 +460,9 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                             ? `Q${i + 1}: Answered`
                             : status === "reviewed"
                               ? `Q${i + 1}: Marked for review`
-                              : `Q${i + 1}: Yet to answer`
+                              : status === "skipped"
+                                ? `Q${i + 1}: Skipped`
+                                : `Q${i + 1}: Not visited`
                       }
                     >
                       {i + 1}
@@ -428,18 +471,13 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 })}
               </div>
             </div>
-            <TestProctoringBar />
-            <LiveProctoringPreview
-              cameraStream={proctoringState?.cameraStream ?? null}
-              brandName="ProvenHire"
-              position="top-right"
-            />
-            <div className="space-y-6">
+            <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={MAX_TAB_SWITCHES} />
+            <div className="flex-1 flex flex-col min-h-0 overflow-auto">
               {currentQuestion && (
-                <div key={currentQuestion.id} className="space-y-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="font-medium text-lg flex-1">
-                      Q{currentIndex + 1} <span className="text-sm font-normal text-muted-foreground">({currentQuestion.marks ?? 1} mark{((currentQuestion.marks ?? 1) > 1) ? "s" : ""})</span>
+                <div key={currentQuestion.id} className="flex flex-col flex-1 min-h-0 gap-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <p className="font-medium text-xl sm:text-2xl flex-1 leading-snug">
+                      Q{currentIndex + 1} <span className="text-base font-normal text-muted-foreground">({currentQuestion.marks ?? 1} mark{((currentQuestion.marks ?? 1) > 1) ? "s" : ""})</span>
                       {" — "}{currentQuestion.question}
                     </p>
                     <Button
@@ -462,7 +500,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                       )}
                     </Button>
                   </div>
-                  <div className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2 flex-1 content-start">
                     {currentQuestion.options.map((opt, i) => {
                       const selected = answers[currentQuestion.id] === opt;
                       return (
@@ -470,10 +508,15 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                           key={i}
                           type="button"
                           variant={selected ? "default" : "outline"}
-                          className="w-full h-auto py-3 px-4 justify-start text-left whitespace-normal leading-relaxed"
-                          onClick={() => setAnswers((prev) => ({ ...prev, [currentQuestion.id]: opt }))}
+                          className="h-auto min-h-[3.5rem] py-4 px-5 justify-start text-left whitespace-normal leading-relaxed text-base"
+                          onClick={() =>
+                            setAnswers((prev) => ({
+                              ...prev,
+                              [currentQuestion.id]: answers[currentQuestion.id] === opt ? "" : opt,
+                            }))
+                          }
                         >
-                          <span className="mr-3 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
+                          <span className="mr-3 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold">
                             {String.fromCharCode(65 + i)}
                           </span>
                           <span>{opt}</span>
@@ -485,28 +528,38 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
               )}
             </div>
             {!isFullScreen && inTest && (
-              <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                  Enter full screen to proceed to the next question or submit.
+                  Enter full screen to proceed.
                 </span>
                 <FullScreenMonitor active={inTest} />
               </div>
             )}
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t">
-              <div className="flex gap-2">
+            <div className="flex flex-wrap items-end justify-between gap-4 pt-4 border-t shrink-0">
+              <div className="flex gap-2 flex-wrap items-center">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+                  onClick={() => goToQuestion(Math.max(0, currentIndex - 1))}
                   disabled={isFirstQuestion || (inTest && !isFullScreen)}
                 >
                   <ChevronLeft className="h-4 w-4 mr-1" />
                   Previous
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearCurrentAnswer}
+                  disabled={!currentQuestion || !answers[currentQuestion.id] || (inTest && !isFullScreen)}
+                  title="Clear selected option for this question"
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" />
+                  Clear
+                </Button>
                 {!isLastQuestion ? (
                   <Button
                     size="sm"
-                    onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}
+                    onClick={() => goToQuestion(Math.min(questions.length - 1, currentIndex + 1))}
                     disabled={!canGoNext || (inTest && !isFullScreen)}
                   >
                     Next question
@@ -520,10 +573,15 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                     {loading ? "Submitting..." : "Submit test"}
                   </Button>
                 )}
+                <span className="text-sm text-muted-foreground ml-2">
+                  {currentIndex + 1} / {questions.length}
+                </span>
               </div>
-              <span className="text-sm text-muted-foreground">
-                {currentIndex + 1} / {questions.length}
-              </span>
+              <LiveProctoringPreview
+                cameraStream={proctoringState?.cameraStream ?? null}
+                brandName="ProvenHire"
+                position="bottom-inside"
+              />
             </div>
           </>
         )}

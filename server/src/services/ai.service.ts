@@ -130,7 +130,45 @@ export async function generateLearningResources(profile: string) {
   );
 }
 
-export async function evaluateInterview(transcript: string): Promise<string> {
+export type QuestionAnswerPair = { question: string; keyPoints: string[]; answer: string };
+
+/**
+ * Evaluate interview answers against expected key points. For each Q&A, scores how well
+ * the candidate's answer matches the ideal answer criteria (keyPoints). Marks are given
+ * based on alignment with the main question's expected answer.
+ */
+export async function evaluateInterview(
+  transcript: string,
+  questionAnswerPairs?: QuestionAnswerPair[]
+): Promise<string> {
+  const rubric = questionAnswerPairs?.length
+    ? `
+SCORING RUBRIC (answer-based marks):
+For each question, the candidate's answer must be compared against the KEY POINTS (ideal answer criteria).
+- concept_score (0-100): How well does the answer cover the key points? Give higher marks when the answer matches or addresses most key points accurately.
+- reasoning_score (0-100): Structured thinking, logical flow, and problem decomposition in the answer.
+- communication_score (0-100): Clarity, coherence, and articulation.
+- confidence_score (0-100): Answer structure and confidence (completeness, no hedging).
+
+QUESTION-ANSWER PAIRS WITH KEY POINTS:
+${questionAnswerPairs
+  .map(
+    (p, i) =>
+      `Q${i + 1}: ${p.question}
+Key points (ideal answer should cover): ${p.keyPoints.join("; ")}
+Candidate answer: ${p.answer}
+---`
+  )
+  .join("\n")}
+
+Score each answer 0-100 for concept_score based on how well it matches the key points. Then compute overall concept_score as the average. Be fair: partial matches get partial credit; exact matches get full marks.`
+    : `
+Scoring rubric:
+- concept_score reflects conceptual knowledge and technical understanding.
+- reasoning_score reflects structured thinking and problem decomposition.
+- communication_score reflects clarity, coherence, and articulation.
+- confidence_score reflects answer structure and confidence under questioning.`;
+
   const system = `You are a senior technical interviewer. Return STRICT JSON only:
 {
   "technical_accuracy": 0-10,
@@ -146,11 +184,8 @@ export async function evaluateInterview(transcript: string): Promise<string> {
   "final_verdict": "",
   "confidence_level": "Low|Medium|High"
 }
-Scoring rubric:
-- concept_score reflects conceptual knowledge and technical understanding.
-- reasoning_score reflects structured thinking and problem decomposition.
-- communication_score reflects clarity, coherence, and articulation.
-- confidence_score reflects answer structure and confidence under questioning.`;
+${rubric}`;
+
   try {
     return await geminiChat([{ role: "system", content: system }, { role: "user", content: transcript }]);
   } catch (e) {
