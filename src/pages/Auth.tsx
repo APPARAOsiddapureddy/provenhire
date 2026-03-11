@@ -65,6 +65,7 @@ const Auth = () => {
   const [verifiedEmail, setVerifiedEmail] = useState("");
   const [verificationCodeSent, setVerificationCodeSent] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<string>("");
+  const [displayedCode, setDisplayedCode] = useState<string>("");
   const [isSendingVerificationCode, setIsSendingVerificationCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -132,6 +133,7 @@ const Auth = () => {
       if (normalizedEmail !== verifiedEmail) {
         setVerificationCode("");
         setVerificationCodeSent(false);
+        setDisplayedCode("");
       }
     }
   }, [email, verifiedEmail]);
@@ -152,6 +154,7 @@ const Auth = () => {
     setVerifiedEmail("");
     setVerificationCodeSent(false);
     setVerificationStatus("");
+    setDisplayedCode("");
     if (mode === "signup" && signInEmail?.trim()) setEmail(signInEmail.trim());
   };
 
@@ -203,6 +206,7 @@ const Auth = () => {
 
     setSignUpErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined, form: undefined }));
     setVerificationStatus("");
+    setDisplayedCode("");
     setIsSendingVerificationCode(true);
     try {
       const response = await api.post<{ message?: string; devCode?: string }>("/api/auth/email-verification/send", {
@@ -214,8 +218,10 @@ const Auth = () => {
       setVerificationCode("");
       setResendCooldown(60);
       if (response?.devCode) {
-        setVerificationStatus(`Your verification code: ${response.devCode}. Enter it below.`);
+        setDisplayedCode(response.devCode);
+        setVerificationStatus("Enter the code below.");
       } else {
+        setDisplayedCode("");
         setVerificationStatus(response?.message || "Code sent to your email. Enter it below.");
       }
     } catch (error: any) {
@@ -795,7 +801,13 @@ const Auth = () => {
                       {isVerifyingCode ? "Verifying..." : "Verify"}
                     </button>
                   </div>
-                  {verificationStatus && <p className="mb-2 mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
+                  {displayedCode && (
+                    <div className="mt-2 mb-2 px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40">
+                      <p className="text-xs text-emerald-300/90 mb-0.5">Your verification code</p>
+                      <p className="text-lg font-mono font-bold text-emerald-200 tracking-[0.3em]">{displayedCode}</p>
+                    </div>
+                  )}
+                  {verificationStatus && !displayedCode && <p className="mb-2 mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
                   {signUpErrors.verificationCode && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.verificationCode}</p>}
                 </div>
                 <div>
@@ -1069,7 +1081,13 @@ const Auth = () => {
                       {isVerifyingCode ? "Verifying..." : "Verify"}
                     </button>
                   </div>
-                  {verificationStatus && <p className="mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
+                  {displayedCode && (
+                    <div className="mt-2 mb-2 px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40">
+                      <p className="text-xs text-emerald-300/90 mb-0.5">Your verification code</p>
+                      <p className="text-lg font-mono font-bold text-emerald-200 tracking-[0.3em]">{displayedCode}</p>
+                    </div>
+                  )}
+                  {verificationStatus && !displayedCode && <p className="mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
                   {signUpErrors.verificationCode && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.verificationCode}</p>}
                 </div>
                 <div>

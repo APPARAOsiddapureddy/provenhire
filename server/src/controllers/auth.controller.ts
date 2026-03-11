@@ -64,10 +64,9 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       data: { email, codeHash, expiresAt },
     });
 
-    // When DISPLAY_VERIFICATION_CODE_ON_PAGE=true (virtual/local deployment without email), return
-    // the code in the response so it can be shown on the signup page. For production with real
-    // email delivery, leave this unset so codes are never exposed.
-    const displayCodeOnPage = process.env.DISPLAY_VERIFICATION_CODE_ON_PAGE === "true";
+    // Default: show verification code on page (for testing/virtual deployment without email).
+    // Set DISPLAY_VERIFICATION_CODE_ON_PAGE=false when using real email delivery in production.
+    const displayCodeOnPage = process.env.DISPLAY_VERIFICATION_CODE_ON_PAGE !== "false";
 
     if (!displayCodeOnPage) {
       sendSignupVerificationCodeEmail(email, code)
