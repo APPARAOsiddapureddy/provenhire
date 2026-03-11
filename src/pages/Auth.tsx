@@ -209,7 +209,7 @@ const Auth = () => {
     setDisplayedCode("");
     setIsSendingVerificationCode(true);
     try {
-      const response = await api.post<{ message?: string; devCode?: string }>("/api/auth/email-verification/send", {
+      const response = await api.post<{ message?: string; devCode?: string; code?: string }>("/api/auth/email-verification/send", {
         email: normalizedEmail,
       });
       setVerificationCodeSent(true);
@@ -217,8 +217,9 @@ const Auth = () => {
       setVerifiedEmail("");
       setVerificationCode("");
       setResendCooldown(60);
-      if (response?.devCode) {
-        setDisplayedCode(response.devCode);
+      const codeFromResponse = response?.devCode ?? response?.code;
+      if (codeFromResponse) {
+        setDisplayedCode(String(codeFromResponse));
         setVerificationStatus("Enter the code below.");
       } else {
         setDisplayedCode("");

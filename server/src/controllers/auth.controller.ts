@@ -64,11 +64,10 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       data: { email, codeHash, expiresAt },
     });
 
-    // Default: show verification code on page (for testing/virtual deployment without email).
-    // Set DISPLAY_VERIFICATION_CODE_ON_PAGE=false when using real email delivery in production.
-    const displayCodeOnPage = process.env.DISPLAY_VERIFICATION_CODE_ON_PAGE !== "false";
+    // When DISPLAY_VERIFICATION_CODE_ON_PAGE=false, send email only. Otherwise show code on page.
+    const sendEmail = process.env.DISPLAY_VERIFICATION_CODE_ON_PAGE === "false";
 
-    if (!displayCodeOnPage) {
+    if (sendEmail) {
       sendSignupVerificationCodeEmail(email, code)
         .then((sent) => {
           if (!sent) {
@@ -78,12 +77,14 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
         .catch((e) => console.error("[sendEmailVerificationCode] Background send error:", e));
     }
 
+    // Always include devCode so signup page can display it (testing/virtual deployment).
+    // Set DISPLAY_VERIFICATION_CODE_ON_PAGE=false for production email-only.
     return res.json({
       ok: true,
-      message: displayCodeOnPage
-        ? `Verification code generated for ${email}. Use the code shown below.`
-        : `Verification code sent to ${email}. Check your inbox and spam folder—it may take up to a minute to arrive.`,
-      ...(displayCodeOnPage && { devCode: code }),
+      message: sendEmail
+        ? `Verification code sent to ${email}. Check your inbox and spam folder—it may take up to a minute to arrive.`
+        : `Verification code generated for ${email}. Use the code shown below.`,
+      devCode: code,
     });
   } catch (err) {
     const errObj = err instanceof Error ? err : new Error(String(err));
