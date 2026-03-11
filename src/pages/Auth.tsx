@@ -98,6 +98,11 @@ const Auth = () => {
 
   const isRedirecting = Boolean(user && userRole === null && authMode !== "reset" && !isReset);
 
+  // Pre-warm backend (wakes Render from cold start) so Send/Verify are fast
+  useEffect(() => {
+    fetch("/api/health").catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const t = setInterval(() => setResendCooldown((c) => (c <= 1 ? 0 : c - 1)), 1000);

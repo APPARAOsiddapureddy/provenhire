@@ -5,6 +5,10 @@
       "destination": "https://provenhire-updated.onrender.com/api/:path*"
     },
     {
+      "source": "/health",
+      "destination": "https://provenhire-updated.onrender.com/health"
+    },
+    {
       "source": "/uploads/:path*",
       "destination": "https://provenhire-updated.onrender.com/uploads/:path*"
     },

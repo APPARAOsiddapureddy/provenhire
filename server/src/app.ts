@@ -97,6 +97,17 @@ export function createApp() {
     });
   });
 
+  // Lightweight warmup endpoint — wakes Render from cold start and warms DB connection
+  app.get("/api/health", async (_req, res) => {
+    try {
+      const { prisma } = await import("./config/prisma.js");
+      await prisma.$queryRaw`SELECT 1`;
+    } catch {
+      /* ignore */
+    }
+    res.status(200).json({ ok: true });
+  });
+
   app.get("/api", (_req, res) => {
     res.json({
       ok: true,
