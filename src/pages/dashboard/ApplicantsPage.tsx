@@ -36,6 +36,11 @@ interface Applicant {
   integrity_score?: number | null;
   expected_salary?: string | null;
   hiring_readiness?: number;
+  skill_freshness?: {
+    aptitude?: { status: string; last_verified_days_ago: number | null } | null;
+    live_coding?: { status: string; last_verified_days_ago: number | null } | null;
+    interview?: { status: string; last_verified_days_ago: number | null } | null;
+  };
 }
 
 const CERT_STRIP_CLASS: Record<number, string> = {
@@ -366,6 +371,31 @@ const ApplicantsPage = () => {
                     ))}
                   </div>
 
+                  {a.skill_freshness && (a.skill_freshness.aptitude || a.skill_freshness.live_coding || a.skill_freshness.interview) && (
+                    <div className="px-4 py-2 border-b border-white/5 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+                      {a.skill_freshness.aptitude && (
+                        <span>
+                          Aptitude: {a.skill_freshness.aptitude.status === "EXPIRED"
+                            ? "Expired"
+                            : `${a.skill_freshness.aptitude.last_verified_days_ago ?? 0} days ago`}
+                        </span>
+                      )}
+                      {a.skill_freshness.live_coding && (
+                        <span>
+                          Live Coding: {a.skill_freshness.live_coding.status === "EXPIRED"
+                            ? "Expired"
+                            : `${a.skill_freshness.live_coding.last_verified_days_ago ?? 0} days ago`}
+                        </span>
+                      )}
+                      {a.skill_freshness.interview && (
+                        <span>
+                          Interview: {a.skill_freshness.interview.status === "EXPIRED"
+                            ? "Expired"
+                            : `${a.skill_freshness.interview.last_verified_days_ago ?? 0} days ago`}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="px-4 py-2 border-b border-white/5">
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-[10px] text-muted-foreground font-semibold uppercase">

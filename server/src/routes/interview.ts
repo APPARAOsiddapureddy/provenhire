@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { evaluateInterview } from "../services/ai.service.js";
+import { upsertSkillVerification, isSkillActive } from "../services/skillVerification.service.js";
 
 export const interviewRouter = Router();
 
@@ -183,6 +184,14 @@ interviewRouter.post("/start", requireAuth, async (req: AuthedRequest, res) => {
     if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
     const { jobRole } = parsed.data;
 
+    const active = await isSkillActive(req.user!.id, "INTERVIEW");
+    if (active) {
+      return res.status(403).json({
+        error: "Your AI Interview Verification is still valid. You can re-attempt only after it expires.",
+        code: "SKILL_ACTIVE",
+      });
+    }
+
     const plan = buildQuestionPlan(jobRole);
     const interview = await prisma.interview.create({
     data: {
@@ -305,6 +314,8 @@ interviewRouter.post("/respond", requireAuth, async (req: AuthedRequest, res) =>
         },
       });
     }
+    const completedAt = new Date();
+    await upsertSkillVerification(interview.userId, "INTERVIEW", total, completedAt);
     return res.json({ completed: true, evaluation, totalScore: total, badgeLevel: badge });
   }
 

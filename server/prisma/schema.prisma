@@ -43,6 +43,7 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   interviewerProfile  Interviewer?
+  skillVerifications  CandidateSkillVerification[]
 }
 
 model JobSeekerProfile {
@@ -146,6 +147,40 @@ model VerificationStage {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+}
+
+enum SkillVerificationStatus {
+  ACTIVE
+  EXPIRED
+  PENDING
+  FAILED
+}
+
+enum SkillType {
+  APTITUDE
+  LIVE_CODING
+  INTERVIEW
+}
+
+/// Skill validity and expiry - each verification has completed_at + expires_at.
+/// Used for "Skill Freshness Verification System" - candidates must re-attempt after expiry.
+model CandidateSkillVerification {
+  id          String                 @id @default(uuid())
+  userId      String
+  skillType   SkillType
+  status      SkillVerificationStatus
+  score       Int?
+  completedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillType])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([status])
 }
 
 model AptitudeTestResult {

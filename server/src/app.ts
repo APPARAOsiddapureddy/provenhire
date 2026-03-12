@@ -19,6 +19,7 @@ import { adminRouter } from "./routes/admin.js";
 import { featureFlagsRouter } from "./routes/feature-flags.js";
 import { interviewerApplicationRouter } from "./routes/interviewer-application.js";
 import { expertRouter } from "./routes/expert.js";
+import { cronRouter } from "./routes/cron.js";
 
 export function createApp() {
   const app = express();
@@ -149,6 +150,7 @@ export function createApp() {
   app.use("/api/feature-flags", featureFlagsRouter);
   app.use("/api/interviewer-application", interviewerApplicationRouter);
   app.use("/api/expert", expertRouter);
+  app.use("/api/cron", cronRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Route not found" });

@@ -272,8 +272,10 @@ const ExpertInterviewStage = ({
       setQuestionIndex(res.questionIndex ?? 1);
       if (res.totalQuestions != null) setTotalQuestions(res.totalQuestions);
       if (!cameraActive) startCamera();
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to start interview.");
+    } catch (error: unknown) {
+      const err = error as Error & { response?: { data?: { error?: string; code?: string } } };
+      const msg = err.response?.data?.error ?? (error instanceof Error ? error.message : "Failed to start interview.");
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

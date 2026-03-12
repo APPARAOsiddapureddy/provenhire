@@ -65,6 +65,11 @@ interface CandidateProfile {
   current_salary?: string | null;
   expected_salary?: string | null;
   proctoring_events?: number;
+  skill_freshness?: {
+    aptitude?: { status: string; last_verified_days_ago: number | null } | null;
+    live_coding?: { status: string; last_verified_days_ago: number | null } | null;
+    interview?: { status: string; last_verified_days_ago: number | null } | null;
+  };
 }
 
 const CERT_LABELS: Record<number, string> = {
@@ -262,7 +267,7 @@ const CandidateProfilePage = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {[
                       { label: "Aptitude", val: profile.aptitude_score },
-                      { label: "DSA", val: profile.dsa_score },
+                      { label: "Live Coding", val: profile.dsa_score },
                       { label: "AI Interview", val: profile.ai_interview_score },
                       ...(profile.human_expert_interview_score != null ? [{ label: "Expert Interview", val: profile.human_expert_interview_score }] : []),
                       ...(profile.assignment_score != null ? [{ label: "Assignment", val: profile.assignment_score }] : []),
@@ -274,6 +279,26 @@ const CandidateProfilePage = () => {
                       </div>
                     ))}
                   </div>
+                  {profile.skill_freshness && (profile.skill_freshness.aptitude || profile.skill_freshness.live_coding || profile.skill_freshness.interview) && (
+                    <div className="mt-3 pt-3 border-t border-border space-y-1">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Freshness</p>
+                      {profile.skill_freshness.aptitude && (
+                        <p className="text-xs text-muted-foreground">
+                          Aptitude: {profile.skill_freshness.aptitude.status === "EXPIRED" ? "Expired" : `Last verified ${profile.skill_freshness.aptitude.last_verified_days_ago ?? 0} days ago`}
+                        </p>
+                      )}
+                      {profile.skill_freshness.live_coding && (
+                        <p className="text-xs text-muted-foreground">
+                          Live Coding: {profile.skill_freshness.live_coding.status === "EXPIRED" ? "Expired" : `Last verified ${profile.skill_freshness.live_coding.last_verified_days_ago ?? 0} days ago`}
+                        </p>
+                      )}
+                      {profile.skill_freshness.interview && (
+                        <p className="text-xs text-muted-foreground">
+                          Interview: {profile.skill_freshness.interview.status === "EXPIRED" ? "Expired" : `Last verified ${profile.skill_freshness.interview.last_verified_days_ago ?? 0} days ago`}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {profile.proctoring_events === 0 && (

@@ -235,7 +235,7 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
   });
   if (!profile) return res.status(404).json({ error: "Candidate not found" });
 
-  const [stages, proctoringEvents, cert] = await Promise.all([
+  const [stages, proctoringEvents, cert, skillVerifications] = await Promise.all([
     prisma.verificationStage.findMany({
       where: { userId: profile.userId },
       select: { stageName: true, status: true, score: true },
@@ -245,6 +245,10 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
       select: { type: true, riskScore: true },
     }),
     calculateCertificationLevel(profile.userId),
+    prisma.candidateSkillVerification.findMany({
+      where: { userId: profile.userId },
+      select: { skillType: true, status: true, completedAt: true, expiresAt: true },
+    }),
   ]);
 
   const stageScore = (name: string) =>
@@ -268,6 +272,20 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
     : profile.workExperience
       ? [profile.workExperience]
       : [];
+
+  const toFreshness = (sv: { skillType: string; status: string; completedAt: Date | null; expiresAt: Date | null } | undefined) => {
+    if (!sv) return null;
+    const effectiveStatus = sv.expiresAt && new Date() > sv.expiresAt ? "EXPIRED" : sv.status;
+    if (effectiveStatus === "EXPIRED") return { status: "EXPIRED" as const, last_verified_days_ago: null };
+    if (!sv.completedAt) return { status: sv.status, last_verified_days_ago: null };
+    const daysAgo = Math.floor((Date.now() - sv.completedAt.getTime()) / (1000 * 60 * 60 * 24));
+    return { status: effectiveStatus, last_verified_days_ago: daysAgo };
+  };
+  const skillFreshness = {
+    aptitude: toFreshness(skillVerifications.find((s) => s.skillType === "APTITUDE")),
+    live_coding: toFreshness(skillVerifications.find((s) => s.skillType === "LIVE_CODING")),
+    interview: toFreshness(skillVerifications.find((s) => s.skillType === "INTERVIEW")),
+  };
 
   res.json({
     profile: {
@@ -296,6 +314,7 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
       human_expert_interview_score: humanExpert,
       assignment_score: stageScore("non_tech_assignment"),
       integrity_score: integrityScore,
+      skill_freshness: skillFreshness,
       notice_period: profile.noticePeriod,
       current_salary: profile.currentSalary,
       expected_salary: profile.expectedSalary,

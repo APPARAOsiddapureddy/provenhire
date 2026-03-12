@@ -380,7 +380,8 @@ A verified candidate profile includes:
 
 - **Certification level:** Level 0, 1 (Cognitive Verified), 2 (Skill Passport), or 3 (Elite Verified)
 - **Stage status:** Completed, passed, failed, in progress
-- **Scores:** Aptitude, DSA, AI interview, expert interview
+- **Scores:** Aptitude, Live Coding, AI interview, expert interview
+- **Skill freshness:** Last verified date or expiry status per skill (Aptitude, Live Coding, Interview)
 - **Feedback excerpts:** Strengths, improvement areas
 - **Integrity summary:** Proctoring events, if any
 - **Job eligibility:** Which job tiers the candidate can see (based on level)
@@ -389,6 +390,58 @@ A verified candidate profile includes:
 
 - Resume (original upload)
 - Links (GitHub, Portfolio) if provided
+
+---
+
+## Skill Freshness Verification System
+
+Skill verifications (Aptitude, Live Coding, AI Interview) are valid for a fixed duration. After expiry, candidates must re-attempt to maintain verified status. This ensures recruiter trust in current, up-to-date skills.
+
+### Skill Types and Validity
+
+| Skill | Display Name | Validity |
+|-------|--------------|----------|
+| Aptitude | Aptitude Verification | 180 days |
+| Live Coding | Live Coding Verification | 30 days |
+| Interview | AI Interview Verification | 365 days |
+
+### Status Values
+
+- **ACTIVE:** Verification valid; expires in the future
+- **EXPIRED:** `current_date > expires_at`; re-attempt required
+- **PENDING:** Not yet completed
+- **FAILED:** Candidate failed; can retry after cooldown (24h)
+
+### Verified Candidate Badge
+
+A candidate is **Verified** only when:
+- Aptitude = ACTIVE
+- Live Coding = ACTIVE
+- Interview = ACTIVE
+
+If any skill expires → **Verification Incomplete**; badge disabled until re-verification.
+
+### Re-attempt Rules
+
+- Cannot re-attempt while skill is ACTIVE
+- After expiry → can re-attempt; new `completed_at` and `expires_at` calculated
+- Admin override available for edge cases
+
+### Notification Schedule
+
+| Time | Action |
+|------|--------|
+| 7 days before expiry | Email + in-app notification |
+| 3 days before expiry | Reminder |
+| On expiry | Status changed to EXPIRED; email sent |
+
+### Recruiter View
+
+Recruiters see **freshness** for each skill:
+- "Last Verified: X days ago" when ACTIVE
+- "Status: Expired" when EXPIRED
+
+Display name: **Live Coding Verification** (never "DSA Test") for recruiter trust.
 
 ---
 

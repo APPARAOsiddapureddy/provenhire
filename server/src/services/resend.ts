@@ -167,3 +167,43 @@ export async function sendSignupVerificationCodeEmail(to: string, code: string):
   return false;
 }
 
+/** Send skill expiry reminder (X days before expiry). Returns true if sent. */
+export async function sendSkillExpiryReminderEmail(
+  to: string,
+  skillName: string,
+  daysLeft: number
+): Promise<boolean> {
+  if (!resend) return false;
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: `Your ${skillName} verification expires in ${daysLeft} days`,
+    html: `
+      <p>Hello,</p>
+      <p>Your <strong>${skillName}</strong> verification will expire in <strong>${daysLeft} days</strong>.</p>
+      <p>Reattempt now to maintain your Verified Candidate status and keep your profile visible to recruiters.</p>
+      <p><a href="${process.env.BASE_URL || "https://provenhire.vercel.app"}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Reattempt Verification →</a></p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+
+/** Send skill expired notification. Returns true if sent. */
+export async function sendSkillExpiredEmail(to: string, skillName: string): Promise<boolean> {
+  if (!resend) return false;
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: `Your ${skillName} verification has expired`,
+    html: `
+      <p>Hello,</p>
+      <p>Your <strong>${skillName}</strong> verification has expired.</p>
+      <p>Reattempt now to restore your Verified Candidate status and keep your profile visible to recruiters.</p>
+      <p><a href="${process.env.BASE_URL || "https://provenhire.vercel.app"}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Reattempt Verification →</a></p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+

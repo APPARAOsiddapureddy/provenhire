@@ -312,7 +312,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         toast.error(`Score ${finalScore}/100. Minimum ${ELIGIBILITY_THRESHOLD} required to proceed. Use "Retry This Step" to try again.`);
       }
     } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Failed to submit DSA round.");
+      const err = error as Error & { response?: { data?: { error?: string; code?: string } } };
+      const msg = err.response?.data?.error ?? (error instanceof Error ? error.message : "Failed to submit DSA round.");
+      toast.error(msg);
     } finally {
       setSubmitting(false);
       setSubmitConfirmOpen(false);

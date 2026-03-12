@@ -188,7 +188,7 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
   });
 
   const userIds = applications.map((a) => a.jobSeekerId).filter(Boolean);
-  const [stages, proctoringEvents] = await Promise.all([
+  const [stages, proctoringEvents, skillVerifications] = await Promise.all([
     prisma.verificationStage.findMany({
       where: { userId: { in: userIds } },
       select: { userId: true, stageName: true, status: true, score: true },
@@ -196,6 +196,10 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
     prisma.proctoringEvent.findMany({
       where: { userId: { in: userIds } },
       select: { userId: true, riskScore: true },
+    }),
+    prisma.candidateSkillVerification.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, skillType: true, status: true, completedAt: true, expiresAt: true },
     }),
   ]);
 
@@ -209,6 +213,17 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
     if (!ev.userId) continue;
     const prev = maxRiskByUser.get(ev.userId) ?? 0;
     maxRiskByUser.set(ev.userId, Math.max(prev, ev.riskScore ?? 0));
+  }
+  const skillByUser = new Map<string, { skillType: string; status: string; completedAt: Date | null; expiresAt: Date | null }[]>();
+  for (const sv of skillVerifications) {
+    if (!skillByUser.has(sv.userId)) skillByUser.set(sv.userId, []);
+    const effectiveStatus = sv.expiresAt && new Date() > sv.expiresAt ? "EXPIRED" : sv.status;
+    skillByUser.get(sv.userId)!.push({
+      skillType: sv.skillType,
+      status: effectiveStatus,
+      completedAt: sv.completedAt,
+      expiresAt: sv.expiresAt,
+    });
   }
 
   const certByUser = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
@@ -237,6 +252,20 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
       const hiringReadiness = Math.round(
         ((aptitude ?? 0) + (dsa ?? 0) + (ai ?? assign ?? 0) + integrityScore) / 4
       );
+      const userSkills = skillByUser.get(a.jobSeekerId) ?? [];
+      const skillFreshness = {
+        aptitude: userSkills.find((s) => s.skillType === "APTITUDE"),
+        live_coding: userSkills.find((s) => s.skillType === "LIVE_CODING"),
+        interview: userSkills.find((s) => s.skillType === "INTERVIEW"),
+      };
+      const toFreshness = (s: typeof userSkills[0] | undefined) => {
+        if (!s) return null;
+        if (s.status === "EXPIRED") return { status: "EXPIRED" as const, last_verified: null };
+        const completed = s.completedAt;
+        if (!completed) return { status: s.status, last_verified: null };
+        const daysAgo = Math.floor((Date.now() - completed.getTime()) / (1000 * 60 * 60 * 24));
+        return { status: s.status, last_verified_days_ago: daysAgo };
+      };
 
       return {
         application_id: a.id,
@@ -264,6 +293,11 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
         human_expert_interview_score: humanExpert,
         assignment_score: assign,
         integrity_score: integrityScore,
+        skill_freshness: {
+          aptitude: toFreshness(skillFreshness.aptitude),
+          live_coding: toFreshness(skillFreshness.live_coding),
+          interview: toFreshness(skillFreshness.interview),
+        },
         notice_period: p.noticePeriod,
         current_salary: p.currentSalary,
         expected_salary: p.expectedSalary,

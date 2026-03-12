@@ -21,6 +21,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import SkillPassport from "@/components/SkillPassport";
+import { SkillVerificationPanel } from "@/components/SkillVerificationPanel";
 import ReferAFriend from "@/components/ReferAFriend";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
 import JobTitleModal from "@/components/JobTitleModal";
@@ -645,6 +646,11 @@ const JobSeekerDashboard = () => {
               </div>
             </div>
             <div className="dashboard-section-content">
+              {roleType === "technical" && (
+                <div className="mb-6">
+                  <SkillVerificationPanel />
+                </div>
+              )}
               <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/5 p-4 mb-4">
                 {certificationLevelNumber >= 1 && (
                   <div className="mb-3 rounded-lg border border-emerald-400/35 bg-emerald-500/10 p-3">

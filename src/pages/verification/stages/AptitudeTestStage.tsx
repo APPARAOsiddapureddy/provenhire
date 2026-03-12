@@ -136,8 +136,11 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         setSecondsRemaining(mins * 60);
         setTotalMarks(res.totalMarks ?? 20);
         setPassThreshold(res.passThreshold ?? 12);
-      } catch (e) {
-        toast.error("Failed to load aptitude questions. Please refresh.");
+      } catch (e: unknown) {
+        const err = e as Error & { response?: { data?: { error?: string; code?: string } } };
+        const msg = err.response?.data?.error ?? err.message;
+        const code = err.response?.data?.code;
+        toast.error(code === "SKILL_ACTIVE" ? msg : "Failed to load aptitude questions. Please refresh.");
       } finally {
         setLoadingQuestions(false);
       }

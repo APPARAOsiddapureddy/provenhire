@@ -8,6 +8,7 @@ import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { upsertSkillVerification, isSkillActive, getSkillVerifications } from "../services/skillVerification.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -54,6 +55,21 @@ verificationRouter.get("/stages", requireAuth, async (req: AuthedRequest, res) =
   } catch (e) {
     console.error("[verification/stages]", e);
     return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to load stages" });
+  }
+});
+
+/** GET /api/verification/skills - Skill validity status (aptitude, live_coding, interview) */
+verificationRouter.get("/skills", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
+    if ((profile?.roleType ?? "technical") !== "technical") {
+      return res.json({ aptitude: null, live_coding: null, interview: null });
+    }
+    const skills = await getSkillVerifications(req.user!.id);
+    return res.json(skills);
+  } catch (e) {
+    console.error("[verification/skills]", e);
+    return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to load skills" });
   }
 });
 
@@ -129,6 +145,13 @@ verificationRouter.post("/stages/reset", requireAuth, async (req: AuthedRequest,
 /** GET aptitude questions (100 marks total, 20 min). easy=1, medium=2, hard=2. Pass: 60/100. */
 verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedRequest, res) => {
   try {
+    const active = await isSkillActive(req.user!.id, "APTITUDE");
+    if (active) {
+      return res.status(403).json({
+        error: "Your Aptitude Verification is still valid. You can re-attempt only after it expires.",
+        code: "SKILL_ACTIVE",
+      });
+    }
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const experienceYears = profile?.experienceYears ?? 0;
     const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSession(experienceYears);
@@ -209,6 +232,7 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
   }
 
   const answersToStore = answersPayload ?? (parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : undefined);
+  const completedAt = new Date();
   const result = await prisma.aptitudeTestResult.create({
     data: {
       userId: req.user!.id,
@@ -226,6 +250,7 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
       data: { score: Math.round(score) },
     });
   }
+  await upsertSkillVerification(req.user!.id, "APTITUDE", Math.round(score), completedAt);
   res.json({ result, score });
 });
 
@@ -250,6 +275,13 @@ verificationRouter.post("/dsa", requireAuth, async (req: AuthedRequest, res) => 
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const dsaScore = parsed.data.score ?? null;
+  const active = await isSkillActive(req.user!.id, "LIVE_CODING");
+  if (active) {
+    return res.status(403).json({
+      error: "Your Live Coding Verification is still valid. You can re-attempt only after it expires.",
+      code: "SKILL_ACTIVE",
+    });
+  }
   const result = await prisma.dsaRoundResult.create({
     data: {
       userId: req.user!.id,
@@ -266,6 +298,10 @@ verificationRouter.post("/dsa", requireAuth, async (req: AuthedRequest, res) => 
       where: { id: existingStage.id },
       data: { score: Math.round(dsaScore) },
     });
+  }
+  if (dsaScore != null) {
+    const completedAt = new Date();
+    await upsertSkillVerification(req.user!.id, "LIVE_CODING", Math.round(dsaScore), completedAt);
   }
   res.json({ result });
 });
