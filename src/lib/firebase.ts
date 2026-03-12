@@ -1,10 +1,11 @@
 /**
  * Firebase client — Google sign-in for ProvenHire.
- * Uses signInWithRedirect (avoids COOP/popup issues in production; no window.closed blocking).
+ * Uses signInWithPopup to avoid firebaseapp.com/__/firebase/init.json 404 errors
+ * (which occur when using signInWithRedirect without Firebase Hosting deployed).
  * Requires VITE_FIREBASE_* env vars.
  */
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, signInWithPopup, getRedirectResult, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -37,14 +38,17 @@ export function isFirebaseConfigured(): boolean {
   return !!(import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_PROJECT_ID);
 }
 
-/** Initiates Google sign-in via redirect. Page will navigate away; result handled by getGoogleRedirectIdToken. */
-export async function signInWithGoogleRedirect(): Promise<void> {
+/** Google sign-in via popup. Returns id token on success. Avoids firebaseapp.com redirect/init.json 404. */
+export async function signInWithGooglePopup(): Promise<string> {
   const auth = getAuth(getFirebaseApp());
   const provider = new GoogleAuthProvider();
-  await signInWithRedirect(auth, provider);
+  const result = await signInWithPopup(auth, provider);
+  const token = await result.user.getIdToken();
+  if (!token) throw new Error("Failed to get Google ID token");
+  return token;
 }
 
-/** Call on app load after returning from Google OAuth. Returns id token if user just signed in via redirect, else null. */
+/** Call on app load after returning from Google OAuth redirect (legacy). Returns id token if user just signed in, else null. */
 export async function getGoogleRedirectIdToken(): Promise<string | null> {
   const auth = getAuth(getFirebaseApp());
   const result = await getRedirectResult(auth);
