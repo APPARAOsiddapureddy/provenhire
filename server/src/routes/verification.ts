@@ -8,7 +8,7 @@ import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
-import { upsertSkillVerification, isSkillActive, getSkillVerifications } from "../services/skillVerification.service.js";
+import { upsertSkillVerification, getSkillVerifications } from "../services/skillVerification.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -145,13 +145,7 @@ verificationRouter.post("/stages/reset", requireAuth, async (req: AuthedRequest,
 /** GET aptitude questions (100 marks total, 20 min). easy=1, medium=2, hard=2. Pass: 60/100. */
 verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedRequest, res) => {
   try {
-    const active = await isSkillActive(req.user!.id, "APTITUDE");
-    if (active) {
-      return res.status(403).json({
-        error: "Your Aptitude Verification is still valid. You can re-attempt only after it expires.",
-        code: "SKILL_ACTIVE",
-      });
-    }
+    // Allow retry anytime — no expiry block. Users can re-attempt whenever they want.
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const experienceYears = profile?.experienceYears ?? 0;
     const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSession(experienceYears);
@@ -275,13 +269,7 @@ verificationRouter.post("/dsa", requireAuth, async (req: AuthedRequest, res) => 
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const dsaScore = parsed.data.score ?? null;
-  const active = await isSkillActive(req.user!.id, "LIVE_CODING");
-  if (active) {
-    return res.status(403).json({
-      error: "Your Live Coding Verification is still valid. You can re-attempt only after it expires.",
-      code: "SKILL_ACTIVE",
-    });
-  }
+  // Allow retry anytime — no expiry block.
   const result = await prisma.dsaRoundResult.create({
     data: {
       userId: req.user!.id,

@@ -17,7 +17,7 @@ const registerSchema = z.object({
   password: z.string().min(6),
   role: z.enum(["jobseeker", "recruiter", "admin", "expert_interviewer"]).optional(),
   roleType: z.enum(["technical", "non_technical"]).optional(),
-  verificationToken: z.string().min(8, "verification token required"),
+  verificationToken: z.string().optional(), // Optional for now; will add when scaling
 });
 
 const loginSchema = z.object({
@@ -197,7 +197,7 @@ export async function register(req: Request, res: Response) {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid registration payload" });
     }
-    const { name, email, password, role, roleType, verificationToken } = parsed.data;
+    const { name, email, password, role, roleType } = parsed.data;
     const normalizedEmail = email.trim().toLowerCase();
     const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
     if (blocked) {
@@ -208,19 +208,7 @@ export async function register(req: Request, res: Response) {
       return res.status(409).json({ error: "Email already registered" });
     }
 
-    const verification = await prisma.emailVerificationCode.findFirst({
-      where: {
-        email: normalizedEmail,
-        verifiedAt: { not: null },
-        consumedAt: null,
-        expiresAt: { gt: new Date() },
-        verificationTokenHash: hashToken(verificationToken),
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    if (!verification) {
-      return res.status(400).json({ error: "Email verification is required before signup." });
-    }
+    // Email verification bypassed for now; will add when scaling
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: {
@@ -243,10 +231,6 @@ export async function register(req: Request, res: Response) {
         update: { roleType: roleType ?? "technical" },
       });
     }
-    await prisma.emailVerificationCode.update({
-      where: { id: verification.id },
-      data: { consumedAt: new Date() },
-    });
     let session;
     try {
       session = await createSession(user);

@@ -18,7 +18,8 @@
     "seed:ai-interview": "tsx prisma/seed-ai-interview-user.ts",
     "seed:test-credentials": "tsx prisma/seed-test-credentials.ts",
     "seed:feature-flags": "tsx prisma/seed-feature-flags.ts",
-    "seed:skill-verifications": "tsx prisma/seed-skill-verifications.ts"
+    "seed:skill-verifications": "tsx prisma/seed-skill-verifications.ts",
+    "clear-test-users": "tsx prisma/clear-test-users.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",

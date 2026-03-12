@@ -61,7 +61,7 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     const { bio, enforceRequiredFields, ...rest } = parsed.data;
     const raw = { ...rest, ...(bio !== undefined ? { about: bio } : {}) };
     const data = Object.fromEntries(
-      Object.entries(raw).filter(([, v]) => v !== undefined && v !== null)
+      Object.entries(raw).filter(([, v]) => v !== undefined)
     ) as Record<string, unknown>;
     if (enforceRequiredFields) {
       const issues: Array<{ field: string; message: string }> = [];

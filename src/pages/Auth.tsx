@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Mail, Lock, User, Briefcase, Shield, Award, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Mail, Lock, User, Briefcase, Award, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
@@ -61,15 +61,6 @@ const Auth = () => {
   const [jobSeekerTrack, setJobSeekerTrack] = useState<"tech" | "non_tech">("tech");
   const [companyName, setCompanyName] = useState("");
   const [companySize, setCompanySize] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
-  const [verificationToken, setVerificationToken] = useState("");
-  const [verifiedEmail, setVerifiedEmail] = useState("");
-  const [verificationCodeSent, setVerificationCodeSent] = useState(false);
-  const [verificationStatus, setVerificationStatus] = useState<string>("");
-  const [displayedCode, setDisplayedCode] = useState<string>("");
-  const [isSendingVerificationCode, setIsSendingVerificationCode] = useState(false);
-  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
 
   // Forgot / Reset
   const [resetEmail, setResetEmail] = useState("");
@@ -92,7 +83,6 @@ const Auth = () => {
   const [signInErrors, setSignInErrors] = useState<{ email?: string; password?: string; form?: string }>({});
   const [signUpErrors, setSignUpErrors] = useState<{
     email?: string;
-    verificationCode?: string;
     password?: string;
     confirmPassword?: string;
     companyName?: string;
@@ -109,12 +99,6 @@ const Auth = () => {
   useEffect(() => {
     fetch("/api/health").catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const t = setInterval(() => setResendCooldown((c) => (c <= 1 ? 0 : c - 1)), 1000);
-    return () => clearInterval(t);
-  }, [resendCooldown]);
 
   useEffect(() => {
     if (!user || authMode === "reset" || needsGoogleRoleSelection) return;
@@ -135,21 +119,6 @@ const Auth = () => {
     if (isReset && emailFromUrl) setResetUserEmail(emailFromUrl);
   }, [isReset, emailFromUrl]);
 
-  useEffect(() => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || normalizedEmail !== verifiedEmail) {
-      setVerificationToken("");
-      if (verifiedEmail) {
-        setVerificationStatus("Email changed. Please verify this email again.");
-      }
-      if (normalizedEmail !== verifiedEmail) {
-        setVerificationCode("");
-        setVerificationCodeSent(false);
-        setDisplayedCode("");
-      }
-    }
-  }, [email, verifiedEmail]);
-
   const switchMode = (mode: "login" | "signup") => {
     const params = new URLSearchParams();
     params.set("mode", mode);
@@ -161,12 +130,6 @@ const Auth = () => {
     setAuthMode(mode);
     setSignInErrors({});
     setSignUpErrors({});
-    setVerificationCode("");
-    setVerificationToken("");
-    setVerifiedEmail("");
-    setVerificationCodeSent(false);
-    setVerificationStatus("");
-    setDisplayedCode("");
     if (mode === "signup" && signInEmail?.trim()) setEmail(signInEmail.trim());
   };
 
@@ -205,96 +168,12 @@ const Auth = () => {
     }
   };
 
-  const handleSendVerificationCode = async () => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail) {
-      setSignUpErrors((prev) => ({ ...prev, email: "Please enter your email address." }));
-      return;
-    }
-    if (!isValidEmail(normalizedEmail)) {
-      setSignUpErrors((prev) => ({ ...prev, email: "Please enter a valid email address." }));
-      return;
-    }
-
-    setSignUpErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined, form: undefined }));
-    setVerificationStatus("");
-    setDisplayedCode("");
-    setIsSendingVerificationCode(true);
-    try {
-      const response = await api.post<{ message?: string; devCode?: string; code?: string }>("/api/auth/email-verification/send", {
-        email: normalizedEmail,
-      });
-      setVerificationCodeSent(true);
-      setVerificationToken("");
-      setVerifiedEmail("");
-      setVerificationCode("");
-      setResendCooldown(60);
-      const codeFromResponse = response?.devCode ?? response?.code;
-      if (codeFromResponse) {
-        setDisplayedCode(String(codeFromResponse));
-        setVerificationStatus("Enter the code below.");
-      } else {
-        setDisplayedCode("");
-        setVerificationStatus(response?.message || "Code sent to your email. Enter it below.");
-      }
-    } catch (error: any) {
-      const msg = error?.message || "Failed to send verification code. Please try again.";
-      const isAlreadyRegistered = msg.toLowerCase().includes("already registered");
-      setSignUpErrors((prev) => ({
-        ...prev,
-        form: isAlreadyRegistered
-          ? "This email is already registered. Sign in instead."
-          : msg,
-      }));
-      if (isAlreadyRegistered) {
-        setSignUpErrors((prev) => ({ ...prev, email: "Already registered" }));
-      }
-    } finally {
-      setIsSendingVerificationCode(false);
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const code = verificationCode.trim();
-    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
-      setSignUpErrors((prev) => ({ ...prev, email: "Please enter a valid email address first." }));
-      return;
-    }
-    if (!/^\d{6}$/.test(code)) {
-      setSignUpErrors((prev) => ({ ...prev, verificationCode: "Enter the 6-digit verification code." }));
-      return;
-    }
-
-    setIsVerifyingCode(true);
-    setSignUpErrors((prev) => ({ ...prev, verificationCode: undefined, form: undefined }));
-    try {
-      const response = await api.post<{ verificationToken: string; message?: string }>("/api/auth/email-verification/verify", {
-        email: normalizedEmail,
-        code,
-      });
-      setVerificationToken(response.verificationToken);
-      setVerifiedEmail(normalizedEmail);
-      setVerificationStatus(response?.message || "Email verified successfully.");
-    } catch (error: any) {
-      setVerificationToken("");
-      setVerifiedEmail("");
-      setSignUpErrors((prev) => ({
-        ...prev,
-        verificationCode: error?.message || "Invalid verification code.",
-      }));
-    } finally {
-      setIsVerifyingCode(false);
-    }
-  };
-
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedCompanyName = companyName.trim();
     const nextErrors: {
       email?: string;
-      verificationCode?: string;
       password?: string;
       confirmPassword?: string;
       companyName?: string;
@@ -306,9 +185,6 @@ const Auth = () => {
     }
     if (normalizedEmail && !isValidEmail(normalizedEmail)) {
       nextErrors.email = "Please enter a valid email address.";
-    }
-    if (!verificationToken || verifiedEmail !== normalizedEmail) {
-      nextErrors.verificationCode = "Please verify your email with the 6-digit code before creating account.";
     }
     if (!signUpPassword || !signUpConfirmPassword) {
       if (!signUpPassword) nextErrors.password = "Please enter your password.";
@@ -340,7 +216,6 @@ const Auth = () => {
         normalizedEmail,
         signUpPassword,
         role,
-        verificationToken,
         undefined,
         role === "recruiter" ? normalizedCompanyName : undefined,
         role === "recruiter" ? companySize : undefined,
@@ -911,68 +786,13 @@ const Auth = () => {
                       value={email}
                       onChange={(e) => {
                         setEmail(e.target.value);
-                        setSignUpErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined, form: undefined }));
+                        setSignUpErrors((prev) => ({ ...prev, email: undefined, form: undefined }));
                       }}
                       required
                       className={signUpErrors.email ? "border-red-500/80 !bg-red-500/5" : ""}
                     />
                   </div>
                   {signUpErrors.email && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.email}</p>}
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSendVerificationCode}
-                      disabled={isSendingVerificationCode || resendCooldown > 0}
-                      className="rounded-lg border border-primary/50 py-2.5 px-4 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isSendingVerificationCode
-                        ? "Sending..."
-                        : resendCooldown > 0
-                          ? `Resend OTP (${resendCooldown}s)`
-                          : verificationCodeSent
-                            ? "Resend OTP"
-                            : "Send Verification Code"}
-                    </button>
-                    {verificationToken && verifiedEmail === email.trim().toLowerCase() && (
-                      <span className="text-[11px] text-emerald-400">Email verified</span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="auth-label">Verification Code</label>
-                  <div className="flex gap-2">
-                    <div className="auth-input-wrap flex-1">
-                      <Shield className="iw-icon" />
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={6}
-                        placeholder="Enter code sent to your email"
-                        value={verificationCode}
-                        onChange={(e) => {
-                          setVerificationCode(e.target.value.replace(/[^\d]/g, "").slice(0, 6));
-                          setSignUpErrors((prev) => ({ ...prev, verificationCode: undefined, form: undefined }));
-                        }}
-                        className={signUpErrors.verificationCode ? "border-red-500/80 !bg-red-500/5" : ""}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleVerifyCode}
-                      disabled={isVerifyingCode || !verificationCodeSent}
-                      className="rounded-lg border border-emerald-500/50 py-2.5 px-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isVerifyingCode ? "Verifying..." : "Verify"}
-                    </button>
-                  </div>
-                  {displayedCode && (
-                    <div className="mt-2 mb-2 px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40">
-                      <p className="text-xs text-emerald-300/90 mb-0.5">Your verification code</p>
-                      <p className="text-lg font-mono font-bold text-emerald-200 tracking-[0.3em]">{displayedCode}</p>
-                    </div>
-                  )}
-                  {verificationStatus && !displayedCode && <p className="mb-2 mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
-                  {signUpErrors.verificationCode && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.verificationCode}</p>}
                 </div>
                 <div>
                   <label className="auth-label">I am a</label>
@@ -1203,64 +1023,12 @@ const Auth = () => {
                     value={email}
                     onChange={(e) => {
                       setEmail(e.target.value);
-                      setSignUpErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined, form: undefined }));
+                      setSignUpErrors((prev) => ({ ...prev, email: undefined, form: undefined }));
                     }}
                     required
                     className={`w-full px-4 py-3 border rounded-lg bg-background ${signUpErrors.email ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
                   />
                   {signUpErrors.email && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.email}</p>}
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSendVerificationCode}
-                      disabled={isSendingVerificationCode || resendCooldown > 0}
-                      className="rounded-lg border border-primary/50 py-2.5 px-4 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isSendingVerificationCode
-                        ? "Sending..."
-                        : resendCooldown > 0
-                          ? `Resend OTP (${resendCooldown}s)`
-                          : verificationCodeSent
-                            ? "Resend OTP"
-                            : "Send Verification Code"}
-                    </button>
-                    {verificationToken && verifiedEmail === email.trim().toLowerCase() && (
-                      <span className="text-[11px] text-emerald-400">Verified</span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Verification Code</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="Enter code sent to your email"
-                      value={verificationCode}
-                      onChange={(e) => {
-                        setVerificationCode(e.target.value.replace(/[^\d]/g, "").slice(0, 6));
-                        setSignUpErrors((prev) => ({ ...prev, verificationCode: undefined, form: undefined }));
-                      }}
-                      className={`w-full px-4 py-3 border rounded-lg bg-background ${signUpErrors.verificationCode ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleVerifyCode}
-                      disabled={isVerifyingCode || !verificationCodeSent}
-                      className="rounded-lg border border-emerald-500/50 py-2.5 px-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isVerifyingCode ? "Verifying..." : "Verify"}
-                    </button>
-                  </div>
-                  {displayedCode && (
-                    <div className="mt-2 mb-2 px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40">
-                      <p className="text-xs text-emerald-300/90 mb-0.5">Your verification code</p>
-                      <p className="text-lg font-mono font-bold text-emerald-200 tracking-[0.3em]">{displayedCode}</p>
-                    </div>
-                  )}
-                  {verificationStatus && !displayedCode && <p className="mt-1 text-xs text-sky-300/90 tracking-wide">• {verificationStatus}</p>}
-                  {signUpErrors.verificationCode && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.verificationCode}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">I am a</label>

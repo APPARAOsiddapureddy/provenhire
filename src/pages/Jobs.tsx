@@ -388,8 +388,10 @@ const Jobs = () => {
   };
 
   const getJobMinimumLevel = (job: Job) => {
-    // Policy: all jobs open to all users, only high-package technical roles require Level 3.
-    return isHighPackageJob(job) ? 3 : 0;
+    // Use stored level from DB when available; fall back to salary-based for backward compat
+    const stored = job.minimum_certification_level ?? job.minimumCertificationLevel;
+    if (stored != null && stored >= 1) return stored;
+    return isHighPackageJob(job) ? 3 : 1;
   };
 
   const isApplyLocked = (job: Job) => candidateCertificationLevel < getJobMinimumLevel(job);
@@ -427,6 +429,18 @@ const Jobs = () => {
     'Mid Level': false,
     'Senior Level': false,
   });
+
+  // Handle URL params: open specific job by jobId
+  useEffect(() => {
+    const jobIdParam = searchParams.get('jobId');
+    if (jobIdParam && !loading && jobs.length > 0) {
+      const job = jobs.find((j) => j.id === jobIdParam);
+      if (job) {
+        setSelectedJob(job);
+        setShowJobDetails(true);
+      }
+    }
+  }, [searchParams, loading, jobs]);
 
   // Handle URL params for job type filtering
   useEffect(() => {
@@ -539,6 +553,8 @@ const Jobs = () => {
             1,
         };
       });
+      // Backend filters jobs by certification: level 0 & anonymous get []. Don't add mock in that case.
+      const isJobSeekerOrAnonymous = !user || userRole === 'jobseeker';
       const mockFiltered = track
         ? MOCK_JOBS.filter((j) =>
             track === "non_technical"
@@ -546,7 +562,13 @@ const Jobs = () => {
               : (j.job_track !== "non_technical" || !j.job_track)
           )
         : MOCK_JOBS;
-      setJobs(normalizedJobs.length > 0 ? [...normalizedJobs, ...mockFiltered] : mockFiltered);
+      setJobs(
+        normalizedJobs.length > 0
+          ? [...normalizedJobs, ...mockFiltered]
+          : isJobSeekerOrAnonymous
+            ? []
+            : mockFiltered
+      );
     } catch (error: any) {
       console.error('Error loading jobs:', error);
       setJobs(MOCK_JOBS);
@@ -1088,6 +1110,49 @@ const Jobs = () => {
                 </div>
               </div>
 
+              {filteredJobs.length === 0 ? (
+                <div className="bg-card rounded-xl p-8 sm:p-12 border border-border text-center">
+                  <div className="max-w-md mx-auto">
+                    <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-60" />
+                    {jobsToShow.length === 0 ? (
+                      !user ? (
+                        <>
+                          <h3 className="text-lg font-semibold mb-2">Sign in to see jobs</h3>
+                          <p className="text-sm text-muted-foreground mb-6">
+                            Create an account and complete your verification to discover roles that match your profile.
+                          </p>
+                          <Button onClick={() => navigate('/auth')} className="bg-gradient-hero hover:opacity-90">
+                            Sign In
+                          </Button>
+                        </>
+                      ) : userRole === 'jobseeker' && candidateCertificationLevel === 0 ? (
+                        <>
+                          <h3 className="text-lg font-semibold mb-2">Complete Aptitude to unlock jobs</h3>
+                          <p className="text-sm text-muted-foreground mb-6">
+                            Finish the Aptitude Test to unlock Level 1 jobs. Complete DSA + AI Interview for Level 2, and Expert Interview for all roles.
+                          </p>
+                          <Button onClick={() => navigate('/verification')} className="bg-gradient-hero hover:opacity-90">
+                            Start Verification
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-muted-foreground">No jobs available for your certification level yet.</p>
+                      )
+                    ) : (
+                      <>
+                        <h3 className="text-lg font-semibold mb-2">No jobs match your filters</h3>
+                        <p className="text-sm text-muted-foreground mb-6">
+                          Try adjusting your search or filters to see more opportunities.
+                        </p>
+                        <Button variant="outline" onClick={clearFilters}>
+                          Clear Filters
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+              <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {displayedJobs.map((job) => {
                   const isPremiumLocked = isApplyLocked(job);
@@ -1218,12 +1283,6 @@ const Jobs = () => {
                 )})}
               </div>
 
-              {filteredJobs.length === 0 && (
-                <div className="text-center py-12 bg-card rounded-xl border border-border">
-                  <p className="text-muted-foreground">No jobs found matching your criteria.</p>
-                </div>
-              )}
-
               {filteredJobs.length > displayLimit && (
                 <div className="mt-8 text-center">
                   <p className="text-muted-foreground mb-4">
@@ -1233,6 +1292,8 @@ const Jobs = () => {
                     Load More
                   </Button>
                 </div>
+              )}
+              </>
               )}
             </div>
           </div>

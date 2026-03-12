@@ -56,6 +56,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
   const [graduationYear, setGraduationYear] = useState("");
   const [education, setEducation] = useState<string>("");
   const [workExperience, setWorkExperience] = useState<string>("");
+  const [employmentStatus, setEmploymentStatus] = useState<"employed" | "unemployed" | "student">("employed");
   const [noticePeriod, setNoticePeriod] = useState("");
   const [currentSalary, setCurrentSalary] = useState("");
   const [expectedSalary, setExpectedSalary] = useState("");
@@ -108,6 +109,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
           setNoticePeriod(profile.noticePeriod ? String(profile.noticePeriod) : "");
           setCurrentSalary(profile.currentSalary ? String(profile.currentSalary) : "");
           setExpectedSalary(profile.expectedSalary ? String(profile.expectedSalary) : "");
+          const hasEmployedFields = !!(profile.noticePeriod || profile.currentSalary);
+          setEmploymentStatus(hasEmployedFields ? "employed" : "employed");
           const sk = profile.skills;
           setSkills(Array.isArray(sk) ? sk.join(", ") : typeof sk === "string" ? sk : "");
         }
@@ -181,11 +184,14 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     if (!location.trim()) {
       errs.location = "Please enter your location.";
     }
-    if (!currentRole.trim()) {
-      errs.currentRole = "Please enter your current role.";
-    }
-    if (experienceYears === "" || Number.isNaN(Number(experienceYears)) || Number(experienceYears) < 0) {
-      errs.experienceYears = "Please enter valid experience in years.";
+    const isEmployed = employmentStatus === "employed";
+    if (isEmployed) {
+      if (!currentRole.trim()) {
+        errs.currentRole = "Please enter your current role.";
+      }
+      if (experienceYears === "" || Number.isNaN(Number(experienceYears)) || Number(experienceYears) < 0) {
+        errs.experienceYears = "Please enter valid experience in years.";
+      }
     }
     const skillsList = skills
       .split(/[,;]/)
@@ -194,11 +200,13 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     if (skillsList.length === 0) {
       errs.skills = "Please add at least one skill.";
     }
-    if (!noticePeriod.trim()) {
-      errs.noticePeriod = "Please enter your notice period.";
-    }
-    if (!currentSalary.trim()) {
-      errs.currentSalary = "Please enter your current salary.";
+    if (isEmployed) {
+      if (!noticePeriod.trim()) {
+        errs.noticePeriod = "Please enter your notice period.";
+      }
+      if (!currentSalary.trim()) {
+        errs.currentSalary = "Please enter your current salary.";
+      }
     }
     if (!expectedSalary.trim()) {
       errs.expectedSalary = "Please enter your expected salary.";
@@ -221,14 +229,14 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         location: location.trim() || undefined,
         currentRole: currentRole.trim() || undefined,
         about: about.trim() || undefined,
-        experienceYears: experienceYears === "" ? undefined : Number(experienceYears),
+        experienceYears: isEmployed && experienceYears !== "" && !Number.isNaN(Number(experienceYears)) ? Number(experienceYears) : undefined,
         skills: skillsList.length ? skillsList : undefined,
         college: college.trim() || undefined,
         graduationYear: graduationYear.trim() || undefined,
         education: education.trim() ? education.trim().split("\n").filter(Boolean) : undefined,
         workExperience: workExperience.trim() ? workExperience.trim().split("\n").filter(Boolean) : undefined,
-        noticePeriod: noticePeriod.trim() || undefined,
-        currentSalary: currentSalary.trim() || undefined,
+        noticePeriod: isEmployed ? (noticePeriod.trim() || undefined) : null,
+        currentSalary: isEmployed ? (currentSalary.trim() || undefined) : null,
         expectedSalary: expectedSalary.trim() || undefined,
         enforceRequiredFields: true,
       });
@@ -416,6 +424,30 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 )}
               </div>
             </div>
+            <div ref={(r) => { fieldRefs.current.employmentStatus = r; }} id="field-employmentStatus" className="space-y-2">
+              <Label>Employment status</Label>
+              <div className="flex flex-wrap gap-3">
+                {(["employed", "unemployed", "student"] as const).map((status) => (
+                  <label key={status} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="employmentStatus"
+                      checked={employmentStatus === status}
+                      onChange={() => {
+                        setEmploymentStatus(status);
+                        setFieldErrors((p) => ({ ...p, currentRole: "", experienceYears: "", noticePeriod: "", currentSalary: "" }));
+                      }}
+                      className="h-4 w-4 text-primary border-border"
+                    />
+                    <span className="text-sm capitalize">{status}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {employmentStatus === "employed" ? "Notice period and current CTC will be shown below." : "Notice period and current CTC are hidden for unemployed and students."}
+              </p>
+            </div>
+            {employmentStatus === "employed" && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div ref={(r) => { fieldRefs.current.currentRole = r; }} id="field-currentRole" className="space-y-2">
                 <Label>Current role</Label>
@@ -444,6 +476,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 )}
               </div>
             </div>
+            )}
             <div className="space-y-2">
               <Label>Short bio</Label>
               <Textarea
@@ -493,32 +526,36 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 rows={3}
               />
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div ref={(r) => { fieldRefs.current.noticePeriod = r; }} id="field-noticePeriod" className="space-y-2">
-                <Label>Notice period</Label>
-                <Input
-                  value={noticePeriod}
-                  onChange={(e) => { setNoticePeriod(e.target.value); setFieldErrors((p) => ({ ...p, noticePeriod: "" })); }}
-                  placeholder="e.g. 15 days, 1 month, Immediate"
-                  className={fieldErrors.noticePeriod ? "border-destructive focus-visible:ring-destructive" : ""}
-                />
-                {fieldErrors.noticePeriod && (
-                  <p className="text-sm text-destructive">{fieldErrors.noticePeriod}</p>
-                )}
-              </div>
-              <div ref={(r) => { fieldRefs.current.currentSalary = r; }} id="field-currentSalary" className="space-y-2">
-                <Label>Current salary</Label>
-                <Input
-                  value={currentSalary}
-                  onChange={(e) => { setCurrentSalary(e.target.value); setFieldErrors((p) => ({ ...p, currentSalary: "" })); }}
-                  placeholder="e.g. 10 LPA, 15-20 L"
-                  className={fieldErrors.currentSalary ? "border-destructive focus-visible:ring-destructive" : ""}
-                />
-                {fieldErrors.currentSalary && (
-                  <p className="text-sm text-destructive">{fieldErrors.currentSalary}</p>
-                )}
-              </div>
-              <div ref={(r) => { fieldRefs.current.expectedSalary = r; }} id="field-expectedSalary" className="space-y-2">
+            <div className={`grid gap-4 sm:grid-cols-3`}>
+              {employmentStatus === "employed" && (
+                <>
+                  <div ref={(r) => { fieldRefs.current.noticePeriod = r; }} id="field-noticePeriod" className="space-y-2">
+                    <Label>Notice period</Label>
+                    <Input
+                      value={noticePeriod}
+                      onChange={(e) => { setNoticePeriod(e.target.value); setFieldErrors((p) => ({ ...p, noticePeriod: "" })); }}
+                      placeholder="e.g. 15 days, 1 month, Immediate"
+                      className={fieldErrors.noticePeriod ? "border-destructive focus-visible:ring-destructive" : ""}
+                    />
+                    {fieldErrors.noticePeriod && (
+                      <p className="text-sm text-destructive">{fieldErrors.noticePeriod}</p>
+                    )}
+                  </div>
+                  <div ref={(r) => { fieldRefs.current.currentSalary = r; }} id="field-currentSalary" className="space-y-2">
+                    <Label>Current salary (CTC)</Label>
+                    <Input
+                      value={currentSalary}
+                      onChange={(e) => { setCurrentSalary(e.target.value); setFieldErrors((p) => ({ ...p, currentSalary: "" })); }}
+                      placeholder="e.g. 10 LPA, 15-20 L"
+                      className={fieldErrors.currentSalary ? "border-destructive focus-visible:ring-destructive" : ""}
+                    />
+                    {fieldErrors.currentSalary && (
+                      <p className="text-sm text-destructive">{fieldErrors.currentSalary}</p>
+                    )}
+                  </div>
+                </>
+              )}
+              <div ref={(r) => { fieldRefs.current.expectedSalary = r; }} id="field-expectedSalary" className={`space-y-2 ${employmentStatus !== "employed" ? "sm:col-span-2" : ""}`}>
                 <Label>Expected salary</Label>
                 <Input
                   value={expectedSalary}

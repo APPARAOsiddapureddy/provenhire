@@ -90,6 +90,7 @@ const JobSeekerDashboard = () => {
     location: '',
     phone: '',
     skills: [] as string[],
+    employmentStatus: 'employed' as 'employed' | 'unemployed' | 'student',
     noticePeriod: '',
     currentSalary: '',
     expectedSalary: '',
@@ -287,11 +288,13 @@ const JobSeekerDashboard = () => {
 
       if (profile) {
         setProfile(profile);
+        const hasEmployedFields = !!(profile.noticePeriod || profile.currentSalary);
         setEditingProfile({
           bio: profile.about ?? profile.bio ?? '',
           location: profile.location || '',
           phone: profile.phone || '',
           skills: profile.skills || [],
+          employmentStatus: hasEmployedFields ? 'employed' : 'employed',
           noticePeriod: profile.noticePeriod || '',
           currentSalary: profile.currentSalary || '',
           expectedSalary: profile.expectedSalary || '',
@@ -391,13 +394,14 @@ const JobSeekerDashboard = () => {
 
   const handleUpdateProfile = async () => {
     try {
+      const isEmployed = editingProfile.employmentStatus === 'employed';
       await api.post("/api/users/job-seeker-profile", {
         about: editingProfile.bio,
         location: editingProfile.location,
         phone: editingProfile.phone,
         skills: editingProfile.skills,
-        noticePeriod: editingProfile.noticePeriod || undefined,
-        currentSalary: editingProfile.currentSalary || undefined,
+        noticePeriod: isEmployed ? (editingProfile.noticePeriod || undefined) : null,
+        currentSalary: isEmployed ? (editingProfile.currentSalary || undefined) : null,
         expectedSalary: editingProfile.expectedSalary || undefined,
       });
 
@@ -541,12 +545,12 @@ const JobSeekerDashboard = () => {
         )}
         {!loading && dashboardSection === 'applications' && (
           <div className="dashboard-section-content">
-            <div className="dashboard-section-header">
+            <div className="dashboard-section-header flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h1>Applications</h1>
                 <p>Track your job applications and saved jobs</p>
               </div>
-              <Button asChild className="dashboard-btn-gold">
+              <Button asChild className="dashboard-btn-gold shrink-0">
                 <Link to="/jobs">Browse Jobs</Link>
               </Button>
             </div>
@@ -568,16 +572,30 @@ const JobSeekerDashboard = () => {
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                      {applications.map((app) => (
-                        <div key={app.id} className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold truncate text-white">{(app.job ?? app.jobs)?.title || 'Unknown Position'}</h3>
-                            <p className="text-sm text-[var(--dash-text-muted)]">{(app.job ?? app.jobs)?.company || 'Unknown Company'}</p>
-                            <p className="text-sm text-[var(--dash-text-muted)] mt-1">Applied {new Date(app.appliedAt ?? app.applied_at).toLocaleDateString()}</p>
+                      {applications.map((app) => {
+                        const job = app.job ?? app.jobs;
+                        const jobId = app.jobId ?? app.job_id ?? job?.id;
+                        const status = app.status ?? 'applied';
+                        return (
+                          <div key={app.id} className="flex items-center justify-between gap-3 p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold truncate text-white">{job?.title || 'Unknown Position'}</h3>
+                              <p className="text-sm text-[var(--dash-text-muted)]">{job?.company || 'Unknown Company'}</p>
+                              <p className="text-sm text-[var(--dash-text-muted)] mt-1">
+                                Applied {new Date(app.appliedAt ?? app.applied_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge className={getStatusBadge(status)}>{(status as string).replace(/_/g, ' ')}</Badge>
+                              {jobId && (
+                                <Button asChild className="dashboard-btn-ghost" size="sm">
+                                  <Link to={`/jobs?jobId=${jobId}`}><Eye className="h-4 w-4" /></Link>
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                          <Badge className={getStatusBadge(app.status)}>{app.status.replace('_', ' ')}</Badge>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -599,18 +617,30 @@ const JobSeekerDashboard = () => {
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                      {savedJobs.map((saved) => (
-                        <div key={saved.id} className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold truncate text-white">{(saved.job ?? saved.jobs)?.title || 'Unknown Position'}</h3>
-                            <p className="text-sm text-[var(--dash-text-muted)]">{(saved.job ?? saved.jobs)?.company || 'Unknown Company'}</p>
+                      {savedJobs.map((saved) => {
+                        const job = saved.job ?? saved.jobs;
+                        const jobId = saved.jobId ?? saved.job_id ?? job?.id;
+                        return (
+                          <div key={saved.id} className="flex items-center justify-between gap-3 p-4 border border-[var(--dash-navy-border)] rounded-lg hover:bg-white/5 transition-colors">
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold truncate text-white">{job?.title || 'Unknown Position'}</h3>
+                              <p className="text-sm text-[var(--dash-text-muted)]">{job?.company || 'Unknown Company'}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {jobId ? (
+                                <Button asChild className="dashboard-btn-ghost" size="sm">
+                                  <Link to={`/jobs?jobId=${jobId}`}><ExternalLink className="h-4 w-4" /></Link>
+                                </Button>
+                              ) : (
+                                <Button asChild className="dashboard-btn-ghost" size="sm">
+                                  <Link to="/jobs"><ExternalLink className="h-4 w-4" /></Link>
+                                </Button>
+                              )}
+                              <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => handleRemoveSavedJob(saved.id, saved.jobId ?? saved.job_id)}><Trash2 className="h-4 w-4" /></Button>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <Button className="dashboard-btn-ghost" size="sm" asChild><Link to="/jobs"><ExternalLink className="h-3 w-3" /></Link></Button>
-                            <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => handleRemoveSavedJob(saved.id, saved.jobId ?? saved.job_id)}><Trash2 className="h-4 w-4" /></Button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -874,24 +904,49 @@ const JobSeekerDashboard = () => {
                 />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>Employment status</Label>
+              <div className="flex flex-wrap gap-3">
+                {(['employed', 'unemployed', 'student'] as const).map((status) => (
+                  <label key={status} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="employmentStatus"
+                      checked={editingProfile.employmentStatus === status}
+                      onChange={() => setEditingProfile(prev => ({
+                        ...prev,
+                        employmentStatus: status,
+                        ...(status !== 'employed' ? { noticePeriod: '', currentSalary: '' } : {}),
+                      }))}
+                      className="h-4 w-4 text-primary border-border"
+                    />
+                    <span className="text-sm capitalize">{status}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Notice period</Label>
-                <Input
-                  placeholder="e.g. 15 days, 1 month, Immediate"
-                  value={editingProfile.noticePeriod}
-                  onChange={(e) => setEditingProfile(prev => ({ ...prev, noticePeriod: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Current salary</Label>
-                <Input
-                  placeholder="e.g. 10 LPA, 15-20 L"
-                  value={editingProfile.currentSalary}
-                  onChange={(e) => setEditingProfile(prev => ({ ...prev, currentSalary: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
+              {editingProfile.employmentStatus === 'employed' && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Notice period</Label>
+                    <Input
+                      placeholder="e.g. 15 days, 1 month, Immediate"
+                      value={editingProfile.noticePeriod}
+                      onChange={(e) => setEditingProfile(prev => ({ ...prev, noticePeriod: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Current salary</Label>
+                    <Input
+                      placeholder="e.g. 10 LPA, 15-20 L"
+                      value={editingProfile.currentSalary}
+                      onChange={(e) => setEditingProfile(prev => ({ ...prev, currentSalary: e.target.value }))}
+                    />
+                  </div>
+                </>
+              )}
+              <div className={`space-y-2 ${editingProfile.employmentStatus !== 'employed' ? 'sm:col-span-2' : ''}`}>
                 <Label>Expected salary</Label>
                 <Input
                   placeholder="e.g. 20 LPA, 25-30 L"

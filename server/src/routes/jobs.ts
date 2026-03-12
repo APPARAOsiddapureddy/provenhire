@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, AuthedRequest } from "../middleware/auth.js";
+import { requireAuth, optionalAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import {
   calculateCertificationLevel,
@@ -28,7 +28,7 @@ function getEffectiveMinimumCertificationLevel(jobTrack: "tech" | "non_technical
   return (maxLpa ?? 0) >= 25 ? 3 : 0;
 }
 
-jobsRouter.get("/", async (req, res) => {
+jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
   const track = req.query.track as string | undefined;
   const where: { jobTrack?: string } = {};
   if (track === "tech" || track === "technical") {
@@ -36,10 +36,34 @@ jobsRouter.get("/", async (req, res) => {
   } else if (track === "non_technical") {
     where.jobTrack = "non_technical";
   }
-  const jobs = await prisma.job.findMany({
+  let jobs = await prisma.job.findMany({
     where: Object.keys(where).length ? where : undefined,
     orderBy: { createdAt: "desc" },
   });
+
+  // Filter by candidate certification level when authenticated job seeker
+  const authed = req.user;
+  if (authed?.id) {
+    const { calculateCertificationLevel } = await import("../services/verificationLevel.service.js");
+    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: authed.id } });
+    if (profile) {
+      const cert = await calculateCertificationLevel(authed.id);
+      // Level 0 (no aptitude): show no jobs. Level 1+: show jobs where job.minLevel <= cert.level
+      if (cert.level === 0) {
+        jobs = [];
+      } else {
+        jobs = jobs.filter((j) => {
+          const minLevel = j.minimumCertificationLevel ?? 1;
+          const effectiveMin = minLevel === 0 ? 1 : minLevel;
+          return effectiveMin <= cert.level;
+        });
+      }
+    }
+  } else {
+    // Anonymous: no jobs (must sign in and complete aptitude to see jobs)
+    jobs = [];
+  }
+
   res.json({ jobs });
 });
 

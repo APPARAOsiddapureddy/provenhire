@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, ReactNode } fr
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, hasAuthToken, setAuthToken, setRefreshToken } from "@/lib/api";
-import { signInWithGoogle as firebaseSignInWithGoogle, isFirebaseConfigured } from "@/lib/firebase";
+import { signInWithGoogleRedirect, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
 
@@ -29,7 +29,6 @@ interface AuthContextType {
     email: string,
     password: string,
     role: UserRole,
-    verificationToken: string,
     fullName?: string,
     companyName?: string,
     companySize?: string,
@@ -53,6 +52,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const bootstrap = async () => {
+      // Handle Google redirect result first (user returning from OAuth)
+      if (isFirebaseConfigured()) {
+        try {
+          const idToken = await getGoogleRedirectIdToken();
+          if (idToken) {
+            const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>("/api/auth/google", {
+              idToken,
+            });
+            setAuthToken(data.token);
+            if (data.refreshToken) setRefreshToken(data.refreshToken);
+            setUser(data.user);
+            setUserRole(data.user.role);
+            if (data.isNewUser) {
+              setNeedsGoogleRoleSelection(true);
+              toast.success("Choose your role to continue");
+              navigate("/auth", { replace: true });
+            } else {
+              toast.success("Signed in with Google successfully.");
+              navigate(
+                data.user.role === "admin"
+                  ? "/admin/dashboard"
+                  : data.user.role === "recruiter"
+                    ? "/dashboard/recruiter"
+                    : data.user.role === "expert_interviewer"
+                      ? "/dashboard/expert"
+                      : "/dashboard/jobseeker",
+                { replace: true }
+              );
+            }
+            setLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.error("[AuthContext] Google redirect result failed:", err);
+          toast.error(err instanceof Error ? err.message : "Google sign-in failed");
+        }
+      }
+
       if (!hasAuthToken()) {
         setUser(null);
         setUserRole(null);
@@ -72,13 +109,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
     bootstrap();
-  }, []);
+  }, [navigate]);
 
   const signUp = async (
     email: string,
     password: string,
     role: UserRole,
-    verificationToken: string,
     fullName?: string,
     companyName?: string,
     companySize?: string,
@@ -92,7 +128,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         role: role ?? "jobseeker",
         name: fullName ?? undefined,
         roleType: roleType ?? undefined,
-        verificationToken,
       });
       setAuthToken(data.token);
       if (data.refreshToken) setRefreshToken(data.refreshToken);
@@ -133,39 +168,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
     setLoading(true);
     try {
-      const idToken = await firebaseSignInWithGoogle();
-      const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>("/api/auth/google", {
-        idToken,
-      });
-      setAuthToken(data.token);
-      if (data.refreshToken) setRefreshToken(data.refreshToken);
-      setUser(data.user);
-      setUserRole(data.user.role);
-      if (data.isNewUser) {
-        setNeedsGoogleRoleSelection(true);
-        toast.success("Choose your role to continue");
-        navigate("/auth", { replace: true });
-        return;
-      }
-      toast.success("Signed in with Google successfully.");
-      navigate(
-        data.user.role === "admin"
-          ? "/admin/dashboard"
-          : data.user.role === "recruiter"
-            ? "/dashboard/recruiter"
-            : data.user.role === "expert_interviewer"
-              ? "/dashboard/expert"
-              : "/dashboard/jobseeker",
-        { replace: true }
-      );
+      await signInWithGoogleRedirect();
+      // Page will redirect to Google; no further code runs here
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Google sign-in failed";
-      if (msg.includes("popup") || msg.includes("cancelled") || msg.includes("closed") || msg.includes("auth/popup")) {
-        toast.error("Sign-in was cancelled or the popup was blocked.");
-      } else {
-        toast.error(msg);
-      }
-    } finally {
+      toast.error(msg);
       setLoading(false);
     }
   };
