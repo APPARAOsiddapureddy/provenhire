@@ -217,6 +217,15 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
       invalidated: parsed.data.invalidated ?? false,
     },
   });
+  const existingStage = await prisma.verificationStage.findFirst({
+    where: { userId: req.user!.id, stageName: "aptitude_test" },
+  });
+  if (existingStage) {
+    await prisma.verificationStage.update({
+      where: { id: existingStage.id },
+      data: { score: Math.round(score) },
+    });
+  }
   res.json({ result, score });
 });
 
@@ -240,14 +249,24 @@ verificationRouter.post("/dsa", requireAuth, async (req: AuthedRequest, res) => 
   const schema = z.object({ score: z.number().optional(), answers: z.any().optional(), invalidated: z.boolean().optional() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const dsaScore = parsed.data.score ?? null;
   const result = await prisma.dsaRoundResult.create({
     data: {
       userId: req.user!.id,
-      score: parsed.data.score ?? null,
+      score: dsaScore,
       answers: parsed.data.answers ?? null,
       invalidated: parsed.data.invalidated ?? false,
     },
   });
+  const existingStage = await prisma.verificationStage.findFirst({
+    where: { userId: req.user!.id, stageName: "dsa_round" },
+  });
+  if (existingStage && dsaScore != null) {
+    await prisma.verificationStage.update({
+      where: { id: existingStage.id },
+      data: { score: Math.round(dsaScore) },
+    });
+  }
   res.json({ result });
 });
 

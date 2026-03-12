@@ -16,6 +16,7 @@ import { proctorRouter } from "./routes/proctor.js";
 import { appealsRouter } from "./routes/appeals.js";
 import { executeRouter } from "./routes/execute.js";
 import { adminRouter } from "./routes/admin.js";
+import { featureFlagsRouter } from "./routes/feature-flags.js";
 import { interviewerApplicationRouter } from "./routes/interviewer-application.js";
 import { expertRouter } from "./routes/expert.js";
 
@@ -145,6 +146,7 @@ export function createApp() {
   app.use("/api/appeals", appealsRouter);
   app.use("/api/execute", executeRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/feature-flags", featureFlagsRouter);
   app.use("/api/interviewer-application", interviewerApplicationRouter);
   app.use("/api/expert", expertRouter);
 

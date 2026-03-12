@@ -16,7 +16,8 @@
     "seed:interviewer": "tsx prisma/seed-interviewer.ts",
     "seed:admin": "tsx prisma/seed-admin.ts",
     "seed:ai-interview": "tsx prisma/seed-ai-interview-user.ts",
-    "seed:test-credentials": "tsx prisma/seed-test-credentials.ts"
+    "seed:test-credentials": "tsx prisma/seed-test-credentials.ts",
+    "seed:feature-flags": "tsx prisma/seed-feature-flags.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
@@ -25,6 +26,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "firebase-admin": "^13.7.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mammoth": "^1.11.0",

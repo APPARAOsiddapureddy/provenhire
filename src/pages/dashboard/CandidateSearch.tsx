@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +44,7 @@ interface JobSeekerProfile {
   aptitude_score?: number | null;
   dsa_score?: number | null;
   ai_interview_score?: number | null;
+  human_expert_interview_score?: number | null;
   integrity_score?: number | null;
   assignment_score?: number | null;
   notice_period?: string | null;
@@ -51,6 +53,7 @@ interface JobSeekerProfile {
 }
 
 const CandidateSearch = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
   const [candidates, setCandidates] = useState<JobSeekerProfile[]>([]);
@@ -63,7 +66,6 @@ const CandidateSearch = () => {
   const [certificationFilter, setCertificationFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("verified_first");
   const [allSkills, setAllSkills] = useState<string[]>([]);
-  const [selectedCandidate, setSelectedCandidate] = useState<JobSeekerProfile | null>(null);
   const [contactingCandidate, setContactingCandidate] = useState<string | null>(null);
   const [contactedCandidates, setContactedCandidates] = useState<Set<string>>(new Set());
   const [showContactDialog, setShowContactDialog] = useState(false);
@@ -80,7 +82,10 @@ const CandidateSearch = () => {
 
   const fetchCandidates = async () => {
     try {
-      const { profiles } = await api.get<{ profiles: JobSeekerProfile[] }>("/api/users/candidates");
+      // "View all candidates" shows only Elite (Level 3) verified users per product spec
+      const { profiles } = await api.get<{ profiles: JobSeekerProfile[] }>(
+        "/api/users/candidates?eliteOnly=true"
+      );
       const list = profiles || [];
       setCandidates(list);
 
@@ -247,10 +252,12 @@ const CandidateSearch = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 pt-16 sm:pt-20 pb-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">Find Verified Candidates</h1>
-          <p className="text-muted-foreground">Browse and filter through our pool of verified job seekers</p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Elite Verified Candidates</h1>
+          <p className="text-muted-foreground">
+            Browse Level 3 (Elite) verified job seekers — all assessments complete, ready for hire
+          </p>
         </div>
 
         {/* Filters */}
@@ -415,6 +422,7 @@ const CandidateSearch = () => {
                       {candidate.aptitude_score != null && <Badge variant="outline">Aptitude: {candidate.aptitude_score}</Badge>}
                       {candidate.dsa_score != null && <Badge variant="outline">DSA: {candidate.dsa_score}</Badge>}
                       {candidate.ai_interview_score != null && <Badge variant="outline">AI Interview: {candidate.ai_interview_score}</Badge>}
+                      {candidate.human_expert_interview_score != null && <Badge variant="outline">Expert: {candidate.human_expert_interview_score}</Badge>}
                       {candidate.integrity_score != null && <Badge variant="outline">Integrity: {candidate.integrity_score}</Badge>}
                     </div>
 
@@ -440,17 +448,20 @@ const CandidateSearch = () => {
                     )}
 
                     <div className="flex gap-2 mt-4">
+                      <Button 
+                        className="flex-1" 
+                        variant="outline"
+                        onClick={() => {
+                          incrementProfileView(candidate.id);
+                          navigate(`/candidate-search/${candidate.id}`);
+                        }}
+                      >
+                        View Profile
+                      </Button>
                       <Dialog>
                         <DialogTrigger asChild>
-                          <Button 
-                            className="flex-1" 
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedCandidate(candidate);
-                              incrementProfileView(candidate.id);
-                            }}
-                          >
-                            View Profile
+                          <Button variant="outline" size="sm">
+                            Quick Preview
                           </Button>
                         </DialogTrigger>
                       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">

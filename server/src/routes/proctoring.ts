@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
+import { getFeatureMode } from "../services/featureFlag.service.js";
 
 export const proctoringRouter = Router();
 
@@ -18,6 +19,22 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
   });
   const parsed = schema.safeParse(_req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const alertType = parsed.data.alertType;
+  const flagChecks: [string, string[]][] = [
+    ["tab_switch_detection", ["TAB_SWITCH", "WINDOW_FOCUS_LOST", "WINDOW_MINIMIZED"]],
+    ["copy_paste_detection", ["COPY_PASTE_ATTEMPT"]],
+    ["devtools_detection", ["DEVTOOLS_OPENED"]],
+    ["fullscreen_required", ["FULLSCREEN_EXIT"]],
+    ["multiple_face_detection", ["NO_FACE_DETECTED", "MULTIPLE_FACES_DETECTED", "LOOKING_AWAY_FROM_SCREEN", "LOW_VISIBILITY"]],
+    ["microphone_monitoring", ["CANDIDATE_SPEAKING_DURING_CODING", "SUSPICIOUS_BACKGROUND_NOISE", "MULTIPLE_VOICES_DETECTED", "MICROPHONE_MUTED_ATTEMPT"]],
+  ];
+  for (const [flagName, types] of flagChecks) {
+    if (types.includes(alertType)) {
+      const mode = await getFeatureMode(flagName);
+      if (mode === "OFF") return res.json({ ok: true });
+      break;
+    }
+  }
   await prisma.proctoringEvent.create({
     data: {
       sessionId: parsed.data.testId,

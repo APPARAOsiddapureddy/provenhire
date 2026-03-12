@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import TestProctoringBar from "@/components/TestProctoringBar";
 import ProctoringSetupGate from "@/components/ProctoringSetupGate";
 import LiveProctoringPreview from "@/components/LiveProctoringPreview";
@@ -14,9 +15,15 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
+import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 
 interface NonTechnicalAssignmentStageProps {
   targetJobTitle?: string;
+  stageStatus?: string;
+  stageScore?: number;
+  isRetry?: boolean;
   onComplete: () => void;
   onRetry?: () => void;
 }
@@ -51,8 +58,21 @@ interface AssignmentEvaluation {
   gaps?: string[];
 }
 
-const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete, onRetry }: NonTechnicalAssignmentStageProps) => {
+const THRESHOLD = 60;
+const MAX_TAB_SWITCHES = 3;
+
+const NonTechnicalAssignmentStage = ({
+  targetJobTitle,
+  stageStatus = "in_progress",
+  stageScore,
+  isRetry = false,
+  onComplete,
+  onRetry,
+}: NonTechnicalAssignmentStageProps) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const testIdRef = useRef<string>(`NON_TECH_${Date.now()}`);
+  const submittingRef = useRef(false);
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
   const [response, setResponse] = useState("");
@@ -61,14 +81,51 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete, onRetry }: No
   const [evaluation, setEvaluation] = useState<AssignmentEvaluation | null>(null);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
 
-  const inTest = proctoringReady && !assignmentJustSubmitted;
+  const isFailed = stageStatus === "failed" || (assignmentJustSubmitted && evaluation && !evaluation.qualified);
+  const displayScore = evaluation?.score ?? stageScore ?? 0;
+  const inTest = proctoringReady && !assignmentJustSubmitted && !isFailed;
   const isFullScreen = useFullScreenState(inTest);
+  const { getMode: getFlagMode } = useFeatureFlags();
+  const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
+  const tabSwitchMode = getFlagMode("tab_switch_detection");
+
+  const { tabSwitchCount } = useProctoringRiskMonitor({
+    enabled: inTest,
+    candidateId: user?.id,
+    testId: testIdRef.current,
+    testType: "non_tech_assignment",
+    cameraStream: proctoringState?.cameraStream ?? null,
+    microphoneStream: proctoringState?.microphoneStream ?? null,
+    tabSwitchDetectionEnabled: isFlagEnabled("tab_switch_detection"),
+    copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
+    devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
+    fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
+    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
+    maxTabSwitches: tabSwitchMode === "STRICT" ? MAX_TAB_SWITCHES : 999,
+    onMaxTabSwitches: tabSwitchMode === "STRICT" ? () => {
+      if (!submittingRef.current) {
+        toast.error("Assignment terminated due to tab switching. Maximum 3 switches allowed.");
+        void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
+        setAssignmentJustSubmitted(true);
+        setEvaluation({ score: 0, qualified: false, threshold: THRESHOLD });
+      }
+    } : undefined,
+  });
 
   useSoundDetection({
-    enabled: inTest,
+    enabled: inTest && isFlagEnabled("microphone_monitoring"),
     threshold: 40,
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
+    existingAudioStream: proctoringState?.microphoneStream ?? undefined,
+  });
+
+  useProctorFrameCapture({
+    enabled: inTest && isFlagEnabled("screen_recording_enabled"),
+    sessionId: testIdRef.current,
+    testType: "non_tech_assignment",
+    cameraStream: proctoringState?.cameraStream ?? null,
   });
 
   useEffect(() => {
@@ -95,6 +152,8 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete, onRetry }: No
       toast.error("Please write your response before submitting.");
       return;
     }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const evalResult = await api.post<AssignmentEvaluation>("/api/verification/non-tech-assignment/submit", {
@@ -115,18 +174,46 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete, onRetry }: No
       toast.error(error instanceof Error ? error.message : "Failed to submit assignment.");
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
+
+  // Failed-state bypass: when user returns after failing, show retry UI without proctoring gate
+  if (stageStatus === "failed" && !proctoringReady) {
+    return (
+      <Card>
+        <CardContent className="py-8">
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
+            <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet qualified</p>
+            <p className="text-sm text-muted-foreground">
+              Your score: {displayScore}/100. Minimum {THRESHOLD} required to proceed to the Human Expert Interview.
+            </p>
+            {onRetry ? (
+              <Button onClick={onRetry} className="mt-2">
+                Retry Assignment
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Return to the dashboard and come back when you&apos;re ready to retry.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!proctoringReady) {
     return (
       <ProctoringSetupGate
         testName="Non-Technical Assignment"
+        enableScreenShare={false}
+        isRetry={isRetry}
+        skipSetup={!isFlagEnabled("camera_required") && !isFlagEnabled("screen_recording_enabled") && !isFlagEnabled("microphone_monitoring")}
         onReady={(state) => {
           setProctoringState(state);
           setProctoringReady(true);
         }}
-        screenShareOptional={true}
       />
     );
   }
@@ -136,7 +223,7 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete, onRetry }: No
       <CardHeader>
         <CardTitle>Assignment: {targetJobTitle || "Your Target Role"}</CardTitle>
         <CardDescription>
-          Complete this written assignment based on your target job title. Your response will be reviewed as part of verification.
+          Complete this written assignment based on your target job title. Submit when ready. Need {THRESHOLD}/100 to pass.
           Stay in fullscreen and avoid switching tabs during the assignment.
         </CardDescription>
       </CardHeader>
@@ -144,7 +231,7 @@ const NonTechnicalAssignmentStage = ({ targetJobTitle, onComplete, onRetry }: No
         {!assignmentJustSubmitted && (
           <>
             <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-            <TestProctoringBar />
+            <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={tabSwitchMode === "STRICT" ? MAX_TAB_SWITCHES : 999} showTabSwitch={isFlagEnabled("tab_switch_detection")} />
             <LiveProctoringPreview
               cameraStream={proctoringState?.cameraStream ?? null}
               brandName="ProvenHire"

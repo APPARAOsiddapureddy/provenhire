@@ -166,6 +166,114 @@ jobsRouter.get("/:id/applications", requireAuth, async (req: AuthedRequest, res)
   res.json({ applications });
 });
 
+/** Applicants for a job with full profile data (for recruiters viewing applicants) */
+jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) => {
+  const jobId = req.params.id;
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: { postedBy: { select: { userId: true } } },
+  });
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
+  if (!recruiter || job.postedById !== recruiter.id) {
+    return res.status(403).json({ error: "Not authorized to view applicants for this job" });
+  }
+
+  const applications = await prisma.jobApplication.findMany({
+    where: { jobId },
+    include: {
+      jobSeeker: { include: { jobSeekerProfile: true } },
+    },
+    orderBy: { appliedAt: "desc" },
+  });
+
+  const userIds = applications.map((a) => a.jobSeekerId).filter(Boolean);
+  const [stages, proctoringEvents] = await Promise.all([
+    prisma.verificationStage.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, stageName: true, status: true, score: true },
+    }),
+    prisma.proctoringEvent.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, riskScore: true },
+    }),
+  ]);
+
+  const stageByUser = new Map<string, { stageName: string; status: string; score: number | null }[]>();
+  for (const s of stages) {
+    if (!stageByUser.has(s.userId)) stageByUser.set(s.userId, []);
+    stageByUser.get(s.userId)!.push(s);
+  }
+  const maxRiskByUser = new Map<string, number>();
+  for (const ev of proctoringEvents) {
+    if (!ev.userId) continue;
+    const prev = maxRiskByUser.get(ev.userId) ?? 0;
+    maxRiskByUser.set(ev.userId, Math.max(prev, ev.riskScore ?? 0));
+  }
+
+  const certByUser = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
+  await Promise.all(
+    userIds.map(async (id) => {
+      certByUser.set(id, await calculateCertificationLevel(id));
+    })
+  );
+
+  const applicants = applications
+    .filter((a) => a.jobSeeker?.jobSeekerProfile)
+    .map((a) => {
+      const p = a.jobSeeker!.jobSeekerProfile!;
+      const userStages = stageByUser.get(a.jobSeekerId) ?? [];
+      const stageScore = (name: string) =>
+        userStages.find((s) => s.stageName === name && s.status === "completed")?.score ?? null;
+      const cert = certByUser.get(a.jobSeekerId);
+      const integrityScore = Math.max(0, 100 - (maxRiskByUser.get(a.jobSeekerId) ?? 0));
+      const skills = Array.isArray(p.skills) ? p.skills : p.skills ? [String(p.skills)] : [];
+
+      const aptitude = stageScore("aptitude_test");
+      const dsa = stageScore("dsa_round");
+      const ai = stageScore("expert_interview");
+      const humanExpert = stageScore("human_expert_interview");
+      const assign = stageScore("non_tech_assignment");
+      const hiringReadiness = Math.round(
+        ((aptitude ?? 0) + (dsa ?? 0) + (ai ?? assign ?? 0) + integrityScore) / 4
+      );
+
+      return {
+        application_id: a.id,
+        status: a.status,
+        applied_at: a.appliedAt?.toISOString?.() ?? null,
+        resume_url: a.resumeUrl ?? p.resumeUrl,
+        id: p.id,
+        user_id: p.userId,
+        full_name: p.fullName,
+        current_role: p.currentRole,
+        experience_years: p.experienceYears,
+        verification_status: p.verificationStatus,
+        skills,
+        target_job_title: p.targetJobTitle,
+        about: p.about,
+        phone: p.phone,
+        location: p.location,
+        college: p.college,
+        graduation_year: p.graduationYear,
+        certification_level: cert?.level ?? 0,
+        certification_label: cert?.label ?? "Level 0",
+        aptitude_score: aptitude,
+        dsa_score: dsa,
+        ai_interview_score: ai,
+        human_expert_interview_score: humanExpert,
+        assignment_score: assign,
+        integrity_score: integrityScore,
+        notice_period: p.noticePeriod,
+        current_salary: p.currentSalary,
+        expected_salary: p.expectedSalary,
+        hiring_readiness: hiringReadiness,
+      };
+    });
+
+  res.json({ job: { id: job.id, title: job.title, company: job.company }, applicants });
+});
+
 jobsRouter.post("/:id/status", requireAuth, async (req: AuthedRequest, res) => {
   const schema = z.object({ status: z.string().min(1) });
   const parsed = schema.safeParse(req.body);

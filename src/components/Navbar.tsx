@@ -23,11 +23,6 @@ const Navbar = () => {
     </>
   );
 
-  const desktopNav = (
-    <div className="hidden md:flex items-center gap-8 font-mono text-[13px] font-semibold text-muted-foreground tracking-wider uppercase">
-      {navLinks}
-    </div>
-  );
 
   const authButtons = user ? (
     <>
@@ -118,46 +113,52 @@ const Navbar = () => {
   );
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-[100] flex items-center justify-between h-14 sm:h-16 px-4 sm:px-6 md:px-14 border-b border-border bg-background/92 backdrop-blur-xl transition-all duration-300">
-      <Link to={userRole === "expert_interviewer" ? "/dashboard/expert" : "/"} className="flex items-center gap-2 sm:gap-3 group min-w-0 shrink-0">
-        <div className="w-8 h-8 sm:w-9 sm:h-9 border-2 border-primary flex items-center justify-center font-mono text-sm sm:text-base font-bold text-primary transition-transform duration-200 group-hover:scale-105 shrink-0">
-          PH
-        </div>
-        <span className="font-bebas text-[22px] sm:text-[26px] md:text-[28px] tracking-[2px] text-foreground leading-none truncate">
-          Proven<span className="text-primary">Hire</span>
-        </span>
-      </Link>
+    <nav className="fixed top-0 left-0 right-0 z-[100] w-full overflow-x-hidden border-b border-border bg-background/92 backdrop-blur-xl transition-all duration-300">
+      <div className="mx-auto flex h-14 sm:h-16 w-full max-w-[100vw] items-center justify-between gap-3 px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12">
+        <Link to={userRole === "expert_interviewer" ? "/dashboard/expert" : "/"} className="flex shrink-0 items-center gap-2 sm:gap-3 group">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 border-2 border-primary flex items-center justify-center font-mono text-sm sm:text-base font-bold text-primary transition-transform duration-200 group-hover:scale-105 shrink-0">
+            PH
+          </div>
+          <span className="font-bebas text-[22px] sm:text-[26px] md:text-[28px] tracking-[2px] text-foreground leading-none truncate">
+            Proven<span className="text-primary">Hire</span>
+          </span>
+        </Link>
 
-      {desktopNav}
+        {navLinks && (
+          <div className="hidden min-w-0 shrink md:flex md:items-center md:gap-4 lg:gap-5 font-mono text-[13px] font-semibold text-muted-foreground tracking-wider uppercase">
+            {navLinks}
+          </div>
+        )}
 
-      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-        {user && <div className="md:hidden shrink-0"><NotificationInbox /></div>}
-        <div className="hidden md:flex items-center gap-2.5">
-          {authButtons}
-        </div>
-        <div className="md:hidden flex items-center gap-1.5">
-          {!user && (
-            <>
-              <Button variant="ghost" size="sm" asChild className="text-muted-foreground text-sm px-2">
-                <Link to="/auth?mode=login">Log In</Link>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
+          {user && <div className="md:hidden shrink-0"><NotificationInbox /></div>}
+          <div className="hidden md:flex items-center gap-2.5">
+            {authButtons}
+          </div>
+          <div className="md:hidden flex items-center gap-1.5">
+            {!user && (
+              <>
+                <Button variant="ghost" size="sm" asChild className="text-muted-foreground text-sm px-2">
+                  <Link to="/auth?mode=login">Log In</Link>
+                </Button>
+                <Button size="sm" asChild className="bg-primary text-primary-foreground text-sm px-3">
+                  <Link to="/auth?mode=signup">Get Verified</Link>
+                </Button>
+              </>
+            )}
+            {user && (
+              <Button variant="ghost" size="sm" asChild className="font-semibold text-muted-foreground text-sm px-2">
+                <Link to={
+                  userRole === "admin" ? "/admin/dashboard" :
+                  userRole === "recruiter" ? "/dashboard/recruiter" :
+                  userRole === "expert_interviewer" ? "/dashboard/expert" : "/dashboard/jobseeker"
+                }>
+                  Dashboard
+                </Link>
               </Button>
-              <Button size="sm" asChild className="bg-primary text-primary-foreground text-sm px-3">
-                <Link to="/auth?mode=signup">Get Verified</Link>
-              </Button>
-            </>
-          )}
-          {user && (
-            <Button variant="ghost" size="sm" asChild className="font-semibold text-muted-foreground text-sm px-2">
-              <Link to={
-                userRole === "admin" ? "/admin/dashboard" :
-                userRole === "recruiter" ? "/dashboard/recruiter" :
-                userRole === "expert_interviewer" ? "/dashboard/expert" : "/dashboard/jobseeker"
-              }>
-                Dashboard
-              </Link>
-            </Button>
-          )}
-          {mobileMenu}
+            )}
+            {mobileMenu}
+          </div>
         </div>
       </div>
     </nav>

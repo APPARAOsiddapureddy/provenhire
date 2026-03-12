@@ -1,11 +1,19 @@
 import { Router } from "express";
 import bcrypt from "bcrypt";
-import { requireAdmin } from "../middleware/auth.js";
+import { z } from "zod";
+import { requireAdmin, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { hashToken, generateRefreshToken } from "../utils/jwt.js";
 import { adminNotificationsRouter } from "./admin-notifications.js";
 import { sendInterviewerAcceptanceEmail } from "../services/resend.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import {
+  getAllFeatureFlags,
+  updateFeatureFlag,
+  ensureDefaultFlags,
+  FEATURE_FLAG_MODES,
+  type FeatureFlagMode,
+} from "../services/featureFlag.service.js";
 
 export const adminRouter = Router();
 
@@ -14,6 +22,39 @@ adminRouter.use(requireAdmin);
 
 /** Mount admin notifications at /api/admin/notifications */
 adminRouter.use("/notifications", adminNotificationsRouter);
+
+/** Platform Settings → Integrity Controls (Feature Flags) */
+adminRouter.get("/feature-flags", async (_req, res) => {
+  try {
+    let flags = await getAllFeatureFlags();
+    if (flags.length === 0) {
+      await ensureDefaultFlags();
+      flags = await getAllFeatureFlags();
+    }
+    res.json({ flags });
+  } catch (e) {
+    console.error("[admin/feature-flags] GET", e);
+    res.status(500).json({ error: "Failed to load feature flags" });
+  }
+});
+
+adminRouter.patch("/feature-flags/:featureName", async (req: AuthedRequest, res) => {
+  const schema = z.object({ mode: z.enum(["OFF", "MONITOR", "STRICT"]) });
+  const parsed = schema.safeParse({ mode: req.body?.mode });
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid mode", validModes: FEATURE_FLAG_MODES });
+  }
+  const { featureName } = req.params;
+  const mode = parsed.data.mode as FeatureFlagMode;
+  try {
+    await updateFeatureFlag(featureName, mode, req.user?.id);
+    const flags = await getAllFeatureFlags();
+    res.json({ flags });
+  } catch (e) {
+    console.error("[admin/feature-flags] PATCH", e);
+    res.status(500).json({ error: "Failed to update feature flag" });
+  }
+});
 
 /** Job seekers with profile + user */
 adminRouter.get("/job-seekers", async (_req, res) => {

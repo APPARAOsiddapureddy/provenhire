@@ -19,6 +19,7 @@ dist-ssr
 server/.env
 server/.env.*
 !server/.env.example
+server/firebase-service-account.json
 
 # Uploads (user-generated)
 server/uploads/

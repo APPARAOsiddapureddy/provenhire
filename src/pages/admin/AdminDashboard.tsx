@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ProctoringReview from "./ProctoringReview";
 import ProctoringAnalytics from "@/components/admin/ProctoringAnalytics";
 import RealtimeProctoringAlerts from "@/components/admin/RealtimeProctoringAlerts";
+import IntegrityControls from "@/components/admin/IntegrityControls";
 import TestAppealsManager from "@/components/admin/TestAppealsManager";
 import AIInterviewReview from "@/components/admin/AIInterviewReview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -23,7 +24,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download } from "lucide-react";
+import { Shield, Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download, Settings } from "lucide-react";
 import BroadcastMessageDialog from "@/components/admin/BroadcastMessageDialog";
 import { toast } from "sonner";
 
@@ -546,6 +547,10 @@ const AdminDashboard = () => {
               <UserPlus className="h-3 w-3" />
               Interviewer Apps
             </TabsTrigger>
+            <TabsTrigger value="integrity" className="flex items-center gap-1 shrink-0">
+              <Settings className="h-3 w-3" />
+              Integrity Controls
+            </TabsTrigger>
           </TabsList>
           </div>
 
@@ -956,6 +961,10 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="integrity">
+            <IntegrityControls />
           </TabsContent>
 
           <TabsContent value="interviewer-apps">

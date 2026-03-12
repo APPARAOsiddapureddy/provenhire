@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, ReactNode } fr
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, hasAuthToken, setAuthToken, setRefreshToken } from "@/lib/api";
+import { signInWithGoogle as firebaseSignInWithGoogle, isFirebaseConfigured } from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
 
@@ -16,6 +17,9 @@ interface AuthContextType {
   user: User | null;
   userRole: UserRole;
   loading: boolean;
+  needsGoogleRoleSelection: boolean;
+  completeGoogleSignUpRole: (role: "jobseeker" | "recruiter", companyName?: string, companySize?: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signUp: (
     email: string,
     password: string,
@@ -39,6 +43,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
   const [loading, setLoading] = useState(true);
+  const [needsGoogleRoleSelection, setNeedsGoogleRoleSelection] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -116,11 +121,83 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const signInWithGoogle = async () => {
+    if (!isFirebaseConfigured()) {
+      toast.error("Google sign-in is not configured. Please use email and password.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const idToken = await firebaseSignInWithGoogle();
+      const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>("/api/auth/google", {
+        idToken,
+      });
+      setAuthToken(data.token);
+      if (data.refreshToken) setRefreshToken(data.refreshToken);
+      setUser(data.user);
+      setUserRole(data.user.role);
+      if (data.isNewUser) {
+        setNeedsGoogleRoleSelection(true);
+        toast.success("Choose your role to continue");
+        navigate("/auth", { replace: true });
+        return;
+      }
+      toast.success("Signed in with Google successfully.");
+      navigate(
+        data.user.role === "admin"
+          ? "/admin/dashboard"
+          : data.user.role === "recruiter"
+            ? "/dashboard/recruiter"
+            : data.user.role === "expert_interviewer"
+              ? "/dashboard/expert"
+              : "/dashboard/jobseeker",
+        { replace: true }
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Google sign-in failed";
+      if (msg.includes("popup") || msg.includes("cancelled") || msg.includes("closed") || msg.includes("auth/popup")) {
+        toast.error("Sign-in was cancelled or the popup was blocked.");
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeGoogleSignUpRole = async (
+    role: "jobseeker" | "recruiter",
+    companyName?: string,
+    companySize?: string
+  ) => {
+    try {
+      const data = await api.post<{ user: User | null }>("/api/auth/google/select-role", {
+        role,
+        ...(role === "recruiter" && { companyName, companySize }),
+      });
+      if (data.user) {
+        setUser(data.user);
+        setUserRole(data.user.role);
+      }
+      setNeedsGoogleRoleSelection(false);
+      toast.success("Welcome! Redirecting to your dashboard.");
+      navigate(
+        role === "recruiter" ? "/dashboard/recruiter" : "/dashboard/jobseeker",
+        { replace: true }
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to save role";
+      toast.error(msg);
+      throw err;
+    }
+  };
+
   const signOut = async () => {
     setAuthToken(null);
     setRefreshToken(null);
     setUser(null);
     setUserRole(null);
+    setNeedsGoogleRoleSelection(false);
     toast.success("Signed out successfully");
     navigate("/");
   };
@@ -160,6 +237,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       user,
       userRole,
       loading,
+      needsGoogleRoleSelection,
+      completeGoogleSignUpRole,
+      signInWithGoogle,
       signUp,
       signIn,
       signOut,
@@ -167,7 +247,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       updatePassword,
       changePassword,
     }),
-    [user, userRole, loading]
+    [user, userRole, loading, needsGoogleRoleSelection]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
-import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LogOut, LayoutGrid, ChevronRight, FileText, Lock, CheckCircle2 } from "lucide-react";
+import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, FileText, Lock, CheckCircle2, Search } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
@@ -344,7 +344,6 @@ const RecruiterDashboard = () => {
         { label: "Search Candidates", to: "/candidate-search", icon: <Search className="w-[18px] h-[18px]" /> },
         { label: "My Jobs", active: activeTab === 'jobs', onClick: () => setActiveTab('jobs'), icon: <Briefcase className="w-[18px] h-[18px]" /> },
         { label: "Pipeline & Tracking", active: activeTab === 'pipeline', onClick: () => setActiveTab('pipeline'), icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
-        { label: "Log out", onClick: () => signOut(), icon: <LogOut className="w-[18px] h-[18px]" /> },
       ],
     },
   ];
@@ -381,7 +380,6 @@ const RecruiterDashboard = () => {
                   <Plus className="h-4 w-4 mr-2" />
                   Post New Job
                 </Button>
-                <Button className="dashboard-btn-ghost" size="sm" onClick={() => signOut()}><LogOut className="h-4 w-4 mr-1" /> Log out</Button>
               </div>
             </div>
 
@@ -505,7 +503,7 @@ const RecruiterDashboard = () => {
                       <div
                         key={job.id}
                         className="flex items-center justify-between p-4 border border-[var(--dash-navy-border)] rounded-xl hover:bg-white/5 transition-colors cursor-pointer group"
-                        onClick={() => handleViewJobDetails(job)}
+                        onClick={() => navigate(`/jobs/${job.id}/applicants`)}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">

@@ -7,11 +7,17 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 
 import { createApp } from "./src/app.js";
 import { initProctorSocket } from "./src/socket/proctor-socket.js";
+import { ensureDefaultFlags } from "./src/services/featureFlag.service.js";
 
 const app = createApp();
 const httpServer = http.createServer(app);
 
 initProctorSocket(httpServer);
+
+// Ensure feature flags exist on startup (idempotent)
+ensureDefaultFlags().catch((e) => {
+  console.warn("[feature-flags] Could not ensure default flags:", e?.message);
+});
 
 // Render sets PORT (default 10000). Fallback if missing/invalid to avoid ERR_SOCKET_BAD_PORT.
 const raw = process.env.PORT;

@@ -287,6 +287,24 @@ interviewRouter.post("/respond", requireAuth, async (req: AuthedRequest, res) =>
         completedAt: new Date(),
       },
     });
+    const existing = await prisma.verificationStage.findFirst({
+      where: { userId: interview.userId, stageName: "expert_interview" },
+    });
+    if (existing) {
+      await prisma.verificationStage.update({
+        where: { id: existing.id },
+        data: { status: "completed", score: total },
+      });
+    } else {
+      await prisma.verificationStage.create({
+        data: {
+          userId: interview.userId,
+          stageName: "expert_interview",
+          status: "completed",
+          score: total,
+        },
+      });
+    }
     return res.json({ completed: true, evaluation, totalScore: total, badgeLevel: badge });
   }
 

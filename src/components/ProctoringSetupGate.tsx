@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Shield, Monitor, Video, Mic, CheckCircle2, XCircle, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import ProctoringNotice from "@/components/ProctoringNotice";
 
 export type PermissionStatus = "pending" | "granted" | "denied" | "unsupported";
 
@@ -27,6 +28,8 @@ interface ProctoringSetupGateProps {
   screenShareOptional?: boolean;
   /** When true, show retry-friendly copy and try to re-use permissions (avoids repeated prompts) */
   isRetry?: boolean;
+  /** When true, skip proctoring setup entirely (e.g. all proctoring flags OFF for testing). Shows "Start Test" only. */
+  skipSetup?: boolean;
 }
 
 const ProctoringSetupGate = ({
@@ -35,6 +38,7 @@ const ProctoringSetupGate = ({
   enableScreenShare = true,
   screenShareOptional = false,
   isRetry = false,
+  skipSetup = false,
 }: ProctoringSetupGateProps) => {
   const [state, setState] = useState<ProctoringState>({
     screenShare: "pending",
@@ -157,6 +161,44 @@ const ProctoringSetupGate = ({
     return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
   };
 
+  if (skipSetup) {
+    const bypassState: ProctoringState = {
+      screenShare: "unsupported",
+      camera: "unsupported",
+      microphone: "unsupported",
+      screenStream: null,
+      cameraStream: null,
+      microphoneStream: null,
+    };
+    return (
+      <Card className="border-2 border-primary/30">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Shield className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <CardTitle>Start {testName}</CardTitle>
+              <CardDescription>
+                Proctoring is disabled for testing. Click below to begin the assessment.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <ProctoringNotice />
+          <Button
+            onClick={() => onReady(bypassState)}
+            className="bg-green-600 hover:bg-green-700 w-full"
+          >
+            <CheckCircle2 className="h-4 w-4 mr-2" />
+            Start {testName}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="border-2 border-primary/30">
       <CardHeader>
@@ -267,6 +309,8 @@ const ProctoringSetupGate = ({
             </div>
           </div>
         </div>
+
+        <ProctoringNotice />
 
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
           <p className="text-sm font-semibold text-foreground">Before starting, confirm the checklist</p>

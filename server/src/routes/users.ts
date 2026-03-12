@@ -144,7 +144,11 @@ usersRouter.post("/recruiter-profile", requireAuth, async (req: AuthedRequest, r
 });
 
 usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
-  const rows = await prisma.jobSeekerProfile.findMany({ take: 50, orderBy: { createdAt: "desc" } });
+  const eliteOnly = req.query.eliteOnly === "true";
+  const rows = await prisma.jobSeekerProfile.findMany({
+    take: eliteOnly ? 100 : 50,
+    orderBy: { createdAt: "desc" },
+  });
   const userIds = rows.map((p) => p.userId);
   const [stages, proctoringEvents] = await Promise.all([
     prisma.verificationStage.findMany({
@@ -177,12 +181,13 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
     })
   );
 
-  const profiles = rows.map((p) => {
+  let profiles = rows.map((p) => {
     const skills = Array.isArray(p.skills) ? p.skills : p.skills ? [String(p.skills)] : [];
     const activelyLookingRoles = p.targetJobTitle ? [p.targetJobTitle] : [];
     const userStages = stageByUser.get(p.userId) ?? [];
     const stageScore = (stageName: string) =>
       userStages.find((s) => s.stageName === stageName && s.status === "completed")?.score ?? null;
+    const humanExpert = stageScore("human_expert_interview");
     const cert = certByUser.get(p.userId);
     const integrityScore = Math.max(0, 100 - (maxRiskByUser.get(p.userId) ?? 0));
 
@@ -207,6 +212,7 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
       aptitude_score: stageScore("aptitude_test"),
       dsa_score: stageScore("dsa_round"),
       ai_interview_score: stageScore("expert_interview"),
+      human_expert_interview_score: humanExpert,
       assignment_score: stageScore("non_tech_assignment"),
       integrity_score: integrityScore,
       notice_period: p.noticePeriod,
@@ -214,5 +220,86 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
       expected_salary: p.expectedSalary,
     };
   });
+  if (eliteOnly) {
+    profiles = profiles.filter((p) => (p.certification_level ?? 0) >= 3);
+  }
   res.json({ profiles });
+});
+
+/** Single candidate profile for recruiter detail view */
+usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest, res) => {
+  const profileId = req.params.profileId;
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { id: profileId },
+    include: { user: { select: { email: true } } },
+  });
+  if (!profile) return res.status(404).json({ error: "Candidate not found" });
+
+  const [stages, proctoringEvents, cert] = await Promise.all([
+    prisma.verificationStage.findMany({
+      where: { userId: profile.userId },
+      select: { stageName: true, status: true, score: true },
+    }),
+    prisma.proctoringEvent.findMany({
+      where: { userId: profile.userId },
+      select: { type: true, riskScore: true },
+    }),
+    calculateCertificationLevel(profile.userId),
+  ]);
+
+  const stageScore = (name: string) =>
+    stages.find((s) => s.stageName === name && s.status === "completed")?.score ?? null;
+  const humanExpert = stageScore("human_expert_interview");
+  const maxRisk = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
+  const integrityScore = Math.max(0, 100 - maxRisk);
+
+  const skills = Array.isArray(profile.skills)
+    ? profile.skills
+    : profile.skills
+      ? [String(profile.skills)]
+      : [];
+  const education = Array.isArray(profile.education)
+    ? profile.education
+    : profile.education
+      ? [profile.education]
+      : [];
+  const workExperience = Array.isArray(profile.workExperience)
+    ? profile.workExperience
+    : profile.workExperience
+      ? [profile.workExperience]
+      : [];
+
+  res.json({
+    profile: {
+      id: profile.id,
+      user_id: profile.userId,
+      full_name: profile.fullName,
+      email: profile.user?.email,
+      current_role: profile.currentRole,
+      experience_years: profile.experienceYears,
+      verification_status: profile.verificationStatus,
+      skills,
+      target_job_title: profile.targetJobTitle,
+      about: profile.about,
+      phone: profile.phone,
+      location: profile.location,
+      college: profile.college,
+      graduation_year: profile.graduationYear,
+      resume_url: profile.resumeUrl,
+      education,
+      work_experience: workExperience,
+      certification_level: cert.level,
+      certification_label: cert.label,
+      aptitude_score: stageScore("aptitude_test"),
+      dsa_score: stageScore("dsa_round"),
+      ai_interview_score: stageScore("expert_interview"),
+      human_expert_interview_score: humanExpert,
+      assignment_score: stageScore("non_tech_assignment"),
+      integrity_score: integrityScore,
+      notice_period: profile.noticePeriod,
+      current_salary: profile.currentSalary,
+      expected_salary: profile.expectedSalary,
+      proctoring_events: proctoringEvents.length,
+    },
+  });
 });

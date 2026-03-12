@@ -23,6 +23,8 @@ import ExpertDashboard from "./pages/dashboard/ExpertDashboard";
 const RecruiterOnboarding = lazy(() => import("./pages/dashboard/RecruiterOnboarding"));
 const PostJob = lazy(() => import("./pages/dashboard/PostJob"));
 const CandidateSearch = lazy(() => import("./pages/dashboard/CandidateSearch"));
+const CandidateProfilePage = lazy(() => import("./pages/dashboard/CandidateProfilePage"));
+const ApplicantsPage = lazy(() => import("./pages/dashboard/ApplicantsPage"));
 const AssignmentAIDocs = lazy(() => import("./pages/dashboard/AssignmentAIDocs"));
 const VerificationFlow = lazy(() => import("./pages/verification/VerificationFlow"));
 const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
@@ -153,6 +155,22 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="recruiter">
                     <CandidateSearch />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/candidate-search/:profileId" 
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <CandidateProfilePage />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/jobs/:jobId/applicants" 
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <ApplicantsPage />
                   </ProtectedRoute>
                 } 
               />

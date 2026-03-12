@@ -13,6 +13,7 @@ import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -90,7 +91,13 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
-  const MAX_TAB_SWITCHES = 3;
+  const { getMode: getFlagMode } = useFeatureFlags();
+  const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
+  const tabSwitchMode = getFlagMode("tab_switch_detection");
+  const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
+  const fullscreenRequired = isFlagEnabled("fullscreen_required");
+  const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
+  const MAX_TAB_SWITCHES = tabSwitchMode === "STRICT" ? 3 : 999;
   const { tabSwitchCount } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
@@ -98,20 +105,28 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     testType: "dsa",
     cameraStream: proctoringState?.cameraStream ?? null,
     microphoneStream: proctoringState?.microphoneStream ?? null,
+    tabSwitchDetectionEnabled,
+    copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
+    devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
+    fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
+    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
-    onMaxTabSwitches: () => {
-      if (questions.length > 0 && !submitting) {
-        toast.error("Test terminated. Maximum 3 tab switches allowed.");
-        void api.post("/api/verification/dsa", { score: 0, answers: {} }).catch(() => {});
-        void api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed", score: 0 }).catch(() => {});
-        setHasFailed(true);
-        setLocalFinalScore(0);
-      }
-    },
+    onMaxTabSwitches: tabSwitchMode === "STRICT"
+      ? () => {
+          if (questions.length > 0 && !submitting) {
+            toast.error("Test terminated. Maximum 3 tab switches allowed.");
+            void api.post("/api/verification/dsa", { score: 0, answers: {} }).catch(() => {});
+            void api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed", score: 0 }).catch(() => {});
+            setHasFailed(true);
+            setLocalFinalScore(0);
+          }
+        }
+      : undefined,
   });
 
   useSoundDetection({
-    enabled: inTest,
+    enabled: inTest && isFlagEnabled("microphone_monitoring"),
     threshold: 40,
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
@@ -119,7 +134,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   });
 
   useProctorFrameCapture({
-    enabled: inTest,
+    enabled: inTest && isFlagEnabled("screen_recording_enabled"),
     sessionId: testIdRef.current,
     testType: "dsa",
     cameraStream: proctoringState?.cameraStream ?? null,
@@ -429,6 +444,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         testName="DSA Round"
         enableScreenShare={false}
         isRetry={isRetry}
+        skipSetup={!isFlagEnabled("camera_required") && !isFlagEnabled("screen_recording_enabled") && !isFlagEnabled("microphone_monitoring")}
         onReady={(state) => {
           setProctoringState(state);
           setProctoringReady(true);
@@ -470,14 +486,14 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       </CardHeader>
       <CardContent className="space-y-4">
         <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-        <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={MAX_TAB_SWITCHES} />
+        <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={MAX_TAB_SWITCHES} showTabSwitch={tabSwitchDetectionEnabled} />
 
-        {!isFullScreen && inTest && (
+        {!effectivelyFullScreen && inTest && fullscreenRequired && (
           <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
               Enter full screen to proceed to the next question or submit.
             </span>
-            <FullScreenMonitor active={inTest} />
+            <FullScreenMonitor active={inTest && fullscreenRequired} />
           </div>
         )}
         <LiveProctoringPreview
@@ -638,7 +654,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                     setCurrentIndex((i) => Math.max(0, i - 1));
                     setResults(null);
                   }}
-                  disabled={isFirstQuestion || (inTest && !isFullScreen)}
+                  disabled={isFirstQuestion || (inTest && !effectivelyFullScreen)}
                 >
                   <ChevronLeft className="h-4 w-4 mr-2" />
                   Previous
@@ -646,7 +662,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
                 <Button
                   onClick={runTests}
-                  disabled={running || (inTest && !isFullScreen)}
+                  disabled={running || (inTest && !effectivelyFullScreen)}
                   variant="secondary"
                   size="lg"
                   className="font-medium"
@@ -668,7 +684,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                       setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
                       setResults(null);
                     }}
-                    disabled={inTest && !isFullScreen}
+                    disabled={inTest && !effectivelyFullScreen}
                   >
                     Next question
                     <ChevronRight className="h-4 w-4 ml-2" />
@@ -680,7 +696,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   variant={isLastQuestion ? "default" : "outline"}
                   className="font-medium"
                   onClick={() => setSubmitConfirmOpen(true)}
-                  disabled={submitting || (inTest && !isFullScreen)}
+                  disabled={submitting || (inTest && !effectivelyFullScreen)}
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                   Submit entire round

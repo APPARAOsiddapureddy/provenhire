@@ -19,6 +19,7 @@ import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
 
 const INTERVIEW_ROLES = [
@@ -78,22 +79,33 @@ const ExpertInterviewStage = ({
 
   const inTest = !!interviewId && !result;
   const isFullScreen = useFullScreenState(inTest);
+  const { getMode: getFlagMode } = useFeatureFlags();
+  const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
+  const tabSwitchMode = getFlagMode("tab_switch_detection");
+  const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
+  const fullscreenRequired = isFlagEnabled("fullscreen_required");
+  const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
   const { riskLevel, riskScore } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: interviewId ?? fallbackTestIdRef.current,
     testType: "ai_interview",
     cameraStream: cameraActive ? streamRef.current : null,
-    // During AI interview, microphone is expected for answers; browser/window/fullscreen
-    // monitoring remains active even when mic stream is not passed here.
     microphoneStream: null,
+    tabSwitchDetectionEnabled,
+    copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
+    devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
+    fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
+    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
+    maxTabSwitches: tabSwitchMode === "STRICT" ? 3 : 999,
   });
 
   // Voice/sound detection OFF for AI interview — speaking is expected when answering.
   useSoundDetection({ enabled: false });
 
   useProctorFrameCapture({
-    enabled: inTest && cameraActive,
+    enabled: inTest && cameraActive && isFlagEnabled("screen_recording_enabled"),
     sessionId: interviewId ?? fallbackTestIdRef.current,
     testType: "ai_interview",
     cameraStream: cameraActive ? streamRef.current : null,
@@ -293,7 +305,12 @@ const ExpertInterviewStage = ({
         setResult(res);
         stopCamera();
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-        await api.post("/api/verification/stages/update", { stageName: "expert_interview", status: "completed" });
+        const aiScore = typeof res.totalScore === "number" ? Math.round(res.totalScore) : undefined;
+        await api.post("/api/verification/stages/update", {
+          stageName: "expert_interview",
+          status: "completed",
+          score: aiScore,
+        });
         onComplete();
       } else {
         setQuestion(res.question);
@@ -310,13 +327,13 @@ const ExpertInterviewStage = ({
   return (
     <div className="space-y-4">
       <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-      <TestProctoringBar />
-      {!isFullScreen && inTest && (
+      <TestProctoringBar showTabSwitch={tabSwitchDetectionEnabled} />
+      {!effectivelyFullScreen && inTest && fullscreenRequired && (
         <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
           <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
             Enter full screen to proceed to the next question or submit.
           </span>
-          <FullScreenMonitor active={inTest} exitMessage="Please stay in full screen during the interview." />
+          <FullScreenMonitor active={inTest && fullscreenRequired} exitMessage="Please stay in full screen during the interview." />
         </div>
       )}
       <Card>
@@ -472,7 +489,7 @@ const ExpertInterviewStage = ({
                         </p>
                         <Button
                           onClick={sendAnswer}
-                          disabled={loading || !isFullScreen}
+                          disabled={loading || !effectivelyFullScreen}
                           size="lg"
                         >
                           {loading ? "Submitting..." : "Submit & go to next question"}

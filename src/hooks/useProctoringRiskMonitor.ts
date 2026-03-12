@@ -35,10 +35,22 @@ interface UseProctoringRiskMonitorOptions {
   enabled: boolean;
   candidateId?: string;
   testId: string;
-  testType: "aptitude" | "dsa" | "ai_interview";
+  testType: "aptitude" | "dsa" | "ai_interview" | "non_tech_assignment";
   cameraStream?: MediaStream | null;
   microphoneStream?: MediaStream | null;
-  /** Max tab switches before test is stopped (default 3). Set to 0 to disable. */
+  /** When false, tab switch / window focus detection is completely disabled. */
+  tabSwitchDetectionEnabled?: boolean;
+  /** When false, copy-paste and context menu are not blocked. */
+  copyPasteDetectionEnabled?: boolean;
+  /** When false, devtools detection (F12, etc.) is disabled. */
+  devtoolsDetectionEnabled?: boolean;
+  /** When false, fullscreen exit detection is disabled. */
+  fullscreenDetectionEnabled?: boolean;
+  /** When false, face detection (no face, multiple faces, looking away) is disabled. */
+  multipleFaceDetectionEnabled?: boolean;
+  /** When false, microphone monitoring (speaking, noise, mute) is disabled. */
+  microphoneMonitoringEnabled?: boolean;
+  /** Max tab switches before test is stopped (default 3). Only applies when tabSwitchDetectionEnabled is true. */
   maxTabSwitches?: number;
   /** Called when tab switch count reaches maxTabSwitches — use to stop/terminate the test */
   onMaxTabSwitches?: () => void;
@@ -95,6 +107,12 @@ export function useProctoringRiskMonitor({
   testType,
   cameraStream,
   microphoneStream,
+  tabSwitchDetectionEnabled = false,
+  copyPasteDetectionEnabled = false,
+  devtoolsDetectionEnabled = false,
+  fullscreenDetectionEnabled = false,
+  multipleFaceDetectionEnabled = false,
+  microphoneMonitoringEnabled = false,
   maxTabSwitches = 3,
   onMaxTabSwitches,
 }: UseProctoringRiskMonitorOptions) {
@@ -184,6 +202,11 @@ export function useProctoringRiskMonitor({
   useEffect(() => {
     if (!enabled) return;
 
+    const tabAndFocusEnabled = tabSwitchDetectionEnabled;
+    const copyPasteEnabled = copyPasteDetectionEnabled;
+    const devtoolsEnabled = devtoolsDetectionEnabled;
+    const fullscreenEnabled = fullscreenDetectionEnabled;
+
     // Where supported, flag multiple connected displays.
     const checkMultipleScreens = async () => {
       const maybeWindow = window as Window & {
@@ -203,6 +226,7 @@ export function useProctoringRiskMonitor({
     void checkMultipleScreens();
 
     const onVisibility = () => {
+      if (!tabAndFocusEnabled) return;
       if (document.hidden) {
         setTabSwitchCount((prev) => {
           const next = prev + 1;
@@ -218,23 +242,26 @@ export function useProctoringRiskMonitor({
     };
 
     const onBlur = () => {
+      if (!tabAndFocusEnabled) return;
       warnFirstThenLog("WINDOW_FOCUS_LOST", "WINDOW_FOCUS_LOST", "Warning: keep this window focused during the test.");
     };
 
     const onResize = () => {
-      // Heuristic for minimization.
+      if (!tabAndFocusEnabled) return;
       if (window.innerWidth < 200 || window.innerHeight < 200) {
         void logViolation("WINDOW_MINIMIZED");
       }
     };
 
     const onFullscreen = () => {
+      if (!fullscreenEnabled) return;
       if (!document.fullscreenElement) {
         void logViolation("FULLSCREEN_EXIT");
       }
     };
 
     const onContextMenu = (e: MouseEvent) => {
+      if (!copyPasteEnabled) return;
       e.preventDefault();
       void logViolation("COPY_PASTE_ATTEMPT", { action: "context_menu" });
     };
@@ -245,48 +272,64 @@ export function useProctoringRiskMonitor({
       const isDevtoolsShortcut =
         key === "f12" || ((e.ctrlKey || e.metaKey) && e.shiftKey && ["i", "j", "c"].includes(key));
 
-      if (isCopyPaste) {
+      if (copyPasteEnabled && isCopyPaste) {
         e.preventDefault();
         void logViolation("COPY_PASTE_ATTEMPT", { action: `key_${key}` });
       }
-      if (isDevtoolsShortcut) {
+      if (devtoolsEnabled && isDevtoolsShortcut) {
         e.preventDefault();
         void logViolation("DEVTOOLS_OPENED", { action: "shortcut" });
       }
     };
 
-    const devtoolsInterval = window.setInterval(() => {
-      const widthDiff = window.outerWidth - window.innerWidth;
-      const heightDiff = window.outerHeight - window.innerHeight;
-      const opened = widthDiff > 160 || heightDiff > 160;
-      if (opened && !devtoolsWarnedRef.current) {
-        devtoolsWarnedRef.current = true;
-        void logViolation("DEVTOOLS_OPENED", { action: "dimension_heuristic" });
-      }
-      if (!opened) devtoolsWarnedRef.current = false;
-    }, 2000);
+    const devtoolsInterval = devtoolsEnabled
+      ? window.setInterval(() => {
+          const widthDiff = window.outerWidth - window.innerWidth;
+          const heightDiff = window.outerHeight - window.innerHeight;
+          const opened = widthDiff > 160 || heightDiff > 160;
+          if (opened && !devtoolsWarnedRef.current) {
+            devtoolsWarnedRef.current = true;
+            void logViolation("DEVTOOLS_OPENED", { action: "dimension_heuristic" });
+          }
+          if (!opened) devtoolsWarnedRef.current = false;
+        }, 2000)
+      : 0;
 
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("blur", onBlur);
-    window.addEventListener("resize", onResize);
-    document.addEventListener("fullscreenchange", onFullscreen);
+    if (tabAndFocusEnabled) {
+      document.addEventListener("visibilitychange", onVisibility);
+      window.addEventListener("blur", onBlur);
+    }
+    if (tabAndFocusEnabled) window.addEventListener("resize", onResize);
+    if (fullscreenEnabled) document.addEventListener("fullscreenchange", onFullscreen);
     document.addEventListener("contextmenu", onContextMenu);
     document.addEventListener("keydown", onKeyDown);
 
     return () => {
-      window.clearInterval(devtoolsInterval);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("blur", onBlur);
-      window.removeEventListener("resize", onResize);
-      document.removeEventListener("fullscreenchange", onFullscreen);
+      if (devtoolsInterval) window.clearInterval(devtoolsInterval);
+      if (tabAndFocusEnabled) {
+        document.removeEventListener("visibilitychange", onVisibility);
+        window.removeEventListener("blur", onBlur);
+        window.removeEventListener("resize", onResize);
+      }
+      if (fullscreenEnabled) document.removeEventListener("fullscreenchange", onFullscreen);
       document.removeEventListener("contextmenu", onContextMenu);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [enabled, logViolation, warnFirstThenLog, maxTabSwitches, onMaxTabSwitches]);
+  }, [
+    enabled,
+    logViolation,
+    warnFirstThenLog,
+    maxTabSwitches,
+    onMaxTabSwitches,
+    tabSwitchDetectionEnabled,
+    copyPasteDetectionEnabled,
+    devtoolsDetectionEnabled,
+    fullscreenDetectionEnabled,
+  ]);
 
   // Audio checks: speaking duration, suspicious noise, multiple voices, mute attempts.
   useEffect(() => {
-    if (!enabled || !microphoneStream) return;
+    if (!enabled || !microphoneStream || !microphoneMonitoringEnabled) return;
 
     const track = microphoneStream.getAudioTracks()[0];
     if (!track) return;
@@ -348,12 +391,12 @@ export function useProctoringRiskMonitor({
       window.clearInterval(interval);
       audioContext.close().catch(() => {});
     };
-  }, [enabled, logViolation, microphoneStream]);
+  }, [enabled, logViolation, microphoneStream, microphoneMonitoringEnabled]);
 
   // Face checks: no face, multiple faces, looking away, low visibility.
   // Skip for ai_interview to avoid canvas/getImageData warnings and because speaking is expected.
   useEffect(() => {
-    if (!enabled || !cameraStream || testType === "ai_interview") return;
+    if (!enabled || !cameraStream || testType === "ai_interview" || !multipleFaceDetectionEnabled) return;
 
     let cancelled = false;
     const video = document.createElement("video");
@@ -451,7 +494,7 @@ export function useProctoringRiskMonitor({
       video.pause();
       video.srcObject = null;
     };
-  }, [cameraStream, enabled, logViolation]);
+  }, [cameraStream, enabled, logViolation, multipleFaceDetectionEnabled]);
 
   const recordEvent = useCallback(
     (eventCode: ProctoringEventCode, details?: Record<string, unknown>) => {

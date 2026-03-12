@@ -15,6 +15,7 @@ import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2, ChevronLeft, ChevronRight, RotateCcw, Bookmark, BookmarkCheck, CircleHelp, Sparkles, Trophy, Target } from "lucide-react";
 
@@ -65,7 +66,13 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
 
   const inTest = proctoringReady && !justPassed && !isFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
-  const MAX_TAB_SWITCHES = 3;
+  const { getMode: getFlagMode } = useFeatureFlags();
+  const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
+  const fullscreenRequired = isFlagEnabled("fullscreen_required");
+  const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
+  const tabSwitchMode = getFlagMode("tab_switch_detection");
+  const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
+  const MAX_TAB_SWITCHES = tabSwitchMode === "STRICT" ? 3 : 999;
   const { tabSwitchCount } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
@@ -73,20 +80,28 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     testType: "aptitude",
     cameraStream: proctoringState?.cameraStream ?? null,
     microphoneStream: proctoringState?.microphoneStream ?? null,
+    tabSwitchDetectionEnabled,
+    copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
+    devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
+    fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
+    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
-    onMaxTabSwitches: () => {
-      if (questions.length > 0 && !submittingRef.current) {
-        toast.error("Test terminated due to tab switching. Maximum 3 switches allowed.");
-        void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
-        void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
-        setSubmitted(true);
-        setSubmittedScore(0);
-      }
-    },
+    onMaxTabSwitches: tabSwitchMode === "STRICT"
+      ? () => {
+          if (questions.length > 0 && !submittingRef.current) {
+            toast.error("Test terminated due to tab switching. Maximum 3 switches allowed.");
+            void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
+            void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
+            setSubmitted(true);
+            setSubmittedScore(0);
+          }
+        }
+      : undefined,
   });
 
   useSoundDetection({
-    enabled: inTest,
+    enabled: inTest && isFlagEnabled("microphone_monitoring"),
     threshold: 40,
     debounceMs: 4000,
     onSoundDetected: () => setSoundAlertOpen(true),
@@ -94,7 +109,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   });
 
   useProctorFrameCapture({
-    enabled: inTest,
+    enabled: inTest && isFlagEnabled("screen_recording_enabled"),
     sessionId: testIdRef.current,
     testType: "aptitude",
     cameraStream: proctoringState?.cameraStream ?? null,
@@ -214,7 +229,6 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     }
   };
 
-  const allAnswered = questions.length > 0 && questions.every((q) => answers[q.id] != null && answers[q.id] !== "");
   const currentQuestion = questions[currentIndex];
   const isLastQuestion = currentIndex === questions.length - 1;
   const isFirstQuestion = currentIndex === 0;
@@ -295,6 +309,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         testName="Aptitude Test"
         enableScreenShare={false}
         isRetry={isRetry}
+        skipSetup={!isFlagEnabled("camera_required") && !isFlagEnabled("screen_recording_enabled") && !isFlagEnabled("microphone_monitoring")}
         onReady={(state) => {
           setProctoringState(state);
           setProctoringReady(true);
@@ -311,8 +326,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             <CardTitle className="text-lg sm:text-xl">Aptitude Test</CardTitle>
             <CardDescription className="text-sm">
               {!isFailed && !justPassed
-                ? `Question ${currentIndex + 1} of ${questions.length}. Need ${passThreshold}/${totalMarks} to pass.`
-                : `Answer all ${questions.length} questions. Need ${passThreshold}/${totalMarks} to pass.`}
+                ? `Question ${currentIndex + 1} of ${questions.length}. Submit anytime. Need ${passThreshold}/${totalMarks} to pass.`
+                : `Need ${passThreshold}/${totalMarks} to pass.`}
             </CardDescription>
           </div>
           {inTest && (
@@ -441,7 +456,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                       key={q.id}
                       type="button"
                       onClick={() => goToQuestion(i)}
-                      disabled={inTest && !isFullScreen}
+                      disabled={inTest && !effectivelyFullScreen}
                       className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
                         status === "current"
                           ? "ring-2 ring-primary bg-primary text-primary-foreground"
@@ -471,7 +486,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 })}
               </div>
             </div>
-            <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={MAX_TAB_SWITCHES} />
+            <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={MAX_TAB_SWITCHES} showTabSwitch={tabSwitchDetectionEnabled} />
             <div className="flex-1 flex flex-col min-h-0 overflow-auto">
               {currentQuestion && (
                 <div key={currentQuestion.id} className="flex flex-col flex-1 min-h-0 gap-4">
@@ -527,12 +542,12 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 </div>
               )}
             </div>
-            {!isFullScreen && inTest && (
+            {!effectivelyFullScreen && inTest && fullscreenRequired && (
               <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
                   Enter full screen to proceed.
                 </span>
-                <FullScreenMonitor active={inTest} />
+                <FullScreenMonitor active={inTest && fullscreenRequired} />
               </div>
             )}
             <div className="flex flex-wrap items-end justify-between gap-4 pt-4 border-t shrink-0">
@@ -541,7 +556,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                   variant="outline"
                   size="sm"
                   onClick={() => goToQuestion(Math.max(0, currentIndex - 1))}
-                  disabled={isFirstQuestion || (inTest && !isFullScreen)}
+                  disabled={isFirstQuestion || (inTest && !effectivelyFullScreen)}
                 >
                   <ChevronLeft className="h-4 w-4 mr-1" />
                   Previous
@@ -550,7 +565,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                   variant="outline"
                   size="sm"
                   onClick={clearCurrentAnswer}
-                  disabled={!currentQuestion || !answers[currentQuestion.id] || (inTest && !isFullScreen)}
+                  disabled={!currentQuestion || !answers[currentQuestion.id] || (inTest && !effectivelyFullScreen)}
                   title="Clear selected option for this question"
                 >
                   <RotateCcw className="h-4 w-4 mr-1" />
@@ -560,7 +575,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                   <Button
                     size="sm"
                     onClick={() => goToQuestion(Math.min(questions.length - 1, currentIndex + 1))}
-                    disabled={!canGoNext || (inTest && !isFullScreen)}
+                    disabled={!canGoNext || (inTest && !effectivelyFullScreen)}
                   >
                     Next question
                     <ChevronRight className="h-4 w-4 ml-1" />
@@ -568,7 +583,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 ) : (
                   <Button
                     onClick={handleSubmit}
-                    disabled={loading || !allAnswered || (inTest && !isFullScreen)}
+                    disabled={loading || (inTest && !effectivelyFullScreen)}
                   >
                     {loading ? "Submitting..." : "Submit test"}
                   </Button>

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Mail, Lock, User, Briefcase, Shield, Award, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 import { api } from "@/lib/api";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
@@ -82,6 +83,11 @@ const Auth = () => {
   const [showSignUpConfirmPassword, setShowSignUpConfirmPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [googleRole, setGoogleRole] = useState<"jobseeker" | "recruiter">("jobseeker");
+  const [googleCompanyName, setGoogleCompanyName] = useState("");
+  const [googleCompanySize, setGoogleCompanySize] = useState("");
+  const [googleRoleErrors, setGoogleRoleErrors] = useState<{ companyName?: string; form?: string }>({});
+  const [googleRoleSubmitting, setGoogleRoleSubmitting] = useState(false);
   const [signInErrors, setSignInErrors] = useState<{ email?: string; password?: string; form?: string }>({});
   const [signUpErrors, setSignUpErrors] = useState<{
     email?: string;
@@ -93,7 +99,7 @@ const Auth = () => {
     form?: string;
   }>({});
 
-  const { signUp, signIn, user, userRole, loading, resetPassword } = useAuth();
+  const { signUp, signIn, signInWithGoogle, user, userRole, loading, needsGoogleRoleSelection, completeGoogleSignUpRole, resetPassword } = useAuth();
   const navigate = useNavigate();
 
   const isRedirecting = Boolean(user && userRole === null && authMode !== "reset" && !isReset);
@@ -110,12 +116,12 @@ const Auth = () => {
   }, [resendCooldown]);
 
   useEffect(() => {
-    if (!user || authMode === "reset") return;
+    if (!user || authMode === "reset" || needsGoogleRoleSelection) return;
     if (userRole === "admin") navigate("/admin/dashboard", { replace: true });
     else if (userRole === "recruiter") navigate("/dashboard/recruiter", { replace: true });
     else if (userRole === "expert_interviewer") navigate("/dashboard/expert", { replace: true });
     else if (userRole === "jobseeker") navigate("/dashboard/jobseeker", { replace: true });
-  }, [user, userRole, navigate, authMode]);
+  }, [user, userRole, navigate, authMode, needsGoogleRoleSelection]);
 
   useEffect(() => {
     if (emailFromUrl) {
@@ -402,6 +408,31 @@ const Auth = () => {
     }
   };
 
+  const handleGoogleRoleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const errs: { companyName?: string; form?: string } = {};
+    if (googleRole === "recruiter" && !googleCompanyName?.trim()) {
+      errs.companyName = "Company name is required for recruiters.";
+    }
+    if (Object.keys(errs).length > 0) {
+      setGoogleRoleErrors(errs);
+      return;
+    }
+    setGoogleRoleErrors({});
+    try {
+      setGoogleRoleSubmitting(true);
+      await completeGoogleSignUpRole(
+        googleRole,
+        googleRole === "recruiter" ? googleCompanyName.trim() : undefined,
+        googleRole === "recruiter" ? googleCompanySize || undefined : undefined
+      );
+    } catch {
+      setGoogleRoleErrors({ form: "Could not save. Please try again." });
+    } finally {
+      setGoogleRoleSubmitting(false);
+    }
+  };
+
   // Forgot Password
   if (isForgot) {
     return (
@@ -564,6 +595,96 @@ const Auth = () => {
     );
   }
 
+  // Google Sign-Up: Role selection for new users
+  if (needsGoogleRoleSelection && user) {
+    return (
+      <div className="auth-page min-h-screen flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center p-6 bg-[hsl(var(--background))]">
+          <div className="w-full max-w-md bg-card rounded-2xl shadow-xl p-8 border border-border">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                <User className="h-8 w-8 text-primary" />
+              </div>
+              <h1 className="text-2xl font-bold text-foreground">Choose Your Role</h1>
+              <p className="text-muted-foreground mt-2">You signed in with Google. Select how you want to use ProvenHire.</p>
+            </div>
+            <form onSubmit={handleGoogleRoleSubmit} className="space-y-4" noValidate>
+              {googleRoleErrors.form && <p className="text-xs text-red-400/95 tracking-wide">• {googleRoleErrors.form}</p>}
+              <div>
+                <label className="auth-label">I am a</label>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setGoogleRole("jobseeker")}
+                    className={`auth-role-tile ${googleRole === "jobseeker" ? "on" : ""}`}
+                  >
+                    <User className="h-4 w-4" />
+                    <div className="text-left">
+                      <div className="text-sm font-semibold">Job Seeker</div>
+                      <div className="text-[10px] text-muted-foreground">Get verified</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGoogleRole("recruiter")}
+                    className={`auth-role-tile ${googleRole === "recruiter" ? "on" : ""}`}
+                  >
+                    <Briefcase className="h-4 w-4" />
+                    <div className="text-left">
+                      <div className="text-sm font-semibold">Recruiter</div>
+                      <div className="text-[10px] text-muted-foreground">Hire talent</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+              {googleRole === "recruiter" && (
+                <>
+                  <div>
+                    <label className="auth-label">Company Name *</label>
+                    <div className="auth-input-wrap">
+                      <Briefcase className="iw-icon" />
+                      <input
+                        type="text"
+                        placeholder="Your company"
+                        value={googleCompanyName}
+                        onChange={(e) => {
+                          setGoogleCompanyName(e.target.value);
+                          setGoogleRoleErrors((p) => ({ ...p, companyName: undefined }));
+                        }}
+                        className={googleRoleErrors.companyName ? "border-red-500/80 !bg-red-500/5" : ""}
+                      />
+                    </div>
+                    {googleRoleErrors.companyName && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {googleRoleErrors.companyName}</p>}
+                  </div>
+                  <div>
+                    <label className="auth-label">Team Size</label>
+                    <select
+                      value={googleCompanySize}
+                      onChange={(e) => setGoogleCompanySize(e.target.value)}
+                      className="w-full py-3 px-4 rounded-md bg-white/5 border text-foreground text-sm focus:outline-none focus:border-primary/50 border-border"
+                    >
+                      <option value="">Select</option>
+                      <option value="1-10">1-10</option>
+                      <option value="11-50">11-50</option>
+                      <option value="51-200">51-200</option>
+                      <option value="201-500">201-500</option>
+                      <option value="501+">501+</option>
+                    </select>
+                  </div>
+                </>
+              )}
+              <button type="submit" className="auth-cta w-full" disabled={googleRoleSubmitting}>
+                {googleRoleSubmitting ? "Saving..." : "Continue to Dashboard →"}
+              </button>
+            </form>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
   const TICKER_SIGNIN = ["Skill-Certified Hiring", "Not Resume-Approved", "5-Stage Verification", "Expert Interviews", "Skill Passport", "India's First"];
   const TICKER_SIGNUP = ["Get Verified Free", "Aptitude Test", "DSA Round", "AI Interview", "Human Expert Interview", "Earn Skill Passport"];
 
@@ -707,6 +828,10 @@ const Auth = () => {
                   </button>
                 </div>
                 <button type="submit" className="auth-cta w-full" disabled={loading}>{loading ? "Signing in..." : "Sign In →"}</button>
+                <div className="flex items-center gap-3 my-4">
+                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground uppercase tracking-wider">or</span><div className="flex-1 h-px bg-border" />
+                </div>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
 
               <p className="auth-switch">
@@ -937,6 +1062,10 @@ const Auth = () => {
                   {signUpErrors.confirmPassword && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.confirmPassword}</p>}
                 </div>
                 <button type="submit" className="auth-cta w-full" disabled={loading}>{loading ? "Creating..." : "Start Verification →"}</button>
+                <div className="flex items-center gap-3 my-4">
+                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground uppercase tracking-wider">or</span><div className="flex-1 h-px bg-border" />
+                </div>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
 
               <p className="auth-switch">
@@ -1002,6 +1131,10 @@ const Auth = () => {
                 <button type="submit" disabled={loading} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
                   {loading ? "Signing in..." : "Sign In"}
                 </button>
+                <div className="flex items-center gap-3 my-4">
+                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground">or</span><div className="flex-1 h-px bg-border" />
+                </div>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
               <p className="text-center mt-4 text-sm text-muted-foreground">
                 No account? <a onClick={() => switchMode("signup")} className="text-primary font-semibold hover:underline cursor-pointer">Sign Up</a>
@@ -1208,6 +1341,10 @@ const Auth = () => {
                 <button type="submit" disabled={loading} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
                   {loading ? "Creating..." : "Create Account"}
                 </button>
+                <div className="flex items-center gap-3 my-4">
+                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground">or</span><div className="flex-1 h-px bg-border" />
+                </div>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
               <p className="text-center mt-4 text-sm text-muted-foreground">
                 Already have an account? <a onClick={() => switchMode("login")} className="text-primary font-semibold hover:underline cursor-pointer">Sign In</a>

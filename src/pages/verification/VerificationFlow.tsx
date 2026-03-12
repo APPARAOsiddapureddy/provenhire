@@ -454,6 +454,9 @@ const VerificationFlow = () => {
         ) : (
           <NonTechnicalAssignmentStage
             targetJobTitle={targetJobTitle}
+            stageStatus={getStageStatus('non_tech_assignment')}
+            stageScore={stages.find(s => s.stage_name === 'non_tech_assignment')?.score}
+            isRetry={retryingStage === 'non_tech_assignment'}
             onComplete={async () => {
               await loadVerificationStages();
               setCurrentStage("human_expert_interview");

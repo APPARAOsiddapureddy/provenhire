@@ -18,9 +18,12 @@ model User {
   id            String   @id @default(uuid())
   name          String?
   email         String   @unique
-  passwordHash  String
+  passwordHash  String   // Placeholder hash for OAuth users (never used for login)
   role          UserRole @default(jobseeker)
   emailVerified Boolean  @default(false)
+  authProvider  String?  @default("EMAIL") // EMAIL | GOOGLE
+  googleUid     String?  @unique
+  profileImage  String?
   createdAt     DateTime @default(now())
 
   jobSeekerProfile JobSeekerProfile?
@@ -390,4 +393,14 @@ model EmailVerificationCode {
   createdAt             DateTime @default(now())
 
   @@index([email, createdAt])
+}
+
+/// Platform-wide feature flags (e.g. proctoring controls). Admin-configurable, no redeploy needed.
+model PlatformFeatureFlag {
+  id          String   @id @default(uuid())
+  featureName String   @unique
+  mode        String   @default("OFF") // OFF | MONITOR | STRICT
+  description String?
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
 }

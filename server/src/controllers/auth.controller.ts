@@ -1,10 +1,13 @@
 import { Request, Response } from "express";
+import type { Prisma } from "@prisma/client";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { z } from "zod";
 import { prisma } from "../config/prisma.js";
 import { signJwt, hashToken, generateRefreshToken } from "../utils/jwt.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 import { sendSignupVerificationCodeEmail } from "../services/resend.js";
+import { verifyFirebaseIdToken } from "../services/firebase.service.js";
 
 const REFRESH_EXPIRY_DAYS = 7;
 
@@ -32,6 +35,16 @@ const resetSchema = z.object({
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(1),
+});
+
+const googleAuthSchema = z.object({
+  idToken: z.string().min(1, "Firebase ID token is required"),
+});
+
+const googleSelectRoleSchema = z.object({
+  role: z.enum(["jobseeker", "recruiter"]),
+  companyName: z.string().optional(),
+  companySize: z.string().optional(),
 });
 
 const emailVerificationSendSchema = z.object({
@@ -289,6 +302,9 @@ export async function login(req: Request, res: Response) {
     if (!user) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
+    if ((user as { authProvider?: string | null }).authProvider === "GOOGLE") {
+      return res.status(400).json({ error: "This account uses Google sign-in. Please use 'Continue with Google'." });
+    }
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
       return res.status(401).json({ error: "Invalid email or password" });
@@ -300,6 +316,108 @@ export async function login(req: Request, res: Response) {
     console.error("[auth/login]", msg, err);
     return res.status(500).json({ error: msg });
   }
+}
+
+export async function googleAuth(req: Request, res: Response) {
+  try {
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ error: "Server configuration error. Contact support." });
+    }
+    const parsed = googleAuthSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid payload" });
+    }
+    const firebaseUser = await verifyFirebaseIdToken(parsed.data.idToken);
+    const email = firebaseUser.email?.trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: "Google account did not provide an email address." });
+    }
+    const blocked = await prisma.blockedEmail.findUnique({ where: { email } });
+    if (blocked) {
+      return res.status(403).json({ error: "This email cannot be used for sign in." });
+    }
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [{ email }, { googleUid: firebaseUser.uid } as Prisma.UserWhereInput],
+      },
+    });
+    let isNewUser = false;
+    if (!user) {
+      isNewUser = true;
+      const placeholderHash = await bcrypt.hash(crypto.randomUUID(), 10);
+      user = await prisma.user.create({
+        data: {
+          email,
+          name: firebaseUser.name ?? null,
+          passwordHash: placeholderHash,
+          role: "jobseeker",
+          emailVerified: true,
+          authProvider: "GOOGLE",
+          googleUid: firebaseUser.uid,
+          profileImage: firebaseUser.picture ?? null,
+        } as Prisma.UserCreateInput,
+      });
+      await prisma.jobSeekerProfile.upsert({
+        where: { userId: user.id },
+        create: {
+          userId: user.id,
+          fullName: firebaseUser.name ?? null,
+          email,
+          roleType: "technical",
+        },
+        update: { fullName: firebaseUser.name ?? user.name },
+      });
+    } else if (!(user as { googleUid?: string | null }).googleUid) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleUid: firebaseUser.uid,
+          profileImage: firebaseUser.picture ?? (user as { profileImage?: string | null }).profileImage ?? null,
+          name: firebaseUser.name ?? user.name,
+        } as Prisma.UserUpdateInput,
+      });
+    }
+    const session = await createSession(user);
+    return res.json({ ...session, isNewUser });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Google sign-in failed";
+    console.error("[auth/google]", msg, err);
+    if (msg.includes("Firebase") || msg.includes("token") || msg.includes("auth")) {
+      return res.status(401).json({ error: "Invalid or expired Google sign-in. Please try again." });
+    }
+    return res.status(500).json({ error: msg });
+  }
+}
+
+export async function googleSelectRole(req: Request, res: Response) {
+  const userId = (req as any).user?.id as string | undefined;
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const parsed = googleSelectRoleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid role. Choose jobseeker or recruiter." });
+  }
+  const { role, companyName, companySize } = parsed.data;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (role === "recruiter") {
+    await prisma.user.update({ where: { id: userId }, data: { role: "recruiter" } });
+    await prisma.recruiterProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        companyName: companyName ?? null,
+        companySize: companySize ?? null,
+      },
+      update: {
+        companyName: companyName ?? undefined,
+        companySize: companySize ?? undefined,
+      },
+    });
+  } else {
+    await prisma.user.update({ where: { id: userId }, data: { role: "jobseeker" } });
+  }
+  const updated = await prisma.user.findUnique({ where: { id: userId } });
+  return res.json({ user: updated ? { id: updated.id, name: updated.name, email: updated.email, role: updated.role } : null });
 }
 
 export async function refresh(req: Request, res: Response) {

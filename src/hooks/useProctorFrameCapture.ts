@@ -13,7 +13,7 @@ const PHONE_DETECTION_INTERVAL = 3; // Run phone detection every 3rd frame
 export interface UseProctorFrameCaptureOptions {
   enabled: boolean;
   sessionId: string;
-  testType?: "aptitude" | "dsa" | "ai_interview";
+  testType?: "aptitude" | "dsa" | "ai_interview" | "non_tech_assignment";
   cameraStream: MediaStream | null;
   onError?: (err: unknown) => void;
 }

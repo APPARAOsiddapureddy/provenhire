@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from "express";
 import {
   login,
   register,
+  googleAuth,
+  googleSelectRole,
   me,
   resetPassword,
   refresh,
@@ -24,6 +26,8 @@ authRouter.get("/register", (_req, res) => {
 });
 authRouter.post("/register", register);
 authRouter.post("/login", login);
+authRouter.post("/google", googleAuth);
+authRouter.post("/google/select-role", requireAuth, googleSelectRole);
 authRouter.post("/email-verification/send", asyncHandler(sendEmailVerificationCode));
 authRouter.post("/email-verification/verify", verifyEmailVerificationCode);
 authRouter.post("/refresh", refresh);
