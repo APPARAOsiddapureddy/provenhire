@@ -45,6 +45,7 @@ const googleSelectRoleSchema = z.object({
   role: z.enum(["jobseeker", "recruiter"]),
   companyName: z.string().optional(),
   companySize: z.string().optional(),
+  roleType: z.enum(["technical", "non_technical"]).optional(),
 });
 
 const emailVerificationSendSchema = z.object({
@@ -396,7 +397,7 @@ export async function googleSelectRole(req: Request, res: Response) {
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid role. Choose jobseeker or recruiter." });
   }
-  const { role, companyName, companySize } = parsed.data;
+  const { role, companyName, companySize, roleType } = parsed.data;
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return res.status(404).json({ error: "User not found" });
   if (role === "recruiter") {
@@ -415,6 +416,19 @@ export async function googleSelectRole(req: Request, res: Response) {
     });
   } else {
     await prisma.user.update({ where: { id: userId }, data: { role: "jobseeker" } });
+    const jobSeekerRoleType = roleType ?? "technical";
+    await prisma.jobSeekerProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        email: user.email,
+        fullName: user.name,
+        roleType: jobSeekerRoleType,
+      },
+      update: {
+        roleType: jobSeekerRoleType,
+      },
+    });
   }
   const updated = await prisma.user.findUnique({ where: { id: userId } });
   return res.json({ user: updated ? { id: updated.id, name: updated.name, email: updated.email, role: updated.role } : null });

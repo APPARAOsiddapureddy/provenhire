@@ -84,6 +84,7 @@ const Auth = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [googleRole, setGoogleRole] = useState<"jobseeker" | "recruiter">("jobseeker");
+  const [googleJobSeekerTrack, setGoogleJobSeekerTrack] = useState<"technical" | "non_technical">("technical");
   const [googleCompanyName, setGoogleCompanyName] = useState("");
   const [googleCompanySize, setGoogleCompanySize] = useState("");
   const [googleRoleErrors, setGoogleRoleErrors] = useState<{ companyName?: string; form?: string }>({});
@@ -424,7 +425,8 @@ const Auth = () => {
       await completeGoogleSignUpRole(
         googleRole,
         googleRole === "recruiter" ? googleCompanyName.trim() : undefined,
-        googleRole === "recruiter" ? googleCompanySize || undefined : undefined
+        googleRole === "recruiter" ? googleCompanySize || undefined : undefined,
+        googleRole === "jobseeker" ? googleJobSeekerTrack : undefined
       );
     } catch {
       setGoogleRoleErrors({ form: "Could not save. Please try again." });
@@ -638,6 +640,33 @@ const Auth = () => {
                   </button>
                 </div>
               </div>
+              {googleRole === "jobseeker" && (
+                <div>
+                  <label className="auth-label">Track</label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setGoogleJobSeekerTrack("technical")}
+                      className={`auth-role-tile ${googleJobSeekerTrack === "technical" ? "on" : ""}`}
+                    >
+                      <div className="text-left">
+                        <div className="text-sm font-semibold">Technical</div>
+                        <div className="text-[10px] text-muted-foreground">5 stages</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGoogleJobSeekerTrack("non_technical")}
+                      className={`auth-role-tile ${googleJobSeekerTrack === "non_technical" ? "on" : ""}`}
+                    >
+                      <div className="text-left">
+                        <div className="text-sm font-semibold">Non-Technical</div>
+                        <div className="text-[10px] text-muted-foreground">3 stages</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
               {googleRole === "recruiter" && (
                 <>
                   <div>
@@ -779,7 +808,11 @@ const Auth = () => {
               <h1 className="auth-form-title">Welcome<br /><span className="gold">Back.</span></h1>
               <p className="auth-form-sub">Your verified profile is waiting. Pick up where you left off.</p>
 
-              <form onSubmit={handleSignIn} className="space-y-0" noValidate>
+              <form onSubmit={handleSignIn} className="space-y-6" noValidate>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <div className="auth-divider">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider shrink-0">or sign in with email</span>
+                </div>
                 {signInErrors.form && (
                   <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signInErrors.form}</p>
                 )}
@@ -828,10 +861,6 @@ const Auth = () => {
                   </button>
                 </div>
                 <button type="submit" className="auth-cta w-full" disabled={loading}>{loading ? "Signing in..." : "Sign In →"}</button>
-                <div className="flex items-center gap-3 my-4">
-                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground uppercase tracking-wider">or</span><div className="flex-1 h-px bg-border" />
-                </div>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
 
               <p className="auth-switch">
@@ -849,7 +878,11 @@ const Auth = () => {
               <h1 className="auth-form-title">Start Your<br /><span className="gold">Verification.</span></h1>
               <p className="auth-form-sub">Join free. Prove your skills. Get hired by companies that trust evidence.</p>
 
-              <form onSubmit={handleSignUp} className="space-y-0" noValidate>
+              <form onSubmit={handleSignUp} className="space-y-6" noValidate>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <div className="auth-divider">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider shrink-0">or sign up with email</span>
+                </div>
                 {signUpErrors.form && (
                   <div className="mb-2 text-xs text-red-400/95 tracking-wide">
                     • {signUpErrors.form}
@@ -890,7 +923,7 @@ const Auth = () => {
                       type="button"
                       onClick={handleSendVerificationCode}
                       disabled={isSendingVerificationCode || resendCooldown > 0}
-                      className="rounded-md border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg border border-primary/50 py-2.5 px-4 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isSendingVerificationCode
                         ? "Sending..."
@@ -927,7 +960,7 @@ const Auth = () => {
                       type="button"
                       onClick={handleVerifyCode}
                       disabled={isVerifyingCode || !verificationCodeSent}
-                      className="rounded-md border border-emerald-500/40 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg border border-emerald-500/50 py-2.5 px-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isVerifyingCode ? "Verifying..." : "Verify"}
                     </button>
@@ -1062,10 +1095,6 @@ const Auth = () => {
                   {signUpErrors.confirmPassword && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.confirmPassword}</p>}
                 </div>
                 <button type="submit" className="auth-cta w-full" disabled={loading}>{loading ? "Creating..." : "Start Verification →"}</button>
-                <div className="flex items-center gap-3 my-4">
-                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground uppercase tracking-wider">or</span><div className="flex-1 h-px bg-border" />
-                </div>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
 
               <p className="auth-switch">
@@ -1085,7 +1114,11 @@ const Auth = () => {
               {resetSuccess && (
                 <div className="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-200">Password updated. Please sign in.</div>
               )}
-              <form onSubmit={handleSignIn} className="space-y-4" noValidate>
+              <form onSubmit={handleSignIn} className="space-y-6" noValidate>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <div className="auth-divider">
+                  <span className="text-xs text-muted-foreground shrink-0">or sign in with email</span>
+                </div>
                 {signInErrors.form && <p className="text-xs text-red-400/95 tracking-wide">• {signInErrors.form}</p>}
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
@@ -1131,10 +1164,6 @@ const Auth = () => {
                 <button type="submit" disabled={loading} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
                   {loading ? "Signing in..." : "Sign In"}
                 </button>
-                <div className="flex items-center gap-3 my-4">
-                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground">or</span><div className="flex-1 h-px bg-border" />
-                </div>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
               <p className="text-center mt-4 text-sm text-muted-foreground">
                 No account? <a onClick={() => switchMode("signup")} className="text-primary font-semibold hover:underline cursor-pointer">Sign Up</a>
@@ -1143,7 +1172,11 @@ const Auth = () => {
           ) : (
             <>
               <h2 className="text-lg font-semibold mb-4">Create Account</h2>
-              <form onSubmit={handleSignUp} className="space-y-4" noValidate>
+              <form onSubmit={handleSignUp} className="space-y-6" noValidate>
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <div className="auth-divider">
+                  <span className="text-xs text-muted-foreground shrink-0">or sign up with email</span>
+                </div>
                 {signUpErrors.form && (
                   <div className="text-xs text-red-400/95 tracking-wide">
                     • {signUpErrors.form}
@@ -1181,7 +1214,7 @@ const Auth = () => {
                       type="button"
                       onClick={handleSendVerificationCode}
                       disabled={isSendingVerificationCode || resendCooldown > 0}
-                      className="rounded-md border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg border border-primary/50 py-2.5 px-4 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isSendingVerificationCode
                         ? "Sending..."
@@ -1215,7 +1248,7 @@ const Auth = () => {
                       type="button"
                       onClick={handleVerifyCode}
                       disabled={isVerifyingCode || !verificationCodeSent}
-                      className="rounded-md border border-emerald-500/40 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg border border-emerald-500/50 py-2.5 px-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isVerifyingCode ? "Verifying..." : "Verify"}
                     </button>
@@ -1232,11 +1265,11 @@ const Auth = () => {
                 <div>
                   <label className="block text-sm font-medium mb-1">I am a</label>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setRole("jobseeker")} className={`p-3 rounded-lg border-2 ${role === "jobseeker" ? "border-primary bg-primary/10" : "border-border"}`}>
+                    <button type="button" onClick={() => setRole("jobseeker")} className={`p-3 rounded-lg border-2 ${role === "jobseeker" ? "border-primary bg-primary/10" : "border-border bg-white/5"}`}>
                       <User className="h-5 w-5 mx-auto mb-1" />
                       <span className="text-sm font-medium">Job Seeker</span>
                     </button>
-                    <button type="button" onClick={() => setRole("recruiter")} className={`p-3 rounded-lg border-2 ${role === "recruiter" ? "border-primary bg-primary/10" : "border-border"}`}>
+                    <button type="button" onClick={() => setRole("recruiter")} className={`p-3 rounded-lg border-2 ${role === "recruiter" ? "border-primary bg-primary/10" : "border-border bg-white/5"}`}>
                       <Briefcase className="h-5 w-5 mx-auto mb-1" />
                       <span className="text-sm font-medium">Recruiter</span>
                     </button>
@@ -1246,10 +1279,10 @@ const Auth = () => {
                   <div>
                     <label className="block text-sm font-medium mb-1">Track</label>
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={() => setJobSeekerTrack("tech")} className={`p-3 rounded-lg border-2 ${jobSeekerTrack === "tech" ? "border-primary bg-primary/10" : "border-border"}`}>
+                      <button type="button" onClick={() => setJobSeekerTrack("tech")} className={`p-3 rounded-lg border-2 ${jobSeekerTrack === "tech" ? "border-primary bg-primary/10" : "border-border bg-white/5"}`}>
                         Technical (5 stages)
                       </button>
-                      <button type="button" onClick={() => setJobSeekerTrack("non_tech")} className={`p-3 rounded-lg border-2 ${jobSeekerTrack === "non_tech" ? "border-primary bg-primary/10" : "border-border"}`}>
+                      <button type="button" onClick={() => setJobSeekerTrack("non_tech")} className={`p-3 rounded-lg border-2 ${jobSeekerTrack === "non_tech" ? "border-primary bg-primary/10" : "border-border bg-white/5"}`}>
                         Non-Technical
                       </button>
                     </div>
@@ -1341,10 +1374,6 @@ const Auth = () => {
                 <button type="submit" disabled={loading} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
                   {loading ? "Creating..." : "Create Account"}
                 </button>
-                <div className="flex items-center gap-3 my-4">
-                  <div className="flex-1 h-px bg-border" /><span className="text-xs text-muted-foreground">or</span><div className="flex-1 h-px bg-border" />
-                </div>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
               </form>
               <p className="text-center mt-4 text-sm text-muted-foreground">
                 Already have an account? <a onClick={() => switchMode("login")} className="text-primary font-semibold hover:underline cursor-pointer">Sign In</a>

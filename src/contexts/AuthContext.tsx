@@ -18,7 +18,12 @@ interface AuthContextType {
   userRole: UserRole;
   loading: boolean;
   needsGoogleRoleSelection: boolean;
-  completeGoogleSignUpRole: (role: "jobseeker" | "recruiter", companyName?: string, companySize?: string) => Promise<void>;
+  completeGoogleSignUpRole: (
+    role: "jobseeker" | "recruiter",
+    companyName?: string,
+    companySize?: string,
+    roleType?: "technical" | "non_technical"
+  ) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signUp: (
     email: string,
@@ -168,12 +173,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const completeGoogleSignUpRole = async (
     role: "jobseeker" | "recruiter",
     companyName?: string,
-    companySize?: string
+    companySize?: string,
+    roleType?: "technical" | "non_technical"
   ) => {
     try {
       const data = await api.post<{ user: User | null }>("/api/auth/google/select-role", {
         role,
         ...(role === "recruiter" && { companyName, companySize }),
+        ...(role === "jobseeker" && roleType && { roleType }),
       });
       if (data.user) {
         setUser(data.user);

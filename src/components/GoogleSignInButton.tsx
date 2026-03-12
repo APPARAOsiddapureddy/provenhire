@@ -1,6 +1,6 @@
 /**
- * "Continue with Google" button — standard design with Google logo.
- * Aligns with ProvenHire dark theme (light button for contrast).
+ * "Continue with Google" button — dark theme with subtle border.
+ * Aligns with ProvenHire dark theme for cohesive UI.
  */
 import { useState } from "react";
 
@@ -51,11 +51,11 @@ export default function GoogleSignInButton({ onClick, disabled, className = "" }
       disabled={disabled || clicking}
       className={`
         inline-flex items-center justify-center gap-3 w-full py-3 px-4 rounded-lg
-        bg-[#fff] hover:bg-gray-50 dark:bg-white dark:hover:bg-gray-100
-        text-gray-800 font-medium text-[15px]
-        border border-gray-200 dark:border-gray-300
+        bg-white/5 hover:bg-white/10
+        text-foreground font-medium text-[15px]
+        border border-white/15
         transition-colors duration-200
-        disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#fff] dark:disabled:hover:bg-white
+        disabled:opacity-50 disabled:cursor-not-allowed
         ${className}
       `}
       aria-label="Continue with Google"
