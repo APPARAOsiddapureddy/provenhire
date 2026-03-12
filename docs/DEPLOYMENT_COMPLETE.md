@@ -201,16 +201,29 @@ If you get **Route not found**: the deployed code is old. Ensure you pushed to G
 | **Build Command** | `npm run build` |
 | **Output Directory** | `dist` |
 
-### 3.3 Environment Variable (Optional with Proxy)
+### 3.3 Environment Variables
 
-The project uses **Vercel rewrites** (`vercel.json`) to proxy `/api` and `/uploads` to your Render backend. This means:
+**API (Optional with Proxy):** The project uses **Vercel rewrites** (`vercel.json`) to proxy `/api` and `/uploads` to your Render backend. No `VITE_API_URL` needed — same-origin requests work. **Ensure `vercel.json`** has your backend URL. If you prefer direct backend calls, set `VITE_API_URL` to your Render URL and redeploy.
 
-- **No `VITE_API_URL` needed** — the frontend uses same-origin requests; Vercel forwards them to Render.
-- **No CORS issues** — requests appear same-origin to the browser.
+**Firebase (Required for Google sign-in):** Vite bakes env vars at **build time**. Add these in Vercel → **Settings** → **Environment Variables** (same values as your local `.env`):
 
-**Ensure `vercel.json` has your backend URL.** If your Render URL is not `provenhire-server1.onrender.com`, edit `vercel.json` and update the `destination` in the `/api` and `/uploads` rewrites.
+| Name | Value | Required |
+|------|-------|----------|
+| `VITE_FIREBASE_API_KEY` | Your Firebase API key | Yes (for Google sign-in) |
+| `VITE_FIREBASE_AUTH_DOMAIN` | `your-project.firebaseapp.com` | Yes |
+| `VITE_FIREBASE_PROJECT_ID` | Your Firebase project ID | Yes |
+| `VITE_FIREBASE_STORAGE_BUCKET` | `your-project.firebasestorage.app` | Yes |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | From Firebase config | Yes |
+| `VITE_FIREBASE_APP_ID` | From Firebase config | Yes |
+| `VITE_FIREBASE_MEASUREMENT_ID` | From Firebase config | Optional |
 
-If you prefer **direct** backend calls (no proxy), set `VITE_API_URL` to your Render URL and redeploy.
+After adding, **Redeploy** — env vars are only applied at build time.
+
+**Firebase Authorized Domains:** In [Firebase Console](https://console.firebase.google.com/) → **Authentication** → **Settings** → **Authorized domains**, add your production domain:
+- `provenhire-xxx.vercel.app` (your exact Vercel URL)
+- Any custom domain (e.g. `provenhire.com`)
+
+Without this, Google OAuth will fail on the deployed site.
 
 ### 3.4 Redeploy (Required after changes)
 
@@ -366,11 +379,23 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 
 ---
 
+### Errors on deployed domain but not localhost
+
+- **Cause:** Vite bakes `VITE_*` env vars at build time. Your local `.env` is not used by Vercel.
+- **Fix:**
+  1. Vercel → **Settings** → **Environment Variables** → add all `VITE_FIREBASE_*` vars (copy from `.env`).
+  2. Firebase Console → **Authentication** → **Settings** → **Authorized domains** → add your Vercel URL (e.g. `provenhire-xxx.vercel.app`).
+  3. **Redeploy** the Vercel project — env changes only apply to new builds.
+- **Google sign-in "not configured" or popup fails:** Missing Firebase env vars on Vercel or production domain not in Firebase Authorized domains.
+
+---
+
 ## Quick Checklist
 
 - [ ] Code pushed to GitHub (`main` branch)
 - [ ] Render: `DATABASE_URL`, `JWT_SECRET` set
 - [ ] Render: `/health`, `/ping`, `/status` return JSON (not 404)
-- [ ] Vercel: `VITE_API_URL` = Render backend URL (no trailing slash)
-- [ ] Vercel: Redeployed **after** setting `VITE_API_URL`
+- [ ] Vercel: All `VITE_FIREBASE_*` env vars set (for Google sign-in)
+- [ ] Firebase: Production domain in **Authorized domains**
+- [ ] Vercel: Redeployed **after** setting any env vars
 - [ ] Sign up from Vercel URL works (Network tab shows Render domain)
