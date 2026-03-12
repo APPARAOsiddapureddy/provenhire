@@ -600,7 +600,7 @@ const Auth = () => {
     return (
       <div className="auth-page min-h-screen flex flex-col">
         <Navbar />
-        <div className="flex-1 flex items-center justify-center p-6 bg-[hsl(var(--background))]">
+        <div className="flex-1 flex items-center justify-center p-6 pt-20 sm:pt-24 bg-[hsl(var(--background))]">
           <div className="w-full max-w-md bg-card rounded-2xl shadow-xl p-8 border border-border">
             <div className="text-center mb-6">
               <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center mb-4">
