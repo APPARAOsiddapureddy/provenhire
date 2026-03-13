@@ -109,10 +109,13 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     if (path.startsWith("/api/") && (res.status === 500 || res.status === 503)) {
       const code = (errorBody as { code?: string })?.code;
       const fullMsg = msg && msg !== "Request failed" ? msg : "Something went wrong. Please try again in a moment.";
-      throw new Error(code ? `${fullMsg} [${code}]` : fullMsg);
+      const err = new Error(code ? `${fullMsg} [${code}]` : fullMsg) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
     }
-    const err = new Error(msg) as Error & { response?: { data?: unknown } };
+    const err = new Error(msg) as Error & { response?: { data?: unknown }; status?: number };
     err.response = { data: errorBody };
+    err.status = res.status;
     throw err;
   }
   return res.json() as Promise<T>;

@@ -227,7 +227,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         // email is never sent — sign-up email (User.email) is the main, immutable email
         phone: phone.trim() || undefined,
         location: location.trim() || undefined,
-        currentRole: currentRole.trim() || undefined,
+        currentRole: isEmployed ? (currentRole.trim() || undefined) : undefined,
         about: about.trim() || undefined,
         experienceYears: isEmployed && experienceYears !== "" && !Number.isNaN(Number(experienceYears)) ? Number(experienceYears) : undefined,
         skills: skillsList.length ? skillsList : undefined,
@@ -238,6 +238,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         noticePeriod: isEmployed ? (noticePeriod.trim() || undefined) : null,
         currentSalary: isEmployed ? (currentSalary.trim() || undefined) : null,
         expectedSalary: expectedSalary.trim() || undefined,
+        employmentStatus,
         enforceRequiredFields: true,
       });
       await api.post("/api/verification/stages/update", { stageName: "profile_setup", status: "completed" });
@@ -361,16 +362,6 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                   Resume parsing failed: {parseError}
                 </p>
                 <p className="text-xs text-amber-600 dark:text-amber-300 mt-1">You can edit the fields below or fill them manually.</p>
-              </div>
-            )}
-            {Object.keys(fieldErrors).length > 0 && (
-              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-                <p className="text-sm font-medium text-destructive">Please fix the following:</p>
-                <ul className="mt-1 text-sm text-destructive list-disc list-inside">
-                  {Object.entries(fieldErrors).map(([f, msg]) => (
-                    <li key={f}>{msg}</li>
-                  ))}
-                </ul>
               </div>
             )}
             {resumeFile && !parseError && (

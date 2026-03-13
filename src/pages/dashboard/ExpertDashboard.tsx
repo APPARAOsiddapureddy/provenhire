@@ -31,7 +31,9 @@ import {
   TrendingUp,
   Users,
   FileCheck,
+  Settings,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PhoneCollectGate from "@/components/PhoneCollectGate";
@@ -208,6 +210,12 @@ export default function ExpertDashboard() {
             <Badge variant="secondary" className="px-3 py-1 text-sm">
               {profile?.domain ?? profile?.track ?? "—"}
             </Badge>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/dashboard/settings">
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Link>
+            </Button>
             <Button variant="outline" size="sm" onClick={() => signOut()}>
               <LogOut className="h-4 w-4 mr-2" />
               Sign out

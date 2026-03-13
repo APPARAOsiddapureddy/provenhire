@@ -397,6 +397,8 @@ adminRouter.delete("/users/:userId", async (req, res) => {
     await tx.humanInterviewSession.deleteMany({ where: { userId } });
     await tx.jobAlertSubscription.deleteMany({ where: { userId } });
     await tx.resumeAnalysis.deleteMany({ where: { userId } });
+    await tx.userPreferences.deleteMany({ where: { userId } });
+    await tx.candidateSkillVerification.deleteMany({ where: { userId } });
     const interviewer = await tx.interviewer.findFirst({ where: { userId } });
     if (interviewer) {
       await tx.interviewerSlot.updateMany({ where: { interviewerId: interviewer.id }, data: { bookedUserId: null } });

@@ -44,49 +44,68 @@ model User {
   passwordResetTokens PasswordResetToken[]
   interviewerProfile  Interviewer?
   skillVerifications  CandidateSkillVerification[]
+  preferences         UserPreferences?
 }
 
 model JobSeekerProfile {
-  id                String   @id @default(uuid())
-  userId            String   @unique
-  fullName          String?
-  email             String?
-  currentRole       String?
-  experienceYears   Int?
-  resumeUrl         String?
-  about             String?
-  phone             String?
-  location          String?
-  college           String?
-  graduationYear    String?
-  verificationStatus String?
-  skills            Json?
-  education         Json?
-  workExperience    Json?
-  roleType          String?  @default("technical")
-  targetJobTitle    String?
-  noticePeriod      String?  // e.g. "15 days", "1 month", "Immediate"
-  currentSalary     String?  // e.g. "10 LPA", "15-20 L"
-  expectedSalary    String?  // e.g. "20 LPA", "25-30 L"
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  fullName             String?
+  email                String?
+  currentRole          String?
+  experienceYears      Int?
+  resumeUrl            String?
+  about                String?
+  phone                String?
+  location             String?
+  college              String?
+  graduationYear       String?
+  verificationStatus   String?
+  skills               Json?
+  education            Json?
+  workExperience       Json?
+  roleType             String?  @default("technical")
+  targetJobTitle       String?
+  noticePeriod         String?  // e.g. "15 days", "1 month", "Immediate"
+  currentSalary        String?  // e.g. "10 LPA", "15-20 L"
+  expectedSalary       String?  // e.g. "20 LPA", "25-30 L"
+  // Settings: Career preferences & portfolio
+  githubUrl            String?
+  linkedInUrl          String?
+  portfolioUrl         String?
+  preferredTechStack   Json?    // string[]
+  experienceLevel      String?  // Entry Level | Mid Level | Senior Level
+  preferredLocations   Json?    // string[]
+  workModePreference   String?  // Remote | Hybrid | Onsite
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 }
 
 model RecruiterProfile {
-  id           String   @id @default(uuid())
-  userId       String   @unique
-  companyName  String?
-  companySize  String?
-  designation  String?
-  phone        String?
-  companyWebsite String?
-  industry     String?
-  hiringFor    String?
-  onboardingCompleted Boolean @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  userId                 String   @unique
+  companyName            String?
+  companySize            String?
+  designation            String?
+  phone                  String?
+  companyWebsite         String?
+  industry               String?
+  hiringFor              String?
+  onboardingCompleted    Boolean  @default(false)
+  // Settings: Company profile
+  companyLogo            String?
+  headquarters           String?
+  companyDescription     String?
+  // Settings: Hiring preferences
+  preferredRoles         Json?    // string[]
+  preferredExperienceMin  Int?
+  preferredExperienceMax  Int?
+  preferredSkills        Json?    // string[]
+  minimumCertificationLevel Int?  @default(1) // 0-3: Cognitive, Skill Passport, Elite
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
   jobs Job[]
@@ -309,16 +328,27 @@ model InterviewerApplication {
 }
 
 model Interviewer {
-  id             String   @id @default(uuid())
-  userId         String?  @unique
-  name           String?
-  domain         String?
-  track          String?  @default("technical")
-  domains        Json?
-  experienceYears Int?
-  phone          String?
-  status         String   @default("active")
-  createdAt      DateTime @default(now())
+  id                     String   @id @default(uuid())
+  userId                 String?  @unique
+  name                   String?
+  domain                 String?
+  track                  String?  @default("technical")
+  domains                Json?
+  experienceYears        Int?
+  phone                  String?
+  status                 String   @default("active")
+  // Settings: Interviewer profile
+  profileImage           String?
+  currentCompany         String?
+  jobTitle               String?
+  linkedInUrl            String?
+  // Settings: Expertise & topics
+  expertiseAreas         Json?    // string[] e.g. Backend, Frontend, System Design
+  preferredInterviewTopics Json?  // string[] e.g. DSA, System design
+  // Settings: Availability (JSON: { Mon: [{ start, end }], ... })
+  availabilitySchedule   Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   user    User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
   slots   InterviewerSlot[]
@@ -379,6 +409,20 @@ model ProctoringEvent {
   screenshotPath String?
   confidence     Float?
   createdAt      DateTime @default(now())
+}
+
+/// Cross-role settings: notifications, email alerts, etc.
+model UserPreferences {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  emailNotifications    Boolean  @default(true)
+  applicationAlerts     Boolean  @default(true)  // Recruiter: new applications
+  weeklyReports         Boolean  @default(false)  // Recruiter: hiring reports
+  interviewReminders    Boolean  @default(true)  // Interviewer: slot reminders
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model RefreshToken {

@@ -20,6 +20,7 @@ import { featureFlagsRouter } from "./routes/feature-flags.js";
 import { interviewerApplicationRouter } from "./routes/interviewer-application.js";
 import { expertRouter } from "./routes/expert.js";
 import { cronRouter } from "./routes/cron.js";
+import { settingsRouter } from "./routes/settings.js";
 
 export function createApp() {
   const app = express();
@@ -99,15 +100,23 @@ export function createApp() {
     });
   });
 
-  // Lightweight warmup endpoint — wakes Render from cold start and warms DB connection
-  app.get("/api/health", async (_req, res) => {
-    try {
-      const { prisma } = await import("./config/prisma.js");
-      await prisma.$queryRaw`SELECT 1`;
-    } catch {
-      /* ignore */
-    }
-    res.status(200).json({ ok: true });
+  // Lightweight warmup endpoint — wakes Render from cold start and warms DB connection.
+  // Always returns 200 so Auth/signup page warmup does not surface 500 in console.
+  app.get("/api/health", (_req, res) => {
+    (async () => {
+      try {
+        const { prisma } = await import("./config/prisma.js");
+        await prisma.$queryRaw`SELECT 1`;
+      } catch {
+        /* ignore — DB may be unavailable during cold start */
+      }
+    })().finally(() => {
+      try {
+        if (!res.headersSent) res.status(200).json({ ok: true });
+      } catch {
+        // Headers already sent
+      }
+    });
   });
 
   app.get("/api", (_req, res) => {
@@ -130,6 +139,7 @@ export function createApp() {
         "/api/admin",
         "/api/interviewer-application",
         "/api/expert",
+        "/api/settings",
       ],
     });
   });
@@ -151,14 +161,30 @@ export function createApp() {
   app.use("/api/interviewer-application", interviewerApplicationRouter);
   app.use("/api/expert", expertRouter);
   app.use("/api/cron", cronRouter);
+  app.use("/api/settings", settingsRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Route not found" });
   });
 
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    const status = err?.statusCode ?? 500;
-    const message = err?.message ?? "Unexpected server error";
+    if (res.headersSent) return;
+    const isPrismaOrDb =
+      err?.code === "P1001" ||
+      err?.code === "P1002" ||
+      err?.code === "P1017" ||
+      err?.code === "P2024" ||
+      (err?.message && typeof err.message === "string" && (
+        err.message.includes("Prisma") ||
+        err.message.includes("Connection") ||
+        err.message.includes("ECONNREFUSED") ||
+        err.message.includes("connect ENOENT")
+      ));
+    const status = isPrismaOrDb ? 503 : (err?.statusCode ?? 500);
+    const message = isPrismaOrDb
+      ? "Service temporarily unavailable. Please try again."
+      : (err?.message ?? "Unexpected server error");
+    if (status >= 500) console.error("[app error]", err?.message ?? err);
     res.status(status).json({ error: message });
   });
 

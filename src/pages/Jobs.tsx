@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, MapPin, Briefcase, DollarSign, Bookmark, BookmarkCheck, Eye, Scale, X, Shield, Filter } from "lucide-react";
+import { Search, MapPin, Briefcase, DollarSign, Bookmark, BookmarkCheck, Eye, Scale, X, Shield, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
@@ -328,7 +328,8 @@ const Jobs = () => {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [displayLimit, setDisplayLimit] = useState(6);
+  const PAGE_SIZE = 9;
+  const [currentPage, setCurrentPage] = useState(1);
   const [showVerificationDialog, setShowVerificationDialog] = useState(false);
   const [showJobDetails, setShowJobDetails] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -696,8 +697,20 @@ const Jobs = () => {
     return matchesKeyword && matchesLocation && matchesSkill && matchesJobType && matchesExperience && matchesSalary;
   });
 
-  const displayedJobs = filteredJobs.slice(0, displayLimit);
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
+  const displayedJobs = filteredJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const lockedJobsCount = filteredJobs.filter(job => isApplyLocked(job)).length;
+
+  // Reset to page 1 when filters change
+  const filterKey = `${keyword}|${location}|${skill}|${selectedSalary}|${Object.keys(jobTypes).filter((k) => jobTypes[k as keyof typeof jobTypes]).join(",")}|${Object.keys(experience).filter((k) => experience[k as keyof typeof experience]).join(",")}`;
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterKey]);
+
+  // Scroll to top when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
 
   const handleToggleCompare = (jobId: string) => {
     setCompareJobs(prev => {
@@ -1283,14 +1296,65 @@ const Jobs = () => {
                 )})}
               </div>
 
-              {filteredJobs.length > displayLimit && (
-                <div className="mt-8 text-center">
-                  <p className="text-muted-foreground mb-4">
-                    Showing {displayedJobs.length} of {filteredJobs.length} jobs
+              {totalPages > 1 && (
+                <div className="mt-8 flex flex-col items-center gap-4">
+                  <p className="text-sm text-muted-foreground">
+                    Page {currentPage} of {totalPages} · Showing {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, filteredJobs.length)} of {filteredJobs.length} jobs
                   </p>
-                  <Button variant="outline" size="lg" onClick={() => setDisplayLimit(prev => prev + 6)}>
-                    Load More
-                  </Button>
+                  <nav role="navigation" aria-label="Job listings pagination" className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage <= 1}
+                      className="gap-1"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1 mx-2">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter((p) => {
+                          if (totalPages <= 7) return true;
+                          if (p === 1 || p === totalPages) return true;
+                          if (Math.abs(p - currentPage) <= 1) return true;
+                          return false;
+                        })
+                        .reduce<(number | "ellipsis")[]>((acc, p, idx, arr) => {
+                          const prev = arr[idx - 1];
+                          if (prev !== undefined && p - prev > 1) acc.push("ellipsis");
+                          acc.push(p);
+                          return acc;
+                        }, [])
+                        .map((p, i) =>
+                          p === "ellipsis" ? (
+                            <span key={`e-${i}`} className="px-2 py-1 text-muted-foreground">
+                              …
+                            </span>
+                          ) : (
+                            <Button
+                              key={p}
+                              variant={currentPage === p ? "default" : "ghost"}
+                              size="sm"
+                              className="w-9 h-9 p-0"
+                              onClick={() => setCurrentPage(p)}
+                            >
+                              {p}
+                            </Button>
+                          )
+                        )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                      className="gap-1"
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </nav>
                 </div>
               )}
               </>

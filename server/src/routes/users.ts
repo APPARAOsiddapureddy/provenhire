@@ -44,10 +44,12 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     workExperience: z.any().optional(),
     roleType: z.enum(["technical", "non_technical"]).optional(),
     targetJobTitle: z.string().optional(),
-    noticePeriod: z.string().optional(),
-    currentSalary: z.string().optional(),
+    noticePeriod: z.union([z.string(), z.null()]).optional(),
+    currentSalary: z.union([z.string(), z.null()]).optional(),
     expectedSalary: z.string().optional(),
     enforceRequiredFields: z.boolean().optional(),
+    /** When "unemployed" or "student", notice period / current salary / current role / experience are not required */
+    employmentStatus: z.enum(["employed", "unemployed", "student"]).optional(),
   });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
@@ -58,14 +60,15 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
         message: issues.map((i) => `${i.field}: ${i.message}`).join("; "),
       });
     }
-    const { bio, enforceRequiredFields, ...rest } = parsed.data;
+    const { bio, enforceRequiredFields, employmentStatus, ...rest } = parsed.data;
     const raw = { ...rest, ...(bio !== undefined ? { about: bio } : {}) };
     const data = Object.fromEntries(
       Object.entries(raw).filter(([, v]) => v !== undefined)
     ) as Record<string, unknown>;
+    const isEmployed = employmentStatus !== "unemployed" && employmentStatus !== "student";
     if (enforceRequiredFields) {
       const issues: Array<{ field: string; message: string }> = [];
-      const stringField = (key: string) => String(data[key] ?? "").trim();
+      const stringField = (key: string) => (data[key] == null ? "" : String(data[key])).trim();
       const fullName = stringField("fullName");
       const phone = stringField("phone");
       const location = stringField("location");
@@ -79,9 +82,13 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
       if (!fullName) issues.push({ field: "fullName", message: "Full name is required." });
       if (!phone) issues.push({ field: "phone", message: "Phone number is required." });
       if (!location) issues.push({ field: "location", message: "Location is required." });
-      if (!currentRole) issues.push({ field: "currentRole", message: "Current role is required." });
-      if (typeof experienceYears !== "number" || Number.isNaN(experienceYears) || experienceYears < 0) {
-        issues.push({ field: "experienceYears", message: "Valid experience in years is required." });
+      if (isEmployed) {
+        if (!currentRole) issues.push({ field: "currentRole", message: "Current role is required." });
+        if (typeof experienceYears !== "number" || Number.isNaN(experienceYears) || experienceYears < 0) {
+          issues.push({ field: "experienceYears", message: "Valid experience in years is required." });
+        }
+        if (!noticePeriod) issues.push({ field: "noticePeriod", message: "Notice period is required." });
+        if (!currentSalary) issues.push({ field: "currentSalary", message: "Current salary is required." });
       }
       const hasSkills = Array.isArray(skills)
         ? skills.filter((s) => String(s).trim().length > 0).length > 0
@@ -89,8 +96,6 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
           ? skills.trim().length > 0
           : false;
       if (!hasSkills) issues.push({ field: "skills", message: "At least one skill is required." });
-      if (!noticePeriod) issues.push({ field: "noticePeriod", message: "Notice period is required." });
-      if (!currentSalary) issues.push({ field: "currentSalary", message: "Current salary is required." });
       if (!expectedSalary) issues.push({ field: "expectedSalary", message: "Expected salary is required." });
 
       if (issues.length > 0) {
@@ -103,6 +108,8 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     }
     // Never update email from profile — sign-up email (User.email) is the main, immutable email
     delete data.email;
+    delete data.employmentStatus;
+    delete data.enforceRequiredFields;
     const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { email: true } });
     const profile = await prisma.jobSeekerProfile.upsert({
       where: { userId: req.user!.id },

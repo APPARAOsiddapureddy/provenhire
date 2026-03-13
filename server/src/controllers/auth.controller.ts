@@ -367,10 +367,8 @@ export async function googleAuth(req: Request, res: Response) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Google sign-in failed";
     console.error("[auth/google]", msg, err);
-    if (msg.includes("Firebase") || msg.includes("token") || msg.includes("auth")) {
-      return res.status(401).json({ error: "Invalid or expired Google sign-in. Please try again." });
-    }
-    return res.status(500).json({ error: msg });
+    // Always return 401 with a user-friendly message so the client never sees 500
+    return res.status(401).json({ error: "Invalid or expired Google sign-in. Please try again." });
   }
 }
 
@@ -446,17 +444,22 @@ export async function me(req: Request, res: Response) {
   if (!userId) {
     return res.status(401).json({ error: "Unauthorized" });
   }
-  const [user, certification] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId } }),
-    calculateCertificationLevel(userId),
-  ]);
-  if (!user) return res.status(404).json({ error: "User not found" });
-  return res.json({
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
-    certification_level: certification.level,
-    certification_label: certification.label,
-    role_type: certification.roleType,
-  });
+  try {
+    const [user, certification] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId } }),
+      calculateCertificationLevel(userId),
+    ]);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    return res.json({
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      certification_level: certification.level,
+      certification_label: certification.label,
+      role_type: certification.roleType,
+    });
+  } catch (err) {
+    console.error("[auth/me]", err);
+    return res.status(503).json({ error: "Service temporarily unavailable. Please try again." });
+  }
 }
 
 export async function forgotPassword(req: Request, res: Response) {

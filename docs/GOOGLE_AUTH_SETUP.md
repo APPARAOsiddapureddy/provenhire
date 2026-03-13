@@ -2,6 +2,22 @@
 
 ProvenHire supports **Sign in with Google** using Firebase Authentication. Follow these steps to enable it.
 
+## Quick start (local dev)
+
+For Google sign-in to work **after** you click "Continue with Google", the **backend must be running** and reachable.
+
+1. **Frontend** (project root `.env`): set all `VITE_FIREBASE_*` vars from Firebase Console (see §3 below).
+2. **Backend** (`server/.env`): copy from `server/.env.example`. Required:
+   - `PORT=10000` (Vite proxy targets this port)
+   - `DATABASE_URL` (Postgres connection string)
+   - `JWT_SECRET` (any long random string)
+   - Firebase Admin: either `server/firebase-service-account.json` or `FIREBASE_PROJECT_ID` + `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` (see §4)
+3. **Run both**: from project root run `npm run dev:all` (frontend + backend), or in two terminals: `npm run dev:server` then `npm run dev`.
+
+If you see **"Signed in with Google successfully"** but then **"Server unavailable"** or 503 errors, the backend is not running or the database is unreachable — start the backend and ensure Postgres is running.
+
+If you run the backend on a different port (e.g. 5001), set in the **root** `.env`: `VITE_API_PROXY_TARGET=http://localhost:5001` so the Vite proxy forwards `/api` to the correct port.
+
 ## 1. Create a Firebase Project
 
 1. Go to [Firebase Console](https://console.firebase.google.com/)

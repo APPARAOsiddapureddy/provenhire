@@ -100,10 +100,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const { user } = await api.get<{ user: User }>("/api/auth/me");
         setUser(user);
         setUserRole(user.role);
-      } catch {
+      } catch (err: unknown) {
         setUser(null);
         setUserRole(null);
         setAuthToken(null);
+        const status = (err as { status?: number })?.status;
+        const msg = err instanceof Error ? err.message : "";
+        if (status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running")) {
+          toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
+        }
       } finally {
         setLoading(false);
       }
@@ -194,8 +199,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         );
       }
     } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
       const msg = err instanceof Error ? err.message : "Google sign-in failed";
-      toast.error(msg);
+      if (status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running")) {
+        toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }

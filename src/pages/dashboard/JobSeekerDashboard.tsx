@@ -21,7 +21,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import SkillPassport from "@/components/SkillPassport";
-import { SkillVerificationPanel } from "@/components/SkillVerificationPanel";
+import { VerificationPipelineCard } from "@/components/VerificationPipelineCard";
 import ReferAFriend from "@/components/ReferAFriend";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
 import JobTitleModal from "@/components/JobTitleModal";
@@ -283,7 +283,18 @@ const JobSeekerDashboard = () => {
       const criticalError = profileRes.status === "rejected" || stagesRes.status === "rejected";
       setLoadError(criticalError);
       if (criticalError) {
-        toast.error("Some dashboard sections are still loading. Showing available data first.");
+        const reason = profileRes.status === "rejected" ? profileRes.reason : stagesRes.reason;
+        const status = reason?.status;
+        const msg = reason instanceof Error ? reason.message : "";
+        const is503 =
+          status === 503 ||
+          msg.includes("temporarily unavailable") ||
+          msg.includes("Backend not running");
+        toast.error(
+          is503
+            ? "Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root)."
+            : "Some dashboard sections are still loading. Showing available data first."
+        );
       }
 
       if (profile) {
@@ -470,6 +481,7 @@ const JobSeekerDashboard = () => {
         { label: "Skill Passport", onClick: () => setDashboardSection('passport'), active: dashboardSection === 'passport', badge: isVerified ? "Active" : undefined, icon: <FileCheck className="w-[18px] h-[18px]" /> },
         { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
         { label: "Applications", onClick: () => setDashboardSection('applications'), active: dashboardSection === 'applications', icon: <ListChecks className="w-[18px] h-[18px]" /> },
+        { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
       ],
     },
   ];
@@ -677,52 +689,17 @@ const JobSeekerDashboard = () => {
             </div>
             <div className="dashboard-section-content">
               {roleType === "technical" && (
-                <div className="mb-6">
-                  <SkillVerificationPanel />
-                </div>
+                <VerificationPipelineCard
+                  verificationStages={verificationStages}
+                  roleType={roleType}
+                  certificationLevelNumber={certificationLevelNumber}
+                  certificationLabel={certificationLabel}
+                  userName={userName}
+                  profile={profile}
+                  getStageStatus={getStageStatus}
+                  nextStageLabel={nextStageLabel}
+                />
               )}
-              <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/5 p-4 mb-4">
-                {certificationLevelNumber >= 1 && (
-                  <div className="mb-3 rounded-lg border border-emerald-400/35 bg-emerald-500/10 p-3">
-                    <div className="flex items-center gap-2 text-emerald-200 font-semibold">
-                      <Award className="h-4 w-4" />
-                      {roleType === "technical" ? "Congratulations! Cognitive Verified badge unlocked." : "Congratulations! Assignment Verified badge unlocked."}
-                    </div>
-                    <p className="mt-1 text-xs text-emerald-100/85">
-                      Strong progress. Keep going to unlock higher certification levels and improve recruiter trust.
-                    </p>
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <div className="text-sm font-semibold text-white">Certification Level Progress</div>
-                  <Badge variant="outline" className="bg-black/20 border-[var(--dash-navy-border)] text-white">
-                    {certificationLabel}
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  {levelBlueprint.map((level) => (
-                    <div key={level.level} className="rounded-lg border border-[var(--dash-navy-border)] p-3">
-                      <div className="text-sm font-semibold text-white mb-2">{level.label}</div>
-                      <div className="space-y-1.5">
-                        {level.stages.map((stage) => {
-                          const done = verificationStages.some((s: any) => s.stage_name === stage && s.status === "completed");
-                          return (
-                            <div key={stage} className="flex items-center gap-2 text-sm">
-                              <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${done ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/60"}`}>
-                                {done ? "✓" : "•"}
-                              </span>
-                              <span className={done ? "text-emerald-200" : "text-white/70"}>{STAGE_LABELS[stage]}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-3 text-xs text-white/60">
-                  Your current level: <span className="font-semibold text-white">L{certificationLevelNumber}</span>. Higher-level jobs unlock automatically as you complete stages.
-                </p>
-              </div>
               <div className="dashboard-stage-header-card">
                 <div className="flex justify-between items-start flex-wrap gap-4 mb-7">
                   <div>
@@ -869,123 +846,126 @@ const JobSeekerDashboard = () => {
         )}
       </DashboardShell>
 
-      {/* Profile Edit Dialog */}
+      {/* Profile Edit Dialog — fixed height so Submit is always visible */}
       <Dialog open={showProfileDialog} onOpenChange={setShowProfileDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg h-[85vh] max-h-[85vh] flex flex-col overflow-hidden p-6 gap-0">
+          <DialogHeader className="flex-shrink-0 pb-4">
             <DialogTitle>Edit Profile</DialogTitle>
             <DialogDescription>Update your job seeker profile information</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Bio</Label>
-              <Textarea
-                placeholder="Tell us about yourself..."
-                value={editingProfile.bio}
-                onChange={(e) => setEditingProfile(prev => ({ ...prev, bio: e.target.value }))}
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-4 pr-1">
               <div className="space-y-2">
-                <Label>Location</Label>
-                <Input
-                  placeholder="e.g. Bangalore or Gurugram"
-                  value={editingProfile.location}
-                  onChange={(e) => setEditingProfile(prev => ({ ...prev, location: e.target.value }))}
+                <Label>Bio</Label>
+                <Textarea
+                  placeholder="Tell us about yourself..."
+                  value={editingProfile.bio}
+                  onChange={(e) => setEditingProfile(prev => ({ ...prev, bio: e.target.value }))}
+                  rows={2}
+                  className="resize-none"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Location</Label>
+                  <Input
+                    placeholder="e.g. Bangalore or Gurugram"
+                    value={editingProfile.location}
+                    onChange={(e) => setEditingProfile(prev => ({ ...prev, location: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <PhoneInput
+                    value={editingProfile.phone}
+                    onChange={(v) => setEditingProfile(prev => ({ ...prev, phone: v }))}
+                    placeholder="98765 43210"
+                  />
+                </div>
               </div>
               <div className="space-y-2">
-                <Label>Phone</Label>
-                <PhoneInput
-                  value={editingProfile.phone}
-                  onChange={(v) => setEditingProfile(prev => ({ ...prev, phone: v }))}
-                  placeholder="98765 43210"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Employment status</Label>
-              <div className="flex flex-wrap gap-3">
-                {(['employed', 'unemployed', 'student'] as const).map((status) => (
-                  <label key={status} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="employmentStatus"
-                      checked={editingProfile.employmentStatus === status}
-                      onChange={() => setEditingProfile(prev => ({
-                        ...prev,
-                        employmentStatus: status,
-                        ...(status !== 'employed' ? { noticePeriod: '', currentSalary: '' } : {}),
-                      }))}
-                      className="h-4 w-4 text-primary border-border"
-                    />
-                    <span className="text-sm capitalize">{status}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {editingProfile.employmentStatus === 'employed' && (
-                <>
-                  <div className="space-y-2">
-                    <Label>Notice period</Label>
-                    <Input
-                      placeholder="e.g. 15 days, 1 month, Immediate"
-                      value={editingProfile.noticePeriod}
-                      onChange={(e) => setEditingProfile(prev => ({ ...prev, noticePeriod: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Current salary</Label>
-                    <Input
-                      placeholder="e.g. 10 LPA, 15-20 L"
-                      value={editingProfile.currentSalary}
-                      onChange={(e) => setEditingProfile(prev => ({ ...prev, currentSalary: e.target.value }))}
-                    />
-                  </div>
-                </>
-              )}
-              <div className={`space-y-2 ${editingProfile.employmentStatus !== 'employed' ? 'sm:col-span-2' : ''}`}>
-                <Label>Expected salary</Label>
-                <Input
-                  placeholder="e.g. 20 LPA, 25-30 L"
-                  value={editingProfile.expectedSalary}
-                  onChange={(e) => setEditingProfile(prev => ({ ...prev, expectedSalary: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Skills</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Add a skill"
-                  value={skillInput}
-                  onChange={(e) => setSkillInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
-                />
-                <Button type="button" onClick={addSkill} variant="outline">
-                  Add
-                </Button>
-              </div>
-              {editingProfile.skills.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {editingProfile.skills.map((skill) => (
-                    <Badge key={skill} variant="secondary" className="px-3 py-1">
-                      {skill}
-                      <button
-                        type="button"
-                        onClick={() => removeSkill(skill)}
-                        className="ml-2 text-muted-foreground hover:text-foreground"
-                      >
-                        ×
-                      </button>
-                    </Badge>
+                <Label>Employment status</Label>
+                <div className="flex flex-wrap gap-3">
+                  {(['employed', 'unemployed', 'student'] as const).map((status) => (
+                    <label key={status} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="employmentStatus"
+                        checked={editingProfile.employmentStatus === status}
+                        onChange={() => setEditingProfile(prev => ({
+                          ...prev,
+                          employmentStatus: status,
+                          ...(status !== 'employed' ? { noticePeriod: '', currentSalary: '' } : {}),
+                        }))}
+                        className="h-4 w-4 text-primary border-border"
+                      />
+                      <span className="text-sm capitalize">{status}</span>
+                    </label>
                   ))}
                 </div>
-              )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {editingProfile.employmentStatus === 'employed' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Notice period</Label>
+                      <Input
+                        placeholder="e.g. 15 days, 1 month, Immediate"
+                        value={editingProfile.noticePeriod}
+                        onChange={(e) => setEditingProfile(prev => ({ ...prev, noticePeriod: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Current salary</Label>
+                      <Input
+                        placeholder="e.g. 10 LPA, 15-20 L"
+                        value={editingProfile.currentSalary}
+                        onChange={(e) => setEditingProfile(prev => ({ ...prev, currentSalary: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                )}
+                <div className={`space-y-2 ${editingProfile.employmentStatus !== 'employed' ? 'sm:col-span-2' : ''}`}>
+                  <Label>Expected salary</Label>
+                  <Input
+                    placeholder="e.g. 20 LPA, 25-30 L"
+                    value={editingProfile.expectedSalary}
+                    onChange={(e) => setEditingProfile(prev => ({ ...prev, expectedSalary: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Skills</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Add a skill"
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
+                  />
+                  <Button type="button" onClick={addSkill} variant="outline">
+                    Add
+                  </Button>
+                </div>
+                {editingProfile.skills.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2 max-h-[100px] min-h-[44px] overflow-y-auto overflow-x-hidden rounded-md border border-border/50 bg-muted/30 p-2 content-start">
+                    {editingProfile.skills.map((skill) => (
+                      <Badge key={skill} variant="secondary" className="px-2.5 py-0.5 text-xs shrink-0">
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(skill)}
+                          className="ml-1.5 text-muted-foreground hover:text-foreground leading-none"
+                        >
+                          ×
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex justify-end gap-2 pt-4">
+            <div className="flex justify-end gap-2 pt-4 mt-4 flex-shrink-0 border-t border-border bg-background">
               <Button variant="outline" onClick={() => setShowProfileDialog(false)}>
                 Cancel
               </Button>

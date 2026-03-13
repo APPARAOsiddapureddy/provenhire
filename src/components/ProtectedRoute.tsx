@@ -3,13 +3,18 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { PageLoaderFullScreen } from '@/components/PageLoader';
 
+type AllowedRole = 'recruiter' | 'jobseeker' | 'expert_interviewer';
+
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRole?: 'recruiter' | 'jobseeker' | 'expert_interviewer';
+  allowedRole?: AllowedRole;
+  /** Allow multiple roles (e.g. for Settings page) */
+  allowedRoles?: AllowedRole[];
 }
 
-const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole }: ProtectedRouteProps) {
+const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole, allowedRoles }: ProtectedRouteProps) {
   const { user, userRole, loading } = useAuth();
+  const roles = allowedRoles ?? (allowedRole ? [allowedRole] : undefined);
 
   if (loading) {
     return <PageLoaderFullScreen />;
@@ -19,11 +24,11 @@ const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole }: P
     return <Navigate to="/auth" replace />;
   }
 
-  if (allowedRole && userRole === null) {
+  if (roles && userRole === null) {
     return <PageLoaderFullScreen />;
   }
 
-  if (allowedRole && userRole !== allowedRole) {
+  if (roles && userRole && !roles.includes(userRole)) {
     if (userRole === 'admin') {
       return <Navigate to="/admin/dashboard" replace />;
     }

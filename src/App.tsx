@@ -19,6 +19,7 @@ import NotFound from "./pages/NotFound";
 import JobSeekerDashboard from "./pages/dashboard/JobSeekerDashboard";
 import RecruiterDashboard from "./pages/dashboard/RecruiterDashboard";
 import ExpertDashboard from "./pages/dashboard/ExpertDashboard";
+import SettingsPage from "./pages/dashboard/SettingsPage";
 
 const RecruiterOnboarding = lazy(() => import("./pages/dashboard/RecruiterOnboarding"));
 const PostJob = lazy(() => import("./pages/dashboard/PostJob"));
@@ -171,6 +172,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="recruiter">
                     <ApplicantsPage />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/settings" 
+                element={
+                  <ProtectedRoute allowedRoles={["jobseeker", "recruiter", "expert_interviewer"]}>
+                    <SettingsPage />
                   </ProtectedRoute>
                 } 
               />
