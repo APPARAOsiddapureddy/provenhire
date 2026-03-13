@@ -83,7 +83,14 @@ After changing `.env` or `vite.config.ts`:
 
 ---
 
-## Step 5: Cross-Origin-Opener-Policy warning (Firebase popup)
+## Step 5: Google SSO and Settings
+
+- **Google sign-in**: Ensure backend is running (Step 1). If you see "Invalid or expired Google sign-in", check that Firebase Admin is configured on the server (see `docs/GOOGLE_AUTH_SETUP.md`). Popup cancelled/blocked messages are shown in the app.
+- **Settings page**: If you see "Server unavailable", start the backend and click **Retry**. If you see "Session expired", click **Sign in again** and sign in with Google or email.
+
+---
+
+## Step 6: Cross-Origin-Opener-Policy warning (Firebase popup)
 
 If you see in the console:
 
@@ -104,6 +111,7 @@ Cross-Origin-Opener-Policy policy would block the window.closed call.
 | 503 on `/api/auth/google` or other `/api/*` | Start backend: `npm run dev:server` (Step 1) |
 | "Server unavailable" toast | Same as above; backend must run on port 10000 (or set `VITE_API_PROXY_TARGET`) |
 | Backend starts but APIs still 503 or Prisma "column does not exist" | Run migrations: `cd server && npx prisma migrate deploy` or `npx prisma db push` (Step 3) |
-| COOP / window.closed warning in console | Safe to ignore; auth can still work (Step 5) |
+| COOP / window.closed warning in console | Safe to ignore; auth can still work (Step 6) |
+| Settings "Session expired" | Click **Sign in again** and sign in (Step 5) |
 
 **Recommended:** Run `npm run dev:all` from the project root so both frontend and backend stay running.

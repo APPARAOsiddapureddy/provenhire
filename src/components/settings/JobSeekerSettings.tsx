@@ -30,7 +30,7 @@ const WORK_MODES = ["Remote", "Hybrid", "Onsite"] as const;
 const EXPERIENCE_LEVELS = ["Entry Level", "Mid Level", "Senior Level"] as const;
 
 export function JobSeekerSettings() {
-  const { user, changePassword } = useAuth();
+  const { user, changePassword, signOut } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [preferences, setPreferences] = useState<any>(null);
   const [userInfo, setUserInfo] = useState<any>(null);
@@ -56,10 +56,12 @@ export function JobSeekerSettings() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [serverUnavailable, setServerUnavailable] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const loadSettings = () => {
     setLoading(true);
     setServerUnavailable(false);
+    setSessionExpired(false);
     api
       .get<{ profile: any; user: any; preferences: any }>("/api/settings/job-seeker")
       .then(({ profile, user: u, preferences: p }) => {
@@ -84,7 +86,10 @@ export function JobSeekerSettings() {
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
         const is503 = status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running");
-        if (is503) {
+        if (status === 401) {
+          setSessionExpired(true);
+          toast.error("Session expired. Please sign in again.");
+        } else if (is503) {
           setServerUnavailable(true);
           toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
         } else {
@@ -124,7 +129,19 @@ export function JobSeekerSettings() {
     }
   };
 
-  if (loading && !serverUnavailable) return <div className="text-white/70">Loading settings...</div>;
+  if (loading && !serverUnavailable && !sessionExpired) return <div className="text-white/70">Loading settings...</div>;
+
+  if (sessionExpired) {
+    return (
+      <div className="rounded-xl border border-white/20 bg-white/5 p-6 text-center">
+        <p className="font-semibold text-white">Session expired</p>
+        <p className="mt-2 text-sm text-white/70">Please sign in again to continue.</p>
+        <Button className="mt-4" onClick={() => signOut()}>
+          Sign in again
+        </Button>
+      </div>
+    );
+  }
 
   if (serverUnavailable) {
     return (

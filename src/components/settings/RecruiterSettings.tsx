@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { SettingsCard } from "./SettingsCard";
@@ -43,10 +44,13 @@ export function RecruiterSettings() {
   const [applicationAlerts, setApplicationAlerts] = useState(true);
   const [weeklyReports, setWeeklyReports] = useState(false);
   const [serverUnavailable, setServerUnavailable] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const { signOut } = useAuth();
 
   const loadSettings = () => {
     setLoading(true);
     setServerUnavailable(false);
+    setSessionExpired(false);
     api
       .get<{ profile: any; preferences: any }>("/api/settings/recruiter")
       .then(({ profile: p, preferences: pref }) => {
@@ -72,7 +76,10 @@ export function RecruiterSettings() {
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
         const is503 = status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running");
-        if (is503) {
+        if (status === 401) {
+          setSessionExpired(true);
+          toast.error("Session expired. Please sign in again.");
+        } else if (is503) {
           setServerUnavailable(true);
           toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
         } else {
@@ -115,6 +122,18 @@ export function RecruiterSettings() {
   };
 
   if (loading) return <div className="text-white/70">Loading settings...</div>;
+
+  if (sessionExpired) {
+    return (
+      <div className="rounded-lg border border-white/20 bg-white/5 p-4 text-center text-white">
+        <p className="font-medium">Session expired</p>
+        <p className="mt-1 text-sm text-white/70">Please sign in again to continue.</p>
+        <button type="button" onClick={() => signOut()} className="mt-3 rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium hover:bg-white/20">
+          Sign in again
+        </button>
+      </div>
+    );
+  }
 
   if (serverUnavailable) {
     return (

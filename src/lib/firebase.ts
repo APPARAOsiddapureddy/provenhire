@@ -38,14 +38,37 @@ export function isFirebaseConfigured(): boolean {
   return !!(import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_PROJECT_ID);
 }
 
+/** User-friendly messages for Firebase auth error codes. */
+function firebaseAuthErrorMessage(code: string): string {
+  const messages: Record<string, string> = {
+    "auth/popup-closed-by-user": "Sign-in was cancelled. Please try again.",
+    "auth/cancelled-popup-request": "Sign-in was cancelled. Please try again.",
+    "auth/popup-blocked": "Pop-up was blocked. Allow pop-ups for this site and try again.",
+    "auth/account-exists-with-different-credential": "An account already exists with this email. Sign in with your existing method.",
+    "auth/network-request-failed": "Network error. Check your connection and try again.",
+    "auth/too-many-requests": "Too many attempts. Please try again later.",
+    "auth/invalid-credential": "Invalid or expired sign-in. Please try again.",
+    "auth/user-disabled": "This account has been disabled.",
+  };
+  return messages[code] || "Google sign-in failed. Please try again.";
+}
+
 /** Google sign-in via popup. Returns id token on success. Avoids firebaseapp.com redirect/init.json 404. */
 export async function signInWithGooglePopup(): Promise<string> {
   const auth = getAuth(getFirebaseApp());
   const provider = new GoogleAuthProvider();
-  const result = await signInWithPopup(auth, provider);
-  const token = await result.user.getIdToken();
-  if (!token) throw new Error("Failed to get Google ID token");
-  return token;
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const token = await result.user.getIdToken();
+    if (!token) throw new Error("Failed to get Google ID token");
+    return token;
+  } catch (err: unknown) {
+    const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+    if (typeof code === "string" && code.startsWith("auth/")) {
+      throw new Error(firebaseAuthErrorMessage(code));
+    }
+    throw err;
+  }
 }
 
 /** Call on app load after returning from Google OAuth redirect (legacy). Returns id token if user just signed in, else null. */

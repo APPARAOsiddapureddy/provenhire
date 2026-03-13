@@ -54,7 +54,12 @@ export function createApp() {
       optionsSuccessStatus: 204,
     })
   );
-  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    })
+  );
   app.use(express.json({ limit: "2mb" }));
   app.use(pinoHttp());
   app.use("/uploads", express.static(UPLOADS_DIR));

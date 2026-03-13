@@ -201,7 +201,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err: unknown) {
       const status = (err as { status?: number })?.status;
       const msg = err instanceof Error ? err.message : "Google sign-in failed";
-      if (status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running")) {
+      const isServerUnavailable =
+        status === 503 ||
+        msg.includes("temporarily unavailable") ||
+        msg.includes("Backend not running") ||
+        msg.includes("Cannot reach") ||
+        msg.includes("Unable to connect") ||
+        msg.includes("Failed to fetch") ||
+        msg.includes("Load failed") ||
+        msg.includes("Network error");
+      if (isServerUnavailable) {
         toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
       } else {
         toast.error(msg);

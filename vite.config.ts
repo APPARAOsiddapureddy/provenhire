@@ -19,16 +19,44 @@ const apiHealthAlwaysOk = () => ({
   },
 });
 
-// Set COOP so Firebase signInWithPopup can poll popup.closed (avoids "would block the window.closed call").
+const COOP_VALUE = "same-origin-allow-popups";
+
+// Force COOP on every response so Firebase signInWithPopup can use window.closed (avoids COOP warning).
+// Patch res so COOP is always set before any response is sent (writeHead/end).
 const coopHeader = () => ({
   name: "coop-header",
   configureServer(server: any) {
-    const setCoop = (_req: any, res: any, next: () => void) => {
-      res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    const handle: any = (req: any, res: any, next: () => void) => {
+      if (res._coopPatched) {
+        next();
+        return;
+      }
+      const rawSetHeader = res.setHeader.bind(res);
+      const setCoop = () => {
+        try {
+          rawSetHeader("Cross-Origin-Opener-Policy", COOP_VALUE);
+        } catch (_) {}
+      };
+      res.setHeader = function (name: string, value: string | number | string[]) {
+        const out = rawSetHeader(name, value);
+        setCoop();
+        return out;
+      };
+      const rawWriteHead = res.writeHead.bind(res);
+      res.writeHead = function (this: any, statusCode: number, ...args: any[]) {
+        setCoop();
+        return rawWriteHead.apply(this, [statusCode, ...args]);
+      };
+      const rawEnd = res.end.bind(res);
+      res.end = function (this: any, ...args: any[]) {
+        setCoop();
+        return rawEnd.apply(this, args);
+      };
+      res._coopPatched = true;
+      setCoop();
       next();
     };
-    // Prepend so the header is set before any handler sends the response (e.g. index.html).
-    (server.middlewares as any).stack.unshift({ route: "", handle: setCoop });
+    (server.middlewares as any).stack.unshift({ route: "", handle });
   },
 });
 
