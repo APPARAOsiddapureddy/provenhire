@@ -94,7 +94,13 @@ proctorRouter.post("/frame", requireAuth, async (req: AuthedRequest, res: Respon
   // Run phone detection only every 3 frames (caller sends runPhoneDetection: true every 3rd second)
   const analysis = await analyzeFrame(base64Frame);
   if (!analysis) {
-    return res.status(502).json({ error: "AI proctor unavailable" });
+    // AI proctor service (Python) not running or unreachable — allow test to continue without proctoring
+    return res.status(200).json({
+      ok: true,
+      analysis: null,
+      violations: [],
+      proctorUnavailable: true,
+    });
   }
 
   // If client requested to skip phone detection this frame, override to false to save YOLO calls

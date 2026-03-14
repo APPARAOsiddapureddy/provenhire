@@ -1,8 +1,9 @@
 /**
  * Sends webcam frames to the AI proctoring backend every 1 second.
  * Resizes to 320x240, runs phone detection every 3 seconds.
+ * Backs off (stops sending) after 502 so the test can continue without spamming errors.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 const FRAME_WIDTH = 320;
@@ -28,6 +29,8 @@ export function useProctorFrameCapture({
   const frameCountRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [proctorDisabled, setProctorDisabled] = useState(false);
+  const onErrorCalledRef = useRef(false);
 
   // Use a hidden video element fed by the stream
   useEffect(() => {
@@ -46,6 +49,7 @@ export function useProctorFrameCapture({
   }, [cameraStream, enabled]);
 
   const captureAndSend = useCallback(async () => {
+    if (proctorDisabled) return;
     const video = videoRef.current;
     if (!video || video.readyState < 2 || !video.videoWidth) return;
 
@@ -63,19 +67,29 @@ export function useProctorFrameCapture({
     const runPhoneDetection = frameCountRef.current % PHONE_DETECTION_INTERVAL === 1;
 
     try {
-      await api.post("/api/proctor/frame", {
+      const res = await api.post<{ ok?: boolean; proctorUnavailable?: boolean }>("/api/proctor/frame", {
         sessionId,
         frame: base64,
         testType,
         runPhoneDetection,
       });
-    } catch (err) {
-      onError?.(err);
+      if (res?.proctorUnavailable) {
+        setProctorDisabled(true);
+      }
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      if (status === 502) {
+        setProctorDisabled(true);
+      }
+      if (!onErrorCalledRef.current) {
+        onErrorCalledRef.current = true;
+        onError?.(err);
+      }
     }
-  }, [sessionId, testType, onError]);
+  }, [sessionId, testType, onError, proctorDisabled]);
 
   useEffect(() => {
-    if (!enabled || !sessionId || !cameraStream) return;
+    if (!enabled || !sessionId || !cameraStream || proctorDisabled) return;
 
     const id = window.setInterval(captureAndSend, INTERVAL_MS);
     intervalRef.current = id;
@@ -86,7 +100,7 @@ export function useProctorFrameCapture({
         intervalRef.current = null;
       }
     };
-  }, [enabled, sessionId, cameraStream, captureAndSend]);
+  }, [enabled, sessionId, cameraStream, captureAndSend, proctorDisabled]);
 
-  return { frameCount: frameCountRef.current };
+  return { frameCount: frameCountRef.current, proctorDisabled };
 }
