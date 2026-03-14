@@ -1,3 +1,2 @@
--- Add certification gate for job eligibility filtering
-ALTER TABLE "Job"
-ADD COLUMN "minimumCertificationLevel" INTEGER NOT NULL DEFAULT 1;
+-- Add certification gate for job eligibility filtering (idempotent)
+ALTER TABLE "Job" ADD COLUMN IF NOT EXISTS "minimumCertificationLevel" INTEGER NOT NULL DEFAULT 1;

@@ -15,7 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api } from "@/lib/api";
+import { api, isBackendDownCooldown } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 
@@ -41,7 +41,7 @@ const NotificationInbox = () => {
   const latestUnread = unreadMessages[0];
 
   const fetchMessages = async () => {
-    if (!user) return;
+    if (!user || isBackendDownCooldown()) return;
     try {
       const { notifications } = await api.get<{ notifications: Message[] }>("/api/notifications");
       if (notifications) {

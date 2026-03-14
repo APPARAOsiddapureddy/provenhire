@@ -1,5 +1,5 @@
--- CreateTable
-CREATE TABLE "AptitudeSession" (
+-- CreateTable (idempotent for resolve --rolled-back retry)
+CREATE TABLE IF NOT EXISTS "AptitudeSession" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "answerKey" JSONB NOT NULL,
@@ -9,8 +9,14 @@ CREATE TABLE "AptitudeSession" (
     CONSTRAINT "AptitudeSession_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "AptitudeSession_userId_key" ON "AptitudeSession"("userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "AptitudeSession_userId_key" ON "AptitudeSession"("userId");
 
--- AddForeignKey
-ALTER TABLE "AptitudeSession" ADD CONSTRAINT "AptitudeSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey only if missing (PostgreSQL: check constraint existence)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'AptitudeSession_userId_fkey'
+  ) THEN
+    ALTER TABLE "AptitudeSession" ADD CONSTRAINT "AptitudeSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;

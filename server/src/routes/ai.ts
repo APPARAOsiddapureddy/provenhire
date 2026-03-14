@@ -44,7 +44,10 @@ aiRouter.post("/parse-resume", requireAuth, memoryUpload.single("file"), handleM
       console.error("[parse-resume] parseResumeForProfile returned null. Check server logs for Gemini errors.");
       return res.status(400).json({ error: "Could not parse resume. Please fill the form manually." });
     }
-    return res.json({ parsed });
+    return res.json({
+      parsed,
+      suggestedRoleType: parsed.suggestedTrack ?? "technical",
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Resume parsing failed";
     console.error("[parse-resume]", msg);

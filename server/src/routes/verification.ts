@@ -174,78 +174,94 @@ verificationRouter.get("/aptitude/practice", async (_req, res) => {
 });
 
 verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res) => {
-  const schema = z.object({
-    score: z.number().optional(),
-    answers: z.record(z.string(), z.string()).optional(), // { questionId: selectedOption }
-    meta: z
-      .object({
-        timeTakenSeconds: z.number().nonnegative().optional(),
-        timeLimitSeconds: z.number().positive().optional(),
-      })
-      .optional(),
-    invalidated: z.boolean().optional(),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  try {
+    const schema = z.object({
+      score: z.number().optional(),
+      answers: z.record(z.string(), z.string()).optional(), // { questionId: selectedOption }
+      meta: z
+        .object({
+          timeTakenSeconds: z.number().nonnegative().optional(),
+          timeLimitSeconds: z.number().positive().optional(),
+        })
+        .optional(),
+      invalidated: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
 
-  let score: number;
-  let answersPayload: Record<string, unknown> | null = null;
+    let score: number;
+    let answersPayload: Record<string, unknown> | null = null;
 
-  if (parsed.data.answers && typeof parsed.data.answers === "object" && !Array.isArray(parsed.data.answers)) {
-    const session = await getAptitudeSession(req.user!.id);
-    const answerKey = session?.answerKey ?? null;
-    const marksKey = session?.marksKey ?? null;
-    if (!answerKey || typeof answerKey !== "object" || Object.keys(answerKey).length === 0) {
-      return res.status(400).json({
-        error: "Your test session has expired. Please click 'Retry This Step' above, then 'Start Aptitude Test' to begin a fresh attempt.",
+    if (parsed.data.answers && typeof parsed.data.answers === "object" && !Array.isArray(parsed.data.answers)) {
+      const session = await getAptitudeSession(req.user!.id);
+      const answerKey = session?.answerKey ?? null;
+      const marksKey = session?.marksKey ?? null;
+      if (!answerKey || typeof answerKey !== "object" || Object.keys(answerKey).length === 0) {
+        return res.status(400).json({
+          error: "Your test session has expired. Please click 'Retry This Step' above, then 'Start Aptitude Test' to begin a fresh attempt.",
+        });
+      }
+      let earnedMarks = 0;
+      let correctCount = 0;
+      for (const [qId, selected] of Object.entries(parsed.data.answers)) {
+        const expected = answerKey[qId];
+        const qMarks = marksKey?.[qId] ?? 1;
+        if (expected != null && normalizeAnswer(selected) === normalizeAnswer(expected)) {
+          earnedMarks += qMarks;
+          correctCount++;
+        }
+      }
+      score = earnedMarks; // Raw marks out of 100; pass threshold is 60
+      const totalMarksVal = marksKey ? Object.values(marksKey).reduce((a, b) => a + b, 0) : Object.keys(answerKey).length;
+      answersPayload = {
+        questions: Object.keys(answerKey).length,
+        correct: correctCount,
+        earnedMarks,
+        totalMarks: totalMarksVal,
+        ...(parsed.data.meta?.timeTakenSeconds != null ? { timeTakenSeconds: parsed.data.meta.timeTakenSeconds } : {}),
+        ...(parsed.data.meta?.timeLimitSeconds != null ? { timeLimitSeconds: parsed.data.meta.timeLimitSeconds } : {}),
+      };
+      await clearAptitudeSession(req.user!.id);
+    } else {
+      score = parsed.data.score ?? 0;
+    }
+
+    const answersToStore = answersPayload ?? (parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : undefined);
+    const completedAt = new Date();
+    const result = await prisma.aptitudeTestResult.create({
+      data: {
+        userId: req.user!.id,
+        score,
+        ...(answersToStore !== undefined ? { answers: answersToStore as object } : {}),
+        invalidated: parsed.data.invalidated ?? false,
+      },
+    });
+    const existingStage = await prisma.verificationStage.findFirst({
+      where: { userId: req.user!.id, stageName: "aptitude_test" },
+    });
+    if (existingStage) {
+      await prisma.verificationStage.update({
+        where: { id: existingStage.id },
+        data: { score: Math.round(score) },
       });
     }
-    let earnedMarks = 0;
-    let correctCount = 0;
-    for (const [qId, selected] of Object.entries(parsed.data.answers)) {
-      const expected = answerKey[qId];
-      const qMarks = marksKey?.[qId] ?? 1;
-      if (expected != null && normalizeAnswer(selected) === normalizeAnswer(expected)) {
-        earnedMarks += qMarks;
-        correctCount++;
-      }
+    await upsertSkillVerification(req.user!.id, "APTITUDE", Math.round(score), completedAt);
+    return res.json({ result, score });
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : null;
+    const isDb = code === "P1001" || code === "P1002" || code === "P2021" || code === "P2003";
+    console.error("[verification/aptitude]", err);
+    if (isDb) {
+      const hint =
+        process.env.NODE_ENV !== "production"
+          ? " If running locally, ensure PostgreSQL is running and run: cd server && npx prisma migrate deploy"
+          : "";
+      return res.status(503).json({
+        error: `Database temporarily unavailable. Please try again in a moment.${hint}`,
+      });
     }
-    score = earnedMarks; // Raw marks out of 100; pass threshold is 60
-    const totalMarksVal = marksKey ? Object.values(marksKey).reduce((a, b) => a + b, 0) : Object.keys(answerKey).length;
-    answersPayload = {
-      questions: Object.keys(answerKey).length,
-      correct: correctCount,
-      earnedMarks,
-      totalMarks: totalMarksVal,
-      ...(parsed.data.meta?.timeTakenSeconds != null ? { timeTakenSeconds: parsed.data.meta.timeTakenSeconds } : {}),
-      ...(parsed.data.meta?.timeLimitSeconds != null ? { timeLimitSeconds: parsed.data.meta.timeLimitSeconds } : {}),
-    };
-    await clearAptitudeSession(req.user!.id);
-  } else {
-    score = parsed.data.score ?? 0;
+    return res.status(500).json({ error: "Failed to submit aptitude test. Please try again." });
   }
-
-  const answersToStore = answersPayload ?? (parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : undefined);
-  const completedAt = new Date();
-  const result = await prisma.aptitudeTestResult.create({
-    data: {
-      userId: req.user!.id,
-      score,
-      ...(answersToStore !== undefined ? { answers: answersToStore as object } : {}),
-      invalidated: parsed.data.invalidated ?? false,
-    },
-  });
-  const existingStage = await prisma.verificationStage.findFirst({
-    where: { userId: req.user!.id, stageName: "aptitude_test" },
-  });
-  if (existingStage) {
-    await prisma.verificationStage.update({
-      where: { id: existingStage.id },
-      data: { score: Math.round(score) },
-    });
-  }
-  await upsertSkillVerification(req.user!.id, "APTITUDE", Math.round(score), completedAt);
-  res.json({ result, score });
 });
 
 function normalizeAnswer(s: string): string {

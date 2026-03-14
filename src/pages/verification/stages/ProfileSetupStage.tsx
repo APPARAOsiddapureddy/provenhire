@@ -9,7 +9,15 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { CheckCircle2, Loader2, FileText } from "lucide-react";
+import { CheckCircle2, Loader2, FileText, ArrowRight } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface ParsedProfile {
   fullName: string;
@@ -64,6 +72,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [parseStep, setParseStep] = useState<"parsing" | "extracting" | "done">("parsing");
+  const [showSwitchToNonTechDialog, setShowSwitchToNonTechDialog] = useState(false);
+  const [switchingTrack, setSwitchingTrack] = useState(false);
 
   const applyParsed = useCallback((p: ParsedProfile) => {
     setFullName(p.fullName || "");
@@ -131,12 +141,16 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     try {
       const form = new FormData();
       form.append("file", file);
-      const { parsed } = await api.post<{ parsed: ParsedProfile }>("/api/ai/parse-resume", form);
+      const res = await api.post<{ parsed: ParsedProfile; suggestedRoleType?: "technical" | "non_technical" }>("/api/ai/parse-resume", form);
+      const { parsed, suggestedRoleType } = res;
       clearTimeout(phaseTimer);
       setParseStep("done");
       applyParsed(parsed);
       setShowForm(true);
       toast.success("Resume parsed. Review and save.");
+      if (roleType === "technical" && suggestedRoleType === "non_technical") {
+        setShowSwitchToNonTechDialog(true);
+      }
     } catch (err: unknown) {
       clearTimeout(phaseTimer);
       let msg = err instanceof Error ? err.message : "Could not parse resume";
@@ -165,6 +179,20 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     setManualMode(true);
     setShowForm(true);
     setParseError(null);
+  };
+
+  const handleSwitchToNonTechnical = async () => {
+    setSwitchingTrack(true);
+    try {
+      await api.post("/api/users/job-seeker-profile", { roleType: "non_technical" });
+      toast.success("Switched to Non-Technical track. Your dashboard has been updated.");
+      setShowSwitchToNonTechDialog(false);
+      navigate("/dashboard/jobseeker", { replace: true });
+    } catch {
+      toast.error("Could not switch track. Please try again.");
+    } finally {
+      setSwitchingTrack(false);
+    }
   };
 
   const scrollToField = (fieldId: string) => {
@@ -321,11 +349,9 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
           </div>
         )}
         {!showForm && !parsing && (
-          <div className="space-y-3">
-            <Label className="text-base font-medium">Upload your resume</Label>
-            <p className="text-sm text-muted-foreground">PDF, DOC, DOCX, or TXT — our LLM will extract and auto-fill your profile.</p>
+          <div className="space-y-4">
             <div
-              className="border-2 border-dashed rounded-lg p-8 text-center transition-colors hover:border-primary/50 cursor-pointer"
+              className="relative rounded-2xl border-2 border-dashed border-primary/60 bg-gradient-to-b from-primary/15 to-primary/5 p-10 text-center transition-all hover:border-primary hover:shadow-lg hover:shadow-primary/10 cursor-pointer group"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -344,12 +370,20 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 disabled={parsing}
               />
               <label htmlFor="resume-upload" className="cursor-pointer block">
-                <p className="text-sm text-muted-foreground">PDF, DOC, DOCX, or TXT</p>
-                <p className="mt-2 text-primary font-medium">Drop file here or click to upload</p>
+                <div className="mx-auto w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-4 group-hover:bg-primary/30 transition-colors">
+                  <FileText className="h-8 w-8 text-primary" />
+                </div>
+                <h3 className="text-xl font-bold text-foreground">Upload your resume</h3>
+                <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
+                  PDF, DOC, DOCX, or TXT — our AI will extract and auto-fill your profile in seconds.
+                </p>
+                <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary/20 px-4 py-2 text-sm font-semibold text-primary">
+                  Drop file here or click to upload
+                </p>
               </label>
             </div>
-            <Button variant="ghost" size="sm" onClick={handleSkipToManual}>
-              Fill manually (resume still required)
+            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={handleSkipToManual}>
+              Fill manually (no resume)
             </Button>
           </div>
         )}
@@ -583,6 +617,31 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
             </div>
           </div>
         )}
+
+        {/* Dialog: resume suggests non-technical — offer to switch track */}
+        <Dialog open={showSwitchToNonTechDialog} onOpenChange={setShowSwitchToNonTechDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Switch to Non-Technical track?</DialogTitle>
+              <DialogDescription>
+                Your resume suggests roles in Business, Operations, Marketing, or similar (non-engineering). Would you like to switch to the <strong>Non-Technical</strong> verification path? Your dashboard and verification steps will update to match — Assignment and Human Expert Interview instead of Aptitude, DSA, and AI Interview.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                variant="outline"
+                onClick={() => setShowSwitchToNonTechDialog(false)}
+                disabled={switchingTrack}
+              >
+                No, keep Technical
+              </Button>
+              <Button onClick={handleSwitchToNonTechnical} disabled={switchingTrack}>
+                {switchingTrack ? "Switching…" : "Yes, switch to Non-Technical"}
+                {!switchingTrack && <ArrowRight className="ml-2 h-4 w-4" />}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Post-save: choose Homepage or continue to next stage */}
         {profileJustSaved && (

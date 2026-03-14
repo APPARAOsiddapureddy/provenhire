@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { api } from "@/lib/api";
+import { api, isBackendDownCooldown } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -61,7 +61,17 @@ export default function ExpertDashboard() {
   const [bulkLoading, setBulkLoading] = useState(false);
 
   const fetchData = async () => {
+    if (isBackendDownCooldown()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    try {
+      await api.get<{ ok: boolean }>("/api/health");
+    } catch {
+      setLoading(false);
+      return;
+    }
     try {
       const [profileRes, upcomingRes, pastRes, statsRes, pendingRes] = await Promise.allSettled([
         api.get("/api/expert/profile"),

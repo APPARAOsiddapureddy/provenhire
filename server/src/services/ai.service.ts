@@ -32,6 +32,8 @@ export type ParsedResumeProfile = {
   graduationYear: string;
   education: Array<{ institution: string; degree: string; year: string }>;
   workExperience: Array<{ company: string; role: string; years: string; bullets?: string[] }>;
+  /** AI-suggested track: technical (eng/coding) vs non_technical (business, ops, etc.) */
+  suggestedTrack?: "technical" | "non_technical";
 };
 
 const PARSE_RESUME_SYSTEM = `You extract structured profile data from resumes for job seeker onboarding. Return ONLY valid JSON with these exact keys (use empty string or 0 for missing):
@@ -47,11 +49,13 @@ const PARSE_RESUME_SYSTEM = `You extract structured profile data from resumes fo
   "college": "most recent institution name",
   "graduationYear": "YYYY or YYYY-YYYY",
   "education": [{"institution":"","degree":"","year":""}],
-  "workExperience": [{"company":"","role":"","years":"","bullets":[]}]
+  "workExperience": [{"company":"","role":"","years":"","bullets":[]}],
+  "suggestedTrack": "technical" or "non_technical"
 }
-Be concise. Extract all skills mentioned (tech, tools, soft). Infer experienceYears from work history. No markdown, no code blocks.`;
+Rules for suggestedTrack: Use "technical" for software/engineering/developer roles, programming skills (Python, Java, React, etc.), IT, data engineering, DevOps. Use "non_technical" for business, operations, marketing, HR, sales, customer support, content, design (non-coding), admin, finance, non-engineering. Be concise. Extract all skills. Infer experienceYears from work history. No markdown, no code blocks.`;
 
 function normalizeParsed(parsed: Partial<ParsedResumeProfile>): ParsedResumeProfile {
+  const track = parsed.suggestedTrack === "non_technical" ? "non_technical" : "technical";
   return {
     fullName: String(parsed.fullName ?? ""),
     email: String(parsed.email ?? ""),
@@ -65,6 +69,7 @@ function normalizeParsed(parsed: Partial<ParsedResumeProfile>): ParsedResumeProf
     graduationYear: String(parsed.graduationYear ?? ""),
     education: Array.isArray(parsed.education) ? parsed.education : [],
     workExperience: Array.isArray(parsed.workExperience) ? parsed.workExperience : [],
+    suggestedTrack: track,
   };
 }
 

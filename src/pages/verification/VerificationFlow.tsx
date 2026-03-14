@@ -757,7 +757,7 @@ const VerificationFlow = () => {
                       Retry This Step
                     </Button>
                   )}
-                  <Button onClick={handleReturnToDashboard}>
+                  <Button variant="outline" size="sm" className="text-muted-foreground border-muted-foreground/30 hover:bg-muted/50" onClick={handleReturnToDashboard}>
                     Return to Dashboard
                   </Button>
                 </div>

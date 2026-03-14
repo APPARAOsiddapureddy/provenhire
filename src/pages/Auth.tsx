@@ -95,9 +95,10 @@ const Auth = () => {
 
   const isRedirecting = Boolean(user && userRole === null && authMode !== "reset" && !isReset);
 
-  // Pre-warm backend (wakes Render from cold start) so Send/Verify are fast
+  // Pre-warm backend in production only (cold start). Skip in dev to avoid 503 console errors when backend isn't running.
   useEffect(() => {
-    fetch("/api/health").catch(() => {});
+    if (!import.meta.env.PROD) return;
+    api.get("/api/health").catch(() => {});
   }, []);
 
   useEffect(() => {

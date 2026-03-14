@@ -1,5 +1,5 @@
--- CreateTable
-CREATE TABLE "PlatformFeatureFlag" (
+-- CreateTable (idempotent)
+CREATE TABLE IF NOT EXISTS "PlatformFeatureFlag" (
     "id" TEXT NOT NULL,
     "featureName" TEXT NOT NULL,
     "mode" TEXT NOT NULL DEFAULT 'OFF',
@@ -10,5 +10,4 @@ CREATE TABLE "PlatformFeatureFlag" (
     CONSTRAINT "PlatformFeatureFlag_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "PlatformFeatureFlag_featureName_key" ON "PlatformFeatureFlag"("featureName");
+CREATE UNIQUE INDEX IF NOT EXISTS "PlatformFeatureFlag_featureName_key" ON "PlatformFeatureFlag"("featureName");

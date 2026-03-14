@@ -1034,8 +1034,6 @@
   border-color: rgba(31, 169, 113, 0.4);
 }
 
-.vpc-lvl--next .vpc-lvl-tag { color: var(--dash-gold); }
-
 .vpc-lvl--past { opacity: 0.65; }
 
 .vpc-lvl--future { opacity: 0.5; }

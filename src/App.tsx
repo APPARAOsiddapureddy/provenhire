@@ -7,6 +7,8 @@ import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-ro
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ScrollToTop from "./components/ScrollToTop";
+import BackendGate from "./components/BackendGate";
+import { api } from "./lib/api";
 import { PageLoaderFullScreen } from "./components/PageLoader";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -60,9 +62,11 @@ const AuthHashRedirect = () => {
   return null;
 };
 
+// Only in production: wake backend from cold start. Skip in dev to avoid 503 console errors when backend isn't running.
 const ApiWarmup = () => {
   useEffect(() => {
-    fetch("/health", { cache: "no-store" }).catch(() => {});
+    if (!import.meta.env.PROD) return;
+    api.get<{ ok?: boolean }>("/api/health").catch(() => {});
   }, []);
   return null;
 };
@@ -123,7 +127,9 @@ const App = () => (
                 path="/dashboard/expert" 
                 element={
                   <ProtectedRoute allowedRole="expert_interviewer">
-                    <ExpertDashboard />
+                    <BackendGate>
+                      <ExpertDashboard />
+                    </BackendGate>
                   </ProtectedRoute>
                 } 
               />

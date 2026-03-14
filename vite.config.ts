@@ -2,20 +2,66 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
-const apiHealthAlwaysOk = () => ({
-  name: "api-health-always-ok",
+/** In dev only: replace Vite proxy connection errors with one friendly line. Production does not use Vite proxy. */
+const quietProxyErrors = () => {
+  const originalError = console.error;
+  let lastLog = 0;
+  return {
+    name: "quiet-proxy-errors",
+    configureServer() {
+      console.error = (...args: unknown[]) => {
+        const msg = args[0] != null ? String(args[0]) : "";
+        const isViteProxyError = msg.includes("http proxy error");
+        if (isViteProxyError) {
+          const now = Date.now();
+          if (now - lastLog > 15000) {
+            lastLog = now;
+            originalError.call(console, "[vite] Backend unreachable. Run npm run dev from the project root.");
+          }
+          return;
+        }
+        originalError.apply(console, args);
+      };
+    },
+  };
+};
+
+// Handle /api/health BEFORE the proxy so we always return 503 when backend is down (proxy would
+// do the same, but this ensures one place and correct body). Run first via unshift.
+const BACKEND_DOWN_MSG = "Run npm run dev from the project root to start the backend.";
+const apiHealthProxy = () => ({
+  name: "api-health-proxy",
   configureServer(server: any) {
-    server.middlewares.use((req: any, res: any, next: () => void) => {
-      if (req.url?.startsWith("/api/health")) {
+    const handle = (req: any, res: any, next: () => void) => {
+      const url = req.url?.split("?")[0] ?? "";
+      if (url === "/api/health") {
         const target = process.env.VITE_API_PROXY_TARGET || "http://localhost:10000";
-        fetch(`${target}/api/health`).catch(() => {}).finally(() => {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true }));
-        });
+        const ac = new AbortController();
+        const timeoutId = setTimeout(() => ac.abort(), 5000);
+        const done = () => {
+          clearTimeout(timeoutId);
+        };
+        fetch(`${target}/api/health`, { signal: ac.signal })
+          .then((r) => {
+            done();
+            if (r.ok) {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ ok: true }));
+            } else {
+              res.writeHead(503, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: BACKEND_DOWN_MSG }));
+            }
+          })
+          .catch(() => {
+            done();
+            res.writeHead(503, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: BACKEND_DOWN_MSG }));
+          });
         return;
       }
       next();
-    });
+    };
+    (server.middlewares as any).stack.unshift({ route: "", handle });
   },
 });
 
@@ -78,7 +124,7 @@ export default defineConfig(({ mode }) => ({
           proxy.on("error", (_err: Error, _req: any, res: any) => {
             if (!res?.headersSent) {
               res.writeHead(503, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ error: "Backend not running. Start with: npm run dev:all" }));
+              res.end(JSON.stringify({ error: "Run npm run dev from the project root to start the backend." }));
             }
           });
         },
@@ -92,11 +138,11 @@ export default defineConfig(({ mode }) => ({
         target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
         changeOrigin: true,
         secure: false,
-        configure: (proxy) => {
-          proxy.on("error", (_err, _req, res: any) => {
-            if (!res.headersSent) {
-              res.writeHead(200, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ ok: true }));
+        configure: (proxy: any) => {
+          proxy.on("error", (_err: Error, _req: any, res: any) => {
+            if (!res?.headersSent) {
+              res.writeHead(503, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Run npm run dev from the project root to start the backend." }));
             }
           });
         },
@@ -119,7 +165,7 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-  plugins: [coopHeader(), apiHealthAlwaysOk(), react()],
+  plugins: [quietProxyErrors(), coopHeader(), apiHealthProxy(), react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

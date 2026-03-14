@@ -54,15 +54,16 @@ export function InterviewerSettings() {
       .catch((err: unknown) => {
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
-        const is503 = status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running");
         if (status === 401) {
           setSessionExpired(true);
           toast.error("Session expired. Please sign in again.");
-        } else if (is503) {
+        } else if (status === 503) {
           setServerUnavailable(true);
-          toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
+          const backendDown = msg.includes("Run npm run dev") || msg.includes("Backend not running");
+          toast.error(backendDown ? "Run npm run dev from the project root to start the backend." : "Could not load settings. Please try again.");
         } else {
-          toast.error("Failed to load settings");
+          setServerUnavailable(true);
+          toast.error(msg || "Failed to load settings");
         }
       })
       .finally(() => setLoading(false));
@@ -118,9 +119,9 @@ export function InterviewerSettings() {
   if (serverUnavailable) {
     return (
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-amber-200">
-        <p className="font-medium">Server unavailable</p>
+        <p className="font-medium">Could not load settings</p>
         <p className="mt-1 text-sm text-amber-200/80">
-          Start the backend: <code className="rounded bg-black/20 px-1">npm run dev:server</code> (or <code className="rounded bg-black/20 px-1">npm run dev:all</code> from project root).
+          Click Retry to try again, or run <code className="rounded bg-black/20 px-1">npm run dev</code> from the project root if the backend is not running.
         </p>
         <button type="button" onClick={loadSettings} className="mt-3 rounded-md bg-amber-500/20 px-3 py-1.5 text-sm font-medium text-amber-200 hover:bg-amber-500/30">
           Retry

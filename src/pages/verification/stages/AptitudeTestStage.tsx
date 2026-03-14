@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,7 +60,32 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const [loading, setLoading] = useState(false);
   const [justPassed, setJustPassed] = useState(false);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
+  const [checkingBackend, setCheckingBackend] = useState(false);
   const submittingRef = useRef(false);
+
+  const checkBackend = useCallback(async () => {
+    setCheckingBackend(true);
+    try {
+      // Cache-bust so we never use a stale 200 when the backend is down
+      const res = await fetch(`/api/health?_=${Date.now()}`, {
+        method: "GET",
+        cache: "no-store",
+        headers: { Pragma: "no-cache", "Cache-Control": "no-cache" },
+      });
+      if (res.ok) {
+        setBackendUnavailable(false);
+        return true;
+      }
+      setBackendUnavailable(true);
+      return false;
+    } catch {
+      setBackendUnavailable(true);
+      return false;
+    } finally {
+      setCheckingBackend(false);
+    }
+  }, []);
   const isFailed = stageStatus === "failed" || (submitted && !justPassed);
   const displayScore = submittedScore ?? stageScore ?? 0;
 
@@ -137,9 +162,13 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         setTotalMarks(res.totalMarks ?? 20);
         setPassThreshold(res.passThreshold ?? 12);
       } catch (e: unknown) {
-        const err = e as Error & { response?: { data?: { error?: string; code?: string } } };
+        const err = e as Error & { response?: { data?: { error?: string } }; status?: number };
         const msg = err.response?.data?.error ?? err.message;
         const code = err.response?.data?.code;
+        const status = err.status;
+        if (status === 503 || (typeof msg === "string" && (msg.includes("Backend not running") || msg.includes("temporarily unavailable")))) {
+          setBackendUnavailable(true);
+        }
         toast.error(code === "SKILL_ACTIVE" ? msg : "Failed to load aptitude questions. Please refresh.");
       } finally {
         setLoadingQuestions(false);
@@ -191,9 +220,20 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     }
   }, [currentIndex, questions]);
 
+  // When test is active, check backend once so we can show banner and block submit if down
+  useEffect(() => {
+    if (!inTest) return;
+    checkBackend();
+  }, [inTest, checkBackend]);
+
   const handleSubmit = async () => {
     if (questions.length === 0) return;
     if (submittingRef.current) return; // Double-submit guard
+    const ok = await checkBackend();
+    if (!ok) {
+      toast.error("Run npm run dev from the project root to start the backend.");
+      return;
+    }
     submittingRef.current = true;
     setLoading(true);
     try {
@@ -220,11 +260,37 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         toast.error(`Score ${score}/${totalMarks}. Minimum ${passThreshold} required to proceed. You can retry when ready.`);
       }
     } catch (error: unknown) {
+      const status = (error as { status?: number })?.status;
       const msg = error instanceof Error ? error.message : "Failed to submit aptitude test.";
-      toast.error(msg);
-      if (msg.toLowerCase().includes("session expired")) {
-        toast.info("Starting over — click Start to get fresh questions.");
-        onSessionExpired?.();
+      const isDatabaseUnavailable = status === 503 && (msg.includes("Database temporarily") || msg.includes("database"));
+      const isBackendDown =
+        status === 503 &&
+        !isDatabaseUnavailable &&
+        (msg.includes("Backend not running") ||
+          msg.includes("Run npm run dev") ||
+          msg.includes("temporarily unavailable") ||
+          msg.includes("Cannot reach") ||
+          msg.includes("Unable to connect") ||
+          msg.includes("Failed to fetch") ||
+          msg.includes("Load failed"));
+      if (isDatabaseUnavailable) {
+        setBackendUnavailable(false);
+        toast.error(msg);
+        toast.info("Ensure your database is running, then click Submit again.");
+      } else if (isBackendDown) {
+        setBackendUnavailable(true);
+        toast.error("Run npm run dev from the project root to start the backend.");
+      } else if (status === 503) {
+        setBackendUnavailable(false);
+        toast.error(msg);
+      } else if (status === 400) {
+        toast.error(msg);
+        if (msg.toLowerCase().includes("session") && msg.toLowerCase().includes("expired")) {
+          toast.info("Go back, click 'Retry This Step', then 'Start Aptitude Test' to get a fresh test.");
+          onSessionExpired?.();
+        }
+      } else {
+        toast.error(msg);
       }
     } finally {
       setLoading(false);
@@ -272,7 +338,17 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   if (questions.length === 0 && !loadingQuestions) {
     return (
       <Card>
-        <CardContent className="py-6">
+        <CardContent className="py-6 space-y-4">
+          {backendUnavailable && (
+            <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                Run <code className="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-mono">npm run dev</code> from the project root to start the backend.
+              </p>
+              <Button variant="outline" size="sm" onClick={() => { checkBackend().then((ok) => { if (ok) { setBackendUnavailable(false); window.location.reload(); } }); }} disabled={checkingBackend}>
+                {checkingBackend ? "Checking…" : "Retry"}
+              </Button>
+            </div>
+          )}
           <p className="text-muted-foreground">No aptitude questions available. Please try again later.</p>
         </CardContent>
       </Card>
@@ -435,6 +511,16 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         ) : (
           <>
             <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
+            {backendUnavailable && inTest && (
+              <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  Run <code className="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-mono">npm run dev</code> from the project root to start the backend and submit.
+                </p>
+                <Button variant="outline" size="sm" onClick={() => checkBackend()} disabled={checkingBackend}>
+                  {checkingBackend ? "Checking…" : "Retry connection"}
+                </Button>
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-3 py-2 px-3 rounded-lg bg-muted/50 border shrink-0">
               <span className="font-mono font-semibold tabular-nums text-sm text-muted-foreground">
                 {secondsRemaining != null ? formatTime(secondsRemaining) : "--:--"} left
@@ -586,7 +672,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 ) : (
                   <Button
                     onClick={handleSubmit}
-                    disabled={loading || (inTest && !effectivelyFullScreen)}
+                    disabled={loading || backendUnavailable || (inTest && !effectivelyFullScreen)}
                   >
                     {loading ? "Submitting..." : "Submit test"}
                   </Button>

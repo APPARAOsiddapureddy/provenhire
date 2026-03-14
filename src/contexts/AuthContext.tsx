@@ -96,24 +96,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
         return;
       }
+      // Single health check first so we only get one 503 when backend is down; circuit breaker then blocks all other calls.
+      try {
+        await api.get<{ ok?: boolean }>("/api/health");
+      } catch {
+        setLoading(false);
+        return;
+      }
       try {
         const { user } = await api.get<{ user: User }>("/api/auth/me");
         setUser(user);
         setUserRole(user.role);
       } catch (err: unknown) {
-        setUser(null);
-        setUserRole(null);
-        setAuthToken(null);
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
-        if (status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running")) {
-          toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
+        const isBackendDown =
+          status === 503 ||
+          msg.includes("temporarily unavailable") ||
+          msg.includes("Backend not running") ||
+          msg.includes("Run npm run dev");
+        if (isBackendDown) {
+          // Don't clear user/token so when backend is back they're still logged in. Toast is shown once via ph_backend_503.
+        } else {
+          setUser(null);
+          setUserRole(null);
+          setAuthToken(null);
+          setRefreshToken(null);
         }
+        // 401: api.ts will have dispatched ph_session_expired; listener shows toast and redirects
       } finally {
         setLoading(false);
       }
     };
     bootstrap();
+  }, [navigate]);
+
+  // Single toast when backend is first detected down (api.ts dispatches ph_backend_503 once per cooldown).
+  useEffect(() => {
+    const onBackend503 = () => {
+      toast.error("Run npm run dev from the project root to start the backend.");
+    };
+    window.addEventListener("ph_backend_503", onBackend503);
+    return () => window.removeEventListener("ph_backend_503", onBackend503);
+  }, []);
+
+  // When any API call gets 401 after failed refresh, api.ts clears tokens and dispatches this event.
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setUser(null);
+      setUserRole(null);
+      setAuthToken(null);
+      setRefreshToken(null);
+      setNeedsGoogleRoleSelection(false);
+      toast.error("Session expired. Please sign in again.");
+      navigate("/auth", { replace: true });
+    };
+    window.addEventListener("ph_session_expired", onSessionExpired);
+    return () => window.removeEventListener("ph_session_expired", onSessionExpired);
   }, [navigate]);
 
   const signUp = async (
@@ -205,16 +244,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         status === 503 ||
         msg.includes("temporarily unavailable") ||
         msg.includes("Backend not running") ||
+        msg.includes("Run npm run dev") ||
         msg.includes("Cannot reach") ||
         msg.includes("Unable to connect") ||
         msg.includes("Failed to fetch") ||
         msg.includes("Load failed") ||
         msg.includes("Network error");
-      if (isServerUnavailable) {
-        toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
-      } else {
-        toast.error(msg);
-      }
+      if (!isServerUnavailable) toast.error(msg);
+      // Backend-down toast is shown once via ph_backend_503 listener
     } finally {
       setLoading(false);
     }
@@ -243,8 +280,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         { replace: true }
       );
     } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
       const msg = err instanceof Error ? err.message : "Failed to save role";
-      toast.error(msg);
+      const isBackendDown = status === 503 || msg.includes("Run npm run dev") || msg.includes("Backend not running");
+      if (!isBackendDown) toast.error(msg);
       throw err;
     }
   };

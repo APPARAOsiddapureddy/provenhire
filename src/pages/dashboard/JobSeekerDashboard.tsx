@@ -21,6 +21,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import SkillPassport from "@/components/SkillPassport";
+import JobSeekerResumeView from "@/components/JobSeekerResumeView";
 import { VerificationPipelineCard } from "@/components/VerificationPipelineCard";
 import ReferAFriend from "@/components/ReferAFriend";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
@@ -97,7 +98,7 @@ const JobSeekerDashboard = () => {
   });
   const [skillInput, setSkillInput] = useState('');
   const [loadError, setLoadError] = useState(false);
-  const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'applications'>('candidate');
+  const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'resume' | 'applications'>('candidate');
   const showJobTitleModal = Boolean(
     !loading &&
     profile &&
@@ -292,7 +293,7 @@ const JobSeekerDashboard = () => {
           msg.includes("Backend not running");
         toast.error(
           is503
-            ? "Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root)."
+            ? "Run npm run dev from the project root to start the backend."
             : "Some dashboard sections are still loading. Showing available data first."
         );
       }
@@ -479,6 +480,7 @@ const JobSeekerDashboard = () => {
       items: [
         { label: "Verification Pipeline", onClick: () => setDashboardSection('candidate'), active: dashboardSection === 'candidate', icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
         { label: "Skill Passport", onClick: () => setDashboardSection('passport'), active: dashboardSection === 'passport', badge: isVerified ? "Active" : undefined, icon: <FileCheck className="w-[18px] h-[18px]" /> },
+        { label: "My Resume", onClick: () => setDashboardSection('resume'), active: dashboardSection === 'resume', icon: <FileText className="w-[18px] h-[18px]" /> },
         { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
         { label: "Applications", onClick: () => setDashboardSection('applications'), active: dashboardSection === 'applications', icon: <ListChecks className="w-[18px] h-[18px]" /> },
         { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
@@ -527,6 +529,32 @@ const JobSeekerDashboard = () => {
               <Skeleton className="h-64 rounded-xl" />
               <Skeleton className="h-64 rounded-xl" />
             </div>
+          </div>
+        )}
+        {!loading && dashboardSection === 'resume' && (
+          <div className="dashboard-section-content">
+            <div className="dashboard-section-header">
+              <div>
+                <h1>My Resume</h1>
+                <p>Your full verified profile — share on LinkedIn or use in job applications</p>
+              </div>
+            </div>
+            <JobSeekerResumeView
+              profile={profile}
+              userEmail={user?.email}
+              certificationLevelNumber={certificationLevelNumber}
+              certificationLabel={certificationLabel}
+              aptitudeScore={testResults.aptitude ? (() => {
+                const s = testResults.aptitude.total_score ?? 0;
+                const t = testResults.aptitude.total_marks ?? 20;
+                return t > 0 ? Math.round((s / t) * 100) : Math.round(s);
+              })() : undefined}
+              dsaScore={testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : undefined}
+              aiInterviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score != null ? Math.round((Number(verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score) / 15) * 100) : undefined}
+              expertInterviewScore={verificationStages.find((s: any) => s.stage_name === 'human_expert_interview')?.score != null ? Math.round(Number(verificationStages.find((s: any) => s.stage_name === 'human_expert_interview')?.score)) : undefined}
+              assignmentScore={verificationStages.find((s: any) => s.stage_name === 'non_tech_assignment')?.score != null ? Math.round(Number(verificationStages.find((s: any) => s.stage_name === 'non_tech_assignment')?.score)) : undefined}
+              roleType={roleType}
+            />
           </div>
         )}
         {!loading && dashboardSection === 'passport' && (

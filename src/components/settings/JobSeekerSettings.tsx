@@ -85,15 +85,16 @@ export function JobSeekerSettings() {
       .catch((err: unknown) => {
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
-        const is503 = status === 503 || msg.includes("temporarily unavailable") || msg.includes("Backend not running");
         if (status === 401) {
           setSessionExpired(true);
           toast.error("Session expired. Please sign in again.");
-        } else if (is503) {
+        } else if (status === 503) {
           setServerUnavailable(true);
-          toast.error("Server unavailable. Start the backend: npm run dev:server (or npm run dev:all from project root).");
+          const backendDown = msg.includes("Run npm run dev") || msg.includes("Backend not running");
+          toast.error(backendDown ? "Run npm run dev from the project root to start the backend." : "Could not load settings. Please try again.");
         } else {
-          toast.error("Failed to load settings");
+          setServerUnavailable(true);
+          toast.error(msg || "Failed to load settings");
         }
       })
       .finally(() => setLoading(false));
@@ -146,9 +147,9 @@ export function JobSeekerSettings() {
   if (serverUnavailable) {
     return (
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-center">
-        <p className="font-semibold text-amber-200">Server unavailable</p>
+        <p className="font-semibold text-amber-200">Could not load settings</p>
         <p className="mt-2 text-sm text-white/80">
-          Start the backend to load settings: <code className="rounded bg-black/30 px-1.5 py-0.5 text-xs">npm run dev:server</code> or <code className="rounded bg-black/30 px-1.5 py-0.5 text-xs">npm run dev:all</code> from the project root.
+          The backend may be starting or the database is temporarily unavailable. Click Retry to try again, or run <code className="rounded bg-black/30 px-1.5 py-0.5 text-xs">npm run dev</code> from the project root if the backend is not running.
         </p>
         <Button variant="outline" className="mt-4 border-amber-500/50 text-amber-200 hover:bg-amber-500/20" onClick={loadSettings}>
           Retry

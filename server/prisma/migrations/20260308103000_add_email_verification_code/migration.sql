@@ -1,5 +1,5 @@
--- Email OTP verification records for signup
-CREATE TABLE "EmailVerificationCode" (
+-- Email OTP verification records for signup (idempotent)
+CREATE TABLE IF NOT EXISTS "EmailVerificationCode" (
   "id" TEXT NOT NULL,
   "email" TEXT NOT NULL,
   "codeHash" TEXT NOT NULL,
@@ -13,5 +13,5 @@ CREATE TABLE "EmailVerificationCode" (
   CONSTRAINT "EmailVerificationCode_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "EmailVerificationCode_email_createdAt_idx"
+CREATE INDEX IF NOT EXISTS "EmailVerificationCode_email_createdAt_idx"
 ON "EmailVerificationCode"("email", "createdAt");

@@ -15,17 +15,37 @@ settingsRouter.get("/job-seeker", requireAuth, async (req: AuthedRequest, res) =
   if (req.user!.role !== "jobseeker" && req.user!.role !== "admin") {
     return res.status(403).json({ error: "Access denied" });
   }
-  const [profile, user, preferences] = await Promise.all([
-    prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } }),
-    prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: { email: true, name: true, profileImage: true },
-    }),
-    prisma.userPreferences.findUnique({ where: { userId: req.user!.id } }),
-  ]);
-  res.json({
+  const userId = req.user!.id;
+  let profile: unknown = null;
+  let user: { email: string | null; name: string | null; profileImage?: string | null } = { email: null, name: null };
+  let preferences: unknown = null;
+
+  try {
+    profile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
+  } catch (e) {
+    console.error("[settings/job-seeker GET] profile", e);
+  }
+  try {
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true, profileImage: true } as any,
+    });
+    if (u) {
+      const row = u as unknown as { email: string; name: string | null; profileImage?: string | null };
+      user = { email: row.email, name: row.name, profileImage: row.profileImage ?? null };
+    }
+  } catch (e) {
+    console.error("[settings/job-seeker GET] user", e);
+  }
+  try {
+    preferences = await (prisma as any).userPreferences.findUnique({ where: { userId } });
+  } catch (e) {
+    console.error("[settings/job-seeker GET] preferences", e);
+  }
+
+  return res.json({
     profile: profile ?? null,
-    user: { email: user?.email, name: user?.name, profileImage: user?.profileImage },
+    user: { email: user.email, name: user.name, profileImage: user.profileImage ?? null },
     preferences: preferences ?? null,
   });
 });
@@ -53,44 +73,49 @@ settingsRouter.patch("/job-seeker", requireAuth, async (req: AuthedRequest, res)
   if (req.user!.role !== "jobseeker" && req.user!.role !== "admin") {
     return res.status(403).json({ error: "Access denied" });
   }
-  const body = req.body as Record<string, unknown>;
-  const profileData = jobSeekerProfileSchema.safeParse(body);
-  const prefsData = jobSeekerPreferencesSchema.safeParse(body);
+  try {
+    const body = req.body as Record<string, unknown>;
+    const profileData = jobSeekerProfileSchema.safeParse(body);
+    const prefsData = jobSeekerPreferencesSchema.safeParse(body);
 
-  const profileUpdates: Record<string, unknown> = {};
-  if (profileData.success) {
-    Object.assign(profileUpdates, profileData.data);
-    if (Array.isArray(profileUpdates.preferredTechStack)) {
-      profileUpdates.preferredTechStack = profileUpdates.preferredTechStack;
+    const profileUpdates: Record<string, unknown> = {};
+    if (profileData.success) {
+      Object.assign(profileUpdates, profileData.data);
+      if (Array.isArray(profileUpdates.preferredTechStack)) {
+        profileUpdates.preferredTechStack = profileUpdates.preferredTechStack;
+      }
+      if (Array.isArray(profileUpdates.preferredLocations)) {
+        profileUpdates.preferredLocations = profileUpdates.preferredLocations;
+      }
     }
-    if (Array.isArray(profileUpdates.preferredLocations)) {
-      profileUpdates.preferredLocations = profileUpdates.preferredLocations;
+
+    const prefsUpdates: Record<string, unknown> = {};
+    if (prefsData.success) Object.assign(prefsUpdates, prefsData.data);
+
+    if (Object.keys(profileUpdates).length > 0) {
+      await prisma.jobSeekerProfile.upsert({
+        where: { userId: req.user!.id },
+        create: { userId: req.user!.id, ...profileUpdates },
+        update: profileUpdates,
+      });
     }
-  }
+    if (Object.keys(prefsUpdates).length > 0) {
+      await (prisma as any).userPreferences.upsert({
+        where: { userId: req.user!.id },
+        create: { userId: req.user!.id, ...prefsUpdates },
+        update: prefsUpdates,
+      });
+    }
 
-  const prefsUpdates: Record<string, unknown> = {};
-  if (prefsData.success) Object.assign(prefsUpdates, prefsData.data);
-
-  if (Object.keys(profileUpdates).length > 0) {
-    await prisma.jobSeekerProfile.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...profileUpdates },
-      update: profileUpdates,
-    });
+    const [profile, preferences] = await Promise.all([
+      prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } }),
+      (prisma as any).userPreferences.findUnique({ where: { userId: req.user!.id } }),
+    ]);
+    return res.json({ profile, preferences });
+  } catch (err) {
+    console.error("[settings/job-seeker PATCH]", err);
+    return res.status(503).json({ error: "Failed to save settings. Please try again." });
   }
-  if (Object.keys(prefsUpdates).length > 0) {
-    await prisma.userPreferences.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...prefsUpdates },
-      update: prefsUpdates,
-    });
-  }
-
-  const [profile, preferences] = await Promise.all([
-    prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } }),
-    prisma.userPreferences.findUnique({ where: { userId: req.user!.id } }),
-  ]);
-  res.json({ profile, preferences });
 });
 
 // --- Recruiter Settings ---
@@ -99,14 +124,20 @@ settingsRouter.get("/recruiter", requireAuth, async (req: AuthedRequest, res) =>
   if (req.user!.role !== "recruiter" && req.user!.role !== "admin") {
     return res.status(403).json({ error: "Access denied" });
   }
-  const [profile, preferences] = await Promise.all([
-    prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } }),
-    prisma.userPreferences.findUnique({ where: { userId: req.user!.id } }),
-  ]);
-  res.json({
-    profile: profile ?? null,
-    preferences: preferences ?? null,
-  });
+  const userId = req.user!.id;
+  let profile: unknown = null;
+  let preferences: unknown = null;
+  try {
+    profile = await prisma.recruiterProfile.findUnique({ where: { userId } });
+  } catch (e) {
+    console.error("[settings/recruiter GET] profile", e);
+  }
+  try {
+    preferences = await (prisma as any).userPreferences.findUnique({ where: { userId } });
+  } catch (e) {
+    console.error("[settings/recruiter GET] preferences", e);
+  }
+  return res.json({ profile: profile ?? null, preferences: preferences ?? null });
 });
 
 const recruiterProfileSchema = z.object({
@@ -134,35 +165,40 @@ settingsRouter.patch("/recruiter", requireAuth, async (req: AuthedRequest, res) 
   if (req.user!.role !== "recruiter" && req.user!.role !== "admin") {
     return res.status(403).json({ error: "Access denied" });
   }
-  const body = req.body as Record<string, unknown>;
-  const profileData = recruiterProfileSchema.safeParse(body);
-  const prefsData = recruiterPreferencesSchema.safeParse(body);
+  try {
+    const body = req.body as Record<string, unknown>;
+    const profileData = recruiterProfileSchema.safeParse(body);
+    const prefsData = recruiterPreferencesSchema.safeParse(body);
 
-  const profileUpdates: Record<string, unknown> = {};
-  if (profileData.success) Object.assign(profileUpdates, profileData.data);
-  const prefsUpdates: Record<string, unknown> = {};
-  if (prefsData.success) Object.assign(prefsUpdates, prefsData.data);
+    const profileUpdates: Record<string, unknown> = {};
+    if (profileData.success) Object.assign(profileUpdates, profileData.data);
+    const prefsUpdates: Record<string, unknown> = {};
+    if (prefsData.success) Object.assign(prefsUpdates, prefsData.data);
 
-  if (Object.keys(profileUpdates).length > 0) {
-    await prisma.recruiterProfile.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...profileUpdates },
-      update: profileUpdates,
-    });
+    if (Object.keys(profileUpdates).length > 0) {
+      await prisma.recruiterProfile.upsert({
+        where: { userId: req.user!.id },
+        create: { userId: req.user!.id, ...profileUpdates },
+        update: profileUpdates,
+      });
+    }
+    if (Object.keys(prefsUpdates).length > 0) {
+      await (prisma as any).userPreferences.upsert({
+        where: { userId: req.user!.id },
+        create: { userId: req.user!.id, ...prefsUpdates },
+        update: prefsUpdates,
+      });
+    }
+
+    const [profile, preferences] = await Promise.all([
+      prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } }),
+      (prisma as any).userPreferences.findUnique({ where: { userId: req.user!.id } }),
+    ]);
+    return res.json({ profile, preferences });
+  } catch (err) {
+    console.error("[settings/recruiter PATCH]", err);
+    return res.status(503).json({ error: "Failed to save settings. Please try again." });
   }
-  if (Object.keys(prefsUpdates).length > 0) {
-    await prisma.userPreferences.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...prefsUpdates },
-      update: prefsUpdates,
-    });
-  }
-
-  const [profile, preferences] = await Promise.all([
-    prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } }),
-    prisma.userPreferences.findUnique({ where: { userId: req.user!.id } }),
-  ]);
-  res.json({ profile, preferences });
 });
 
 // --- Interviewer Settings ---
@@ -171,17 +207,35 @@ settingsRouter.get("/interviewer", requireAuth, async (req: AuthedRequest, res) 
   if (req.user!.role !== "expert_interviewer" && req.user!.role !== "admin") {
     return res.status(403).json({ error: "Access denied" });
   }
-  const [interviewer, user, preferences] = await Promise.all([
-    prisma.interviewer.findUnique({ where: { userId: req.user!.id } }),
-    prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: { name: true, profileImage: true, email: true },
-    }),
-    prisma.userPreferences.findUnique({ where: { userId: req.user!.id } }),
-  ]);
-  res.json({
-    profile: interviewer ?? null,
-    user: { name: user?.name, profileImage: user?.profileImage, email: user?.email },
+  const userId = req.user!.id;
+  let profile: unknown = null;
+  let user: { name: string | null; profileImage: string | null; email: string | null } = { name: null, profileImage: null, email: null };
+  let preferences: unknown = null;
+  try {
+    profile = await prisma.interviewer.findUnique({ where: { userId } });
+  } catch (e) {
+    console.error("[settings/interviewer GET] profile", e);
+  }
+  try {
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, profileImage: true, email: true } as any,
+    });
+    if (u) {
+      const row = u as unknown as { name: string | null; profileImage?: string | null; email: string };
+      user = { name: row.name, profileImage: row.profileImage ?? null, email: row.email };
+    }
+  } catch (e) {
+    console.error("[settings/interviewer GET] user", e);
+  }
+  try {
+    preferences = await (prisma as any).userPreferences.findUnique({ where: { userId } });
+  } catch (e) {
+    console.error("[settings/interviewer GET] preferences", e);
+  }
+  return res.json({
+    profile: profile ?? null,
+    user: { name: user.name, profileImage: user.profileImage, email: user.email },
     preferences: preferences ?? null,
   });
 });
@@ -207,49 +261,54 @@ settingsRouter.patch("/interviewer", requireAuth, async (req: AuthedRequest, res
   if (req.user!.role !== "expert_interviewer" && req.user!.role !== "admin") {
     return res.status(403).json({ error: "Access denied" });
   }
-  const body = req.body as Record<string, unknown>;
-  const profileData = interviewerProfileSchema.safeParse(body);
-  const prefsData = interviewerPreferencesSchema.safeParse(body);
+  try {
+    const body = req.body as Record<string, unknown>;
+    const profileData = interviewerProfileSchema.safeParse(body);
+    const prefsData = interviewerPreferencesSchema.safeParse(body);
 
-  const profileUpdates: Record<string, unknown> = {};
-  if (profileData.success) {
-    Object.assign(profileUpdates, profileData.data);
-    if (profileUpdates.name !== undefined) {
-      await prisma.user.update({
-        where: { id: req.user!.id },
-        data: { name: profileUpdates.name as string },
-      });
-      delete profileUpdates.name;
+    const profileUpdates: Record<string, unknown> = {};
+    if (profileData.success) {
+      Object.assign(profileUpdates, profileData.data);
+      if (profileUpdates.name !== undefined) {
+        await prisma.user.update({
+          where: { id: req.user!.id },
+          data: { name: profileUpdates.name as string },
+        });
+        delete profileUpdates.name;
+      }
+      if (profileUpdates.profileImage !== undefined) {
+        await prisma.user.update({
+          where: { id: req.user!.id },
+          data: { profileImage: profileUpdates.profileImage as string } as any,
+        });
+        delete profileUpdates.profileImage;
+      }
     }
-    if (profileUpdates.profileImage !== undefined) {
-      await prisma.user.update({
-        where: { id: req.user!.id },
-        data: { profileImage: profileUpdates.profileImage as string },
+    const prefsUpdates: Record<string, unknown> = {};
+    if (prefsData.success) Object.assign(prefsUpdates, prefsData.data);
+
+    if (Object.keys(profileUpdates).length > 0) {
+      await prisma.interviewer.upsert({
+        where: { userId: req.user!.id },
+        create: { userId: req.user!.id, ...profileUpdates },
+        update: profileUpdates,
       });
-      delete profileUpdates.profileImage;
     }
-  }
-  const prefsUpdates: Record<string, unknown> = {};
-  if (prefsData.success) Object.assign(prefsUpdates, prefsData.data);
+    if (Object.keys(prefsUpdates).length > 0) {
+      await (prisma as any).userPreferences.upsert({
+        where: { userId: req.user!.id },
+        create: { userId: req.user!.id, ...prefsUpdates },
+        update: prefsUpdates,
+      });
+    }
 
-  if (Object.keys(profileUpdates).length > 0) {
-    await prisma.interviewer.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...profileUpdates },
-      update: profileUpdates,
-    });
+    const [profile, preferences] = await Promise.all([
+      prisma.interviewer.findUnique({ where: { userId: req.user!.id } }),
+      (prisma as any).userPreferences.findUnique({ where: { userId: req.user!.id } }),
+    ]);
+    return res.json({ profile, preferences });
+  } catch (err) {
+    console.error("[settings/interviewer PATCH]", err);
+    return res.status(503).json({ error: "Failed to save settings. Please try again." });
   }
-  if (Object.keys(prefsUpdates).length > 0) {
-    await prisma.userPreferences.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...prefsUpdates },
-      update: prefsUpdates,
-    });
-  }
-
-  const [profile, preferences] = await Promise.all([
-    prisma.interviewer.findUnique({ where: { userId: req.user!.id } }),
-    prisma.userPreferences.findUnique({ where: { userId: req.user!.id } }),
-  ]);
-  res.json({ profile, preferences });
 });

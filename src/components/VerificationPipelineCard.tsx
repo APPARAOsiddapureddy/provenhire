@@ -160,8 +160,8 @@ export function VerificationPipelineCard({
             <div className="vpc-lvl-name">Cognitive Verified</div>
             <div className="vpc-lvl-reqs">Profile + Aptitude ✓</div>
           </div>
-          <div className={`vpc-lvl ${certificationLevelNumber === 2 ? "vpc-lvl--current" : certificationLevelNumber > 2 ? "vpc-lvl--past" : "vpc-lvl--next"}`}>
-            <div className="vpc-lvl-tag">{certificationLevelNumber === 2 ? "L2 · Now" : certificationLevelNumber > 2 ? "L2" : "L2 · Next"}</div>
+          <div className={`vpc-lvl ${certificationLevelNumber === 2 ? "vpc-lvl--current" : certificationLevelNumber > 2 ? "vpc-lvl--past" : "vpc-lvl--future"}`}>
+            <div className="vpc-lvl-tag">{certificationLevelNumber === 2 ? "L2 · Now" : "L2"}</div>
             <div className="vpc-lvl-name">Skill Passport</div>
             <div className="vpc-lvl-reqs">DSA + AI Interview</div>
           </div>
