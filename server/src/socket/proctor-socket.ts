@@ -7,7 +7,12 @@ export function initProctorSocket(httpServer: HttpServer): SocketServer {
   io = new SocketServer(httpServer, {
     path: "/socket.io",
     cors: {
-      origin: ["http://localhost:8080", "http://localhost:5173", "https://provenhire.vercel.app"],
+      origin: [
+        "http://localhost:8080",
+        "http://localhost:5173",
+        "https://provenhire-z18w.vercel.app",
+        "https://provenhire-z18w.vercel.app/",
+      ],
     },
   });
 

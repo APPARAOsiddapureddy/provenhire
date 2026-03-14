@@ -12,6 +12,7 @@ Step-by-step guide to fix and verify the full deployment flow.
 
 - **Frontend (Vercel):** React app. Uses **Vercel rewrites** (`vercel.json`) to proxy `/api` and `/uploads` to Render — no CORS, same-origin requests.
 - **Backend (Render):** Express API. Edit `vercel.json` and `vite.config.ts` if your Render URL is not `provenhire-server1.onrender.com`.
+- **WebSockets (Socket.IO):** Vercel does not support WebSockets. The admin proctor socket client connects **directly to the Render backend** URL in production (`RENDER_API_URL` in `src/lib/config.ts`). Ensure the backend CORS allows your Vercel frontend origin.
 
 ---
 

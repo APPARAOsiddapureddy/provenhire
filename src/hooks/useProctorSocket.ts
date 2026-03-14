@@ -1,7 +1,9 @@
 import { useEffect, useRef, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
+import { RENDER_API_URL } from "@/lib/config";
 
-const SOCKET_URL = ""; // Uses same origin (Vite proxy)
+// In production, Vercel does not support WebSockets; connect directly to the backend (Render).
+const SOCKET_URL = import.meta.env.PROD ? RENDER_API_URL : "";
 
 export interface ProctorEventPayload {
   sessionId: string;
@@ -35,6 +37,9 @@ export function useProctorSocket(options: {
     socket.on("proctor:event", (payload: ProctorEventPayload) => {
       onEventRef.current?.(payload);
     });
+
+    // Avoid console spam when backend is unreachable or WebSocket not available
+    socket.on("connect_error", () => {});
 
     socketRef.current = socket;
     return () => {
