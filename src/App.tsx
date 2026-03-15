@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ScrollToTop from "./components/ScrollToTop";
@@ -84,6 +84,8 @@ const App = () => (
           <Suspense fallback={<PageLoaderFullScreen />}>
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
+              <Route path="/signup" element={<Navigate to="/auth?mode=signup" replace />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/jobs" element={<Jobs />} />
               <Route path="/about" element={<About />} />

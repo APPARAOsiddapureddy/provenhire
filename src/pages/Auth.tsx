@@ -6,6 +6,7 @@ import { Mail, Lock, User, Briefcase, Award, Eye, EyeOff, ArrowLeft } from "luci
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
+import SEO from "@/components/SEO";
 import { api } from "@/lib/api";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
@@ -670,8 +671,16 @@ const Auth = () => {
     </div>
   );
 
+  const authSeoTitle = isReset ? "Reset Password" : isForgot ? "Forgot Password" : isLogin ? "Log In" : "Sign Up";
+  const authSeoDesc = isLogin
+    ? "Log in to ProvenHire to access your verified profile, job applications, and skill passport."
+    : isSignup
+      ? "Create your ProvenHire account and start skill verification to unlock verified hiring opportunities."
+      : "ProvenHire – verified talent hiring platform.";
+
   return (
     <div className="auth-page min-h-screen flex flex-col">
+      <SEO title={`${authSeoTitle} | ProvenHire`} description={authSeoDesc} path="/auth" />
       <Navbar />
 
       {/* Desktop only (1400px+): split layout; below 1400px use mobile single-form for reliable responsive */}

@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, CheckCircle, Shield, Sparkles, Users, Lightbulb, Award, Target, Brain, Video, Clock, TrendingUp, Eye, Lock, RefreshCw } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import SEO from "@/components/SEO";
 import { useAuth } from "@/contexts/AuthContext";
 import VerificationFlowPreview from "@/components/VerificationFlowPreview";
 import SampleReportDialog from "@/components/SampleReportDialog";
@@ -41,10 +42,15 @@ const Index = () => {
 
   return (
     <div className="min-h-screen index-page">
+      <SEO
+        title="ProvenHire – Hire Verified Talent with Skill Validation"
+        description="ProvenHire helps companies hire verified talent through skill validation, coding verification, and structured interviews. Build reliable teams with proven skills."
+        path="/"
+      />
       <Navbar />
       
       {/* Hero Section — Deep Navy + Gold with premium badge graphic */}
-      <section className="hero-section">
+      <section className="hero-section" aria-labelledby="hero-heading">
         <div className="hero-overlay" />
         <div className="container mx-auto relative z-10 px-4 sm:px-6">
           <div className="hero-content hero-content-with-graphic">
@@ -63,9 +69,9 @@ const Index = () => {
                 </span>
                 <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">]</span>
               </div>
-              <h1 className="hero-title opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.2s" }}>
-                <span className="gradient-text">Verified Talent,</span>
-                <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>Not Resumes.</span>
+              <h1 id="hero-heading" className="hero-title opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.2s" }}>
+                <span className="gradient-text">Hire Verified Talent</span>
+                <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>with ProvenHire</span>
               </h1>
               <p className="hero-subtitle opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.35s" }}>
                 Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours.{" "}
@@ -124,14 +130,14 @@ const Index = () => {
       </section>
 
       {/* How Verification Works - Visual Flow (#1) */}
-      <section className="py-12 sm:py-16 bg-secondary border-y border-border scroll-mt-20">
+      <section className="py-12 sm:py-16 bg-secondary border-y border-border scroll-mt-20" aria-labelledby="how-it-works-heading">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
             <div>
               <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3 flex items-center gap-2">
                 <span className="text-muted-foreground">//</span> How_It_Works
               </div>
-              <h2 className="font-bebas text-3xl sm:text-4xl md:text-6xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2 font-normal">
+              <h2 id="how-it-works-heading" className="font-bebas text-3xl sm:text-4xl md:text-6xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2 font-normal">
                 How Verification <span className="text-primary">Works</span>
               </h2>
               <p className="text-muted-foreground text-base font-medium">Transparent process, no black boxes</p>
@@ -148,10 +154,10 @@ const Index = () => {
       </section>
 
       {/* What You Unlock - Progress Gamification (#5) */}
-      <section className="py-12 sm:py-16 bg-background border-b border-border scroll-mt-20">
+      <section className="py-12 sm:py-16 bg-background border-b border-border scroll-mt-20" aria-labelledby="what-you-unlock-heading">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3">// What_You_Unlock</div>
-          <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">What You <span className="text-primary">Unlock</span></h2>
+          <h2 id="what-you-unlock-heading" className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">What You <span className="text-primary">Unlock</span></h2>
           <p className="text-muted-foreground mb-8 text-base font-medium">Complete verification stages to unlock more opportunities</p>
           <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl mx-auto">
             <div className="bg-card p-8 rounded border border-border">
@@ -198,11 +204,46 @@ const Index = () => {
         </div>
       </section>
 
+      {/* SEO-rich content: skill verified hiring, coding verification, why ProvenHire */}
+      <section className="py-12 sm:py-16 bg-secondary/50 border-y border-border scroll-mt-20" aria-labelledby="skill-verified-heading">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="max-w-3xl mx-auto space-y-10 text-foreground">
+            <h2 id="skill-verified-heading" className="font-bebas text-3xl sm:text-4xl tracking-[2px] text-foreground">
+              Skill Verified Hiring
+            </h2>
+            <p className="text-muted-foreground leading-relaxed">
+              <strong className="text-foreground">ProvenHire</strong> is India&apos;s first verified hiring platform built on skill validation, not resumes. Companies waste weeks screening candidates who overstate their abilities. ProvenHire solves this by verifying every candidate through a multi-stage process before they reach your shortlist. Whether you need developers, engineers, or professionals, our <Link to="/jobs" className="text-primary hover:underline font-medium">job listings</Link> show only skill-verified talent. Recruiters use ProvenHire to <Link to="/for-employers" className="text-primary hover:underline font-medium">hire certified candidates</Link> with confidence.
+            </p>
+
+            <h2 className="font-bebas text-2xl sm:text-3xl tracking-[2px] text-foreground">
+              Live Coding Verification
+            </h2>
+            <p className="text-muted-foreground leading-relaxed">
+              Our verified hiring platform includes live coding and role-specific assessments. Candidates complete timed tests in a proctored environment, so you see real problem-solving ability—not memorised answers. This coding verification step filters out the majority of unqualified applicants before they ever reach an interview. For technical roles, ProvenHire&apos;s AI hiring platform combines aptitude tests, DSA rounds, and expert interviews to produce a clear skill level (A, B, or C). Recruiters get a <strong className="text-foreground">skill verification hiring</strong> pipeline that cuts time-to-hire and improves quality.
+            </p>
+
+            <h2 className="font-bebas text-2xl sm:text-3xl tracking-[2px] text-foreground">
+              Structured Interview Scoring
+            </h2>
+            <p className="text-muted-foreground leading-relaxed">
+              Beyond coding verification, ProvenHire uses structured interview scoring with fixed rubrics. Every candidate is evaluated on the same criteria, reducing bias and giving you comparable data across applicants. Our AI hiring platform supports both technical and non-technical roles: developers go through aptitude, live coding, and expert interviews; non-technical candidates complete assignments and human expert interviews. All results feed into a single <strong className="text-foreground">Proven Hire</strong> Skill Passport that travels with the candidate. <Link to="/verification" className="text-primary hover:underline font-medium">Start skill verification</Link> and join the verified hiring platform trusted by companies and job seekers alike.
+            </p>
+
+            <h2 className="font-bebas text-2xl sm:text-3xl tracking-[2px] text-foreground">
+              Why Companies Trust ProvenHire
+            </h2>
+            <p className="text-muted-foreground leading-relaxed">
+              Hiring today is broken: résumés are inflated, screening is slow, and bad hires are costly. ProvenHire fixes this with a verified hiring platform that proves skills before the first interview. Job seekers get certified in 24–48 hours and unlock access to premium roles; recruiters get a pre-verified talent pool and can focus on fit instead of filtering. Our developer hiring platform and coding assessment pipeline are designed for scale—whether you&apos;re hiring one developer or building an entire team. As an AI hiring platform, ProvenHire combines automation with human expert review for a fair, fast, and reliable process. Explore <Link to="/jobs" className="text-primary hover:underline font-medium">verified jobs</Link>, learn more <Link to="/about" className="text-primary hover:underline font-medium">about us</Link>, or <Link to="/for-employers" className="text-primary hover:underline font-medium">post a job</Link> and start hiring verified talent with ProvenHire.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* 3-Stage Verification with Time Labels (#6) */}
-      <section className="verify-section scroll-mt-20">
+      <section className="verify-section scroll-mt-20" aria-labelledby="verification-pipeline-heading">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3">// Verification_Pipeline</div>
-          <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">
+          <h2 id="verification-pipeline-heading" className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">
             Five <span className="text-primary">Stages.</span> One <span className="text-primary">Credential.</span>
           </h2>
           <p className="text-muted-foreground mb-8 text-base font-medium">Only the top 18% of candidates pass our multi-stage verification to earn the ProvenHire Skill Passport</p>
@@ -248,10 +289,10 @@ const Index = () => {
       </section>
 
       {/* Features Section */}
-      <section className="features-section scroll-mt-20">
+      <section className="features-section scroll-mt-20" aria-labelledby="why-provenhire-heading">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3">// Why_ProvenHire</div>
-          <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">Why Choose <span className="text-primary">ProvenHire?</span></h2>
+          <h2 id="why-provenhire-heading" className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">Why Companies Trust <span className="text-primary">ProvenHire</span></h2>
           <p className="text-muted-foreground mb-8 text-base font-medium">Benefits for both job seekers and employers</p>
           <div className="features-grid">
             <div className="feature-card">

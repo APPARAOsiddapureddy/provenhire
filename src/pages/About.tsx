@@ -2,10 +2,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Shield, Target, Users, Zap } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import SEO from "@/components/SEO";
 
 const About = () => {
   return (
     <div className="min-h-screen flex flex-col">
+      <SEO
+        title="About ProvenHire – Verified Hiring Platform"
+        description="Learn how ProvenHire verifies talent through skill validation, coding verification, and structured interviews. Our mission and process."
+        path="/about"
+      />
       <Navbar />
       
       <div className="flex-1 pt-24 pb-20">

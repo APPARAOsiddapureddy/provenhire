@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { CheckCircle, Sparkles, Shield, Users, Target, Clock, ArrowRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import SEO from "@/components/SEO";
 import { useAuth } from "@/contexts/AuthContext";
 
 const ForEmployers = () => {
@@ -23,6 +24,11 @@ const ForEmployers = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SEO
+        title="For Employers | ProvenHire – Hire Verified Talent"
+        description="Recruiters: hire verified talent with ProvenHire. Skill verification, coding assessment, and AI hiring platform for reliable teams."
+        path="/for-employers"
+      />
       <Navbar />
       
       <div className="flex-1 pt-24 pb-20">

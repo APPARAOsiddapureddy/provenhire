@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import SEO from "@/components/SEO";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, MapPin, Briefcase, DollarSign, Bookmark, BookmarkCheck, Eye, Scale, X, Shield, Filter, ChevronLeft, ChevronRight } from "lucide-react";
@@ -909,6 +910,11 @@ const Jobs = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-secondary">
+      <SEO
+        title="Jobs | ProvenHire – Verified Talent Hiring"
+        description="Browse verified job listings on ProvenHire. Apply to roles from companies that trust skill-verified hiring and coding verification."
+        path="/jobs"
+      />
       <Navbar />
       
       <div className="flex-1 pt-20 sm:pt-24 pb-8 sm:pb-12">
