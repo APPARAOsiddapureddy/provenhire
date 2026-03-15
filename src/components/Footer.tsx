@@ -38,7 +38,7 @@ const Footer = () => {
           {/* Column 1: Brand */}
           <div>
             <Link to="/" className="inline-flex items-center gap-2 mb-4 transition-transform hover:scale-105 duration-200">
-              <img src="/logo.png" alt="ProvenHire" className="h-9 w-9 object-contain shrink-0" width={36} height={36} />
+              {/* <img src="/logo.png" alt="ProvenHire" className="h-9 w-9 object-contain shrink-0" width={36} height={36} /> */}
               <span className="font-bebas text-2xl tracking-[2px] text-foreground">Proven<span className="text-primary">Hire</span></span>
             </Link>
             <p className="text-muted-foreground text-sm font-medium">

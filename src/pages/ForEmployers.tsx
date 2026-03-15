@@ -299,20 +299,20 @@ const ForEmployers = () => {
           </div>
         </section>
 
-        {/* CTA */}
+        {/* CTA — matches About motivation banner (primary bg + primary-foreground) */}
         <section className="container mx-auto px-4">
-          <div className="max-w-4xl mx-auto text-center p-12 bg-gradient-hero rounded-2xl text-white shadow-glow">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">
+          <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto text-center p-8 bg-primary text-primary-foreground rounded-2xl shadow-lg border border-primary/30">
+            <h2 className="text-3xl font-bold mb-4">
               Ready to Transform Your Hiring?
             </h2>
-            <p className="text-lg opacity-90 mb-8">
+            <p className="text-lg opacity-95 mb-6">
               Join 500+ companies hiring exceptional talent through ProvenHire
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" variant="secondary" asChild>
+              <Button size="lg" variant="secondary" className="text-primary font-semibold" asChild>
                 <Link to="/auth?role=recruiter">Post Your First Job</Link>
               </Button>
-              <Button size="lg" variant="outline" className="bg-white/10 border-white text-white hover:bg-white/20" asChild>
+              <Button size="lg" variant="ghost" className="text-primary-foreground/90 hover:bg-primary-foreground/10 hover:text-primary-foreground border border-primary-foreground/20" asChild>
                 <Link to="/auth?role=recruiter">Schedule Demo</Link>
               </Button>
             </div>

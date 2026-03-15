@@ -69,7 +69,7 @@ const Index = () => {
                 </span>
                 <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">]</span>
               </div>
-              <img src="/logo.png" alt="ProvenHire – Verified Talent Hiring Platform" className="h-14 w-14 sm:h-16 sm:w-16 mb-6 opacity-0 animate-fade-in-up animate-fill-forwards object-contain" style={{ animationDelay: "0.15s" }} width={64} height={64} loading="eager" />
+              {/* <img src="/logo.png" alt="ProvenHire – Verified Talent Hiring Platform" className="h-14 w-14 sm:h-16 sm:w-16 mb-6 opacity-0 animate-fade-in-up animate-fill-forwards object-contain" style={{ animationDelay: "0.15s" }} width={64} height={64} loading="eager" /> */}
               <h1 id="hero-heading" className="hero-title opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.2s" }}>
                 <span className="gradient-text">Hire Verified Talent</span>
                 <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>with ProvenHire</span>
@@ -204,8 +204,8 @@ const Index = () => {
           </div>
         </div>
       </section>
-
-      {/* SEO-rich content: skill verified hiring, coding verification, why ProvenHire */}
+{/* 
+      SEO-rich content: skill verified hiring, coding verification, why ProvenHire
       <section className="py-12 sm:py-16 bg-secondary/50 border-y border-border scroll-mt-20" aria-labelledby="skill-verified-heading">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-3xl mx-auto space-y-10 text-foreground">
@@ -238,7 +238,7 @@ const Index = () => {
             </p>
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* 3-Stage Verification with Time Labels (#6) */}
       <section className="verify-section scroll-mt-20" aria-labelledby="verification-pipeline-heading">
