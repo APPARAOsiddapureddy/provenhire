@@ -249,12 +249,15 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         }
       );
       const score = res.score ?? res.result?.score ?? 0;
+      // Backend POST /aptitude already stores percent in VerificationStage; do not send raw marks
+      // so resume/profile APIs show percent consistently (not marks).
+      const stagePayload = { stageName: "aptitude_test" as const, status: score >= passThreshold ? "completed" : "failed" as const };
       if (score >= passThreshold) {
-        await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "completed", score });
+        await api.post("/api/verification/stages/update", stagePayload);
         toast.success(`Boom! Level 1 unlocked. Aptitude score: ${score}/${totalMarks}.`);
         setJustPassed(true);
       } else {
-        await api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score });
+        await api.post("/api/verification/stages/update", stagePayload);
         setSubmittedScore(score);
         setSubmitted(true);
         toast.error(`Score ${score}/${totalMarks}. Minimum ${passThreshold} required to proceed. You can retry when ready.`);

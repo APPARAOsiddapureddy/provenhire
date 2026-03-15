@@ -203,7 +203,7 @@ export default function CandidateProfileView({
                     { label: "Integrity", val: profile.integrity_score },
                   ].map(({ label, val }) => (
                     <div key={label} className="rounded-lg border bg-muted/30 p-2 text-center">
-                      <p className="text-lg font-bold text-primary">{val ?? "—"}</p>
+                      <p className="text-lg font-bold text-primary">{typeof val === "number" ? `${val}%` : val ?? "—"}</p>
                       <p className="text-[10px] text-muted-foreground uppercase">{label}</p>
                     </div>
                   ))}
@@ -299,7 +299,7 @@ export default function CandidateProfileView({
                 <div className="flex items-center gap-6">
                   <div className="flex flex-col items-center">
                     <div className="w-24 h-24 rounded-full border-4 border-primary flex items-center justify-center">
-                      <span className="text-2xl font-bold text-primary">{profile.dsa_score}</span>
+                      <span className="text-2xl font-bold text-primary">{profile.dsa_score != null ? `${profile.dsa_score}%` : "—"}</span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">DSA Score</p>
                   </div>
@@ -319,7 +319,7 @@ export default function CandidateProfileView({
                 <p className="text-xs font-bold text-primary uppercase tracking-wider mb-4">Aptitude Test</p>
                 <div className="flex items-center gap-6">
                   <div className="text-center">
-                    <p className="text-4xl font-bold text-primary">{profile.aptitude_score}</p>
+                    <p className="text-4xl font-bold text-primary">{profile.aptitude_score != null ? `${profile.aptitude_score}%` : "—"}</p>
                     <p className="text-xs text-muted-foreground">/ 100</p>
                   </div>
                   <div className="flex-1">
@@ -338,7 +338,7 @@ export default function CandidateProfileView({
                 <p className="text-xs font-bold text-primary uppercase tracking-wider mb-4">AI Interview Evaluation</p>
                 <div className="flex items-center gap-6">
                   <div className="text-center">
-                    <p className="text-4xl font-bold text-primary">{profile.ai_interview_score}</p>
+                    <p className="text-4xl font-bold text-primary">{profile.ai_interview_score != null ? `${profile.ai_interview_score}%` : "—"}</p>
                     <p className="text-xs text-muted-foreground">/ 100</p>
                   </div>
                   <div className="flex-1">
@@ -497,11 +497,11 @@ export default function CandidateProfileView({
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Technical</span>
-                      <span className="font-semibold">{profile.dsa_score ?? "—"}</span>
+                      <span className="font-semibold">{profile.dsa_score != null ? `${profile.dsa_score}%` : "—"}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Communication</span>
-                      <span className="font-semibold">{profile.ai_interview_score ?? "—"}</span>
+                      <span className="font-semibold">{profile.ai_interview_score != null ? `${profile.ai_interview_score}%` : "—"}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Integrity</span>

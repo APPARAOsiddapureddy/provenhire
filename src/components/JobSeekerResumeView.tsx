@@ -197,19 +197,19 @@ export default function JobSeekerResumeView({
                   {roleType === "technical" && (
                     <>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
-                        <p className="text-lg font-bold text-primary">{aptitudeScore ?? "—"}</p>
+                        <p className="text-lg font-bold text-primary">{aptitudeScore != null ? `${aptitudeScore}%` : "—"}</p>
                         <p className="text-[10px] text-muted-foreground uppercase">Aptitude</p>
                       </div>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
-                        <p className="text-lg font-bold text-primary">{dsaScore ?? "—"}</p>
+                        <p className="text-lg font-bold text-primary">{dsaScore != null ? `${dsaScore}%` : "—"}</p>
                         <p className="text-[10px] text-muted-foreground uppercase">Live Coding</p>
                       </div>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
-                        <p className="text-lg font-bold text-primary">{aiInterviewScore ?? "—"}</p>
+                        <p className="text-lg font-bold text-primary">{aiInterviewScore != null ? `${aiInterviewScore}%` : "—"}</p>
                         <p className="text-[10px] text-muted-foreground uppercase">AI Interview</p>
                       </div>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
-                        <p className="text-lg font-bold text-primary">{expertInterviewScore ?? "—"}</p>
+                        <p className="text-lg font-bold text-primary">{expertInterviewScore != null ? `${expertInterviewScore}%` : "—"}</p>
                         <p className="text-[10px] text-muted-foreground uppercase">Expert</p>
                       </div>
                     </>
@@ -217,11 +217,11 @@ export default function JobSeekerResumeView({
                   {roleType === "non_technical" && (
                     <>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
-                        <p className="text-lg font-bold text-primary">{assignmentScore ?? "—"}</p>
+                        <p className="text-lg font-bold text-primary">{assignmentScore != null ? `${assignmentScore}%` : "—"}</p>
                         <p className="text-[10px] text-muted-foreground uppercase">Assignment</p>
                       </div>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
-                        <p className="text-lg font-bold text-primary">{expertInterviewScore ?? "—"}</p>
+                        <p className="text-lg font-bold text-primary">{expertInterviewScore != null ? `${expertInterviewScore}%` : "—"}</p>
                         <p className="text-[10px] text-muted-foreground uppercase">Expert</p>
                       </div>
                     </>
@@ -267,19 +267,19 @@ export default function JobSeekerResumeView({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {aptitudeScore != null && (
                     <div className="text-center p-3 rounded-lg border border-border">
-                      <p className="text-2xl font-bold text-primary">{aptitudeScore}</p>
+                      <p className="text-2xl font-bold text-primary">{aptitudeScore}%</p>
                       <p className="text-xs text-muted-foreground">Aptitude</p>
                     </div>
                   )}
                   {dsaScore != null && (
                     <div className="text-center p-3 rounded-lg border border-border">
-                      <p className="text-2xl font-bold text-primary">{dsaScore}</p>
+                      <p className="text-2xl font-bold text-primary">{dsaScore}%</p>
                       <p className="text-xs text-muted-foreground">Live Coding</p>
                     </div>
                   )}
                   {aiInterviewScore != null && (
                     <div className="text-center p-3 rounded-lg border border-border">
-                      <p className="text-2xl font-bold text-primary">{aiInterviewScore}</p>
+                      <p className="text-2xl font-bold text-primary">{aiInterviewScore}%</p>
                       <p className="text-xs text-muted-foreground">AI Interview</p>
                     </div>
                   )}

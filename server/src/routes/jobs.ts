@@ -8,6 +8,7 @@ import {
   minimumLevelHint,
   type CertificationTrack,
 } from "../services/verificationLevel.service.js";
+import { getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
 
 export const jobsRouter = Router();
 
@@ -262,6 +263,12 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
     })
   );
 
+  const aptitudeStageScore = (uid: string) => {
+    const userStages = stageByUser.get(uid) ?? [];
+    return userStages.find((s) => s.stageName === "aptitude_test" && s.status === "completed")?.score ?? null;
+  };
+  const aptitudeScoresBatch = await getAptitudeScoresZeroToHundredBatch(userIds, aptitudeStageScore);
+
   const applicants = applications
     .filter((a) => a.jobSeeker?.jobSeekerProfile)
     .map((a) => {
@@ -273,7 +280,7 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
       const integrityScore = Math.max(0, 100 - (maxRiskByUser.get(a.jobSeekerId) ?? 0));
       const skills = Array.isArray(p.skills) ? p.skills : p.skills ? [String(p.skills)] : [];
 
-      const aptitude = stageScore("aptitude_test");
+      const aptitude = aptitudeScoresBatch.get(a.jobSeekerId) ?? stageScore("aptitude_test");
       const dsa = stageScore("dsa_round");
       const ai = stageScore("expert_interview");
       const humanExpert = stageScore("human_expert_interview");

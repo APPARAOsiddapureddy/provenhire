@@ -169,7 +169,7 @@ function computeScore(payload: any) {
         ? 70
         : 50);
 
-  const total = Math.round(concept * 0.4 + reasoning * 0.3 + communication * 0.2 + confidence * 0.1);
+  const total = Math.min(100, Math.max(0, Math.round(concept * 0.4 + reasoning * 0.3 + communication * 0.2 + confidence * 0.1)));
   let badge = "Not Verified";
   if (total >= 90) badge = "Elite Verified";
   else if (total >= 75) badge = "Gold Verified";

@@ -79,7 +79,8 @@ function extractNumeric(value: unknown, fallback = 0): number {
 function extractAptitudeSignals(aptitude: { score: number | null; answers: unknown } | null) {
   const score = clamp(extractNumeric(aptitude?.score, 0));
   const answers = (aptitude?.answers ?? {}) as Record<string, unknown>;
-  const totalMarks = extractNumeric((answers as { totalMarks?: unknown }).totalMarks, 100) || 100;
+  const totalMarksRaw = extractNumeric((answers as { totalMarks?: unknown }).totalMarks, 0);
+  const totalMarks = totalMarksRaw > 0 ? totalMarksRaw : 25; // 25 is minimum session total; avoids wrong % when missing
   const earnedMarks = extractNumeric((answers as { earnedMarks?: unknown }).earnedMarks, score);
   const accuracy = clamp((earnedMarks / totalMarks) * 100);
 

@@ -211,7 +211,7 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
           correctCount++;
         }
       }
-      score = earnedMarks; // Raw marks out of 100; pass threshold is 60
+      score = earnedMarks; // Raw earned marks (total varies 25–35 by experience). Pass threshold 60%.
       const totalMarksVal = marksKey ? Object.values(marksKey).reduce((a, b) => a + b, 0) : Object.keys(answerKey).length;
       answersPayload = {
         questions: Object.keys(answerKey).length,
@@ -236,16 +236,23 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
         invalidated: parsed.data.invalidated ?? false,
       },
     });
+    // Store 0–100 percentage in VerificationStage and CandidateSkillVerification for consistent display with DSA/AI
+    const totalMarksForPct = answersToStore && typeof (answersToStore as { totalMarks?: number }).totalMarks === "number"
+      ? (answersToStore as { totalMarks: number }).totalMarks
+      : 0;
+    const scoreToStore = totalMarksForPct > 0
+      ? Math.round((score / totalMarksForPct) * 100)
+      : Math.min(100, Math.max(0, Math.round(score)));
     const existingStage = await prisma.verificationStage.findFirst({
       where: { userId: req.user!.id, stageName: "aptitude_test" },
     });
     if (existingStage) {
       await prisma.verificationStage.update({
         where: { id: existingStage.id },
-        data: { score: Math.round(score) },
+        data: { score: scoreToStore },
       });
     }
-    await upsertSkillVerification(req.user!.id, "APTITUDE", Math.round(score), completedAt);
+    await upsertSkillVerification(req.user!.id, "APTITUDE", scoreToStore, completedAt);
     return res.json({ result, score });
   } catch (err) {
     const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : null;
@@ -274,8 +281,8 @@ verificationRouter.get("/aptitude/latest", requireAuth, async (req: AuthedReques
     orderBy: { completedAt: "desc" },
   });
   const score = row?.score ?? 0;
-  const answers = row?.answers as { totalMarks?: number } | null | undefined;
-  const totalMarks = answers?.totalMarks ?? 20;
+  const answers = row?.answers as { totalMarks?: number; earnedMarks?: number } | null | undefined;
+  const totalMarks = answers?.totalMarks ?? 25; // 25 is minimum session total (fresher); actual is 25/30/35
   const result = row ? { total_score: score, score, total_marks: totalMarks } : null;
   res.json({ result });
 });
@@ -297,10 +304,15 @@ verificationRouter.post("/dsa", requireAuth, async (req: AuthedRequest, res) => 
   const existingStage = await prisma.verificationStage.findFirst({
     where: { userId: req.user!.id, stageName: "dsa_round" },
   });
-  if (existingStage && dsaScore != null) {
+  const roundedScore = dsaScore != null ? Math.round(dsaScore) : null;
+  if (existingStage && roundedScore != null) {
     await prisma.verificationStage.update({
       where: { id: existingStage.id },
-      data: { score: Math.round(dsaScore) },
+      data: { score: roundedScore },
+    });
+  } else if (!existingStage && roundedScore != null) {
+    await prisma.verificationStage.create({
+      data: { userId: req.user!.id, stageName: "dsa_round", status: "in_progress", score: roundedScore },
     });
   }
   if (dsaScore != null) {

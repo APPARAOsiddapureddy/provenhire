@@ -402,16 +402,16 @@ const JobSeekerDashboard = () => {
         const interviewStage = stagesList.find((s: { stage_name?: string }) => s.stage_name === "expert_interview");
         const interviewScore = interviewStage?.score ?? 0;
         if (role === "non_technical") {
-          const pct = interviewScore ? Math.round((interviewScore / 15) * 100) : 0;
+          const pct = Math.round(Number(interviewScore) || 0); // expert_interview score is already 0–100
           if (pct >= 80) setCertificationLevel("A");
           else if (pct >= 60) setCertificationLevel("B");
           else setCertificationLevel("C");
         } else {
           const aptScore = aptitudeResult?.total_score ?? 0;
-          const aptTotal = aptitudeResult?.total_marks ?? (aptitudeResult?.answers as { totalMarks?: number })?.totalMarks ?? 20;
+          const aptTotal = aptitudeResult?.total_marks ?? (aptitudeResult?.answers as { totalMarks?: number })?.totalMarks ?? 25;
           const aptitudePct = aptTotal > 0 ? (aptScore / aptTotal) * 100 : 0;
-          const dsaPct = dsaResult?.total_score ?? 0;
-          const interviewPct = interviewScore ? (interviewScore / 15) * 100 : 0;
+          const dsaPct = dsaResult?.total_score ?? 0; // already 0–100
+          const interviewPct = Number(interviewScore) || 0; // expert_interview score is already 0–100
           const overallAvg = (aptitudePct + dsaPct + interviewPct) / 3;
           if (overallAvg >= 80) setCertificationLevel("A");
           else if (overallAvg >= 60) setCertificationLevel("B");
@@ -798,7 +798,7 @@ const JobSeekerDashboard = () => {
                   const isLocked = status === 'locked';
                   const isFailed = stageData?.status === 'failed';
                   const aptitudeScore = testResults.aptitude?.total_score ?? 0;
-                  const aptitudeTotal = testResults.aptitude?.total_marks ?? 20;
+                  const aptitudeTotal = testResults.aptitude?.total_marks ?? 25;
                   const aptitudePct = testResults.aptitude && aptitudeTotal > 0 ? Math.round((aptitudeScore / aptitudeTotal) * 100) : null;
                   const aptitudeDisplay = testResults.aptitude ? `${aptitudeScore}/${aptitudeTotal} (${aptitudePct ?? 0}%)` : null;
                   const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 3}` : null;

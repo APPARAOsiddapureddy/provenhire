@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { getAptitudeScoreZeroToHundred, getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
 
 export const usersRouter = Router();
 
@@ -51,6 +52,8 @@ usersRouter.get("/me/candidate-profile", requireAuth, async (req: AuthedRequest,
   const stageScore = (name: string) =>
     stages.find((s) => s.stageName === name && s.status === "completed")?.score ?? null;
   const humanExpert = stageScore("human_expert_interview");
+  const aptitudeStageScore = stageScore("aptitude_test");
+  const aptitudeScore = await getAptitudeScoreZeroToHundred(profile.userId, aptitudeStageScore);
   const maxRisk = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
   const integrityScore = Math.max(0, 100 - maxRisk);
 
@@ -105,7 +108,7 @@ usersRouter.get("/me/candidate-profile", requireAuth, async (req: AuthedRequest,
       work_experience: workExperience,
       certification_level: cert.level,
       certification_label: cert.label,
-      aptitude_score: stageScore("aptitude_test"),
+      aptitude_score: aptitudeScore,
       dsa_score: stageScore("dsa_round"),
       ai_interview_score: stageScore("expert_interview"),
       human_expert_interview_score: humanExpert,
@@ -284,6 +287,12 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
     })
   );
 
+  const aptitudeStageScore = (uid: string) => {
+    const userStages = stageByUser.get(uid) ?? [];
+    return userStages.find((s) => s.stageName === "aptitude_test" && s.status === "completed")?.score ?? null;
+  };
+  const aptitudeScoresBatch = await getAptitudeScoresZeroToHundredBatch(userIds, aptitudeStageScore);
+
   let profiles = rows.map((p) => {
     const skills = Array.isArray(p.skills) ? p.skills : p.skills ? [String(p.skills)] : [];
     const activelyLookingRoles = p.targetJobTitle ? [p.targetJobTitle] : [];
@@ -312,7 +321,7 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
       created_at: p.createdAt?.toISOString?.() ?? null,
       certification_level: cert?.level ?? 0,
       certification_label: cert?.label ?? "Level 0 - Not Yet Certified",
-      aptitude_score: stageScore("aptitude_test"),
+      aptitude_score: aptitudeScoresBatch.get(p.userId) ?? stageScore("aptitude_test"),
       dsa_score: stageScore("dsa_round"),
       ai_interview_score: stageScore("expert_interview"),
       human_expert_interview_score: humanExpert,
@@ -357,6 +366,7 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
   const stageScore = (name: string) =>
     stages.find((s) => s.stageName === name && s.status === "completed")?.score ?? null;
   const humanExpert = stageScore("human_expert_interview");
+  const aptitudeScoreSingle = await getAptitudeScoreZeroToHundred(profile.userId, stageScore("aptitude_test"));
   const maxRisk = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
   const integrityScore = Math.max(0, 100 - maxRisk);
 
@@ -411,7 +421,7 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
       work_experience: workExperience,
       certification_level: cert.level,
       certification_label: cert.label,
-      aptitude_score: stageScore("aptitude_test"),
+      aptitude_score: aptitudeScoreSingle,
       dsa_score: stageScore("dsa_round"),
       ai_interview_score: stageScore("expert_interview"),
       human_expert_interview_score: humanExpert,

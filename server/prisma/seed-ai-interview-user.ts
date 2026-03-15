@@ -5,7 +5,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-const TEST_EMAIL = "ai-interview@test.provenhire.com";
+const TEST_EMAIL = "ai-interview1@test.provenhire.com";
 const TEST_PASSWORD = "Test123456";
 const TEST_NAME = "AI Interview Test User";
 
