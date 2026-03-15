@@ -48,7 +48,20 @@ interface Recruiter {
   full_name: string | null;
   email: string | null;
   phone: string | null;
+  designation: string | null;
+  linked_in_profile: string | null;
   company_name: string | null;
+  company_logo: string | null;
+  company_website: string | null;
+  company_industry: string | null;
+  company_size: string | null;
+  company_location: string | null;
+  company_linkedin: string | null;
+  company_description: string | null;
+  verification_document_url: string | null;
+  verification_status: string | null;
+  email_domain_verified: boolean | null;
+  verification_rejected_reason: string | null;
   created_at: string;
 }
 
@@ -203,6 +216,10 @@ const AdminDashboard = () => {
       (jobSeekerStatusFilter === "pending" && status !== "verified" && status !== "expert_verified");
     return matchesSearch && matchesStatus;
   });
+
+  const [recruiterReview, setRecruiterReview] = useState<Recruiter | null>(null);
+  const [verificationRejectReason, setVerificationRejectReason] = useState("");
+  const [verificationUpdating, setVerificationUpdating] = useState(false);
 
   const filteredRecruiters = recruiters.filter((recruiter) => {
     if (!recruiterSearch) return true;
@@ -753,8 +770,8 @@ const AdminDashboard = () => {
                       <TableRow>
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
-                        <TableHead>Phone</TableHead>
                         <TableHead>Company</TableHead>
+                        <TableHead>Verification</TableHead>
                         <TableHead>Joined</TableHead>
                         <TableHead>Actions</TableHead>
                     </TableRow>
@@ -771,44 +788,53 @@ const AdminDashboard = () => {
                         <TableRow key={recruiter.id}>
                           <TableCell className="font-medium">{recruiter.full_name || "-"}</TableCell>
                           <TableCell>{recruiter.email || "-"}</TableCell>
-                          <TableCell>{recruiter.phone || "-"}</TableCell>
                           <TableCell>{recruiter.company_name || "-"}</TableCell>
+                          <TableCell>
+                            <Badge variant={recruiter.verification_status === "verified" ? "default" : recruiter.verification_status === "rejected" ? "destructive" : "secondary"}>
+                              {recruiter.verification_status || "pending"}
+                            </Badge>
+                          </TableCell>
                           <TableCell>{formatDate(recruiter.created_at)}</TableCell>
                           <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setMessageRecipient({
-                                      userId: recruiter.user_id,
-                                      label: recruiter.full_name || recruiter.email || recruiter.company_name || recruiter.user_id.slice(0, 8),
-                                    });
-                                    setMessageDialogOpen(true);
-                                  }}
-                                >
-                                  <MessageSquare className="h-4 w-4 mr-2" />
-                                  Send Message
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() =>
-                                    setDeleteDialog({
-                                      userId: recruiter.user_id,
-                                      email: recruiter.email || recruiter.user_id,
-                                      name: recruiter.full_name || "Recruiter",
-                                    })
-                                  }
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Delete User
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            <div className="flex items-center gap-1">
+                              <Button variant="outline" size="sm" onClick={() => { setRecruiterReview(recruiter); setVerificationRejectReason(""); }}>
+                                Review
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setMessageRecipient({
+                                        userId: recruiter.user_id,
+                                        label: recruiter.full_name || recruiter.email || recruiter.company_name || recruiter.user_id.slice(0, 8),
+                                      });
+                                      setMessageDialogOpen(true);
+                                    }}
+                                  >
+                                    <MessageSquare className="h-4 w-4 mr-2" />
+                                    Send Message
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() =>
+                                      setDeleteDialog({
+                                        userId: recruiter.user_id,
+                                        email: recruiter.email || recruiter.user_id,
+                                        name: recruiter.full_name || "Recruiter",
+                                      })
+                                    }
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete User
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -818,6 +844,127 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+
+            <Dialog open={!!recruiterReview} onOpenChange={(open) => !open && setRecruiterReview(null)}>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Recruiter verification</DialogTitle>
+                  <DialogDescription>Review details and documents, then approve or reject.</DialogDescription>
+                </DialogHeader>
+                {recruiterReview && (
+                  <div className="space-y-4 py-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-muted-foreground">Name</Label>
+                        <p className="font-medium">{recruiterReview.full_name || "-"}</p>
+                      </div>
+                      <div>
+                        <Label className="text-muted-foreground">Email</Label>
+                        <p className="font-medium">{recruiterReview.email || "-"}</p>
+                        {recruiterReview.email_domain_verified && (
+                          <Badge variant="secondary" className="mt-1">Domain matches website</Badge>
+                        )}
+                      </div>
+                      <div>
+                        <Label className="text-muted-foreground">Phone</Label>
+                        <p className="font-medium">{recruiterReview.phone || "-"}</p>
+                      </div>
+                      <div>
+                        <Label className="text-muted-foreground">Job title</Label>
+                        <p className="font-medium">{recruiterReview.designation || "-"}</p>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <Label className="text-muted-foreground">LinkedIn profile</Label>
+                        <p className="font-medium">
+                          {recruiterReview.linked_in_profile ? (
+                            <a href={recruiterReview.linked_in_profile} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                              {recruiterReview.linked_in_profile}
+                            </a>
+                          ) : "-"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="border-t pt-4">
+                      <h4 className="font-semibold mb-2">Company</h4>
+                      <div className="flex gap-4 flex-wrap">
+                        {recruiterReview.company_logo && (
+                          <img src={recruiterReview.company_logo.startsWith("http") ? recruiterReview.company_logo : `${window.location.origin}${recruiterReview.company_logo}`} alt="Logo" className="h-16 w-16 object-contain rounded border" />
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 min-w-0">
+                          <div><Label className="text-muted-foreground">Company name</Label><p className="font-medium">{recruiterReview.company_name || "-"}</p></div>
+                          <div><Label className="text-muted-foreground">Website</Label><p className="font-medium">{recruiterReview.company_website ? <a href={recruiterReview.company_website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{recruiterReview.company_website}</a> : "-"}</p></div>
+                          <div><Label className="text-muted-foreground">Industry</Label><p className="font-medium">{recruiterReview.company_industry || "-"}</p></div>
+                          <div><Label className="text-muted-foreground">Size</Label><p className="font-medium">{recruiterReview.company_size || "-"}</p></div>
+                          <div><Label className="text-muted-foreground">Location</Label><p className="font-medium">{recruiterReview.company_location || "-"}</p></div>
+                          <div className="sm:col-span-2"><Label className="text-muted-foreground">Company LinkedIn</Label><p className="font-medium">{recruiterReview.company_linkedin ? <a href={recruiterReview.company_linkedin} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{recruiterReview.company_linkedin}</a> : "-"}</p></div>
+                          {recruiterReview.company_description && <div className="sm:col-span-2"><Label className="text-muted-foreground">Description</Label><p className="text-sm text-muted-foreground">{recruiterReview.company_description}</p></div>}
+                        </div>
+                      </div>
+                    </div>
+                    {recruiterReview.verification_document_url && (
+                      <div className="border-t pt-4">
+                        <Label className="text-muted-foreground">Verification document</Label>
+                        <a href={recruiterReview.verification_document_url.startsWith("http") ? recruiterReview.verification_document_url : `${window.location.origin}${recruiterReview.verification_document_url}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline block mt-1">
+                          View document (PDF/Image)
+                        </a>
+                      </div>
+                    )}
+                    {recruiterReview.verification_status === "rejected" && recruiterReview.verification_rejected_reason && (
+                      <p className="text-sm text-muted-foreground">Rejection reason: {recruiterReview.verification_rejected_reason}</p>
+                    )}
+                    <div className="border-t pt-4 flex flex-wrap gap-2 items-end">
+                      {recruiterReview.verification_status !== "verified" && (
+                        <Button
+                          disabled={verificationUpdating}
+                          onClick={async () => {
+                            setVerificationUpdating(true);
+                            try {
+                              await api.patch(`/api/admin/recruiters/${recruiterReview.id}/verification`, { status: "verified" });
+                              setRecruiters((prev) => prev.map((r) => (r.id === recruiterReview.id ? { ...r, verification_status: "verified" } : r)));
+                              setRecruiterReview(null);
+                              toast.success("Recruiter approved.");
+                            } catch (e) {
+                              toast.error("Failed to approve.");
+                            } finally {
+                              setVerificationUpdating(false);
+                            }
+                          }}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve
+                        </Button>
+                      )}
+                      {recruiterReview.verification_status !== "rejected" && (
+                        <>
+                          <Input placeholder="Rejection reason (optional)" value={verificationRejectReason} onChange={(e) => setVerificationRejectReason(e.target.value)} className="max-w-xs" />
+                          <Button
+                            variant="destructive"
+                            disabled={verificationUpdating}
+                            onClick={async () => {
+                              setVerificationUpdating(true);
+                              try {
+                                await api.patch(`/api/admin/recruiters/${recruiterReview.id}/verification`, { status: "rejected", reason: verificationRejectReason || undefined });
+                                setRecruiters((prev) => prev.map((r) => (r.id === recruiterReview.id ? { ...r, verification_status: "rejected", verification_rejected_reason: verificationRejectReason || null } : r)));
+                                setRecruiterReview(null);
+                                setVerificationRejectReason("");
+                                toast.success("Recruiter rejected.");
+                              } catch (e) {
+                                toast.error("Failed to reject.");
+                              } finally {
+                                setVerificationUpdating(false);
+                              }
+                            }}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="jobs">

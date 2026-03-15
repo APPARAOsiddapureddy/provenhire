@@ -82,12 +82,16 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-const BACKEND_DOWN_MSG = isDev ? "Run npm run dev from the project root to start the backend." : "Service temporarily unavailable. Please try again.";
+/** Single user-facing message when backend is down (dev or prod). */
+const BACKEND_DOWN_MSG = isDev
+  ? "Service unavailable. Start the backend from the project root: npm run dev"
+  : "Service temporarily unavailable. Please try again in a moment.";
 
 async function request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
   if (isBackendDownCooldown()) {
-    const err = new Error(BACKEND_DOWN_MSG) as Error & { status?: number };
+    const err = new Error(BACKEND_DOWN_MSG) as Error & { status?: number; isBackendUnavailable?: boolean };
     err.status = 503;
+    err.isBackendUnavailable = true;
     throw err;
   }
 
@@ -113,7 +117,10 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
       msg.includes("blocked");
     if (isNetworkError) {
       setBackendDownCooldown();
-      throw new Error(isDev ? "Run npm run dev from the project root to start the backend." : "Unable to connect. Please check your connection and try again.");
+      const err = new Error(BACKEND_DOWN_MSG) as Error & { status?: number; isBackendUnavailable?: boolean };
+      err.status = 503;
+      err.isBackendUnavailable = true;
+      throw err;
     }
     throw e;
   }
@@ -133,24 +140,27 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     const errorBody = await res.json().catch(() => ({}));
     const msg = (errorBody?.message ?? errorBody?.error ?? "Request failed") as string;
     if (path.startsWith("/api/") && res.status === 404) {
-      throw new Error(isDev ? "Run npm run dev from the project root to start the backend." : "Service temporarily unavailable. Please try again later.");
+      const err = new Error(BACKEND_DOWN_MSG) as Error & { status?: number; isBackendUnavailable?: boolean };
+      err.status = 404;
+      err.isBackendUnavailable = true;
+      throw err;
     }
     if (path.startsWith("/api/") && res.status === 502) {
       if (msg && msg !== "Request failed" && !msg.toLowerCase().includes("proxy")) {
         throw new Error(msg);
       }
-      throw new Error(
-        isDev
-          ? "Run npm run dev from the project root to start the backend."
-          : "Backend is starting up. Please wait 30 seconds and try again."
-      );
+      const err = new Error(BACKEND_DOWN_MSG) as Error & { status?: number; isBackendUnavailable?: boolean };
+      err.status = 502;
+      err.isBackendUnavailable = true;
+      throw err;
     }
     if (path.startsWith("/api/") && (res.status === 500 || res.status === 503)) {
       if (res.status === 503) setBackendDownCooldown();
       const code = (errorBody as { code?: string })?.code;
-      const fullMsg = msg && msg !== "Request failed" ? msg : "Something went wrong. Please try again in a moment.";
-      const err = new Error(code ? `${fullMsg} [${code}]` : fullMsg) as Error & { status?: number };
+      const fullMsg = msg && msg !== "Request failed" ? msg : BACKEND_DOWN_MSG;
+      const err = new Error(code ? `${fullMsg} [${code}]` : fullMsg) as Error & { status?: number; isBackendUnavailable?: boolean };
       err.status = res.status;
+      err.isBackendUnavailable = res.status === 503;
       throw err;
     }
     const err = new Error(msg) as Error & { response?: { data?: unknown }; status?: number };

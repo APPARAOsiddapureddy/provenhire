@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
-import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, FileText, Lock, CheckCircle2, Search, Settings } from "lucide-react";
+import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, FileText, Lock, CheckCircle2, Search, Settings, ExternalLink } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import DashboardShell from "@/components/DashboardShell";
@@ -79,6 +80,12 @@ interface RecruiterProfile {
   industry: string | null;
   hiring_for: string | null;
   onboarding_completed: boolean | null;
+  company_logo?: string | null;
+  companyLogo?: string | null;
+  verification_status?: string | null;
+  verificationStatus?: string | null;
+  verification_rejected_reason?: string | null;
+  verificationRejectedReason?: string | null;
 }
 
 interface TalentCandidate {
@@ -127,6 +134,7 @@ const RecruiterDashboard = () => {
   const [jobApplications, setJobApplications] = useState<Application[]>([]);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -175,6 +183,7 @@ const RecruiterDashboard = () => {
   }, [user]);
 
   const loadDashboardData = async () => {
+    setBackendUnavailable(false);
     const FETCH_TIMEOUT_MS = 20000;
     try {
       const fetchPromise = Promise.all([
@@ -193,11 +202,17 @@ const RecruiterDashboard = () => {
 
       setJobs(jobsResult.jobs || []);
       setProfile(profileResult.profile as RecruiterProfile | null);
+      const p = profileResult.profile as any;
+      if (p && !p.onboardingCompleted && !p.onboarding_completed) {
+        navigate("/dashboard/recruiter/onboarding");
+        setLoading(false);
+        return;
+      }
       if (profileResult.profile) {
         setEditedProfile({
-          full_name: (profileResult.profile as any).full_name || "",
-          phone: (profileResult.profile as any).phone || "",
-          company_name: (profileResult.profile as any).company_name || "",
+          full_name: p?.full_name ?? p?.fullName ?? "",
+          phone: p?.phone ?? "",
+          company_name: p?.company_name ?? p?.companyName ?? "",
         });
       }
 
@@ -213,8 +228,14 @@ const RecruiterDashboard = () => {
       });
     } catch (error: unknown) {
       console.error('Error loading dashboard data:', error);
-      const msg = error instanceof Error ? error.message : 'Failed to load dashboard data';
-      toast.error(msg);
+      const err = error as Error & { status?: number; isBackendUnavailable?: boolean };
+      const isUnavailable = err.isBackendUnavailable === true || err.status === 503 || (err.message && (err.message.includes("Service unavailable") || err.message.includes("npm run dev")));
+      if (isUnavailable) {
+        setBackendUnavailable(true);
+        // Single message: no toast to avoid duplicate with the card below
+      } else {
+        toast.error(err.message || 'Failed to load dashboard data');
+      }
     } finally {
       setLoading(false);
     }
@@ -367,8 +388,63 @@ const RecruiterDashboard = () => {
             <Skeleton className="h-64 w-full rounded-xl" />
           </div>
         )}
-        {!loading && (
+        {!loading && backendUnavailable && (
+          <div className="dashboard-section-content">
+            <Card className="max-w-md mx-auto">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-destructive">
+                  <Building2 className="h-5 w-5" />
+                  Service unavailable
+                </CardTitle>
+                <CardDescription>
+                  We couldn't connect to the server. If you're developing, start the backend from the project root with: <code className="text-xs bg-muted px-1 rounded">npm run dev</code>. Then click Retry.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={() => { setLoading(true); loadDashboardData(); }}>
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+        {!loading && !backendUnavailable && (
           <>
+            {profile && (
+              <div className="mb-6 p-4 rounded-xl border bg-card flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <div className="w-14 h-14 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                    {(profile.company_logo ?? profile.companyLogo) ? (
+                      <img src={((profile.company_logo ?? profile.companyLogo) as string).startsWith("http") ? (profile.company_logo ?? profile.companyLogo) as string : `${window.location.origin}${profile.company_logo ?? profile.companyLogo}`} alt={profile.company_name || "Company"} className="w-full h-full object-contain" />
+                    ) : (
+                      <Building2 className="h-7 w-7 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground">{profile.company_name || "Company"}</p>
+                    {profile.company_website && (
+                      <a href={profile.company_website.startsWith("http") ? profile.company_website : `https://${profile.company_website}`} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline flex items-center gap-1">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        {profile.company_website}
+                      </a>
+                    )}
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant={(profile.verification_status ?? profile.verificationStatus) === "verified" ? "default" : (profile.verification_status ?? profile.verificationStatus) === "rejected" ? "destructive" : "secondary"}>
+                        {(profile.verification_status ?? profile.verificationStatus) === "verified" ? "Verified" : (profile.verification_status ?? profile.verificationStatus) === "rejected" ? "Rejected" : "Pending review"}
+                      </Badge>
+                    </div>
+                    {(profile.verification_status ?? profile.verificationStatus) === "rejected" && (profile.verification_rejected_reason ?? profile.verificationRejectedReason) && (
+                      <p className="text-sm text-muted-foreground mt-1">{(profile.verification_rejected_reason ?? profile.verificationRejectedReason) as string}</p>
+                    )}
+                    {(profile.verification_status ?? profile.verificationStatus) === "rejected" && (
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => navigate("/dashboard/settings")}>
+                        Update documents & re-submit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="dashboard-section-header flex-wrap gap-4">
               <div>
                 <h1>Talent Discovery</h1>

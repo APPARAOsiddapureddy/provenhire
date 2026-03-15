@@ -228,6 +228,30 @@ usersRouter.get("/recruiter-profile", requireAuth, async (req: AuthedRequest, re
   res.json({ profile });
 });
 
+const GENERIC_EMAIL_DOMAINS = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "live.com", "ymail.com", "rediffmail.com"];
+
+function normalizeDomain(urlOrDomain: string | null | undefined): string | null {
+  if (!urlOrDomain || typeof urlOrDomain !== "string") return null;
+  const s = urlOrDomain.trim().toLowerCase();
+  try {
+    if (!s.includes(".")) return null;
+    if (s.startsWith("http://") || s.startsWith("https://")) {
+      const u = new URL(s);
+      const host = u.hostname.replace(/^www\./, "");
+      return host || null;
+    }
+    return s.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function extractEmailDomain(email: string | null | undefined): string | null {
+  if (!email || typeof email !== "string") return null;
+  const part = email.trim().toLowerCase().split("@")[1];
+  return part || null;
+}
+
 usersRouter.post("/recruiter-profile", requireAuth, async (req: AuthedRequest, res) => {
   const schema = z.object({
     companyName: z.string().optional(),
@@ -238,13 +262,42 @@ usersRouter.post("/recruiter-profile", requireAuth, async (req: AuthedRequest, r
     industry: z.string().optional(),
     hiringFor: z.string().optional(),
     onboardingCompleted: z.boolean().optional(),
+    fullName: z.string().optional(),
+    workEmail: z.string().optional(),
+    linkedInProfile: z.string().url().optional().or(z.literal("")),
+    companyLinkedin: z.string().url().optional().or(z.literal("")),
+    verificationDocumentUrl: z.string().optional(),
+    companyLogo: z.string().optional(),
+    headquarters: z.string().optional(),
+    companyDescription: z.string().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+  const data = { ...parsed.data };
+  const workEmail = data.workEmail?.trim() || null;
+  const companyWebsite = data.companyWebsite?.trim() || null;
+  const emailDomain = extractEmailDomain(workEmail);
+  const websiteDomain = normalizeDomain(companyWebsite);
+  const isGenericEmail = emailDomain ? GENERIC_EMAIL_DOMAINS.some((d) => emailDomain === d) : true;
+  const emailDomainVerified = !isGenericEmail && !!emailDomain && !!websiteDomain && emailDomain === websiteDomain;
+
+  const existing = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
+  const payload: Record<string, unknown> = Object.fromEntries(
+    Object.entries(data).filter(([, v]) => v !== undefined)
+  ) as Record<string, unknown>;
+  payload.emailDomainVerified = emailDomainVerified;
+  if (payload.verificationDocumentUrl && existing?.verificationStatus !== "verified") {
+    payload.verificationStatus = "pending";
+  }
   const profile = await prisma.recruiterProfile.upsert({
     where: { userId: req.user!.id },
-    create: { userId: req.user!.id, ...parsed.data },
-    update: parsed.data,
+    create: {
+      userId: req.user!.id,
+      ...payload,
+      verificationStatus: "pending",
+    } as any,
+    update: payload as any,
   });
   res.json({ profile });
 });

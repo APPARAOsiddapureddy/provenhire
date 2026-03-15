@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
-import { api, hasAuthToken, setAuthToken, setRefreshToken } from "@/lib/api";
+import { api, hasAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown } from "@/lib/api";
 import { signInWithGooglePopup, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
@@ -49,9 +49,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [needsGoogleRoleSelection, setNeedsGoogleRoleSelection] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname || "";
+  // Per-pathname so we don't double-run in Strict Mode, and we re-run when navigating away from /auth
+  const lastBootstrapPathRef = useRef<string | null>(null);
 
   useEffect(() => {
     const bootstrap = async () => {
+      // Avoid double run in React Strict Mode for the same pathname.
+      if (lastBootstrapPathRef.current === pathname) {
+        setLoading(false);
+        return;
+      }
+      lastBootstrapPathRef.current = pathname;
+
       // Handle Google redirect result first (user returning from OAuth)
       if (isFirebaseConfigured()) {
         try {
@@ -96,10 +107,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
         return;
       }
-      // Single health check first so we only get one 503 when backend is down; circuit breaker then blocks all other calls.
-      try {
-        await api.get<{ ok?: boolean }>("/api/health");
-      } catch {
+      // If backend is already known down, don't call API.
+      if (isBackendDownCooldown()) {
+        setLoading(false);
+        return;
+      }
+      // Do not call /api/auth/me when user is on the auth page — avoids 503 in console when backend is down.
+      // Session will be restored when they navigate to a protected route (effect re-runs with new pathname).
+      if (pathname === "/auth") {
         setLoading(false);
         return;
       }
@@ -112,29 +127,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const msg = err instanceof Error ? err.message : "";
         const isBackendDown =
           status === 503 ||
+          msg.includes("Service unavailable") ||
           msg.includes("temporarily unavailable") ||
           msg.includes("Backend not running") ||
-          msg.includes("Run npm run dev");
+          msg.includes("npm run dev");
         if (isBackendDown) {
-          // Don't clear user/token so when backend is back they're still logged in. Toast is shown once via ph_backend_503.
+          // Don't clear user/token; toast is shown once via ph_backend_503.
         } else {
           setUser(null);
           setUserRole(null);
           setAuthToken(null);
           setRefreshToken(null);
         }
-        // 401: api.ts will have dispatched ph_session_expired; listener shows toast and redirects
       } finally {
         setLoading(false);
       }
     };
     bootstrap();
-  }, [navigate]);
+  }, [navigate, pathname]);
 
   // Single toast when backend is first detected down (api.ts dispatches ph_backend_503 once per cooldown).
   useEffect(() => {
     const onBackend503 = () => {
-      toast.error("Run npm run dev from the project root to start the backend.");
+      toast.error("Service unavailable. Start the backend from the project root: npm run dev");
     };
     window.addEventListener("ph_backend_503", onBackend503);
     return () => window.removeEventListener("ph_backend_503", onBackend503);

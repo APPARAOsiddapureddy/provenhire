@@ -83,6 +83,12 @@ model JobSeekerProfile {
   user User @relation(fields: [userId], references: [id])
 }
 
+enum RecruiterVerificationStatus {
+  pending
+  verified
+  rejected
+}
+
 model RecruiterProfile {
   id                     String   @id @default(uuid())
   userId                 String   @unique
@@ -94,6 +100,15 @@ model RecruiterProfile {
   industry               String?
   hiringFor              String?
   onboardingCompleted    Boolean  @default(false)
+  // Recruiter verification (required for job posting)
+  fullName               String?
+  workEmail              String?
+  linkedInProfile        String?
+  companyLinkedin        String?
+  verificationDocumentUrl String?
+  verificationStatus     RecruiterVerificationStatus @default(pending)
+  emailDomainVerified    Boolean  @default(false)
+  verificationRejectedReason String?  // Admin message when rejected
   // Settings: Company profile
   companyLogo            String?
   headquarters           String?

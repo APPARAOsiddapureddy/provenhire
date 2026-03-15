@@ -92,7 +92,7 @@ adminRouter.get("/job-seekers", async (_req, res) => {
   res.json({ jobSeekers: mapped });
 });
 
-/** Recruiters with profile + user */
+/** Recruiters with profile + user (for admin review) */
 adminRouter.get("/recruiters", async (_req, res) => {
   const profiles = await prisma.recruiterProfile.findMany({
     include: {
@@ -105,13 +105,51 @@ adminRouter.get("/recruiters", async (_req, res) => {
   const mapped = profiles.map((p) => ({
     id: p.id,
     user_id: p.userId,
-    full_name: p.user?.name ?? null,
-    email: p.user?.email ?? null,
+    full_name: p.fullName ?? p.user?.name ?? null,
+    email: p.workEmail ?? p.user?.email ?? null,
     phone: p.phone,
+    designation: p.designation,
+    linked_in_profile: p.linkedInProfile,
     company_name: p.companyName,
+    company_logo: p.companyLogo,
+    company_website: p.companyWebsite,
+    company_industry: p.industry,
+    company_size: p.companySize,
+    company_location: p.headquarters,
+    company_linkedin: p.companyLinkedin,
+    company_description: p.companyDescription,
+    verification_document_url: p.verificationDocumentUrl,
+    verification_status: p.verificationStatus,
+    email_domain_verified: p.emailDomainVerified,
+    verification_rejected_reason: p.verificationRejectedReason,
     created_at: p.createdAt,
   }));
   res.json({ recruiters: mapped });
+});
+
+/** Approve or reject recruiter verification */
+adminRouter.patch("/recruiters/:id/verification", async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    status: z.enum(["verified", "rejected"]),
+    reason: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", validStatuses: ["verified", "rejected"] });
+  }
+  const { id: profileId } = req.params;
+  const profile = await prisma.recruiterProfile.findUnique({ where: { id: profileId } });
+  if (!profile) {
+    return res.status(404).json({ error: "Recruiter profile not found" });
+  }
+  await prisma.recruiterProfile.update({
+    where: { id: profileId },
+    data: {
+      verificationStatus: parsed.data.status,
+      verificationRejectedReason: parsed.data.status === "rejected" ? (parsed.data.reason ?? null) : null,
+    },
+  });
+  res.json({ ok: true, verificationStatus: parsed.data.status });
 });
 
 /** Aggregate stats for admin dashboard */

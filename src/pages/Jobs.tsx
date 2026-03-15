@@ -47,276 +47,10 @@ interface Job {
   assignment?: string | null;
   minimumCertificationLevel?: number;
   minimum_certification_level?: number;
+  /** Recruiter verification: logo and verified badge */
+  companyLogo?: string | null;
+  recruiterVerified?: boolean;
 }
-
-const MOCK_JOBS: Job[] = [
-  {
-    id: 'mock-1',
-    title: 'Staff Frontend Engineer',
-    company: 'Nimbus Labs',
-    location: 'Remote',
-    salary_range: '₹17L - ₹21L',
-    required_skills: ['React', 'TypeScript', 'Tailwind'],
-    description: 'Lead frontend architecture and deliver high-performance customer experiences.',
-    job_type: 'Full-time',
-    experience_required: 7,
-    created_at: new Date().toISOString(),
-    isPremium: true,
-    job_track: 'tech',
-  },
-  {
-    id: 'mock-2',
-    title: 'Senior Backend Engineer (Go)',
-    company: 'Atlas Data',
-    location: 'Gurugram',
-    salary_range: '₹16L - ₹20L',
-    required_skills: ['Go', 'PostgreSQL', 'Docker'],
-    description: 'Design resilient services and optimize large-scale data pipelines.',
-    job_type: 'Full-time',
-    experience_required: 5,
-    created_at: new Date().toISOString(),
-    isPremium: true
-  },
-  {
-    id: 'mock-3',
-    title: 'Lead Product Designer',
-    company: 'Aurora Studio',
-    location: 'Bangalore',
-    salary_range: '₹15L - ₹19L',
-    required_skills: ['Figma', 'UI/UX', 'Prototyping'],
-    description: 'Own design systems and lead product discovery for core experiences.',
-    job_type: 'Remote',
-    experience_required: 6,
-    created_at: new Date().toISOString(),
-    isPremium: true,
-    job_track: 'non_technical',
-  },
-  {
-    id: 'mock-4',
-    title: 'Principal DevOps Engineer',
-    company: 'CloudScale',
-    location: 'Hyderabad',
-    salary_range: '₹18L - ₹22L',
-    required_skills: ['AWS', 'Kubernetes', 'Terraform'],
-    description: 'Build secure, scalable infrastructure with a focus on reliability.',
-    job_type: 'Contract',
-    experience_required: 8,
-    created_at: new Date().toISOString(),
-    isPremium: true
-  },
-  {
-    id: 'mock-5',
-    title: 'Growth Marketing Lead',
-    company: 'GrowthInc',
-    location: 'Remote',
-    salary_range: '₹13L - ₹16L',
-    required_skills: ['SEO', 'Content Strategy', 'Analytics'],
-    description: 'Drive acquisition strategy and manage full-funnel growth.',
-    job_type: 'Full-time',
-    experience_required: 5,
-    created_at: new Date().toISOString(),
-    isPremium: true,
-    job_track: 'non_technical',
-  },
-  {
-    id: 'mock-6',
-    title: 'Senior Full Stack Engineer',
-    company: 'InnovateX',
-    location: 'Pune',
-    salary_range: '₹17L - ₹21L',
-    required_skills: ['React', 'Node.js', 'GraphQL'],
-    description: 'Ship end-to-end features across web and APIs with high quality.',
-    job_type: 'Full-time',
-    experience_required: 6,
-    created_at: new Date().toISOString(),
-    isPremium: true
-  },
-  {
-    id: 'mock-7',
-    title: 'Senior iOS Engineer',
-    company: 'Pulse Mobile',
-    location: 'Remote',
-    salary_range: '₹16L - ₹20L',
-    required_skills: ['Swift', 'iOS', 'Combine'],
-    description: 'Build high-quality iOS experiences used by millions.',
-    job_type: 'Full-time',
-    experience_required: 5,
-    created_at: new Date().toISOString(),
-    isPremium: true
-  },
-  {
-    id: 'mock-8',
-    title: 'Senior Data Scientist',
-    company: 'Quanta AI',
-    location: 'Chennai',
-    salary_range: '₹17L - ₹22L',
-    required_skills: ['Python', 'ML', 'Statistics'],
-    description: 'Develop models that power personalization and ranking.',
-    job_type: 'Full-time',
-    experience_required: 5,
-    created_at: new Date().toISOString(),
-    isPremium: true
-  },
-  {
-    id: 'mock-9',
-    title: 'Engineering Manager',
-    company: 'Vertex Cloud',
-    location: 'Delhi NCR',
-    salary_range: '₹19L - ₹24L',
-    required_skills: ['Leadership', 'System Design', 'Hiring'],
-    description: 'Lead a team of engineers and scale our platform.',
-    job_type: 'Full-time',
-    experience_required: 7,
-    created_at: new Date().toISOString(),
-    isPremium: true
-  },
-  {
-    id: 'mock-10',
-    title: 'Principal Security Engineer',
-    company: 'Aegis Security',
-    location: 'Remote',
-    salary_range: '₹18L - ₹23L',
-    required_skills: ['Security', 'Cloud', 'Threat Modeling'],
-    description: 'Own security architecture and risk mitigation across products.',
-    job_type: 'Full-time',
-    experience_required: 8,
-    created_at: new Date().toISOString(),
-    isPremium: true
-  },
-  {
-    id: 'mock-11',
-    title: 'Junior Web Developer',
-    company: 'StartUp V',
-    location: 'Remote',
-    salary_range: '₹5L - ₹7L',
-    required_skills: ['HTML', 'CSS', 'JavaScript'],
-    description: 'Great opportunity for freshers.',
-    job_type: 'Part-time',
-    experience_required: 0,
-    created_at: new Date().toISOString(),
-    isPremium: false
-  },
-  {
-    id: 'mock-12',
-    title: 'QA Automation Engineer',
-    company: 'FlowTest',
-    location: 'Remote',
-    salary_range: '₹8L - ₹11L',
-    required_skills: ['Playwright', 'CI/CD', 'TypeScript'],
-    description: 'Build reliable test automation for web applications.',
-    job_type: 'Full-time',
-    experience_required: 2,
-    created_at: new Date().toISOString(),
-    isPremium: false
-  },
-  {
-    id: 'mock-13',
-    title: 'Content Marketing Specialist',
-    company: 'Storyline',
-    location: 'Remote',
-    salary_range: '₹7L - ₹9L',
-    required_skills: ['Content', 'SEO', 'Writing'],
-    description: 'Create high-impact content for growth campaigns.',
-    job_type: 'Full-time',
-    experience_required: 2,
-    created_at: new Date().toISOString(),
-    isPremium: false
-  },
-  {
-    id: 'mock-14',
-    title: 'Data Analyst',
-    company: 'Metricly',
-    location: 'Hyderabad',
-    salary_range: '₹8L - ₹10L',
-    required_skills: ['SQL', 'Tableau', 'Excel'],
-    description: 'Turn data into insights for product and growth teams.',
-    job_type: 'Full-time',
-    experience_required: 2,
-    created_at: new Date().toISOString(),
-    isPremium: false
-  },
-  {
-    id: 'mock-15',
-    title: 'Customer Success Manager',
-    company: 'Customerly',
-    location: 'Remote',
-    salary_range: '₹7L - ₹9L',
-    required_skills: ['CRM', 'Customer Success', 'Communication'],
-    description: 'Own enterprise accounts and drive retention.',
-    job_type: 'Full-time',
-    experience_required: 3,
-    created_at: new Date().toISOString(),
-    isPremium: false
-  },
-  {
-    id: 'mock-16',
-    title: 'Frontend Engineer',
-    company: 'BrightWave',
-    location: 'Remote',
-    salary_range: '₹10L - ₹13L',
-    required_skills: ['React', 'JavaScript', 'CSS'],
-    description: 'Build delightful UI experiences for our SaaS platform.',
-    job_type: 'Full-time',
-    experience_required: 3,
-    created_at: new Date().toISOString(),
-    isPremium: false
-  },
-  {
-    id: 'mock-17',
-    title: 'Backend Engineer',
-    company: 'LogiStack',
-    location: 'Bangalore',
-    salary_range: '₹11L - ₹14L',
-    required_skills: ['Node.js', 'PostgreSQL', 'REST'],
-    description: 'Develop APIs that power logistics operations.',
-    job_type: 'Full-time',
-    experience_required: 3,
-    created_at: new Date().toISOString(),
-    isPremium: false
-  },
-  {
-    id: 'mock-18',
-    title: 'Product Manager',
-    company: 'LaunchPad',
-    location: 'Remote',
-    salary_range: '₹12L - ₹15L',
-    required_skills: ['Product', 'Roadmaps', 'Stakeholders'],
-    description: 'Lead discovery and delivery for core product lines.',
-    job_type: 'Full-time',
-    experience_required: 4,
-    created_at: new Date().toISOString(),
-    isPremium: false,
-    job_track: 'non_technical',
-  },
-  {
-    id: 'mock-19',
-    title: 'UI/UX Designer',
-    company: 'Mint Studio',
-    location: 'Mumbai',
-    salary_range: '₹9L - ₹12L',
-    required_skills: ['Figma', 'Design Systems', 'Research'],
-    description: 'Create user-centered designs for mobile and web.',
-    job_type: 'Full-time',
-    experience_required: 3,
-    created_at: new Date().toISOString(),
-    isPremium: false,
-    job_track: 'non_technical',
-  },
-  {
-    id: 'mock-20',
-    title: 'Sales Development Rep',
-    company: 'RevenueCore',
-    location: 'Remote',
-    salary_range: '₹6L - ₹8L',
-    required_skills: ['Sales', 'Outbound', 'CRM'],
-    description: 'Generate pipeline and qualify inbound leads.',
-    job_type: 'Full-time',
-    experience_required: 1,
-    created_at: new Date().toISOString(),
-    isPremium: false,
-    job_track: 'non_technical',
-  }
-];
 
 const Jobs = () => {
   const { user, userRole } = useAuth();
@@ -555,25 +289,10 @@ const Jobs = () => {
             1,
         };
       });
-      // Backend filters jobs by certification: level 0 & anonymous get []. Don't add mock in that case.
-      const isJobSeekerOrAnonymous = !user || userRole === 'jobseeker';
-      const mockFiltered = track
-        ? MOCK_JOBS.filter((j) =>
-            track === "non_technical"
-              ? j.job_track === "non_technical"
-              : (j.job_track !== "non_technical" || !j.job_track)
-          )
-        : MOCK_JOBS;
-      setJobs(
-        normalizedJobs.length > 0
-          ? [...normalizedJobs, ...mockFiltered]
-          : isJobSeekerOrAnonymous
-            ? []
-            : mockFiltered
-      );
+      setJobs(normalizedJobs);
     } catch (error: any) {
       console.error('Error loading jobs:', error);
-      setJobs(MOCK_JOBS);
+      setJobs([]);
     } finally {
       setLoading(false);
     }
@@ -674,7 +393,7 @@ const Jobs = () => {
     }
   };
 
-  const jobsToShow = jobs.length > 0 ? jobs : MOCK_JOBS;
+  const jobsToShow = jobs;
   const filteredJobs = jobsToShow.filter((job) => {
     const matchesKeyword = !keyword ||
       job.title.toLowerCase().includes(keyword.toLowerCase()) ||
@@ -776,14 +495,6 @@ const Jobs = () => {
       return;
     }
 
-    // For mock jobs, just show success
-    if (selectedJob.id.startsWith('mock-')) {
-      toast.success('Application submitted successfully!');
-      setAppliedJobs(prev => new Set([...prev, selectedJob.id]));
-      setShowJobDetails(false);
-      return;
-    }
-
     try {
       if (appliedJobs.has(selectedJob.id)) {
         toast.error('You have already applied to this job');
@@ -857,22 +568,6 @@ const Jobs = () => {
       return;
     }
 
-    // For mock jobs, just toggle locally
-    if (jobId.startsWith('mock-')) {
-      setSavedJobs(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(jobId)) {
-          newSet.delete(jobId);
-          toast.success('Job removed from saved');
-        } else {
-          newSet.add(jobId);
-          toast.success('Job saved!');
-        }
-        return newSet;
-      });
-      return;
-    }
-
     try {
       if (savedJobs.has(jobId)) {
         await api.del(`/api/jobs/${jobId}/save`);
@@ -920,9 +615,12 @@ const Jobs = () => {
       <div className="flex-1 pt-20 sm:pt-24 pb-8 sm:pb-12">
         <div className="container mx-auto px-4 sm:px-6">
           {/* Page Title */}
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-6 sm:mb-8 bg-gradient-hero bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-2 bg-gradient-hero bg-clip-text text-transparent">
             Find Your Dream Job
           </h1>
+          <p className="text-center text-muted-foreground text-sm sm:text-base mb-6 sm:mb-8 max-w-xl mx-auto">
+            Real roles from real companies. Listings appear here as recruiters post—get verified to stand out.
+          </p>
 
           {/* Premium unlock banner */}
           {!isVerified && lockedJobsCount > 0 && (
@@ -1134,14 +832,14 @@ const Jobs = () => {
 
               {filteredJobs.length === 0 ? (
                 <div className="bg-card rounded-xl p-8 sm:p-12 border border-border text-center">
-                  <div className="max-w-md mx-auto">
-                    <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-60" />
+                  <div className="max-w-lg mx-auto">
+                    <Briefcase className="h-14 w-14 text-muted-foreground mx-auto mb-5 opacity-50" />
                     {jobsToShow.length === 0 ? (
                       !user ? (
                         <>
-                          <h3 className="text-lg font-semibold mb-2">Sign in to see jobs</h3>
+                          <h3 className="text-xl font-semibold mb-2">Sign in to discover jobs</h3>
                           <p className="text-sm text-muted-foreground mb-6">
-                            Create an account and complete your verification to discover roles that match your profile.
+                            Create an account and complete your verification to see roles that match your profile. All listings here are from companies hiring verified talent.
                           </p>
                           <Button onClick={() => navigate('/auth')} className="bg-gradient-hero hover:opacity-90">
                             Sign In
@@ -1149,16 +847,27 @@ const Jobs = () => {
                         </>
                       ) : userRole === 'jobseeker' && candidateCertificationLevel === 0 ? (
                         <>
-                          <h3 className="text-lg font-semibold mb-2">Complete Aptitude to unlock jobs</h3>
+                          <h3 className="text-xl font-semibold mb-2">Unlock the jobs board</h3>
                           <p className="text-sm text-muted-foreground mb-6">
-                            Finish the Aptitude Test to unlock Level 1 jobs. Complete DSA + AI Interview for Level 2, and Expert Interview for all roles.
+                            Complete the Aptitude Test to reach Level 1 and see roles open to you. Level 2 (DSA + AI Interview) and Level 3 (Expert Interview) unlock more opportunities as recruiters post new roles.
                           </p>
                           <Button onClick={() => navigate('/verification')} className="bg-gradient-hero hover:opacity-90">
                             Start Verification
                           </Button>
                         </>
                       ) : (
-                        <p className="text-muted-foreground">No jobs available for your certification level yet.</p>
+                        <>
+                          <h3 className="text-xl font-semibold mb-2">Real roles, real companies</h3>
+                          <p className="text-sm text-muted-foreground mb-4">
+                            Every listing here is posted by employers looking for verified talent. New roles appear as recruiters join—complete your Skill Passport to stand out when they do.
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Check back soon or explore verification to level up your profile.
+                          </p>
+                          <Button variant="outline" onClick={() => navigate(userRole === 'jobseeker' ? '/dashboard/jobseeker' : '/')} className="mt-4">
+                            {userRole === 'jobseeker' ? 'Go to Dashboard' : 'Back to Home'}
+                          </Button>
+                        </>
                       )
                     ) : (
                       <>
@@ -1216,12 +925,24 @@ const Jobs = () => {
                       </button>
                     </div>
                     <div className="flex items-start gap-4 mb-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-hero flex items-center justify-center text-white font-bold text-lg shrink-0">
-                        {job.company?.[0] || 'C'}
+                      <div className="w-12 h-12 rounded-xl bg-gradient-hero flex items-center justify-center text-white font-bold text-lg shrink-0 overflow-hidden">
+                        {job.companyLogo ? (
+                          <img src={job.companyLogo.startsWith("http") ? job.companyLogo : `${window.location.origin}${job.companyLogo}`} alt={job.company || "Company"} className="w-full h-full object-contain" />
+                        ) : (
+                          job.company?.[0] || 'C'
+                        )}
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-foreground truncate">{job.title}</h3>
-                        <p className="text-sm text-muted-foreground">{job.company}</p>
+                        <p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+                          <span>{job.company}</span>
+                          {job.recruiterVerified && (
+                            <Badge variant="secondary" className="text-xs font-normal gap-1">
+                              <Shield className="h-3 w-3" />
+                              Verified
+                            </Badge>
+                          )}
+                        </p>
                       </div>
                     </div>
 

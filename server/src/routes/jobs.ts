@@ -40,6 +40,11 @@ jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
   let jobs = await prisma.job.findMany({
     where: Object.keys(where).length ? where : undefined,
     orderBy: { createdAt: "desc" },
+    include: {
+      postedBy: {
+        select: { companyLogo: true, verificationStatus: true, companyName: true },
+      },
+    },
   });
 
   // Filter by candidate certification level when authenticated job seeker
@@ -65,7 +70,15 @@ jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
     jobs = [];
   }
 
-  res.json({ jobs });
+  const jobsForClient = jobs.map((j) => {
+    const { postedBy, ...job } = j;
+    return {
+      ...job,
+      companyLogo: postedBy?.companyLogo ?? null,
+      recruiterVerified: postedBy?.verificationStatus === "verified",
+    };
+  });
+  res.json({ jobs: jobsForClient });
 });
 
 jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
@@ -99,6 +112,22 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
   const effectiveMinLevel = getEffectiveMinimumCertificationLevel(normalizedTrack, parsed.data.salaryRange ?? null);
 
   const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
+  if (!recruiter) {
+    return res.status(403).json({
+      error: "Complete your recruiter profile and get verified before posting jobs.",
+      code: "RECRUITER_PROFILE_REQUIRED",
+    });
+  }
+  if (recruiter.verificationStatus !== "verified") {
+    return res.status(403).json({
+      error:
+        recruiter.verificationStatus === "rejected"
+          ? "Your recruiter account was not approved. Please submit updated documents or contact support."
+          : "Your recruiter account is under review. You can post jobs once an admin has verified your profile.",
+      code: "RECRUITER_NOT_VERIFIED",
+      verificationStatus: recruiter.verificationStatus,
+    });
+  }
   const job = await prisma.job.create({
     data: {
       ...parsed.data,

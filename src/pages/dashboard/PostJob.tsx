@@ -56,9 +56,17 @@ const PostJob = () => {
 
   const getSubmitErrorMessage = (error: any): string => {
     if (!error) return 'Something went wrong. Please check the form and try again.';
+    const data = error?.response?.data;
+    const code = data?.code ?? error.code;
+    const serverMsg = typeof data?.error === 'string' ? data.error : null;
     const msg = typeof error.message === 'string' ? error.message : '';
-    const code = error.code;
 
+    if (code === 'RECRUITER_PROFILE_REQUIRED') {
+      return serverMsg || 'Complete your recruiter profile and get verified before posting jobs. Go to Dashboard → Settings to complete verification.';
+    }
+    if (code === 'RECRUITER_NOT_VERIFIED') {
+      return serverMsg || 'Your recruiter account is under review. You can post jobs once you’re verified. Complete verification in Settings or wait for admin approval.';
+    }
     if (code === '23503') {
       return "Your account isn't linked to a recruiter profile. Please complete recruiter onboarding from the dashboard, or sign in with a full account.";
     }

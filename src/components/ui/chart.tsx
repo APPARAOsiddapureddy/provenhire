@@ -161,12 +161,13 @@ const ChartTooltipContent = React.forwardRef<
         {!nestLabel ? tooltipLabel : null}
         <div className="grid gap-1.5">
           {payload.map((item, index) => {
-            if (!item) {
+            if (!item || typeof item !== "object") {
               return null;
             }
-            const key = `${nameKey || item.name || item.dataKey || "value"}`;
+            const key = `${nameKey || item.name || (item as { dataKey?: string }).dataKey || "value"}`;
             const itemConfig = getPayloadConfigFromPayload(config, item, key);
-            const indicatorColor = color || item.payload?.fill || item.color;
+            const itemPayload = (item as { payload?: { fill?: string }; color?: string }).payload;
+            const indicatorColor = color || itemPayload?.fill || (item as { color?: string }).color;
 
             return (
               <div
@@ -177,7 +178,7 @@ const ChartTooltipContent = React.forwardRef<
                 )}
               >
                 {formatter && item.value !== undefined && item.name ? (
-                  formatter(item.value, item.name, item, index, item.payload)
+                  formatter(item.value, item.name, item, index, itemPayload)
                 ) : (
                   <>
                     {itemConfig?.icon ? (
@@ -249,13 +250,16 @@ const ChartLegendContent = React.forwardRef<
       ref={ref}
       className={cn("flex items-center justify-center gap-4", verticalAlign === "top" ? "pb-3" : "pt-3", className)}
     >
-      {payload.map((item) => {
-        const key = `${nameKey || item.dataKey || "value"}`;
+      {payload.map((item, index) => {
+        if (!item || typeof item !== "object") return null;
+        const key = `${nameKey || (item as { dataKey?: string }).dataKey || "value"}`;
         const itemConfig = getPayloadConfigFromPayload(config, item, key);
+        const itemValue = (item as { value?: unknown }).value;
+        const itemColor = (item as { color?: string }).color;
 
         return (
           <div
-            key={item.value}
+            key={itemValue ?? index}
             className={cn("flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground")}
           >
             {itemConfig?.icon && !hideIcon ? (
@@ -264,7 +268,7 @@ const ChartLegendContent = React.forwardRef<
               <div
                 className="h-2 w-2 shrink-0 rounded-[2px]"
                 style={{
-                  backgroundColor: item.color,
+                  backgroundColor: itemColor,
                 }}
               />
             )}
@@ -279,13 +283,15 @@ ChartLegendContent.displayName = "ChartLegend";
 
 // Helper to extract item config from a payload.
 function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key: string) {
-  if (typeof payload !== "object" || payload === null) {
+  if (payload == null || typeof payload !== "object") {
     return undefined;
   }
 
   const payloadPayload =
-    "payload" in payload && typeof payload.payload === "object" && payload.payload !== null
-      ? payload.payload
+    "payload" in payload &&
+    (payload as { payload?: unknown }).payload != null &&
+    typeof (payload as { payload: unknown }).payload === "object"
+      ? (payload as { payload: Record<string, unknown> }).payload
       : undefined;
 
   let configLabelKey: string = key;

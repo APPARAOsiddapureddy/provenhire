@@ -330,11 +330,13 @@ const JobSeekerDashboard = () => {
         const msg = reason instanceof Error ? reason.message : "";
         const is503 =
           status === 503 ||
+          msg.includes("Service unavailable") ||
           msg.includes("temporarily unavailable") ||
-          msg.includes("Backend not running");
+          msg.includes("Backend not running") ||
+          msg.includes("npm run dev");
         toast.error(
           is503
-            ? "Run npm run dev from the project root to start the backend."
+            ? "Service unavailable. Start the backend from the project root: npm run dev"
             : "Some dashboard sections are still loading. Showing available data first."
         );
       }
@@ -429,8 +431,10 @@ const JobSeekerDashboard = () => {
     } catch (error: unknown) {
       console.error('Error loading dashboard data:', error);
       setLoadError(true);
-      const msg = error instanceof Error ? error.message : 'Failed to load dashboard';
-      toast.error(msg);
+      const err = error as Error & { status?: number; isBackendUnavailable?: boolean };
+      const msg = err.message || 'Failed to load dashboard';
+      const isUnavailable = err.isBackendUnavailable === true || err.status === 503 || msg.includes("Service unavailable") || msg.includes("npm run dev");
+      toast.error(isUnavailable ? "Service unavailable. Start the backend from the project root: npm run dev" : msg);
       setLoading(false);
     }
   };
@@ -560,8 +564,8 @@ const JobSeekerDashboard = () => {
         {loadError && (
           <div className="dashboard-section-content">
             <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              <span>Some data could not be loaded (e.g. slow connection or region).</span>
-              <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-200 hover:bg-amber-500/20" onClick={() => { setLoadError(false); setLoading(true); loadDashboardData(); }}>Retry</Button>
+              <span>Service unavailable or some data could not be loaded. If you're developing, start the backend with: <code className="text-xs bg-black/20 px-1 rounded">npm run dev</code></span>
+              <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-200 hover:bg-amber-500/20 shrink-0 ml-2" onClick={() => { setLoadError(false); setLoading(true); loadDashboardData(); }}>Retry</Button>
             </div>
           </div>
         )}

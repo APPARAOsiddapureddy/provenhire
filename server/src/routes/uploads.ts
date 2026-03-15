@@ -7,6 +7,9 @@ import { requireAuth } from "../middleware/auth.js";
 
 const ALLOWED_EXT = /\.(pdf|doc|docx|txt|odt|png|jpg|jpeg|gif|webp|webm|ogg|m4a|mp3|wav)$/i;
 
+const VERIFICATION_DOC_EXT = /\.(pdf|jpg|jpeg|png)$/i;
+const MAX_VERIFICATION_DOC_BYTES = 5 * 1024 * 1024; // 5MB
+
 // Use absolute path so uploads work regardless of cwd (dev, prod, Render)
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 
@@ -51,6 +54,36 @@ uploadsRouter.post("/", requireAuth, upload.single("file"), (req, res) => {
     return res.json({ url });
   } catch (e) {
     console.error("[uploads]", e);
+    return res.status(500).json({ error: e instanceof Error ? e.message : "Upload failed" });
+  }
+});
+
+const verificationDocStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    ensureUploadsDir();
+    cb(null, UPLOADS_DIR);
+  },
+  filename: (_req, file, cb) => {
+    const ext = (file.originalname && VERIFICATION_DOC_EXT.exec(file.originalname)?.[0]) || ".pdf";
+    cb(null, `recruiter-doc-${crypto.randomUUID()}${ext}`);
+  },
+});
+const verificationDocUpload = multer({
+  storage: verificationDocStorage,
+  limits: { fileSize: MAX_VERIFICATION_DOC_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const ok = /\.(pdf|jpg|jpeg|png)$/i.test(file.originalname || "") || (file.mimetype && /^(application\/pdf|image\/(jpeg|png))$/i.test(file.mimetype));
+    cb(null, !!ok);
+  },
+});
+
+uploadsRouter.post("/recruiter-verification-document", requireAuth, verificationDocUpload.single("file"), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Missing file. Accepted formats: PDF, JPG, PNG. Max size: 5MB." });
+    const url = `/uploads/${req.file.filename}`;
+    return res.json({ url });
+  } catch (e) {
+    console.error("[uploads/recruiter-verification-document]", e);
     return res.status(500).json({ error: e instanceof Error ? e.message : "Upload failed" });
   }
 });

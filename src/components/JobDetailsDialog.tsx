@@ -20,7 +20,8 @@ import {
   Calendar,
   CheckCircle2,
   GraduationCap,
-  FileText
+  FileText,
+  Shield
 } from "lucide-react";
 
 interface Job {
@@ -36,6 +37,8 @@ interface Job {
   created_at?: string;
   createdAt?: string;
   assignment?: string | null;
+  companyLogo?: string | null;
+  recruiterVerified?: boolean;
 }
 
 interface JobDetailsDialogProps {
@@ -86,17 +89,27 @@ const JobDetailsDialog = ({
       <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start gap-4">
-            <div className="w-16 h-16 rounded-xl bg-gradient-hero flex items-center justify-center text-white font-bold text-2xl shrink-0">
-              {job.company?.[0] || 'C'}
+            <div className="w-16 h-16 rounded-xl bg-gradient-hero flex items-center justify-center text-white font-bold text-2xl shrink-0 overflow-hidden">
+              {job.companyLogo ? (
+                <img src={job.companyLogo.startsWith("http") ? job.companyLogo : `${window.location.origin}${job.companyLogo}`} alt={job.company || "Company"} className="w-full h-full object-contain" />
+              ) : (
+                job.company?.[0] || 'C'
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-2xl font-bold text-foreground mb-1">
                 {job.title}
               </DialogTitle>
               <DialogDescription className="sr-only">Job details and application</DialogDescription>
-              <div className="flex items-center gap-2 text-muted-foreground">
+              <div className="flex items-center gap-2 text-muted-foreground flex-wrap">
                 <Building2 className="h-4 w-4" />
                 <span className="font-medium">{job.company}</span>
+                {job.recruiterVerified && (
+                  <Badge variant="secondary" className="text-xs font-normal gap-1">
+                    <Shield className="h-3 w-3" />
+                    Verified
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
