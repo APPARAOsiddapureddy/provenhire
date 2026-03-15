@@ -6,7 +6,7 @@ import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -99,6 +99,7 @@ const JobSeekerDashboard = () => {
   const [skillInput, setSkillInput] = useState('');
   const [loadError, setLoadError] = useState(false);
   const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'resume' | 'applications'>('candidate');
+  const appliedAndRefetchedRef = useRef(false);
   const [resumeProfile, setResumeProfile] = useState<CandidateProfileViewProfile | null>(null);
   const [resumeProfileLoading, setResumeProfileLoading] = useState(false);
   const showJobTitleModal = Boolean(
@@ -269,8 +270,10 @@ const JobSeekerDashboard = () => {
     const section = (location.state as { section?: string } | null)?.section;
     if (section === 'applications' && user) {
       setDashboardSection('applications');
+      appliedAndRefetchedRef.current = true;
       (async () => {
         try {
+          await new Promise(r => setTimeout(r, 150));
           const [appsRes, savedRes] = await Promise.all([
             api.get<{ applications: any[] }>("/api/jobs/me/applications"),
             api.get<{ saved: any[] }>("/api/jobs/me/saved"),
@@ -281,8 +284,11 @@ const JobSeekerDashboard = () => {
           setSavedJobs(savedList);
           setStats(prev => ({ ...prev, applicationsSent: applicationsList.length }));
         } catch (_) {}
+        finally {
+          navigate(location.pathname, { replace: true, state: {} });
+          setTimeout(() => { appliedAndRefetchedRef.current = false; }, 500);
+        }
       })();
-      navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, user, navigate, location.pathname]);
 
@@ -388,8 +394,10 @@ const JobSeekerDashboard = () => {
       const aptitudeResult = aptitudeData?.result ?? null;
       const dsaResult = dsaData?.result ?? null;
 
-      setApplications(applicationsList);
-      setSavedJobs(savedList);
+      if (!appliedAndRefetchedRef.current) {
+        setApplications(applicationsList);
+        setSavedJobs(savedList);
+      }
       setTestResults({ aptitude: aptitudeResult, dsa: dsaResult });
       setStats({
         applicationsSent: applicationsList.length,
@@ -633,7 +641,14 @@ const JobSeekerDashboard = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <span>Your Applications</span>
-                    <Badge variant="outline">{applications.length} total</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{applications.length} total</Badge>
+                      {applications.length > 0 && (
+                        <Button variant="ghost" size="sm" className="text-primary h-8 px-2" asChild>
+                          <Link to="/dashboard/jobseeker/applications">See All</Link>
+                        </Button>
+                      )}
+                    </div>
                   </CardTitle>
                   <CardDescription>Track your job applications</CardDescription>
                 </CardHeader>
@@ -646,7 +661,7 @@ const JobSeekerDashboard = () => {
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                      {applications.map((app) => {
+                      {applications.slice(0, 3).map((app) => {
                         const job = app.job ?? app.jobs;
                         const jobId = app.jobId ?? app.job_id ?? job?.id;
                         const status = app.status ?? 'applied';
@@ -670,6 +685,13 @@ const JobSeekerDashboard = () => {
                           </div>
                         );
                       })}
+                      {applications.length > 3 && (
+                        <div className="pt-2 border-t border-border">
+                          <Button variant="ghost" size="sm" className="w-full text-primary" asChild>
+                            <Link to="/dashboard/jobseeker/applications">See All ({applications.length})</Link>
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -678,7 +700,14 @@ const JobSeekerDashboard = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <span>Saved Jobs</span>
-                    <Badge variant="outline">{savedJobs.length} saved</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{savedJobs.length} saved</Badge>
+                      {savedJobs.length > 0 && (
+                        <Button variant="ghost" size="sm" className="text-primary h-8 px-2" asChild>
+                          <Link to="/dashboard/jobseeker/saved">See All</Link>
+                        </Button>
+                      )}
+                    </div>
                   </CardTitle>
                   <CardDescription>Jobs you've bookmarked for later</CardDescription>
                 </CardHeader>
@@ -691,7 +720,7 @@ const JobSeekerDashboard = () => {
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                      {savedJobs.map((saved) => {
+                      {savedJobs.slice(0, 3).map((saved) => {
                         const job = saved.job ?? saved.jobs;
                         const jobId = saved.jobId ?? saved.job_id ?? job?.id;
                         return (
@@ -715,6 +744,13 @@ const JobSeekerDashboard = () => {
                           </div>
                         );
                       })}
+                      {savedJobs.length > 3 && (
+                        <div className="pt-2 border-t border-border">
+                          <Button variant="ghost" size="sm" className="w-full text-primary" asChild>
+                            <Link to="/dashboard/jobseeker/saved">See All ({savedJobs.length})</Link>
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>

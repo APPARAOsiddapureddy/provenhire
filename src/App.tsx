@@ -19,6 +19,8 @@ import NotFound from "./pages/NotFound";
 
 // Eager-load dashboards so /dashboard/jobseeker, /dashboard/recruiter, /dashboard/expert render instantly
 import JobSeekerDashboard from "./pages/dashboard/JobSeekerDashboard";
+import JobSeekerApplicationsPage from "./pages/dashboard/JobSeekerApplicationsPage";
+import JobSeekerSavedJobsPage from "./pages/dashboard/JobSeekerSavedJobsPage";
 import RecruiterDashboard from "./pages/dashboard/RecruiterDashboard";
 import ExpertDashboard from "./pages/dashboard/ExpertDashboard";
 import SettingsPage from "./pages/dashboard/SettingsPage";
@@ -122,6 +124,22 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="jobseeker">
                     <JobSeekerDashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/jobseeker/applications" 
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <JobSeekerApplicationsPage />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/jobseeker/saved" 
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <JobSeekerSavedJobsPage />
                   </ProtectedRoute>
                 } 
               />

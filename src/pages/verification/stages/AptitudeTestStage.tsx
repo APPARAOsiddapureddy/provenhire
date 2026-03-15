@@ -252,15 +252,17 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       // Backend POST /aptitude already stores percent in VerificationStage; do not send raw marks
       // so resume/profile APIs show percent consistently (not marks).
       const stagePayload = { stageName: "aptitude_test" as const, status: score >= passThreshold ? "completed" : "failed" as const };
+      const scorePct = totalMarks > 0 ? Math.round((score / totalMarks) * 100) : 0;
       if (score >= passThreshold) {
+        setSubmittedScore(score); // keep for "Your current score: X%" in success block
         await api.post("/api/verification/stages/update", stagePayload);
-        toast.success(`Boom! Level 1 unlocked. Aptitude score: ${score}/${totalMarks}.`);
+        toast.success(`Boom! Level 1 unlocked. Aptitude score: ${scorePct}%.`);
         setJustPassed(true);
       } else {
         await api.post("/api/verification/stages/update", stagePayload);
         setSubmittedScore(score);
         setSubmitted(true);
-        toast.error(`Score ${score}/${totalMarks}. Minimum ${passThreshold} required to proceed. You can retry when ready.`);
+        toast.error(`Score ${scorePct}%. Minimum ${totalMarks > 0 ? Math.round((passThreshold / totalMarks) * 100) : passThreshold}% required to proceed. You can retry when ready.`);
       }
     } catch (error: unknown) {
       const status = (error as { status?: number })?.status;
@@ -360,6 +362,9 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
 
   // When the stage is already failed (e.g. user returning after a previous attempt),
   // show the retry UI directly without requiring proctoring setup again.
+  const scorePctDisplay = totalMarks > 0 ? Math.round((displayScore / totalMarks) * 100) : 0;
+  const passThresholdPct = totalMarks > 0 ? Math.round((passThreshold / totalMarks) * 100) : passThreshold;
+
   // Proctoring is only needed when the user is actually about to take the test.
   if (isFailed && !proctoringReady) {
     return (
@@ -368,7 +373,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
             <p className="text-sm text-muted-foreground">
-              Your score: {displayScore}/{totalMarks}. Minimum {passThreshold} required to proceed to the DSA round.
+              Your score: {scorePctDisplay}%. Minimum {passThresholdPct}% required to proceed to the DSA round.
             </p>
             {onRetry ? (
               <Button onClick={onRetry} className="mt-2">
@@ -452,7 +457,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet eligible</p>
             <p className="text-sm text-muted-foreground">
-              Your score: {displayScore}/{totalMarks}. Minimum {passThreshold} required to proceed to the DSA round.
+              Your score: {scorePctDisplay}%. Minimum {passThresholdPct}% required to proceed to the DSA round.
             </p>
             {onRetry ? (
               <Button onClick={onRetry} className="mt-2">
@@ -499,8 +504,14 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Your current score: <span className="font-semibold text-foreground">{submittedScore ?? stageScore ?? "-"}/{totalMarks}</span>.
-              Keep going - each completed stage increases your recruiter visibility.
+              Your current score: <span className="font-semibold text-foreground">
+                {(() => {
+                  const pct = (submittedScore != null && totalMarks > 0)
+                    ? Math.round((submittedScore / totalMarks) * 100)
+                    : (stageScore != null && stageScore <= 100 ? stageScore : null);
+                  return pct != null ? `${pct}%` : "—";
+                })()}
+              </span>. Keep going - each completed stage increases your recruiter visibility.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={() => navigate("/")}>
