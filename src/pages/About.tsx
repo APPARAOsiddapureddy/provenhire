@@ -11,7 +11,7 @@ const About = () => {
       <div className="flex-1 pt-24 pb-20">
         <div className="container mx-auto px-4">
           {/* Hero */}
-          <div className="max-w-3xl mx-auto text-center mb-16 animate-fade-in">
+          <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto text-center mb-16 animate-fade-in">
             <h1 className="text-5xl font-bold mb-6">
               Our <span className="bg-gradient-hero bg-clip-text text-transparent">Mission</span>
             </h1>
@@ -22,7 +22,7 @@ const About = () => {
           </div>
 
           {/* Verification Process */}
-          <div className="max-w-4xl mx-auto mb-20">
+          <div className="max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto mb-20">
             <h2 className="text-3xl font-bold text-center mb-12">How We Verify Talent</h2>
             
             <div className="space-y-8">
@@ -109,7 +109,7 @@ const About = () => {
           </div>
 
           {/* Values */}
-          <div className="max-w-5xl mx-auto mb-20">
+          <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto mb-20">
             <h2 className="text-3xl font-bold text-center mb-12">Our Core Values</h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -164,7 +164,7 @@ const About = () => {
           </div>
 
           {/* Motivation Banner — matches Get Verified styling (primary bg + primary-foreground) */}
-          <div className="max-w-3xl mx-auto text-center p-8 bg-primary text-primary-foreground rounded-2xl shadow-lg border border-primary/30">
+          <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto text-center p-8 bg-primary text-primary-foreground rounded-2xl shadow-lg border border-primary/30">
             <h2 className="text-3xl font-bold mb-4">Built for Real Talent</h2>
             <p className="text-lg opacity-95 mb-6">
               This platform is not about shortcuts. We value honesty, passion, and real talent. 

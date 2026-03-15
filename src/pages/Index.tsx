@@ -153,7 +153,7 @@ const Index = () => {
           <div className="font-mono text-[10px] sm:text-xs font-bold text-primary tracking-[2px] sm:tracking-[3px] uppercase mb-2 sm:mb-3">// What_You_Unlock</div>
           <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] sm:tracking-[3px] text-foreground mb-2">What You <span className="text-primary">Unlock</span></h2>
           <p className="text-muted-foreground mb-8 text-base font-medium">Complete verification stages to unlock more opportunities</p>
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl mx-auto">
             <div className="bg-card p-8 rounded border border-border">
               <div className="space-y-6">
                 <div className="flex items-start sm:items-center gap-3 sm:gap-4">
@@ -297,7 +297,7 @@ const Index = () => {
       {/* Founder Note (#19) */}
       <section className="py-12 bg-secondary border-y border-border">
         <div className="container mx-auto px-4">
-          <div className="max-w-2xl mx-auto text-center">
+          <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl mx-auto text-center">
             <div className="bg-card p-8 rounded-lg border border-border transition-all duration-300 hover:border-white/15 hover:shadow-lg hover:shadow-black/20">
               <div className="w-20 h-20 rounded-full bg-primary/10 mx-auto mb-4 flex items-center justify-center text-primary">
                 <PersonVerified size={48} />
@@ -318,7 +318,7 @@ const Index = () => {
       <section className="cta-section scroll-mt-20">
         <div className="container mx-auto px-4 sm:px-6">
           <h2 className="font-bebas text-3xl sm:text-4xl md:text-5xl tracking-[2px] text-foreground mb-2 text-center">Ready to Get <span className="text-primary">Skill-Certified?</span></h2>
-          <p className="text-muted-foreground mb-8 text-base sm:text-lg font-medium text-center max-w-xl mx-auto">Join India&apos;s first skill-certified hiring network where every candidate is verified before you hire</p>
+          <p className="text-muted-foreground mb-8 text-base sm:text-lg font-medium text-center max-w-xl xl:max-w-2xl 2xl:max-w-3xl mx-auto">Join India&apos;s first skill-certified hiring network where every candidate is verified before you hire</p>
           <div className="hero-buttons flex flex-col sm:flex-row gap-3 justify-center items-center">
             <Button size="lg" asChild className="btn-primary btn-hero">
               <Link to="/auth">Start Verification →</Link>

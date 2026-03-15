@@ -170,8 +170,13 @@ jobsRouter.post("/:id/save", requireAuth, async (req: AuthedRequest, res) => {
       return res.status(403).json({ error: "This job does not match your profile. Technical seekers save technical jobs; non-technical seekers save non-technical jobs." });
     }
   }
-  const saved = await prisma.savedJob.create({
-    data: { jobId, userId: req.user!.id },
+  const userId = req.user!.id;
+  const saved = await prisma.savedJob.upsert({
+    where: {
+      userId_jobId: { userId, jobId },
+    },
+    create: { jobId, userId },
+    update: { savedAt: new Date() },
   });
   res.json({ saved });
 });

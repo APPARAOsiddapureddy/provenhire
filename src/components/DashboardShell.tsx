@@ -42,6 +42,28 @@ function SidebarContent({
 }) {
   return (
     <>
+      {/* User at top — single header, no separate box */}
+      <div className="flex items-center gap-[10px] min-w-0 px-6 pt-6 pb-4">
+        <div
+          className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-[13px] font-bold shrink-0 border-2 flex-shrink-0"
+          style={{
+            background: "linear-gradient(135deg, var(--dash-navy-light), var(--dash-slate))",
+            color: "var(--dash-gold)",
+            borderColor: "var(--dash-gold-dim)",
+          }}
+        >
+          {user.initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13.5px] font-semibold truncate" style={{ color: "var(--dash-text-primary)" }}>
+            {user.name}
+          </div>
+          <div className="text-[11.5px] truncate" style={{ color: "var(--dash-text-muted)" }}>
+            {user.role}
+          </div>
+        </div>
+      </div>
+      {/* Nav sections then Sign Out below Settings — one list, no second box */}
       {sidebarSections.map((section, idx) => (
         <div key={idx} style={{ padding: "0 0 16px" }}>
           <div className="dashboard-sidebar-section-label">{section.sectionLabel}</div>
@@ -92,31 +114,8 @@ function SidebarContent({
           })}
         </div>
       ))}
-      <div
-        className="flex flex-col gap-3 pt-4 px-6 border-t border-[var(--dash-navy-border)] mt-4"
-        style={{ padding: "16px 24px" }}
-      >
-        <div className="flex items-center gap-[10px] min-w-0">
-          <div
-            className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-[13px] font-bold shrink-0 border-2 flex-shrink-0"
-            style={{
-              background: "linear-gradient(135deg, var(--dash-navy-light), var(--dash-slate))",
-              color: "var(--dash-gold)",
-              borderColor: "var(--dash-gold-dim)",
-            }}
-          >
-            {user.initials}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[13.5px] font-semibold truncate" style={{ color: "var(--dash-text-primary)" }}>
-              {user.name}
-            </div>
-            <div className="text-[11.5px] truncate" style={{ color: "var(--dash-text-muted)" }}>
-              {user.role}
-            </div>
-          </div>
-        </div>
-        {onSignOut && (
+      {onSignOut && (
+        <div style={{ padding: "0 0 16px" }}>
           <button
             type="button"
             onClick={() => { onSignOut(); onItemClick?.(); }}
@@ -124,8 +123,8 @@ function SidebarContent({
           >
             Sign Out
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 }

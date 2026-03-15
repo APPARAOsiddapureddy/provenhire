@@ -68,7 +68,7 @@ export function JobSeekerSettings() {
         setProfile(profile);
         setUserInfo(u);
         setPreferences(p);
-        setFullName(profile?.fullName ?? u?.name ?? "");
+        setFullName(profile?.fullName ?? profile?.full_name ?? u?.name ?? "");
         setPhone(profile?.phone ?? "");
         setLocation(profile?.location ?? "");
         setResumeUrl(profile?.resumeUrl ?? "");
@@ -102,6 +102,15 @@ export function JobSeekerSettings() {
 
   useEffect(() => {
     loadSettings();
+  }, []);
+
+  // Refetch when user returns to this tab so name/profile stays in sync (e.g. after resume upload or verification)
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") loadSettings();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
   const saveProfile = async () => {

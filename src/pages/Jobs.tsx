@@ -837,6 +837,7 @@ const Jobs = () => {
     try {
       await api.post(`/api/jobs/${jobId}/apply`, { resumeUrl: resumeUrl ?? undefined, assignmentResponse: assignmentResponse || undefined });
       toast.success('Application submitted successfully!');
+      navigate('/dashboard/jobseeker', { state: { section: 'applications' } });
     } catch (error: any) {
       console.error('Error applying to job:', error);
       toast.error(error?.response?.data?.error || 'Failed to submit application');
@@ -880,10 +881,12 @@ const Jobs = () => {
           return newSet;
         });
         toast.success('Job removed from saved');
+        loadSavedJobs();
       } else {
         await api.post(`/api/jobs/${jobId}/save`, {});
         setSavedJobs(prev => new Set([...prev, jobId]));
         toast.success('Job saved!');
+        loadSavedJobs();
       }
     } catch (error: any) {
       console.error('Error saving job:', error);

@@ -27,7 +27,7 @@ export function createApp() {
 
   // CORS: allow Vercel frontend and reflect request origin (fixes preflight from provenhire.vercel.app)
   const allowedOrigins = [
-    "https://provenhire.vercel.app",
+    "https://provenhire-z18w.vercel.app",
     "http://localhost:5173",
     "http://localhost:8080",
   ];

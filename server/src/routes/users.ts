@@ -24,6 +24,102 @@ usersRouter.get("/job-seeker-profile", requireAuth, async (req: AuthedRequest, r
   res.json({ profile });
 });
 
+/** Current user's profile in same shape as candidates/:profileId (for job seeker resume view = recruiters' view) */
+usersRouter.get("/me/candidate-profile", requireAuth, async (req: AuthedRequest, res) => {
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: req.user!.id },
+    include: { user: { select: { email: true } } },
+  });
+  if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+  const [stages, proctoringEvents, cert, skillVerifications] = await Promise.all([
+    prisma.verificationStage.findMany({
+      where: { userId: profile.userId },
+      select: { stageName: true, status: true, score: true },
+    }),
+    prisma.proctoringEvent.findMany({
+      where: { userId: profile.userId },
+      select: { type: true, riskScore: true },
+    }),
+    calculateCertificationLevel(profile.userId),
+    prisma.candidateSkillVerification.findMany({
+      where: { userId: profile.userId },
+      select: { skillType: true, status: true, completedAt: true, expiresAt: true },
+    }),
+  ]);
+
+  const stageScore = (name: string) =>
+    stages.find((s) => s.stageName === name && s.status === "completed")?.score ?? null;
+  const humanExpert = stageScore("human_expert_interview");
+  const maxRisk = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
+  const integrityScore = Math.max(0, 100 - maxRisk);
+
+  const skills = Array.isArray(profile.skills)
+    ? profile.skills
+    : profile.skills
+      ? [String(profile.skills)]
+      : [];
+  const education = Array.isArray(profile.education)
+    ? profile.education
+    : profile.education
+      ? [profile.education]
+      : [];
+  const workExperience = Array.isArray(profile.workExperience)
+    ? profile.workExperience
+    : profile.workExperience
+      ? [profile.workExperience]
+      : [];
+
+  const toFreshness = (sv: { skillType: string; status: string; completedAt: Date | null; expiresAt: Date | null } | undefined) => {
+    if (!sv) return null;
+    const effectiveStatus = sv.expiresAt && new Date() > sv.expiresAt ? "EXPIRED" : sv.status;
+    if (effectiveStatus === "EXPIRED") return { status: "EXPIRED" as const, last_verified_days_ago: null };
+    if (!sv.completedAt) return { status: sv.status, last_verified_days_ago: null };
+    const daysAgo = Math.floor((Date.now() - sv.completedAt.getTime()) / (1000 * 60 * 60 * 24));
+    return { status: effectiveStatus, last_verified_days_ago: daysAgo };
+  };
+  const skillFreshness = {
+    aptitude: toFreshness(skillVerifications.find((s) => s.skillType === "APTITUDE")),
+    live_coding: toFreshness(skillVerifications.find((s) => s.skillType === "LIVE_CODING")),
+    interview: toFreshness(skillVerifications.find((s) => s.skillType === "INTERVIEW")),
+  };
+
+  res.json({
+    profile: {
+      id: profile.id,
+      user_id: profile.userId,
+      full_name: profile.fullName,
+      email: profile.user?.email,
+      current_role: profile.currentRole,
+      experience_years: profile.experienceYears,
+      verification_status: profile.verificationStatus,
+      skills,
+      target_job_title: profile.targetJobTitle,
+      about: profile.about,
+      phone: profile.phone,
+      location: profile.location,
+      college: profile.college,
+      graduation_year: profile.graduationYear,
+      resume_url: profile.resumeUrl,
+      education,
+      work_experience: workExperience,
+      certification_level: cert.level,
+      certification_label: cert.label,
+      aptitude_score: stageScore("aptitude_test"),
+      dsa_score: stageScore("dsa_round"),
+      ai_interview_score: stageScore("expert_interview"),
+      human_expert_interview_score: humanExpert,
+      assignment_score: stageScore("non_tech_assignment"),
+      integrity_score: integrityScore,
+      skill_freshness: skillFreshness,
+      notice_period: profile.noticePeriod,
+      current_salary: profile.currentSalary,
+      expected_salary: profile.expectedSalary,
+      proctoring_events: proctoringEvents.length,
+    },
+  });
+});
+
 usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, res) => {
   try {
   const schema = z.object({

@@ -154,6 +154,8 @@ model SavedJob {
 
   job  Job  @relation(fields: [jobId], references: [id])
   user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, jobId])
 }
 
 model VerificationStage {

@@ -181,6 +181,47 @@
   z-index: 1;
 }
 
+/* 15.6" and larger laptops: use more horizontal space so content doesn't look boxed in */
+@media (min-width: 1280px) {
+  .hero-content {
+    max-width: 1280px;
+  }
+  .hero-subtitle {
+    max-width: 38rem;
+  }
+  .verify-grid,
+  .values-grid,
+  .features-grid {
+    max-width: 1200px;
+  }
+  .stats-grid {
+    max-width: 1000px;
+  }
+  .section-header p {
+    max-width: 36rem;
+  }
+  .verification-stages-wrap {
+    max-width: 400px;
+  }
+}
+
+@media (min-width: 1536px) {
+  .hero-content {
+    max-width: 1400px;
+  }
+  .hero-subtitle {
+    max-width: 42rem;
+  }
+  .verify-grid,
+  .values-grid,
+  .features-grid {
+    max-width: 1320px;
+  }
+  .stats-grid {
+    max-width: 1100px;
+  }
+}
+
 .hero-content-with-graphic {
   display: grid;
   grid-template-columns: 1fr;

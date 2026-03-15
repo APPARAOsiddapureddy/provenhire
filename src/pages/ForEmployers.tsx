@@ -28,7 +28,7 @@ const ForEmployers = () => {
       <div className="flex-1 pt-24 pb-20">
         {/* Hero */}
         <section className="container mx-auto px-4 mb-20">
-          <div className="max-w-4xl mx-auto text-center animate-fade-in">
+          <div className="max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto text-center animate-fade-in">
             <Badge className="mb-6 bg-accent/10 text-accent border-accent/20 hover:bg-accent/20">
               <Sparkles className="mr-1 h-3 w-3" />
               For Hiring Teams
@@ -61,7 +61,7 @@ const ForEmployers = () => {
         <section className="container mx-auto px-4 mb-20">
           <h2 className="text-3xl font-bold text-center mb-12">Why Top Companies Choose ProvenHire</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl 2xl:max-w-7xl mx-auto">
             <Card className="border-2 hover:border-primary/50 transition-all">
               <CardContent className="pt-6">
                 <div className="w-16 h-16 bg-gradient-hero rounded-xl flex items-center justify-center mb-4 shadow-glow">

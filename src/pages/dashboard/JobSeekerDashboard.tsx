@@ -3,8 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks } from "lucide-react";
-import ResumeViewButton from "@/components/ResumeViewButton";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
 import { useEffect, useState } from "react";
@@ -21,7 +20,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import SkillPassport from "@/components/SkillPassport";
-import JobSeekerResumeView from "@/components/JobSeekerResumeView";
+import CandidateProfileView, { type CandidateProfileViewProfile } from "@/components/CandidateProfileView";
 import { VerificationPipelineCard } from "@/components/VerificationPipelineCard";
 import ReferAFriend from "@/components/ReferAFriend";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
@@ -65,6 +64,7 @@ const deriveCertificationFromStages = (
 const JobSeekerDashboard = () => {
   const { user, signOut, changePassword } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [profile, setProfile] = useState<any>(null);
   const [applications, setApplications] = useState<any[]>([]);
   const [savedJobs, setSavedJobs] = useState<any[]>([]);
@@ -99,6 +99,8 @@ const JobSeekerDashboard = () => {
   const [skillInput, setSkillInput] = useState('');
   const [loadError, setLoadError] = useState(false);
   const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'resume' | 'applications'>('candidate');
+  const [resumeProfile, setResumeProfile] = useState<CandidateProfileViewProfile | null>(null);
+  const [resumeProfileLoading, setResumeProfileLoading] = useState(false);
   const showJobTitleModal = Boolean(
     !loading &&
     profile &&
@@ -250,6 +252,39 @@ const JobSeekerDashboard = () => {
     setLoadError(false);
     loadDashboardData();
   }, [user?.id]);
+
+  // Load candidate-profile (same shape as recruiters see) when user opens My Resume tab
+  useEffect(() => {
+    if (!user || dashboardSection !== "resume") return;
+    setResumeProfileLoading(true);
+    api
+      .get<{ profile: CandidateProfileViewProfile }>("/api/users/me/candidate-profile")
+      .then((r) => setResumeProfile(r.profile))
+      .catch(() => setResumeProfile(null))
+      .finally(() => setResumeProfileLoading(false));
+  }, [user, dashboardSection]);
+
+  // Open Applications tab when navigating from Jobs page after apply; refetch so new application appears
+  useEffect(() => {
+    const section = (location.state as { section?: string } | null)?.section;
+    if (section === 'applications' && user) {
+      setDashboardSection('applications');
+      (async () => {
+        try {
+          const [appsRes, savedRes] = await Promise.all([
+            api.get<{ applications: any[] }>("/api/jobs/me/applications"),
+            api.get<{ saved: any[] }>("/api/jobs/me/saved"),
+          ]);
+          const applicationsList = Array.isArray(appsRes?.applications) ? appsRes.applications : [];
+          const savedList = Array.isArray(savedRes?.saved) ? savedRes.saved : [];
+          setApplications(applicationsList);
+          setSavedJobs(savedList);
+          setStats(prev => ({ ...prev, applicationsSent: applicationsList.length }));
+        } catch (_) {}
+      })();
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, user, navigate, location.pathname]);
 
   // Preload Verification flow chunk so /verification opens fast when user clicks
   useEffect(() => {
@@ -536,25 +571,24 @@ const JobSeekerDashboard = () => {
             <div className="dashboard-section-header">
               <div>
                 <h1>My Resume</h1>
-                <p>Your full verified profile — share on LinkedIn or use in job applications</p>
+                <p>Your full verified profile — same view recruiters see. Share on LinkedIn or use in job applications.</p>
               </div>
             </div>
-            <JobSeekerResumeView
-              profile={profile}
-              userEmail={user?.email}
-              certificationLevelNumber={certificationLevelNumber}
-              certificationLabel={certificationLabel}
-              aptitudeScore={testResults.aptitude ? (() => {
-                const s = testResults.aptitude.total_score ?? 0;
-                const t = testResults.aptitude.total_marks ?? 20;
-                return t > 0 ? Math.round((s / t) * 100) : Math.round(s);
-              })() : undefined}
-              dsaScore={testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : undefined}
-              aiInterviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score != null ? Math.round((Number(verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score) / 15) * 100) : undefined}
-              expertInterviewScore={verificationStages.find((s: any) => s.stage_name === 'human_expert_interview')?.score != null ? Math.round(Number(verificationStages.find((s: any) => s.stage_name === 'human_expert_interview')?.score)) : undefined}
-              assignmentScore={verificationStages.find((s: any) => s.stage_name === 'non_tech_assignment')?.score != null ? Math.round(Number(verificationStages.find((s: any) => s.stage_name === 'non_tech_assignment')?.score)) : undefined}
-              roleType={roleType}
-            />
+            {resumeProfileLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
+              </div>
+            ) : resumeProfile ? (
+              <CandidateProfileView profile={resumeProfile} variant="jobseeker" />
+            ) : (
+              <div className="rounded-xl border border-[var(--dash-navy-border)] bg-[var(--dash-navy-mid)] p-8 text-center text-[var(--dash-text-muted)]">
+                <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>Complete your profile in Settings to see your full resume here.</p>
+                <Button asChild className="mt-4 dashboard-btn-gold">
+                  <Link to="/dashboard/settings">Go to Settings</Link>
+                </Button>
+              </div>
+            )}
           </div>
         )}
         {!loading && dashboardSection === 'passport' && (
@@ -716,18 +750,6 @@ const JobSeekerDashboard = () => {
               </div>
             </div>
             <div className="dashboard-section-content">
-              {roleType === "technical" && (
-                <VerificationPipelineCard
-                  verificationStages={verificationStages}
-                  roleType={roleType}
-                  certificationLevelNumber={certificationLevelNumber}
-                  certificationLabel={certificationLabel}
-                  userName={userName}
-                  profile={profile}
-                  getStageStatus={getStageStatus}
-                  nextStageLabel={nextStageLabel}
-                />
-              )}
               <div className="dashboard-stage-header-card">
                 <div className="flex justify-between items-start flex-wrap gap-4 mb-7">
                   <div>
@@ -869,6 +891,18 @@ const JobSeekerDashboard = () => {
                 </div>
                 )}
               </div>
+              {roleType === "technical" && (
+                <VerificationPipelineCard
+                  verificationStages={verificationStages}
+                  roleType={roleType}
+                  certificationLevelNumber={certificationLevelNumber}
+                  certificationLabel={certificationLabel}
+                  userName={userName}
+                  profile={profile}
+                  getStageStatus={getStageStatus}
+                  nextStageLabel={nextStageLabel}
+                />
+              )}
             </div>
           </div>
         )}

@@ -114,7 +114,7 @@ export default function InterviewerCareers() {
 
         {/* Hero with graphic */}
         <section className="container mx-auto px-4 py-12 md:py-16">
-          <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center gap-10">
+          <div className="max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-10">
             <div className="flex-shrink-0">
               <InterviewerConducting size={220} className="mx-auto" />
               <div className="flex justify-center gap-8 mt-4 text-sm text-muted-foreground">
@@ -172,7 +172,7 @@ export default function InterviewerCareers() {
         {/* Benefits */}
         <section className="container mx-auto px-4 mb-16">
           <h2 className="text-xl font-bold text-center mb-8">What you get as an interviewer</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto">
             <Card className="border-2">
               <CardContent className="pt-6">
                 <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mb-3">
