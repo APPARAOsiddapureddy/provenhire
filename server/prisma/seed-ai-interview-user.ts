@@ -1,11 +1,16 @@
 /**
  * Seed a job seeker who can directly open the AI Interview round.
- * Run: cd server && npx tsx prisma/seed-ai-interview-user.ts
+ * Run: cd server && npm run seed:ai-interview
+ * Or:  cd server && npx tsx prisma/seed-ai-interview-user.ts
+ *
+ * Login with email + password at /auth (Job Seeker → Sign In).
+ * Email and password must be stored in lowercase/normalized form so auth matches.
  */
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-const TEST_EMAIL = "ai-interview1@test.provenhire.com";
+const TEST_EMAIL = "ai-interview1@test.provenhire.com".trim().toLowerCase();
 const TEST_PASSWORD = "Test123456";
 const TEST_NAME = "AI Interview Test User";
 
@@ -13,7 +18,10 @@ const technicalStages = ["profile_setup", "aptitude_test", "dsa_round", "expert_
 
 async function main() {
   const prisma = new PrismaClient();
-  let user = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
+  // Find by email case-insensitively so we match even if DB has different casing
+  let user = await prisma.user.findFirst({
+    where: { email: { equals: TEST_EMAIL, mode: "insensitive" } },
+  });
   const hash = await bcrypt.hash(TEST_PASSWORD, 12);
 
   if (!user) {
@@ -24,15 +32,21 @@ async function main() {
         passwordHash: hash,
         role: "jobseeker",
         emailVerified: true,
+        authProvider: "EMAIL",
       },
     });
     console.log("Created test job seeker user.");
   } else {
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: hash },
+      data: {
+        email: TEST_EMAIL,
+        passwordHash: hash,
+        authProvider: "EMAIL",
+        name: TEST_NAME,
+      },
     });
-    console.log("Updated existing test user password.");
+    console.log("Updated existing test user (email normalized to lowercase, password and authProvider set).");
   }
 
   await prisma.jobSeekerProfile.upsert({

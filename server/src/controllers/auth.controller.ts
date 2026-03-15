@@ -283,7 +283,9 @@ export async function login(req: Request, res: Response) {
     }
     const { email, password } = parsed.data;
     const normalizedEmail = email.trim().toLowerCase();
-    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+    });
     if (!user) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
