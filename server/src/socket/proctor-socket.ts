@@ -10,6 +10,8 @@ export function initProctorSocket(httpServer: HttpServer): SocketServer {
       origin: [
         "http://localhost:8080",
         "http://localhost:5173",
+        "https://www.provenhire.in",
+        "https://provenhire.in",
         "https://provenhire-z18w.vercel.app",
         "https://provenhire-z18w.vercel.app/",
       ],

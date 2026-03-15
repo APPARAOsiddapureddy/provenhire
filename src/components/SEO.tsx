@@ -4,7 +4,7 @@
  */
 import { useEffect } from "react";
 
-const SITE_URL = "https://provenhire.in";
+const SITE_URL = "https://www.provenhire.in";
 
 export interface SEOProps {
   title: string;
@@ -49,6 +49,8 @@ export default function SEO({ title, description, path = "", noIndex = false }: 
     return () => {
       // Restore default on unmount (e.g. back to home)
       document.title = "ProvenHire – Hire Verified Talent with Skill Validation";
+      const defCanonical = document.querySelector('link[rel="canonical"]');
+      if (defCanonical) defCanonical.setAttribute("href", SITE_URL);
     };
   }, [fullTitle, description, canonical, noIndex]);
 

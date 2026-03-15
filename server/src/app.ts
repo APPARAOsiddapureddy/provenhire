@@ -25,8 +25,10 @@ import { settingsRouter } from "./routes/settings.js";
 export function createApp() {
   const app = express();
 
-  // CORS: allow Vercel frontend and reflect request origin (fixes preflight from provenhire.vercel.app)
+  // CORS: allow custom domain (www) first, then Vercel preview and localhost
   const allowedOrigins = [
+    "https://www.provenhire.in",
+    "https://provenhire.in",
     "https://provenhire-z18w.vercel.app",
     "http://localhost:5173",
     "http://localhost:8080",
@@ -36,7 +38,8 @@ export function createApp() {
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     const allow = !origin || isAllowedOrigin(origin);
-    res.setHeader("Access-Control-Allow-Origin", allow && origin ? origin : (allowedOrigins[0] as string));
+    const allowOrigin = allow && origin ? origin : allowedOrigins[0];
+    res.setHeader("Access-Control-Allow-Origin", allowOrigin as string);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.setHeader("Access-Control-Max-Age", "86400");

@@ -1,6 +1,6 @@
 # ProvenHire SEO Implementation
 
-Production SEO is implemented for **provenhire.in**. This doc summarizes what’s in place and optional follow-ups.
+Production SEO is implemented for **www.provenhire.in**. This doc summarizes what’s in place and optional follow-ups.
 
 ## Implemented
 
@@ -9,7 +9,7 @@ Production SEO is implemented for **provenhire.in**. This doc summarizes what’
 - **Per-page**: `src/components/SEO.tsx` updates `document.title`, meta description, canonical, and robots on route change. Used on Home, Auth, Jobs, For Employers, About.
 
 ### 2. Open Graph and Twitter Cards
-- **index.html**: `og:title`, `og:description`, `og:url`, `og:type`, `og:image` (https://provenhire.in/og-image.png), `og:image:width/height`, `og:site_name`, `og:locale`.
+- **index.html**: `og:title`, `og:description`, `og:url`, `og:type`, `og:image` (https://www.provenhire.in/og-image.png), `og:image:width/height`, `og:site_name`, `og:locale`.
 - **Twitter**: `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image`.
 - **SEO component**: Updates `og:title`, `og:description`, `og:url` on client for the current page.
 
@@ -17,7 +17,7 @@ Production SEO is implemented for **provenhire.in**. This doc summarizes what’
 - **Organization** and **WebSite** schemas in `index.html` (name, url, logo, description).
 
 ### 4. robots.txt
-- **public/robots.txt**: `User-agent: *` → `Allow: /`, plus `Sitemap: https://provenhire.in/sitemap.xml`.
+- **public/robots.txt**: `User-agent: *` → `Allow: /`, plus `Sitemap: https://www.provenhire.in/sitemap.xml`.
 
 ### 5. Sitemap
 - **public/sitemap.xml**: Entries for `/`, `/auth`, `/login`, `/signup`, `/jobs`, `/for-employers`, `/verification`, `/about`, `/careers/interviewer`. Update this file when adding new public routes.
@@ -37,8 +37,8 @@ Production SEO is implemented for **provenhire.in**. This doc summarizes what’
 - **vercel.json**: Cache headers for `/assets/*` (long-lived) and for favicon, og-image, logo, sitemap, robots (1 day).
 
 ### 9. Canonical URL
-- **index.html**: `<link rel="canonical" href="https://provenhire.in">`.
-- **SEO component**: Sets canonical per page (e.g. `https://provenhire.in/jobs`).
+- **index.html**: `<link rel="canonical" href="https://www.provenhire.in">`.
+- **SEO component**: Sets canonical per page (e.g. `https://www.provenhire.in/jobs`).
 
 ### 10. Google Search Console
 - **index.html**: `<meta name="google-site-verification" content="ADD_VERIFICATION_CODE">`. Replace `ADD_VERIFICATION_CODE` with the code from Search Console.
@@ -66,7 +66,7 @@ Production SEO is implemented for **provenhire.in**. This doc summarizes what’
 ## Optional follow-ups
 
 1. **favicon.ico**: Add `public/favicon.ico` for older browsers (e.g. export from favicon.svg).
-2. **og-image.png**: Add `public/og-image.png` (1200×630) for social sharing; meta already points to `https://provenhire.in/og-image.png`.
-3. **logo.png**: Add `public/logo.png` if you want the Organization schema logo to resolve (currently `https://provenhire.in/logo.png`).
+2. **og-image.png**: Add `public/og-image.png` (1200×630) for social sharing; meta already points to `https://www.provenhire.in/og-image.png`.
+3. **logo.png**: Add `public/logo.png` if you want the Organization schema logo to resolve (currently `https://www.provenhire.in/logo.png`).
 4. **Google Search Console**: Replace `ADD_VERIFICATION_CODE` and submit sitemap.
 5. **Lighthouse**: Run Lighthouse (SEO and Performance) and fix any remaining issues to reach 90+ SEO score.

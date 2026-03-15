@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://provenhire.in/sitemap.xml
+Sitemap: https://www.provenhire.in/sitemap.xml

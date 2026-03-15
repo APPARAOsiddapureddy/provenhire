@@ -182,7 +182,7 @@ export async function sendSkillExpiryReminderEmail(
       <p>Hello,</p>
       <p>Your <strong>${skillName}</strong> verification will expire in <strong>${daysLeft} days</strong>.</p>
       <p>Reattempt now to maintain your Verified Candidate status and keep your profile visible to recruiters.</p>
-      <p><a href="${process.env.BASE_URL || "https://provenhire.vercel.app"}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Reattempt Verification →</a></p>
+      <p><a href="${process.env.BASE_URL || "https://www.provenhire.in"}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Reattempt Verification →</a></p>
       <p>— The ProvenHire Team</p>
     `,
   });
@@ -200,7 +200,7 @@ export async function sendSkillExpiredEmail(to: string, skillName: string): Prom
       <p>Hello,</p>
       <p>Your <strong>${skillName}</strong> verification has expired.</p>
       <p>Reattempt now to restore your Verified Candidate status and keep your profile visible to recruiters.</p>
-      <p><a href="${process.env.BASE_URL || "https://provenhire.vercel.app"}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Reattempt Verification →</a></p>
+      <p><a href="${process.env.BASE_URL || "https://www.provenhire.in"}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Reattempt Verification →</a></p>
       <p>— The ProvenHire Team</p>
     `,
   });
