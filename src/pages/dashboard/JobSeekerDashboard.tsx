@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
-import { api } from "@/lib/api";
+import { api, BACKEND_DOWN_MSG } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -336,7 +336,7 @@ const JobSeekerDashboard = () => {
           msg.includes("npm run dev");
         toast.error(
           is503
-            ? "Service unavailable. Start the backend from the project root: npm run dev"
+            ? BACKEND_DOWN_MSG
             : "Some dashboard sections are still loading. Showing available data first."
         );
       }
@@ -434,7 +434,7 @@ const JobSeekerDashboard = () => {
       const err = error as Error & { status?: number; isBackendUnavailable?: boolean };
       const msg = err.message || 'Failed to load dashboard';
       const isUnavailable = err.isBackendUnavailable === true || err.status === 503 || msg.includes("Service unavailable") || msg.includes("npm run dev");
-      toast.error(isUnavailable ? "Service unavailable. Start the backend from the project root: npm run dev" : msg);
+      toast.error(isUnavailable ? BACKEND_DOWN_MSG : msg);
       setLoading(false);
     }
   };
@@ -564,7 +564,7 @@ const JobSeekerDashboard = () => {
         {loadError && (
           <div className="dashboard-section-content">
             <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              <span>Service unavailable or some data could not be loaded. If you're developing, start the backend with: <code className="text-xs bg-black/20 px-1 rounded">npm run dev</code></span>
+              <span>{BACKEND_DOWN_MSG}</span>
               <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-200 hover:bg-amber-500/20 shrink-0 ml-2" onClick={() => { setLoadError(false); setLoading(true); loadDashboardData(); }}>Retry</Button>
             </div>
           </div>

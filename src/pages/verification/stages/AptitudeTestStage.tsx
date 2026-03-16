@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api } from "@/lib/api";
+import { api, BACKEND_DOWN_MSG } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import TestProctoringBar from "@/components/TestProctoringBar";
@@ -231,7 +231,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     if (submittingRef.current) return; // Double-submit guard
     const ok = await checkBackend();
     if (!ok) {
-      toast.error("Run npm run dev from the project root to start the backend.");
+      toast.error(BACKEND_DOWN_MSG);
       return;
     }
     submittingRef.current = true;
@@ -284,7 +284,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         toast.info("Ensure your database is running, then click Submit again.");
       } else if (isBackendDown) {
         setBackendUnavailable(true);
-        toast.error("Run npm run dev from the project root to start the backend.");
+        toast.error(BACKEND_DOWN_MSG);
       } else if (status === 503) {
         setBackendUnavailable(false);
         toast.error(msg);
@@ -347,7 +347,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           {backendUnavailable && (
             <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                Run <code className="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-mono">npm run dev</code> from the project root to start the backend.
+                {BACKEND_DOWN_MSG}
               </p>
               <Button variant="outline" size="sm" onClick={() => { checkBackend().then((ok) => { if (ok) { setBackendUnavailable(false); window.location.reload(); } }); }} disabled={checkingBackend}>
                 {checkingBackend ? "Checking…" : "Retry"}
@@ -528,7 +528,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             {backendUnavailable && inTest && (
               <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                  Run <code className="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-mono">npm run dev</code> from the project root to start the backend and submit.
+                  {BACKEND_DOWN_MSG}
                 </p>
                 <Button variant="outline" size="sm" onClick={() => checkBackend()} disabled={checkingBackend}>
                   {checkingBackend ? "Checking…" : "Retry connection"}

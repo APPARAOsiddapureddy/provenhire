@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
-import { api, hasAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown } from "@/lib/api";
+import { api, hasAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
 import { signInWithGooglePopup, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
@@ -112,9 +112,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
         return;
       }
-      // Do not call /api/auth/me when user is on the auth page — avoids 503 in console when backend is down.
-      // Session will be restored when they navigate to a protected route (effect re-runs with new pathname).
-      if (pathname === "/auth") {
+      // Skip /api/auth/me on public routes so we don't trigger 503 when backend is down (home, about, jobs, auth).
+      // Session is restored when they navigate to a protected route (effect re-runs with new pathname).
+      const publicPaths = ["/", "/auth", "/about", "/jobs", "/for-employers", "/login", "/signup"];
+      const isPublicPath = publicPaths.includes(pathname) || pathname === "";
+      if (isPublicPath) {
         setLoading(false);
         return;
       }
@@ -146,10 +148,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     bootstrap();
   }, [navigate, pathname]);
 
-  // Single toast when backend is first detected down (api.ts dispatches ph_backend_503 once per cooldown).
+  // Show backend-down toast only on /auth so we don't annoy users on About, Jobs, or dashboard (dashboard has its own card).
   useEffect(() => {
     const onBackend503 = () => {
-      toast.error("Service unavailable. Start the backend from the project root: npm run dev");
+      const path = (window.location.pathname || "").split("?")[0];
+      if (path !== "/auth") return;
+      toast.error(BACKEND_DOWN_MSG);
     };
     window.addEventListener("ph_backend_503", onBackend503);
     return () => window.removeEventListener("ph_backend_503", onBackend503);
@@ -188,13 +192,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         name: fullName ?? undefined,
         roleType: roleType ?? undefined,
       });
+      if (!data?.token) {
+        throw new Error("Invalid response from server. Please try again.");
+      }
       setAuthToken(data.token);
       if (data.refreshToken) setRefreshToken(data.refreshToken);
-      setUser(data.user);
-      setUserRole(data.user.role);
       if (role === "recruiter") {
-        await api.post("/api/users/recruiter-profile", { companyName, companySize });
+        await api.post(
+          "/api/users/recruiter-profile",
+          { companyName, companySize },
+          { token: data.token },
+        );
       }
+      setUser(data.user);
+      setUserRole(data.user?.role ?? null);
     } catch (err: any) {
       throw err;
     } finally {

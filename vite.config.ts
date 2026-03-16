@@ -3,6 +3,22 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
 /** In dev only: replace Vite proxy connection errors with one friendly line. Production does not use Vite proxy. */
+// Serve favicon.png for /favicon.ico requests to avoid 404 (browsers often request .ico by default).
+const faviconIcoFallback = () => ({
+  name: "favicon-ico-fallback",
+  configureServer(server: any) {
+    server.middlewares.use((req: any, res: any, next: () => void) => {
+      const url = req.url?.split("?")[0] ?? "";
+      if (url === "/favicon.ico") {
+        res.writeHead(302, { Location: "/favicon.png" });
+        res.end();
+        return;
+      }
+      next();
+    });
+  },
+});
+
 const quietProxyErrors = () => {
   const originalError = console.error;
   let lastLog = 0;
@@ -16,7 +32,7 @@ const quietProxyErrors = () => {
           const now = Date.now();
           if (now - lastLog > 15000) {
             lastLog = now;
-            originalError.call(console, "[vite] Backend unreachable. Run npm run dev from the project root.");
+            originalError.call(console, "[vite] Backend unreachable. From the project root run: npm run dev (starts both frontend and backend).");
           }
           return;
         }
@@ -28,7 +44,7 @@ const quietProxyErrors = () => {
 
 // Handle /api/health BEFORE the proxy so we always return 503 when backend is down (proxy would
 // do the same, but this ensures one place and correct body). Run first via unshift.
-const BACKEND_DOWN_MSG = "Run npm run dev from the project root to start the backend.";
+const BACKEND_DOWN_MSG = "Backend isn't running. From the project root run: npm run dev (starts both frontend and backend).";
 const apiHealthProxy = () => ({
   name: "api-health-proxy",
   configureServer(server: any) {
@@ -124,7 +140,7 @@ export default defineConfig(({ mode }) => ({
           proxy.on("error", (_err: Error, _req: any, res: any) => {
             if (!res?.headersSent) {
               res.writeHead(503, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ error: "Run npm run dev from the project root to start the backend." }));
+              res.end(JSON.stringify({ error: BACKEND_DOWN_MSG }));
             }
           });
         },
@@ -142,7 +158,7 @@ export default defineConfig(({ mode }) => ({
           proxy.on("error", (_err: Error, _req: any, res: any) => {
             if (!res?.headersSent) {
               res.writeHead(503, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ error: "Run npm run dev from the project root to start the backend." }));
+              res.end(JSON.stringify({ error: BACKEND_DOWN_MSG }));
             }
           });
         },
@@ -165,7 +181,7 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-  plugins: [quietProxyErrors(), coopHeader(), apiHealthProxy(), react()],
+  plugins: [faviconIcoFallback(), quietProxyErrors(), coopHeader(), apiHealthProxy(), react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

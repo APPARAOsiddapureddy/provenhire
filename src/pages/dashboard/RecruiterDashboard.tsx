@@ -7,7 +7,7 @@ import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2,
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
-import { api } from "@/lib/api";
+import { api, BACKEND_DOWN_MSG, isBackendDownCooldown } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -184,6 +184,11 @@ const RecruiterDashboard = () => {
 
   const loadDashboardData = async () => {
     setBackendUnavailable(false);
+    if (isBackendDownCooldown()) {
+      setBackendUnavailable(true);
+      setLoading(false);
+      return;
+    }
     const FETCH_TIMEOUT_MS = 20000;
     try {
       const fetchPromise = Promise.all([
@@ -227,13 +232,13 @@ const RecruiterDashboard = () => {
         profileViews: Math.floor(Math.random() * 500) + 100,
       });
     } catch (error: unknown) {
-      console.error('Error loading dashboard data:', error);
       const err = error as Error & { status?: number; isBackendUnavailable?: boolean };
-      const isUnavailable = err.isBackendUnavailable === true || err.status === 503 || (err.message && (err.message.includes("Service unavailable") || err.message.includes("npm run dev")));
+      const isUnavailable = err.isBackendUnavailable === true || err.status === 503 || (err.message && (err.message.includes("Backend isn't running") || err.message.includes("Service unavailable") || err.message.includes("npm run dev")));
       if (isUnavailable) {
         setBackendUnavailable(true);
-        // Single message: no toast to avoid duplicate with the card below
+        // No console.error or toast to avoid noise; backend-unavailable card is shown
       } else {
+        console.error('Error loading dashboard data:', error);
         toast.error(err.message || 'Failed to load dashboard data');
       }
     } finally {
@@ -397,7 +402,7 @@ const RecruiterDashboard = () => {
                   Service unavailable
                 </CardTitle>
                 <CardDescription>
-                  We couldn't connect to the server. If you're developing, start the backend from the project root with: <code className="text-xs bg-muted px-1 rounded">npm run dev</code>. Then click Retry.
+                  {BACKEND_DOWN_MSG} Then click Retry.
                 </CardDescription>
               </CardHeader>
               <CardContent>

@@ -9,7 +9,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { api } from "@/lib/api";
+import { api, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -78,6 +78,7 @@ const Jobs = () => {
   const [candidateCertificationLevel, setCandidateCertificationLevel] = useState(0);
   const [candidateCertificationLabel, setCandidateCertificationLabel] = useState("Level 0 - Not Yet Certified");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
 
   const {
     isVerified, 
@@ -264,6 +265,12 @@ const Jobs = () => {
   };
 
   const loadJobs = async () => {
+    setBackendUnavailable(false);
+    if (isBackendDownCooldown()) {
+      setBackendUnavailable(true);
+      setLoading(false);
+      return;
+    }
     try {
       let track: string | null = null;
       if (user && userRole === "jobseeker") {
@@ -291,8 +298,21 @@ const Jobs = () => {
       });
       setJobs(normalizedJobs);
     } catch (error: any) {
-      console.error('Error loading jobs:', error);
-      setJobs([]);
+      const err = error as Error & { status?: number; isBackendUnavailable?: boolean };
+      const msg = err?.message ?? "";
+      const isUnavailable =
+        err?.isBackendUnavailable === true ||
+        err?.status === 503 ||
+        msg.includes("Backend isn't running") ||
+        msg.includes("Service unavailable") ||
+        msg.includes("npm run dev");
+      if (isUnavailable) {
+        setBackendUnavailable(true);
+        setJobs([]);
+      } else {
+        console.error('Error loading jobs:', error);
+        setJobs([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -590,6 +610,23 @@ const Jobs = () => {
     }
   };
 
+
+  if (backendUnavailable) {
+    return (
+      <div className="min-h-screen flex flex-col bg-secondary">
+        <SEO title="Jobs | ProvenHire" description="Browse jobs" path="/jobs" />
+        <Navbar />
+        <div className="flex-1 pt-24 flex items-center justify-center px-4">
+          <div className="max-w-md w-full rounded-xl border border-border bg-card p-6 text-center">
+            <p className="font-semibold text-foreground mb-2">Service unavailable</p>
+            <p className="text-sm text-muted-foreground mb-4">{BACKEND_DOWN_MSG}</p>
+            <Button onClick={() => { setLoading(true); loadJobs(); }}>Retry</Button>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   if (loading && jobs.length === 0) {
     return (

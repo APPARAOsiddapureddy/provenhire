@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { api } from "@/lib/api";
+import { api, BACKEND_DOWN_MSG } from "@/lib/api";
 import { toast } from "sonner";
 import { SettingsCard } from "./SettingsCard";
 import { Input } from "@/components/ui/input";
@@ -81,7 +81,7 @@ export function RecruiterSettings() {
         } else if (status === 503) {
           setServerUnavailable(true);
           const backendDown = msg.includes("Run npm run dev") || msg.includes("Backend not running");
-          toast.error(backendDown ? "Run npm run dev from the project root to start the backend." : "Could not load settings. Please try again.");
+          toast.error(backendDown ? BACKEND_DOWN_MSG : "Could not load settings. Please try again.");
         } else {
           setServerUnavailable(true);
           toast.error(msg || "Failed to load settings");

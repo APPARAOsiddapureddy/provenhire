@@ -47,10 +47,11 @@ function getRefreshToken() {
   }
 }
 
-export function setAuthToken(token: string | null) {
+export function setAuthToken(token: string | null | undefined) {
   try {
-    if (token) localStorage.setItem("ph_jwt", token);
-    else localStorage.removeItem("ph_jwt");
+    if (token != null && token !== "") localStorage.setItem("ph_jwt", token);
+    else if (token === null) localStorage.removeItem("ph_jwt");
+    // undefined: do not overwrite or clear (avoids clearing when server returns unexpected shape)
   } catch {}
 }
 
@@ -82,12 +83,12 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-/** Single user-facing message when backend is down (dev or prod). */
-const BACKEND_DOWN_MSG = isDev
-  ? "Service unavailable. Start the backend from the project root: npm run dev"
+/** Single user-facing message when backend is down (dev or prod). Export for toasts and UI. */
+export const BACKEND_DOWN_MSG = isDev
+  ? "Backend isn't running. From the project root run: npm run dev (starts both frontend and backend)."
   : "Service temporarily unavailable. Please try again in a moment.";
 
-async function request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}, retried = false, tokenOverride?: string): Promise<T> {
   if (isBackendDownCooldown()) {
     const err = new Error(BACKEND_DOWN_MSG) as Error & { status?: number; isBackendUnavailable?: boolean };
     err.status = 503;
@@ -99,7 +100,7 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
-  const token = getAuthToken();
+  const token = tokenOverride !== undefined ? tokenOverride : getAuthToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const url = path.startsWith("/") ? `${API_BASE}${path}` : `${API_BASE}/${path}`;
@@ -125,7 +126,7 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     throw e;
   }
 
-  if (res.status === 401 && !retried) {
+  if (res.status === 401 && !retried && tokenOverride === undefined) {
     const refreshed = await refreshAccessToken();
     if (refreshed) return request<T>(path, options, true);
     // Refresh failed — clear session so AuthContext can redirect to login
@@ -172,10 +173,17 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   return res.json() as Promise<T>;
 }
 
+export type ApiPostOptions = { token?: string };
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
+  post: <T>(path: string, body?: unknown, opts?: ApiPostOptions) =>
+    request<T>(
+      path,
+      { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) },
+      false,
+      opts?.token,
+    ),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
