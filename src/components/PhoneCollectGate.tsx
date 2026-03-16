@@ -32,7 +32,12 @@ export default function PhoneCollectGate({ role, children }: PhoneCollectGatePro
     const check = async () => {
       try {
         if (role === "recruiter") {
-          const { profile } = await api.get<{ profile: { phone?: string | null } }>("/api/users/recruiter-profile");
+          const { profile } = await api.get<{ profile: { phone?: string | null; onboardingCompleted?: boolean } }>("/api/users/recruiter-profile");
+          const onboardingDone = profile?.onboardingCompleted === true;
+          if (!onboardingDone) {
+            setNeedsPhone(false);
+            return;
+          }
           setNeedsPhone(!profile?.phone?.trim());
         } else {
           const { interviewer } = await api.get<{ interviewer: { phone?: string | null } }>("/api/expert/profile");
