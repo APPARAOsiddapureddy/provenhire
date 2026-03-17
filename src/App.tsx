@@ -16,6 +16,7 @@ import Jobs from "./pages/Jobs";
 import About from "./pages/About";
 import ForEmployers from "./pages/ForEmployers";
 import NotFound from "./pages/NotFound";
+import FirebaseAuthHandler from "./pages/FirebaseAuthHandler";
 
 // Eager-load dashboards so /dashboard/jobseeker, /dashboard/recruiter, /dashboard/expert render instantly
 import JobSeekerDashboard from "./pages/dashboard/JobSeekerDashboard";
@@ -216,6 +217,7 @@ const App = () => (
                   </ProtectedRoute>
                 } 
               />
+              <Route path="/__/auth/handler" element={<FirebaseAuthHandler />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

@@ -67,6 +67,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (isFirebaseConfigured()) {
         try {
           const idToken = await getGoogleRedirectIdToken();
+          if (!idToken && pathname === "/__/auth/handler") {
+            navigate("/auth", { replace: true });
+            setLoading(false);
+            return;
+          }
           if (idToken) {
             const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>("/api/auth/google", {
               idToken,
@@ -114,7 +119,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       // Skip /api/auth/me on public routes so we don't trigger 503 when backend is down (home, about, jobs, auth).
       // Session is restored when they navigate to a protected route (effect re-runs with new pathname).
-      const publicPaths = ["/", "/auth", "/about", "/jobs", "/for-employers", "/login", "/signup"];
+      const publicPaths = ["/", "/auth", "/about", "/jobs", "/for-employers", "/login", "/signup", "/__/auth/handler"];
       const isPublicPath = publicPaths.includes(pathname) || pathname === "";
       if (isPublicPath) {
         setLoading(false);
