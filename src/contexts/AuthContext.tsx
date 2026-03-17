@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactN
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { api, hasAuthToken, getAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
-import { signInWithGooglePopup, signInWithGoogleRedirect, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
+import { signInWithGoogleRedirect, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
 
@@ -236,56 +236,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       toast.error("Google sign-in is not configured. Please use email and password.");
       return;
     }
-    // Use redirect in production to avoid COOP/popup issues; use popup in dev for easier testing.
-    if (import.meta.env.PROD) {
-      signInWithGoogleRedirect();
-      return;
-    }
-    setLoading(true);
-    try {
-      const idToken = await signInWithGooglePopup();
-      const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>("/api/auth/google", {
-        idToken,
-      });
-      setAuthToken(data.token);
-      if (data.refreshToken) setRefreshToken(data.refreshToken);
-      setUser(data.user);
-      setUserRole(data.user.role);
-      if (data.isNewUser) {
-        setNeedsGoogleRoleSelection(true);
-        toast.success("Choose your role to continue");
-        navigate("/auth", { replace: true });
-      } else {
-        toast.success("Signed in with Google successfully.");
-        navigate(
-          data.user.role === "admin"
-            ? "/admin/dashboard"
-            : data.user.role === "recruiter"
-              ? "/dashboard/recruiter"
-              : data.user.role === "expert_interviewer"
-                ? "/dashboard/expert"
-                : "/dashboard/jobseeker",
-          { replace: true }
-        );
-      }
-    } catch (err: unknown) {
-      const status = (err as { status?: number })?.status;
-      const msg = err instanceof Error ? err.message : "Google sign-in failed";
-      const isServerUnavailable =
-        status === 503 ||
-        msg.includes("temporarily unavailable") ||
-        msg.includes("Backend not running") ||
-        msg.includes("Run npm run dev") ||
-        msg.includes("Cannot reach") ||
-        msg.includes("Unable to connect") ||
-        msg.includes("Failed to fetch") ||
-        msg.includes("Load failed") ||
-        msg.includes("Network error");
-      if (!isServerUnavailable) toast.error(msg);
-      // Backend-down toast is shown once via ph_backend_503 listener
-    } finally {
-      setLoading(false);
-    }
+    // Use redirect everywhere to avoid COOP "window.closed" errors from Firebase popup.
+    signInWithGoogleRedirect();
   };
 
   const completeGoogleSignUpRole = async (

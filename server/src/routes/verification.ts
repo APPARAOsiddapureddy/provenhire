@@ -91,6 +91,19 @@ verificationRouter.post("/stages/update", requireAuth, async (req: AuthedRequest
     where: { userId: req.user!.id, stageName },
     data: { status, score: score ?? undefined },
   });
+  // PRD: After Stage 4 pass (without Stage 5), status should be verified.
+  if (stageName === "expert_interview" && status === "completed") {
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { verificationStatus: true },
+    });
+    if (profile && profile.verificationStatus !== "expert_verified") {
+      await prisma.jobSeekerProfile.updateMany({
+        where: { userId: req.user!.id },
+        data: { verificationStatus: "verified" },
+      });
+    }
+  }
   res.json({ updated: updated.count });
 });
 

@@ -25,8 +25,7 @@ export async function extractTextFromPDF(file: File): Promise<string> {
     }
     
     const extractedText = fullText.trim();
-    console.log('PDF extracted text preview:', extractedText.substring(0, 500));
-    
+
     if (!extractedText || extractedText.length < 50) {
       console.warn('PDF text extraction returned minimal content, may be a scanned PDF');
     }

@@ -94,7 +94,14 @@ const App = () => (
               <Route path="/for-employers" element={<ForEmployers />} />
               <Route path="/careers/interviewer" element={<InterviewerCareers />} />
               <Route path="/admin" element={<AdminLogin />} />
-              <Route path="/admin/dashboard" element={<AdminDashboard />} />
+              <Route
+                path="/admin/dashboard"
+                element={
+                  <ProtectedRoute allowedRole="admin">
+                    <AdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
               <Route 
                 path="/dashboard/recruiter" 
                 element={

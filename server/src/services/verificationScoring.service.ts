@@ -230,11 +230,11 @@ export async function buildTechnicalScorecard(userId: string): Promise<Technical
   const aiSignals = extractAiSignals(interviewLatest);
   const integritySignals = extractIntegritySignals(proctoringEvents);
 
+  // PRD: Stage 4→5 shortlist = combined score (Stage 2: 25%, Stage 3: 35%, Stage 4: 40%), threshold 65%.
   const finalScore = round2(
     aptitudeSignals.aptitudeScore * 0.25 +
       dsaSignals.dsaScore * 0.35 +
-      aiSignals.aiInterviewScore * 0.3 +
-      integritySignals.integrityScore * 0.1
+      aiSignals.aiInterviewScore * 0.4
   );
 
   const retryCount = Math.max(0, aptitudeCount - 1) + Math.max(0, dsaCount - 1) + Math.max(0, interviewCount - 1);
@@ -246,7 +246,7 @@ export async function buildTechnicalScorecard(userId: string): Promise<Technical
 
   const gate1Passed =
     aptitudeSignals.aptitudeScore >= 55 && dsaSignals.dsaScore >= 60 && aiSignals.aiInterviewScore >= 60;
-  const gate2Passed = finalScore >= 70;
+  const gate2Passed = finalScore >= 65; // PRD shortlist threshold 65%
   const integrityOverride = integritySignals.integrityScore < 50;
 
   const shortlisted = gate1Passed && gate2Passed && !integrityOverride;
@@ -272,7 +272,7 @@ export async function buildTechnicalScorecard(userId: string): Promise<Technical
     gate_2_passed: gate2Passed,
     human_review_required: integrityOverride || integritySignals.integrityScore < 60,
     candidate_status: candidateStatus,
-    threshold: 70,
+    threshold: 65,
     components: {
       aptitude: {
         accuracy: aptitudeSignals.accuracy,

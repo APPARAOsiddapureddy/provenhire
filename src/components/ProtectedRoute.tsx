@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { PageLoaderFullScreen } from '@/components/PageLoader';
 
-type AllowedRole = 'recruiter' | 'jobseeker' | 'expert_interviewer';
+type AllowedRole = 'recruiter' | 'jobseeker' | 'expert_interviewer' | 'admin';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -29,10 +29,8 @@ const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole, all
   }
 
   if (roles && userRole && !roles.includes(userRole)) {
-    if (userRole === 'admin') {
-      return <Navigate to="/admin/dashboard" replace />;
-    }
-    if (userRole === 'recruiter') {
+    if (userRole === "admin") return <Navigate to="/admin/dashboard" replace />;
+    if (userRole === "recruiter") {
       return <Navigate to="/dashboard/recruiter" replace />;
     }
     if (userRole === 'expert_interviewer') {

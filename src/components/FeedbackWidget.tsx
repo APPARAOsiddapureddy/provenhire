@@ -17,7 +17,6 @@ const FeedbackWidget = ({ context = "page", className = "" }: FeedbackWidgetProp
     setSubmitted(true);
     
     // In a real app, you would send this to analytics
-    console.log(`Feedback for ${context}:`, type);
     
     toast.success("Thanks for your feedback!", {
       description: type === "helpful" 

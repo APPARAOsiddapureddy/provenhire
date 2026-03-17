@@ -105,8 +105,7 @@ export default function InterviewerCareers() {
             <Alert className="max-w-3xl mx-auto border-primary/30 bg-background">
               <UserCheck className="h-5 w-5 text-primary" />
               <AlertDescription className="font-semibold text-foreground">
-                This page is for professionals who want to <strong>conduct interviews</strong> — not for job seekers or employers. 
-                You will interview candidates (DSA, system design, etc.) as a third-party expert.
+                This page is for professionals who want to conduct interviews. Not for you? See Find Jobs or For Employers below.
               </AlertDescription>
             </Alert>
           </div>
@@ -156,14 +155,14 @@ export default function InterviewerCareers() {
                 className="flex items-center gap-2 text-sm font-medium text-primary hover:underline"
               >
                 <Search className="h-4 w-4" />
-                I'm looking for a job
+                Find Jobs
               </Link>
               <Link
                 to="/for-employers"
                 className="flex items-center gap-2 text-sm font-medium text-primary hover:underline"
               >
                 <Briefcase className="h-4 w-4" />
-                I want to hire
+                For Employers
               </Link>
             </div>
           </div>
