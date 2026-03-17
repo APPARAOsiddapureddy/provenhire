@@ -1,21 +1,30 @@
 /**
  * Firebase client — Google sign-in for ProvenHire.
- * Uses signInWithPopup to avoid firebaseapp.com/__/firebase/init.json 404 errors
- * (which occur when using signInWithRedirect without Firebase Hosting deployed).
  * Requires VITE_FIREBASE_* env vars.
+ * In production we use the app's own domain as authDomain so redirect returns to our site
+ * and we avoid firebaseapp.com/__/firebase/init.json 404 (app is not deployed on Firebase Hosting).
  */
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from "firebase/auth";
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-};
+function getFirebaseConfig() {
+  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  // Use our app's domain in production so redirect lands on our site (no init.json 404 from firebaseapp.com).
+  const authDomain =
+    typeof window !== "undefined" && import.meta.env.PROD && window.location?.host
+      ? window.location.host
+      : (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) || `${import.meta.env.VITE_FIREBASE_PROJECT_ID || "provenhire-c153e"}.firebaseapp.com`;
+  return {
+    apiKey,
+    authDomain,
+    projectId,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  };
+}
 
 let app: FirebaseApp | null = null;
 
@@ -25,10 +34,11 @@ function getFirebaseApp(): FirebaseApp {
     if (existing.length > 0) {
       app = existing[0] as FirebaseApp;
     } else {
-      if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+      const config = getFirebaseConfig();
+      if (!config.apiKey || !config.projectId) {
         throw new Error("Firebase is not configured. Add VITE_FIREBASE_API_KEY and VITE_FIREBASE_PROJECT_ID to .env");
       }
-      app = initializeApp(firebaseConfig);
+      app = initializeApp(config);
     }
   }
   return app;
