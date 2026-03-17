@@ -226,9 +226,23 @@ const Auth = () => {
       switchMode("login");
       setSignInEmail(normalizedEmail);
     } catch (error: any) {
-      setSignUpErrors({
-        form: error?.message || "Unable to create account. Please try again.",
-      });
+      const is409 = error?.status === 409 || String(error?.message || "").toLowerCase().includes("already registered");
+      const formMsg = is409
+        ? "This email is already registered. Sign in below or use Forgot password."
+        : error?.message || "Unable to create account. Please try again.";
+      setSignUpErrors({ form: formMsg });
+      if (is409) {
+        toast.error("Email already registered", {
+          description: "Sign in with your password, or use Forgot password if you don't remember it.",
+          action: {
+            label: "Go to Sign in",
+            onClick: () => {
+              setAuthMode("login");
+              setSignInEmail(normalizedEmail);
+            },
+          },
+        });
+      }
     }
   };
 

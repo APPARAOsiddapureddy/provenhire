@@ -252,27 +252,39 @@ function extractEmailDomain(email: string | null | undefined): string | null {
   return part || null;
 }
 
+// Optional string: accept string, null, or omit (frontend may send null for empty optional fields).
+const optionalString = () => z.union([z.string(), z.null()]).optional();
+
 usersRouter.post("/recruiter-profile", requireAuth, async (req: AuthedRequest, res) => {
   const schema = z.object({
-    companyName: z.string().optional(),
-    companySize: z.string().optional(),
-    designation: z.string().optional(),
-    phone: z.string().optional(),
-    companyWebsite: z.string().optional(),
-    industry: z.string().optional(),
-    hiringFor: z.string().optional(),
+    companyName: optionalString(),
+    companySize: optionalString(),
+    designation: optionalString(),
+    phone: optionalString(),
+    companyWebsite: optionalString(),
+    industry: optionalString(),
+    hiringFor: optionalString(),
     onboardingCompleted: z.boolean().optional(),
-    fullName: z.string().optional(),
-    workEmail: z.string().optional(),
-    linkedInProfile: z.string().url().optional().or(z.literal("")),
-    companyLinkedin: z.string().url().optional().or(z.literal("")),
-    verificationDocumentUrl: z.string().optional(),
-    companyLogo: z.string().optional(),
-    headquarters: z.string().optional(),
-    companyDescription: z.string().optional(),
+    fullName: optionalString(),
+    workEmail: optionalString(),
+    linkedInProfile: z
+      .union([z.string(), z.literal(""), z.null()])
+      .optional()
+      .transform((v) => (v == null || v === "" ? "" : /^https?:\/\//i.test(String(v)) ? String(v) : "https://" + String(v))),
+    companyLinkedin: z
+      .union([z.string(), z.literal(""), z.null()])
+      .optional()
+      .transform((v) => (v == null || v === "" ? "" : /^https?:\/\//i.test(String(v)) ? String(v) : "https://" + String(v))),
+    verificationDocumentUrl: optionalString(),
+    companyLogo: optionalString(),
+    headquarters: optionalString(),
+    companyDescription: optionalString(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  if (!parsed.success) {
+    console.error("[recruiter-profile] validation error:", parsed.error.flatten());
+    return res.status(400).json({ error: "Invalid payload" });
+  }
 
   const data = { ...parsed.data };
   const workEmail = data.workEmail?.trim() || null;
