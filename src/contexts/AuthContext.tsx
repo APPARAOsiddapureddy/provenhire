@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
-import { api, hasAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
-import { signInWithGooglePopup, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
+import { api, hasAuthToken, getAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
+import { signInWithGooglePopup, signInWithGoogleRedirect, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
 
@@ -236,6 +236,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       toast.error("Google sign-in is not configured. Please use email and password.");
       return;
     }
+    // Use redirect in production to avoid COOP/popup issues; use popup in dev for easier testing.
+    if (import.meta.env.PROD) {
+      signInWithGoogleRedirect();
+      return;
+    }
     setLoading(true);
     try {
       const idToken = await signInWithGooglePopup();
@@ -289,12 +294,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     companySize?: string,
     roleType?: "technical" | "non_technical"
   ) => {
+    const token = getAuthToken();
+    if (!token) {
+      toast.error("Session lost. Please sign in with Google again.");
+      setNeedsGoogleRoleSelection(false);
+      navigate("/auth", { replace: true });
+      return;
+    }
     try {
-      const data = await api.post<{ user: User | null }>("/api/auth/google/select-role", {
-        role,
-        ...(role === "recruiter" && { companyName, companySize }),
-        ...(role === "jobseeker" && roleType && { roleType }),
-      });
+      const data = await api.post<{ user: User | null }>(
+        "/api/auth/google/select-role",
+        {
+          role,
+          ...(role === "recruiter" && { companyName, companySize }),
+          ...(role === "jobseeker" && roleType && { roleType }),
+        },
+        { token }
+      );
       if (data.user) {
         setUser(data.user);
         setUserRole(data.user.role);

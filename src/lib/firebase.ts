@@ -5,7 +5,7 @@
  * Requires VITE_FIREBASE_* env vars.
  */
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAuth, signInWithPopup, getRedirectResult, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -53,7 +53,7 @@ function firebaseAuthErrorMessage(code: string): string {
   return messages[code] || "Google sign-in failed. Please try again.";
 }
 
-/** Google sign-in via popup. Returns id token on success. Avoids firebaseapp.com redirect/init.json 404. */
+/** Google sign-in via popup. Returns id token on success. */
 export async function signInWithGooglePopup(): Promise<string> {
   const auth = getAuth(getFirebaseApp());
   const provider = new GoogleAuthProvider();
@@ -69,6 +69,17 @@ export async function signInWithGooglePopup(): Promise<string> {
     }
     throw err;
   }
+}
+
+/**
+ * Google sign-in via full-page redirect. Avoids COOP/popup issues in production.
+ * Call this when user clicks "Sign in with Google"; the page will redirect to Google and back.
+ * On return, bootstrap runs getGoogleRedirectIdToken() and completes the flow.
+ */
+export function signInWithGoogleRedirect(): void {
+  const auth = getAuth(getFirebaseApp());
+  const provider = new GoogleAuthProvider();
+  signInWithRedirect(auth, provider);
 }
 
 /** Call on app load after returning from Google OAuth redirect (legacy). Returns id token if user just signed in, else null. */

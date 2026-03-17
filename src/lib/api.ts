@@ -26,7 +26,8 @@ function clearBackendDownCooldown() {
   didEmit503Event = false;
 }
 
-function getAuthToken() {
+/** Read current JWT (e.g. to pass explicitly for select-role after Google SSO). */
+export function getAuthToken(): string {
   try {
     return localStorage.getItem("ph_jwt") || "";
   } catch {
@@ -38,6 +39,7 @@ function getAuthToken() {
 export function hasAuthToken(): boolean {
   return !!getAuthToken();
 }
+
 
 function getRefreshToken() {
   try {
@@ -129,6 +131,14 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   if (res.status === 401 && !retried && tokenOverride === undefined) {
     const refreshed = await refreshAccessToken();
     if (refreshed) return request<T>(path, options, true);
+    // Don't clear session for select-role 401 so user can retry (e.g. after Google SSO)
+    if (path.includes("google/select-role")) {
+      const errorBody = await res.json().catch(() => ({}));
+      const msg = (errorBody?.error ?? errorBody?.message ?? "Unauthorized") as string;
+      const err = new Error(msg) as Error & { status?: number };
+      err.status = 401;
+      throw err;
+    }
     // Refresh failed — clear session so AuthContext can redirect to login
     setAuthToken(null);
     setRefreshToken(null);

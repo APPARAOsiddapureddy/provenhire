@@ -30,7 +30,7 @@ interface Message {
 }
 
 const NotificationInbox = () => {
-  const { user } = useAuth();
+  const { user, needsGoogleRoleSelection } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [open, setOpen] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
@@ -41,7 +41,7 @@ const NotificationInbox = () => {
   const latestUnread = unreadMessages[0];
 
   const fetchMessages = async () => {
-    if (!user || isBackendDownCooldown()) return;
+    if (!user || needsGoogleRoleSelection || isBackendDownCooldown()) return;
     try {
       const { notifications } = await api.get<{ notifications: Message[] }>("/api/notifications");
       if (notifications) {
@@ -53,9 +53,9 @@ const NotificationInbox = () => {
   };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || needsGoogleRoleSelection) return;
     fetchMessages();
-  }, [user]);
+  }, [user, needsGoogleRoleSelection]);
 
   useEffect(() => {
     if (latestUnread && !popupShown && user) {
