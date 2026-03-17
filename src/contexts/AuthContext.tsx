@@ -53,6 +53,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const pathname = location.pathname || "";
   // Per-pathname so we don't double-run in Strict Mode, and we re-run when navigating away from /auth
   const lastBootstrapPathRef = useRef<string | null>(null);
+  // Skip redundant /api/auth/me on the next run after we've just completed Google sign-in (avoids 401 and session clear).
+  const skipNextMeRef = useRef(false);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -63,10 +65,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       lastBootstrapPathRef.current = pathname;
 
+      // If we just completed Google sign-in and navigated, we already have user + token; skip /api/auth/me to avoid 401.
+      if (skipNextMeRef.current) {
+        skipNextMeRef.current = false;
+        setLoading(false);
+        return;
+      }
+
       // Handle Google redirect result first (user returning from OAuth)
       if (isFirebaseConfigured()) {
         try {
-          const idToken = await getGoogleRedirectIdToken();
+          const REDIRECT_TIMEOUT_MS = 20_000;
+          const idToken = await Promise.race([
+            getGoogleRedirectIdToken(),
+            new Promise<string | null>((_, reject) =>
+              setTimeout(() => reject(new Error("Sign-in took too long. Please try again.")), REDIRECT_TIMEOUT_MS)
+            ),
+          ]);
           if (!idToken && pathname === "/__/auth/handler") {
             navigate("/auth", { replace: true });
             setLoading(false);
@@ -80,6 +95,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (data.refreshToken) setRefreshToken(data.refreshToken);
             setUser(data.user);
             setUserRole(data.user.role);
+            skipNextMeRef.current = true; // Next bootstrap run (after navigate) should skip /api/auth/me
             if (data.isNewUser) {
               setNeedsGoogleRoleSelection(true);
               toast.success("Choose your role to continue");
@@ -103,6 +119,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } catch (err) {
           console.error("[AuthContext] Google redirect result failed:", err);
           toast.error(err instanceof Error ? err.message : "Google sign-in failed");
+          setLoading(false);
+          if (pathname === "/__/auth/handler") navigate("/auth", { replace: true });
+          return;
         }
       }
 
