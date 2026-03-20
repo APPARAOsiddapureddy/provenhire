@@ -81,6 +81,13 @@ const ProctoringSetupGate = ({
   }, []);
 
   const requestScreenShare = async () => {
+    // Hard guard: some stages pass `enableScreenShare={false}`.
+    // Even if retry/other effects call `requestAll()`, we must never trigger
+    // the browser display-capture prompt when screen sharing is disabled.
+    if (!enableScreenShare) {
+      setState((s) => ({ ...s, screenShare: "unsupported", screenStream: null }));
+      return;
+    }
     if (!supportsScreenShare) {
       setState((s) => ({ ...s, screenShare: "unsupported" }));
       return;
