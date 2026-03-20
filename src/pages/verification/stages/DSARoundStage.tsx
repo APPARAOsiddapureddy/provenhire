@@ -4,12 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import ProctoringSetupGate from "@/components/ProctoringSetupGate";
-import SoundDetectedAlert from "@/components/SoundDetectedAlert";
 import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { useProctoringRiskMonitor, type ProctoringEventCode } from "@/hooks/useProctoringRiskMonitor";
+import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp, Lock, Camera, Shield } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp, Lock, Camera, Shield, Volume2 } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   supportedLanguages,
@@ -41,35 +40,6 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function formatIsoTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function proctoringEventLabel(code: ProctoringEventCode): string {
-  switch (code) {
-    case "TAB_SWITCH":
-      return "Tab switch detected";
-    case "NO_FACE_DETECTED":
-      return "No face detected";
-    case "MULTIPLE_FACES_DETECTED":
-      return "Multiple faces detected";
-    case "LOOKING_AWAY_FROM_SCREEN":
-      return "Looking away from screen";
-    case "COPY_PASTE_ATTEMPT":
-      return "Copy/paste attempt";
-    case "WINDOW_FOCUS_LOST":
-      return "Window focus lost";
-    case "WINDOW_MINIMIZED":
-      return "Window minimized";
-    case "FULLSCREEN_EXIT":
-      return "Exited fullscreen";
-    default:
-      return code;
-  }
 }
 
 interface DSARoundStageProps {
@@ -188,6 +158,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeUpSubmittedRef = useRef(false);
   const proctorCameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const didInitialScrollRef = useRef(false);
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
@@ -198,7 +169,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const fullscreenRequired = isFlagEnabled("fullscreen_required");
   const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
   const MAX_TAB_SWITCHES = tabSwitchMode === "STRICT" ? 3 : 999;
-  const { tabSwitchCount, events, riskLevel, riskScore } = useProctoringRiskMonitor({
+  useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: testIdRef.current,
@@ -233,6 +204,13 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     existingAudioStream: proctoringState?.microphoneStream ?? undefined,
   });
 
+  // Auto-clear the inline "sound detected" indicator so the UI doesn't get stuck.
+  useEffect(() => {
+    if (!soundAlertOpen) return;
+    const t = window.setTimeout(() => setSoundAlertOpen(false), 8000);
+    return () => window.clearTimeout(t);
+  }, [soundAlertOpen]);
+
   useProctorFrameCapture({
     enabled: inTest && isFlagEnabled("screen_recording_enabled"),
     sessionId: testIdRef.current,
@@ -249,6 +227,15 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   useEffect(() => {
     if (stageStatus !== "failed") setHasFailed(false);
   }, [stageStatus]);
+
+  // When returning from the proctoring gate, the browser can preserve scroll position.
+  // Force a top start so the question is visible immediately.
+  useEffect(() => {
+    if (!proctoringReady) return;
+    if (didInitialScrollRef.current) return;
+    didInitialScrollRef.current = true;
+    window.scrollTo(0, 0);
+  }, [proctoringReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -797,17 +784,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     );
   }
 
-  const recentViolations = events.slice(-12).reverse();
-  const faceAlertCount = events.filter((e) =>
-    e.event === "NO_FACE_DETECTED" ||
-    e.event === "MULTIPLE_FACES_DETECTED" ||
-    e.event === "LOOKING_AWAY_FROM_SCREEN"
-  ).length;
-  const copyPasteAlertCount = events.filter((e) => e.event === "COPY_PASTE_ATTEMPT").length;
-  const focusAlertCount = events.filter(
-    (e) => e.event === "WINDOW_FOCUS_LOST" || e.event === "WINDOW_MINIMIZED"
-  ).length;
-
   return (
     <Card>
       <CardHeader>
@@ -819,8 +795,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-
         {!effectivelyFullScreen && inTest && fullscreenRequired && (
           <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -830,18 +804,18 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           </div>
         )}
 
-        {/* Right proctoring panel (camera + violations + stats) */}
+        {/* Right proctoring panel (video + sound detection) */}
         <div className="fixed top-20 right-4 z-30 w-[260px] rounded-lg border border-border bg-background/95 backdrop-blur shadow-lg overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
             <Shield className="h-4 w-4 text-primary" />
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold text-foreground truncate">Proctoring</div>
               <div className="text-[10px] text-muted-foreground truncate">
-                Risk: {riskLevel} ({riskScore})
+                {soundAlertOpen ? "Sound detected" : "Listening"}
               </div>
             </div>
             <Badge variant="outline" className="text-[10px] px-2 py-0.5 shrink-0">
-              AI Proctored
+              LIVE
             </Badge>
           </div>
 
@@ -872,49 +846,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-foreground">Violations</span>
-                <Badge variant="outline" className="text-[10px] px-2 py-0.5">
-                  {events.length}
-                </Badge>
-              </div>
-              <div className="max-h-36 overflow-auto pr-1 space-y-1">
-                {recentViolations.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No violations yet.</p>
-                ) : (
-                  recentViolations.map((e, idx) => (
-                    <div
-                      key={`${e.timestamp}_${idx}`}
-                      className="rounded-md border bg-background/50 px-2 py-1.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-[11px] font-medium text-foreground">
-                          {proctoringEventLabel(e.event)}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground shrink-0">
-                          {formatIsoTime(e.timestamp)}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        Risk score: {e.risk_score}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-md border bg-muted/20 p-2">
-              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
-                <div className="text-muted-foreground">Tabs</div>
-                <div className="text-right font-semibold">{tabSwitchCount}</div>
-                <div className="text-muted-foreground">Face</div>
-                <div className="text-right font-semibold">{faceAlertCount}</div>
-                <div className="text-muted-foreground">Copy/Paste</div>
-                <div className="text-right font-semibold">{copyPasteAlertCount}</div>
-                <div className="text-muted-foreground">Focus</div>
-                <div className="text-right font-semibold">{focusAlertCount}</div>
+            <div
+              className={`rounded-md border p-2 flex items-start gap-2 ${
+                soundAlertOpen ? "border-amber-500/30 bg-amber-500/10" : "bg-muted/20"
+              }`}
+            >
+              <Volume2 className={`h-4 w-4 ${soundAlertOpen ? "text-amber-700" : "text-muted-foreground"}`} />
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-foreground">Sound detection</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {soundAlertOpen ? "Unusual sound detected" : "Monitoring microphone"}
+                </div>
               </div>
             </div>
           </div>
