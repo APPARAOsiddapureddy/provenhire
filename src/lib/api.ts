@@ -128,7 +128,18 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     throw e;
   }
 
-  if (res.status === 401 && !retried && tokenOverride === undefined) {
+  // On 401, we normally try to refresh the JWT. However, auth endpoints like
+  // `/api/auth/login` are expected to return 401 for invalid credentials and
+  // should NOT trigger the "session expired" UX (that toast is meant for protected calls).
+  const isPublicAuthEndpoint =
+    path.startsWith("/api/auth/login") ||
+    path.startsWith("/api/auth/register") ||
+    path.startsWith("/api/auth/forgot-password") ||
+    path.startsWith("/api/auth/reset-password") ||
+    path.startsWith("/api/auth/google") ||
+    path.startsWith("/api/auth/email-verification");
+
+  if (res.status === 401 && !retried && tokenOverride === undefined && !isPublicAuthEndpoint) {
     const refreshed = await refreshAccessToken();
     if (refreshed) return request<T>(path, options, true);
     // Don't clear session for select-role 401 so user can retry (e.g. after Google SSO)
