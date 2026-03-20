@@ -3,20 +3,19 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import TestProctoringBar from "@/components/TestProctoringBar";
 import ProctoringSetupGate from "@/components/ProctoringSetupGate";
-import LiveProctoringPreview from "@/components/LiveProctoringPreview";
 import SoundDetectedAlert from "@/components/SoundDetectedAlert";
 import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctoringRiskMonitor, type ProctoringEventCode } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -28,7 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp, Lock } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp, Lock, Camera, Shield } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   supportedLanguages,
@@ -42,6 +41,35 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatIsoTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function proctoringEventLabel(code: ProctoringEventCode): string {
+  switch (code) {
+    case "TAB_SWITCH":
+      return "Tab switch detected";
+    case "NO_FACE_DETECTED":
+      return "No face detected";
+    case "MULTIPLE_FACES_DETECTED":
+      return "Multiple faces detected";
+    case "LOOKING_AWAY_FROM_SCREEN":
+      return "Looking away from screen";
+    case "COPY_PASTE_ATTEMPT":
+      return "Copy/paste attempt";
+    case "WINDOW_FOCUS_LOST":
+      return "Window focus lost";
+    case "WINDOW_MINIMIZED":
+      return "Window minimized";
+    case "FULLSCREEN_EXIT":
+      return "Exited fullscreen";
+    default:
+      return code;
+  }
 }
 
 interface DSARoundStageProps {
@@ -134,6 +162,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<TestResult[] | null>(null);
   const [compileErrorPanel, setCompileErrorPanel] = useState<string | null>(null);
+  const [outputTab, setOutputTab] = useState<"results" | "console">("results");
+  const [consoleText, setConsoleText] = useState<string>("");
   const [langSwitchOpen, setLangSwitchOpen] = useState(false);
   const [pendingLanguage, setPendingLanguage] = useState<ProgrammingLanguage | null>(null);
   /** Final graded submission per question (locks editor for that question). */
@@ -157,6 +187,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeUpSubmittedRef = useRef(false);
+  const proctorCameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
@@ -167,7 +198,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const fullscreenRequired = isFlagEnabled("fullscreen_required");
   const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
   const MAX_TAB_SWITCHES = tabSwitchMode === "STRICT" ? 3 : 999;
-  const { tabSwitchCount } = useProctoringRiskMonitor({
+  const { tabSwitchCount, events, riskLevel, riskScore } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: testIdRef.current,
@@ -210,6 +241,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   });
 
   useEffect(() => {
+    const stream = proctoringState?.cameraStream ?? null;
+    if (!proctorCameraVideoRef.current) return;
+    proctorCameraVideoRef.current.srcObject = stream;
+  }, [proctoringState?.cameraStream]);
+
+  useEffect(() => {
     if (stageStatus !== "failed") setHasFailed(false);
   }, [stageStatus]);
 
@@ -220,6 +257,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setQuestionsError(null);
       setHasEvaluatedQuestions(false);
       setResults(null);
+      setConsoleText("");
+      setOutputTab("results");
       setScores({});
       setCurrentIndex(0);
       setJustPassed(false);
@@ -323,6 +362,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     setRunning(true);
     setResults(null);
     setCompileErrorPanel(null);
+    setConsoleText("");
+    setOutputTab("results");
     try {
       const resp = await api.post<{
         compiledSuccessfully?: boolean;
@@ -345,6 +386,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       if (resp.compiledSuccessfully === false && resp.compileError) {
         setCompileErrorPanel(resp.compileError);
         setResults(null);
+        setConsoleText(resp.compileError);
+        setOutputTab("console");
         toast.error("Compilation failed — fix errors below.");
         return;
       }
@@ -371,6 +414,19 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         : [];
 
       setResults(testResults);
+      setConsoleText(
+        testResults
+          .map((r, i) => {
+            const label = `Case ${i + 1}`;
+            if (typeof r.actual === "string" && r.actual.trim().length > 0) {
+              return `${label}:\n${r.actual}`;
+            }
+            // Hidden cases won't provide input/expected; show pass/fail only.
+            return `${label}: ${r.passed ? "Passed" : "Failed"}`;
+          })
+          .join("\n\n")
+      );
+      setOutputTab("results");
       const score = total > 0 ? Math.round((passedCount / total) * 100) : 0;
       setScores((prev) => ({ ...prev, [selectedQuestion.id]: score }));
       toast.success(`${passedCount}/${total} tests passed`);
@@ -387,6 +443,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         const msg = err instanceof Error ? err.message : "Execution failed";
         toast.error(msg);
         setResults([{ passed: false, status: "internal_error", actual: msg }]);
+        setConsoleText(msg);
+        setOutputTab("console");
       }
     } finally {
       setRunning(false);
@@ -407,6 +465,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     }
     setSubmittingQuestion(true);
     setCompileErrorPanel(null);
+    setConsoleText("");
+    setOutputTab("results");
     try {
       const resp = await api.post<{
         compiledSuccessfully?: boolean;
@@ -423,6 +483,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
       if (resp.compiledSuccessfully === false && resp.compileError) {
         setCompileErrorPanel(resp.compileError);
+        setConsoleText(resp.compileError);
+        setOutputTab("console");
         toast.error("Compilation failed — fix errors before submitting.");
         return;
       }
@@ -450,6 +512,18 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           }))
         : [];
       setResults(testResults);
+      setConsoleText(
+        testResults
+          .map((r, i) => {
+            const label = `Case ${i + 1}`;
+            if (typeof r.actual === "string" && r.actual.trim().length > 0) {
+              return `${label}:\n${r.actual}`;
+            }
+            return `${label}: ${r.passed ? "Passed" : "Failed"}`;
+          })
+          .join("\n\n")
+      );
+      setOutputTab("results");
       toast.success(`Submitted! Score for this question: ${score}/100`);
       setSubmitQuestionConfirmOpen(false);
     } catch (err: unknown) {
@@ -723,6 +797,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     );
   }
 
+  const recentViolations = events.slice(-12).reverse();
+  const faceAlertCount = events.filter((e) =>
+    e.event === "NO_FACE_DETECTED" ||
+    e.event === "MULTIPLE_FACES_DETECTED" ||
+    e.event === "LOOKING_AWAY_FROM_SCREEN"
+  ).length;
+  const copyPasteAlertCount = events.filter((e) => e.event === "COPY_PASTE_ATTEMPT").length;
+  const focusAlertCount = events.filter(
+    (e) => e.event === "WINDOW_FOCUS_LOST" || e.event === "WINDOW_MINIMIZED"
+  ).length;
+
   return (
     <Card>
       <CardHeader>
@@ -735,7 +820,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       </CardHeader>
       <CardContent className="space-y-4">
         <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-        <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={MAX_TAB_SWITCHES} showTabSwitch={tabSwitchDetectionEnabled} />
 
         {!effectivelyFullScreen && inTest && fullscreenRequired && (
           <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
@@ -745,11 +829,96 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             <FullScreenMonitor active={inTest && fullscreenRequired} />
           </div>
         )}
-        <LiveProctoringPreview
-          cameraStream={proctoringState?.cameraStream ?? null}
-          brandName="ProvenHire"
-          position="top-right"
-        />
+
+        {/* Right proctoring panel (camera + violations + stats) */}
+        <div className="fixed top-20 right-4 z-30 w-[260px] rounded-lg border border-border bg-background/95 backdrop-blur shadow-lg overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
+            <Shield className="h-4 w-4 text-primary" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-foreground truncate">Proctoring</div>
+              <div className="text-[10px] text-muted-foreground truncate">
+                Risk: {riskLevel} ({riskScore})
+              </div>
+            </div>
+            <Badge variant="outline" className="text-[10px] px-2 py-0.5 shrink-0">
+              AI Proctored
+            </Badge>
+          </div>
+
+          <div className="p-3 space-y-3">
+            <div className="rounded-md border bg-muted/30 overflow-hidden">
+              <div className="flex items-center gap-2 px-2 py-1.5 bg-muted/20 border-b border-border">
+                <Camera className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">Camera</span>
+              </div>
+              <div className="relative aspect-video bg-muted">
+                {proctoringState?.cameraStream ? (
+                  <video
+                    ref={proctorCameraVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center p-2 text-center text-xs text-muted-foreground">
+                    Camera unavailable
+                  </div>
+                )}
+                <div className="absolute bottom-1 right-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-white bg-black/50">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                  LIVE
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-foreground">Violations</span>
+                <Badge variant="outline" className="text-[10px] px-2 py-0.5">
+                  {events.length}
+                </Badge>
+              </div>
+              <div className="max-h-36 overflow-auto pr-1 space-y-1">
+                {recentViolations.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No violations yet.</p>
+                ) : (
+                  recentViolations.map((e, idx) => (
+                    <div
+                      key={`${e.timestamp}_${idx}`}
+                      className="rounded-md border bg-background/50 px-2 py-1.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-[11px] font-medium text-foreground">
+                          {proctoringEventLabel(e.event)}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {formatIsoTime(e.timestamp)}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        Risk score: {e.risk_score}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-muted/20 p-2">
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+                <div className="text-muted-foreground">Tabs</div>
+                <div className="text-right font-semibold">{tabSwitchCount}</div>
+                <div className="text-muted-foreground">Face</div>
+                <div className="text-right font-semibold">{faceAlertCount}</div>
+                <div className="text-muted-foreground">Copy/Paste</div>
+                <div className="text-right font-semibold">{copyPasteAlertCount}</div>
+                <div className="text-muted-foreground">Focus</div>
+                <div className="text-right font-semibold">{focusAlertCount}</div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Failed state — shown immediately after a low-score submission (no need to reload page) */}
         {isFailed && (
@@ -914,6 +1083,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                     setCurrentIndex((i) => Math.max(0, i - 1));
                     setResults(null);
                     setCompileErrorPanel(null);
+                    setConsoleText("");
+                    setOutputTab("results");
                   }}
                   disabled={isFirstQuestion || (inTest && !effectivelyFullScreen)}
                 >
@@ -968,6 +1139,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                       setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
                       setResults(null);
                       setCompileErrorPanel(null);
+                      setConsoleText("");
+                      setOutputTab("results");
                     }}
                     disabled={inTest && !effectivelyFullScreen}
                   >
@@ -1060,72 +1233,109 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               </AlertDialogContent>
             </AlertDialog>
 
-            {compileErrorPanel && (
-              <div className="rounded-xl border-2 border-orange-500/50 bg-orange-500/5 p-4 space-y-2">
-                <h4 className="font-medium text-sm text-orange-950">Compilation error</h4>
-                <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words text-orange-950">
-                  {compileErrorPanel}
-                </pre>
-              </div>
-            )}
+            <div className="rounded-xl border-2 border-border bg-muted/20 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="font-medium text-sm text-foreground">
+                    Output for Q{currentIndex + 1}
+                  </h4>
+                  <div className="text-xs text-muted-foreground">
+                    {compileErrorPanel ? "Compilation stopped execution" : results ? "Run completed" : null}
+                  </div>
+                </div>
 
-            {/* Test results — clears when switching questions */}
-            {results && !compileErrorPanel && (
-              <div className="rounded-xl border-2 border-border bg-muted/20 p-4 space-y-3">
-                <h4 className="font-medium text-sm text-foreground">Test results for Q{currentIndex + 1}</h4>
-                {results.map((r, i) => {
-                  const hidden = r.input == null && r.expected == null;
-                  const st = r.status;
-                  return (
-                    <div
-                      key={i}
-                      className={`text-sm p-3 rounded-lg border ${
-                        r.passed ? "bg-green-500/10 border-green-600/20" : "bg-red-500/5 border-red-600/15"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        {r.passed ? (
-                          <CheckCircle2 className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <XCircle className="h-5 w-5 text-red-600" />
-                        )}
-                        <Badge variant="outline" className={statusBadgeClass(st, r.passed)}>
-                          {hidden ? `Test case ${i + 1}` : `Case ${i + 1}`}: {statusLabel(st) || (r.passed ? "Passed" : "Failed")}
-                        </Badge>
+                <Tabs
+                  value={outputTab}
+                  onValueChange={(v) => setOutputTab(v as "results" | "console")}
+                >
+                  <TabsList>
+                    <TabsTrigger value="results">Results</TabsTrigger>
+                    <TabsTrigger value="console">Console</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="results">
+                    {compileErrorPanel ? (
+                      <div className="rounded-xl border-2 border-orange-500/50 bg-orange-500/5 p-4 space-y-2">
+                        <h4 className="font-medium text-sm text-orange-950">Compilation error</h4>
+                        <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words text-orange-950">
+                          {compileErrorPanel}
+                        </pre>
                       </div>
-                      {hidden ? (
-                        <p className="text-xs text-muted-foreground">
-                          Hidden test — only status is shown (no input / expected).
-                        </p>
-                      ) : !r.passed && r.input != null && r.expected != null ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                          <div className="rounded-md border bg-background p-2">
-                            <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">Input</div>
-                            <pre className="font-mono whitespace-pre-wrap break-words">{r.input}</pre>
-                          </div>
-                          <div className="rounded-md border bg-background p-2">
-                            <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">Expected</div>
-                            <pre className="font-mono whitespace-pre-wrap break-words">{r.expected}</pre>
-                          </div>
-                          <div className="rounded-md border bg-background p-2">
-                            <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">Your output</div>
-                            <pre className="font-mono whitespace-pre-wrap break-words text-amber-800">
-                              {r.actual ?? "—"}
-                            </pre>
-                          </div>
+                    ) : (
+                      results && (
+                        <div className="space-y-3">
+                          {results.map((r, i) => {
+                            const hidden = r.input == null && r.expected == null;
+                            const st = r.status;
+                            return (
+                              <div
+                                key={i}
+                                className={`text-sm p-3 rounded-lg border ${
+                                  r.passed
+                                    ? "bg-green-500/10 border-green-600/20"
+                                    : "bg-red-500/5 border-red-600/15"
+                                }`}
+                              >
+                                <div className="flex flex-wrap items-center gap-2 mb-2">
+                                  {r.passed ? (
+                                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                                  ) : (
+                                    <XCircle className="h-5 w-5 text-red-600" />
+                                  )}
+                                  <Badge variant="outline" className={statusBadgeClass(st, r.passed)}>
+                                    {hidden
+                                      ? `Test case ${i + 1}`
+                                      : `Case ${i + 1}`}: {statusLabel(st) || (r.passed ? "Passed" : "Failed")}
+                                  </Badge>
+                                </div>
+                                {hidden ? (
+                                  <p className="text-xs text-muted-foreground">
+                                    Hidden test — only status is shown (no input / expected).
+                                  </p>
+                                ) : !r.passed && r.input != null && r.expected != null ? (
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                                    <div className="rounded-md border bg-background p-2">
+                                      <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                                        Input
+                                      </div>
+                                      <pre className="font-mono whitespace-pre-wrap break-words">{r.input}</pre>
+                                    </div>
+                                    <div className="rounded-md border bg-background p-2">
+                                      <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                                        Expected
+                                      </div>
+                                      <pre className="font-mono whitespace-pre-wrap break-words">{r.expected}</pre>
+                                    </div>
+                                    <div className="rounded-md border bg-background p-2">
+                                      <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                                        Your output
+                                      </div>
+                                      <pre className="font-mono whitespace-pre-wrap break-words text-amber-800">
+                                        {r.actual ?? "—"}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                ) : r.passed ? (
+                                  <p className="text-xs text-green-800">All checks passed for this case.</p>
+                                ) : (
+                                  <div className="space-y-1 text-xs">
+                                    {r.actual != null && <div className="text-amber-800">Output: {r.actual}</div>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                      ) : r.passed ? (
-                        <p className="text-xs text-green-800">All checks passed for this case.</p>
-                      ) : (
-                        <div className="space-y-1 text-xs">
-                          {r.actual != null && <div className="text-amber-800">Output: {r.actual}</div>}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      )
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="console">
+                    <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words">
+                      {consoleText || "No console output yet. Click “Run test cases” to execute your code."}
+                    </pre>
+                  </TabsContent>
+                </Tabs>
               </div>
-            )}
           </>
         )}
       </CardContent>
