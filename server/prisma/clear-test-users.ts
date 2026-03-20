@@ -53,6 +53,12 @@ async function main() {
     await tx.aptitudeTestResult.deleteMany({ where: { userId: { in: userIds } } });
     await tx.aptitudeSession.deleteMany({ where: { userId: { in: userIds } } });
     await tx.dsaRoundResult.deleteMany({ where: { userId: { in: userIds } } });
+    // New DSA architecture: official + non-official code execution submissions
+    try {
+      await tx.dsaSubmission.deleteMany({ where: { userId: { in: userIds } } });
+    } catch {
+      /* table may not exist yet in older DBs */
+    }
     await tx.resumeAnalysis.deleteMany({ where: { userId: { in: userIds } } });
     await tx.notification.deleteMany({ where: { userId: { in: userIds } } });
     await tx.appeal.deleteMany({ where: { userId: { in: userIds } } });

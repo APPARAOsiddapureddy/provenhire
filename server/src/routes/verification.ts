@@ -9,6 +9,9 @@ import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 import { upsertSkillVerification, getSkillVerifications } from "../services/skillVerification.service.js";
+import { DSA_API_LANGUAGES, DSA_PRACTICE_COUNT, DSA_QUESTIONS_COUNT, type DsaApiLanguage } from "../constants/dsa.js";
+import { checkRateLimit } from "../middleware/dsaRateLimit.js";
+import { evaluateDsaAgainstTestCases, persistDsaSubmission } from "../services/dsaEvaluation.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -352,104 +355,6 @@ verificationRouter.get("/dsa/latest", requireAuth, async (req: AuthedRequest, re
 // DSA questions + test runner API (backend-side, no test cases on the client)
 // ---------------------------------------------------------------------------
 
-const DSA_QUESTIONS_COUNT = 3;
-
-type ProgrammingLanguage = "javascript" | "python" | "java" | "cpp" | "c";
-
-// Judge0 execution helpers (copied from server/src/routes/execute.ts)
-const JUDGE0_CE_URL = process.env.JUDGE0_CE_URL || "https://ce.judge0.com";
-
-// Judge0 CE language IDs (see https://ce.judge0.com for full list)
-const langToJudge0Id: Record<ProgrammingLanguage, number> = {
-  javascript: 63,
-  python: 71,
-  java: 62,
-  cpp: 54,
-  c: 50,
-};
-
-type Judge0Submission = {
-  token?: string;
-  stdout?: string | null;
-  stderr?: string | null;
-  compile_output?: string | null;
-  message?: string | null;
-  status?: { id: number; description?: string };
-  exit_code?: number | null;
-};
-
-function normalizeOutput(s: string): string {
-  return (s || "")
-    .replace(/\r\n/g, "\n")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-async function pollSubmission(token: string): Promise<Judge0Submission> {
-  const url = `${JUDGE0_CE_URL}/submissions/${token}?base64_encoded=false`;
-  for (let i = 0; i < 30; i++) {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Judge0 poll error: ${await resp.text()}`);
-    const data = (await resp.json()) as Judge0Submission;
-    const sid = data.status?.id ?? 0;
-    if (sid !== 1 && sid !== 2) return data;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error("Execution timed out");
-}
-
-async function executeWithJudge0(languageId: number, code: string, stdin: string): Promise<{
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}> {
-  const url = `${JUDGE0_CE_URL}/submissions/?base64_encoded=false&wait=true`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source_code: code,
-      language_id: languageId,
-      stdin: stdin || "",
-      cpu_time_limit: 5,
-      wall_time_limit: 10,
-      memory_limit: 256000,
-    }),
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Judge0 error: ${text}`);
-  }
-  let data = (await resp.json()) as Judge0Submission;
-  if (data.token && data.status?.id === undefined && !data.stdout) {
-    data = await pollSubmission(data.token);
-  }
-  const statusId = data.status?.id ?? 0;
-
-  const stdout = data.stdout ?? "";
-  const stderr = data.stderr ?? "";
-  const compileOut = data.compile_output ?? "";
-  const msg = data.message ?? "";
-
-  if (statusId === 6) {
-    return { stdout: "", stderr: compileOut || stderr || "Compilation error", exitCode: 1 };
-  }
-
-  if (statusId >= 7 && statusId <= 14) {
-    return { stdout: "", stderr: msg || stderr || (data.status?.description ?? "Runtime error"), exitCode: 1 };
-  }
-
-  if (statusId === 13) {
-    return { stdout: "", stderr: msg || "Internal error", exitCode: 1 };
-  }
-
-  return {
-    stdout,
-    stderr,
-    exitCode: data.exit_code ?? (statusId === 3 ? 0 : 1),
-  };
-}
-
 // DSA role/experience difficulty distribution (mirrors src/data/dsaRoleDifficulty.ts)
 type DSARoleCategory = "developer" | "infrastructure" | "data" | "analytics" | "unknown";
 
@@ -614,7 +519,7 @@ verificationRouter.get("/dsa/practice-questions", requireAuth, async (req: Authe
     },
   });
 
-  const practiceCount = 2;
+  const practiceCount = DSA_PRACTICE_COUNT;
   const selected = generateDSATestByRoleAndExperience(
     targetJobTitle,
     experienceYears,
@@ -641,15 +546,26 @@ verificationRouter.post("/dsa/run-tests", requireAuth, async (req: AuthedRequest
   const schema = z.object({
     questionId: z.string().min(1),
     code: z.string().min(1).max(100_000),
-    language: z.enum(["javascript", "python", "java", "cpp", "c"]),
+    language: z.enum(DSA_API_LANGUAGES as unknown as [string, ...string[]]),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+  }
 
   const { questionId, code, language } = parsed.data;
+  const userId = req.user!.id;
+
+  const rateCheck = checkRateLimit(userId);
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      error: "Too many submissions. Please slow down.",
+      retryAfter: rateCheck.retryAfterSeconds,
+    });
+  }
 
   const activeStage = await prisma.verificationStage.findFirst({
-    where: { userId: req.user!.id, stageName: "dsa_round", status: "in_progress" },
+    where: { userId, stageName: "dsa_round", status: "in_progress" },
   });
   if (!activeStage) {
     return res.status(403).json({ error: "DSA round is not active" });
@@ -657,44 +573,103 @@ verificationRouter.post("/dsa/run-tests", requireAuth, async (req: AuthedRequest
 
   const testCases = await prisma.dsaTestCase.findMany({
     where: { questionId },
-    select: { input: true, expected: true, isHidden: true },
+    select: { input: true, expected: true, isHidden: true, expectedType: true, timeoutMs: true },
   });
-  if (!testCases || testCases.length === 0) {
-    return res.status(404).json({ error: "No test cases found for this question" });
+  if (testCases.length === 0) {
+    return res.status(404).json({ error: "Question not found or has no test cases" });
   }
 
-  const languageId = langToJudge0Id[language as ProgrammingLanguage];
+  try {
+    const payload = await evaluateDsaAgainstTestCases(testCases, code, language as DsaApiLanguage);
 
-  let passedCount = 0;
-  const results: Array<
-    | { passed: boolean }
-    | { passed: boolean; input: string; expected: string; actual: string }
-  > = [];
+    await persistDsaSubmission(prisma, {
+      userId,
+      questionId,
+      language,
+      code,
+      passedCount: payload.passed,
+      totalCount: payload.total,
+      isOfficial: false,
+      results: payload.results,
+    });
 
-  for (const tc of testCases) {
-    const { stdout, stderr } = await executeWithJudge0(languageId, code, tc.input);
-    const rawActual = stdout && stdout.trim().length > 0 ? stdout : stderr;
-    const passed = normalizeOutput(rawActual) === normalizeOutput(tc.expected);
+    return res.json({
+      compiledSuccessfully: payload.compiledSuccessfully,
+      passed: payload.passed,
+      total: payload.total,
+      ...(payload.compileError ? { compileError: payload.compileError } : {}),
+      results: payload.results,
+    });
+  } catch (err: unknown) {
+    console.error("[verification/dsa/run-tests]", err);
+    const msg = err instanceof Error ? err.message : "Execution failed";
+    return res.status(502).json({ error: msg });
+  }
+});
 
-    if (passed) passedCount++;
-
-    if (tc.isHidden) {
-      results.push({ passed });
-    } else {
-      results.push({
-        passed,
-        input: tc.input,
-        expected: tc.expected,
-        actual: rawActual,
-      });
-    }
+verificationRouter.post("/dsa/submit", requireAuth, async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    questionId: z.string().min(1),
+    code: z.string().min(1).max(100_000),
+    language: z.enum(DSA_API_LANGUAGES as unknown as [string, ...string[]]),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
   }
 
-  return res.json({
-    passed: passedCount,
-    total: testCases.length,
-    results,
+  const { questionId, code, language } = parsed.data;
+  const userId = req.user!.id;
+
+  const activeStage = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "dsa_round", status: "in_progress" },
   });
+  if (!activeStage) {
+    return res.status(403).json({ error: "DSA round is not active" });
+  }
+
+  const existingOfficial = await prisma.dsaSubmission.findFirst({
+    where: { userId, questionId, isOfficial: true },
+  });
+  if (existingOfficial) {
+    return res.status(409).json({ error: "You have already submitted this question." });
+  }
+
+  const testCases = await prisma.dsaTestCase.findMany({
+    where: { questionId },
+    select: { input: true, expected: true, isHidden: true, expectedType: true, timeoutMs: true },
+  });
+  if (testCases.length === 0) {
+    return res.status(404).json({ error: "Question not found or has no test cases" });
+  }
+
+  try {
+    const payload = await evaluateDsaAgainstTestCases(testCases, code, language as DsaApiLanguage);
+
+    await persistDsaSubmission(prisma, {
+      userId,
+      questionId,
+      language,
+      code,
+      passedCount: payload.passed,
+      totalCount: payload.total,
+      isOfficial: true,
+      results: payload.results,
+    });
+
+    return res.json({
+      compiledSuccessfully: payload.compiledSuccessfully,
+      passed: payload.passed,
+      total: payload.total,
+      ...(payload.compileError ? { compileError: payload.compileError } : {}),
+      results: payload.results,
+      submitted: true,
+    });
+  } catch (err: unknown) {
+    console.error("[verification/dsa/submit]", err);
+    const msg = err instanceof Error ? err.message : "Execution failed";
+    return res.status(502).json({ error: msg });
+  }
 });
 
 verificationRouter.get("/technical-scorecard", requireAuth, async (req: AuthedRequest, res) => {

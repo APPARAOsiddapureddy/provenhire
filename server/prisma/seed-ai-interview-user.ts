@@ -10,7 +10,8 @@ import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-const TEST_EMAIL = "ai-interview1@test.provenhire.com".trim().toLowerCase();
+// Keep consistent with `prisma/seed-test-credentials.ts` so QA can use one set.
+const TEST_EMAIL = "interview@test.provenhire.com".trim().toLowerCase();
 const TEST_PASSWORD = "Test123456";
 const TEST_NAME = "AI Interview Test User";
 

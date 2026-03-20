@@ -63,7 +63,13 @@ export function convertToDSAQuestion(raw: RawDSAQuestion, id: string): DSAQuesti
     difficulty: diff,
     title: raw.questionName,
     description: raw.question,
-    examples: [],
+    // Explicit, non-test examples for seeding (never use real test case I/O here).
+    examples: [
+      {
+        input: "Refer to the problem description for input/output format.",
+        output: "Refer to the problem description for the expected result.",
+      },
+    ],
     constraints: [],
     testCases: raw.testCases.map((t) => ({ input: t.input, expectedOutput: t.output })),
     hints: [],

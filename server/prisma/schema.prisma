@@ -273,10 +273,28 @@ model DsaTestCase {
   input      String
   expected   String
   isHidden   Boolean  @default(false)
+  expectedType String @default("exact") // "exact" | "numeric" | "array" | "set"
+  timeoutMs    Int? // Per-test timeout override in ms; null => use global default
 
   question DsaQuestion @relation(fields: [questionId], references: [id])
 
   @@index([questionId])
+}
+
+model DsaSubmission {
+  id          String   @id @default(cuid())
+  userId      String
+  questionId String
+  language    String
+  code        String   @db.Text
+  passedCount Int
+  totalCount  Int
+  isOfficial  Boolean  @default(false)
+  results     Json
+  submittedAt DateTime @default(now())
+
+  @@index([userId, questionId])
+  @@index([userId, isOfficial])
 }
 
 model Interview {

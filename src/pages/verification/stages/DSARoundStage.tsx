@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp, Lock } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   supportedLanguages,
@@ -54,11 +54,49 @@ interface DSARoundStageProps {
   experienceYears?: number;
 }
 
+type TestResultStatus =
+  | "passed"
+  | "wrong_answer"
+  | "compile_error"
+  | "runtime_error"
+  | "time_limit_exceeded"
+  | "memory_limit_exceeded"
+  | "internal_error";
+
 interface TestResult {
   passed: boolean;
+  status?: TestResultStatus;
   input?: string;
   expected?: string;
   actual?: string;
+}
+
+function statusLabel(s?: TestResultStatus): string {
+  const labels: Record<TestResultStatus, string> = {
+    passed: "Passed",
+    wrong_answer: "Wrong Answer",
+    compile_error: "Compile Error",
+    runtime_error: "Runtime Error",
+    time_limit_exceeded: "Time Limit Exceeded",
+    memory_limit_exceeded: "Memory Limit Exceeded",
+    internal_error: "Internal Error",
+  };
+  return s ? labels[s] : "";
+}
+
+function statusBadgeClass(s?: TestResultStatus, passed?: boolean): string {
+  if (passed) return "bg-green-600/15 text-green-700 border-green-600/30";
+  switch (s) {
+    case "compile_error":
+      return "bg-orange-500/15 text-orange-800 border-orange-500/30";
+    case "time_limit_exceeded":
+    case "memory_limit_exceeded":
+      return "bg-amber-500/15 text-amber-900 border-amber-500/30";
+    case "internal_error":
+      return "bg-muted text-muted-foreground border-border";
+    default:
+      return "bg-red-600/15 text-red-800 border-red-600/30";
+  }
 }
 
 type ApiDSAExample = {
@@ -77,6 +115,10 @@ type ApiDSAQuestion = {
   starterCode: Record<string, string>;
 };
 
+function getStarterForQuestion(q: ApiDSAQuestion, lang: ProgrammingLanguage): string {
+  return q.starterCode?.[lang] ?? q.starterCode?.python ?? "";
+}
+
 const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, targetJobTitle, experienceYears = 2 }: DSARoundStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -86,10 +128,20 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [questions, setQuestions] = useState<ApiDSAQuestion[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
-  const [code, setCode] = useState<Record<string, string>>({});
+  /** Per-question, per-language editor buffer — switching language does not wipe other tabs. */
+  const [codeByLang, setCodeByLang] = useState<Record<string, Partial<Record<ProgrammingLanguage, string>>>>({});
   const [language, setLanguage] = useState<ProgrammingLanguage>("python");
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<TestResult[] | null>(null);
+  const [compileErrorPanel, setCompileErrorPanel] = useState<string | null>(null);
+  const [langSwitchOpen, setLangSwitchOpen] = useState(false);
+  const [pendingLanguage, setPendingLanguage] = useState<ProgrammingLanguage | null>(null);
+  /** Final graded submission per question (locks editor for that question). */
+  const [officialByQuestion, setOfficialByQuestion] = useState<
+    Record<string, { code: string; language: ProgrammingLanguage; score: number }>
+  >({});
+  const [submitQuestionConfirmOpen, setSubmitQuestionConfirmOpen] = useState(false);
+  const [submittingQuestion, setSubmittingQuestion] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [justPassed, setJustPassed] = useState(false);
@@ -182,15 +234,19 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         setQuestions(questionsFromApi);
 
         if (questionsFromApi.length > 0) {
-          const initial: Record<string, string> = {};
+          const initial: Record<string, Partial<Record<ProgrammingLanguage, string>>> = {};
           questionsFromApi.forEach((qu) => {
-            const templates = qu.starterCode ?? {};
-            initial[qu.id] = templates[language] ?? templates.python ?? "";
+            initial[qu.id] = {};
+            supportedLanguages.forEach(({ language: lang }) => {
+              initial[qu.id]![lang] = getStarterForQuestion(qu, lang);
+            });
           });
-          setCode(initial);
+          setCodeByLang(initial);
         } else {
-          setCode({});
+          setCodeByLang({});
         }
+        setOfficialByQuestion({});
+        setCompileErrorPanel(null);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Failed to load DSA questions";
         if (!cancelled) setQuestionsError(msg);
@@ -231,49 +287,67 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   const selectedQuestion = questions[currentIndex];
 
-  useEffect(() => {
-    if (selectedQuestion) {
-      setCode((prev) => ({
-        ...prev,
-        [selectedQuestion.id]:
-          prev[selectedQuestion.id] ??
-          selectedQuestion.starterCode?.[language] ??
-          selectedQuestion.starterCode?.python ??
-          "",
-      }));
-    }
-  }, [selectedQuestion?.id]);
+  const trySetLanguage = useCallback(
+    (newLang: ProgrammingLanguage) => {
+      if (!selectedQuestion || newLang === language) return;
+      const starter = getStarterForQuestion(selectedQuestion, language);
+      const cur = codeByLang[selectedQuestion.id]?.[language] ?? "";
+      if (cur.trim() !== starter.trim()) {
+        setPendingLanguage(newLang);
+        setLangSwitchOpen(true);
+        return;
+      }
+      setLanguage(newLang);
+    },
+    [selectedQuestion, language, codeByLang]
+  );
 
-  useEffect(() => {
-    if (selectedQuestion) {
-      const tpl =
-        selectedQuestion.starterCode?.[language] ??
-        selectedQuestion.starterCode?.python ??
-        "";
-      setCode((prev) => ({ ...prev, [selectedQuestion.id]: tpl }));
-    }
-  }, [language]);
+  const confirmLanguageSwitch = () => {
+    if (pendingLanguage) setLanguage(pendingLanguage);
+    setPendingLanguage(null);
+    setLangSwitchOpen(false);
+  };
 
   const runTests = async () => {
     if (!selectedQuestion) return;
-    const templates = selectedQuestion.starterCode ?? {};
-    const currentCode = code[selectedQuestion.id] ?? templates[language] ?? templates.python ?? "";
+    if (officialByQuestion[selectedQuestion.id]) {
+      toast.info("This question is already submitted.");
+      return;
+    }
+    const currentCode =
+      codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language);
     if (!currentCode?.trim()) {
       toast.error("Write some code first");
       return;
     }
     setRunning(true);
     setResults(null);
+    setCompileErrorPanel(null);
     try {
       const resp = await api.post<{
+        compiledSuccessfully?: boolean;
+        compileError?: string;
         passed: number;
         total: number;
-        results: Array<any>;
+        results: Array<{
+          passed: boolean;
+          status?: TestResultStatus;
+          input?: string;
+          expected?: string;
+          actual?: string;
+        }>;
       }>("/api/verification/dsa/run-tests", {
         questionId: selectedQuestion.id,
         code: currentCode,
         language,
       });
+
+      if (resp.compiledSuccessfully === false && resp.compileError) {
+        setCompileErrorPanel(resp.compileError);
+        setResults(null);
+        toast.error("Compilation failed — fix errors below.");
+        return;
+      }
 
       const total = resp.total ?? 0;
       const passedCount = resp.passed ?? 0;
@@ -284,10 +358,11 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             const inputRaw = typeof r.input === "string" ? r.input : undefined;
             const input =
               typeof inputRaw === "string"
-                ? inputRaw.substring(0, 80) + (inputRaw.length > 80 ? "…" : "")
+                ? inputRaw.substring(0, 200) + (inputRaw.length > 200 ? "…" : "")
                 : undefined;
             return {
               passed,
+              status: r.status,
               input,
               expected: typeof r.expected === "string" ? r.expected : undefined,
               actual: typeof r.actual === "string" ? r.actual : undefined,
@@ -300,11 +375,93 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setScores((prev) => ({ ...prev, [selectedQuestion.id]: score }));
       toast.success(`${passedCount}/${total} tests passed`);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Execution failed";
-      toast.error(msg);
-      setResults([{ passed: false, actual: msg }]);
+      const ax = err as Error & { status?: number; response?: { data?: { error?: string; retryAfter?: number } } };
+      if (ax.status === 429) {
+        const n = ax.response?.data?.retryAfter;
+        toast.error(
+          typeof n === "number"
+            ? `You're running tests too frequently. Please wait ${n} seconds.`
+            : "You're running tests too frequently. Please slow down."
+        );
+      } else {
+        const msg = err instanceof Error ? err.message : "Execution failed";
+        toast.error(msg);
+        setResults([{ passed: false, status: "internal_error", actual: msg }]);
+      }
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleOfficialSubmitQuestion = async () => {
+    if (!selectedQuestion) return;
+    if (officialByQuestion[selectedQuestion.id]) {
+      toast.info("Already submitted.");
+      return;
+    }
+    const currentCode =
+      codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language);
+    if (!currentCode?.trim()) {
+      toast.error("Write some code first");
+      return;
+    }
+    setSubmittingQuestion(true);
+    setCompileErrorPanel(null);
+    try {
+      const resp = await api.post<{
+        compiledSuccessfully?: boolean;
+        compileError?: string;
+        passed: number;
+        total: number;
+        submitted?: boolean;
+        results: Array<{ passed: boolean; status?: TestResultStatus; input?: string; expected?: string; actual?: string }>;
+      }>("/api/verification/dsa/submit", {
+        questionId: selectedQuestion.id,
+        code: currentCode,
+        language,
+      });
+
+      if (resp.compiledSuccessfully === false && resp.compileError) {
+        setCompileErrorPanel(resp.compileError);
+        toast.error("Compilation failed — fix errors before submitting.");
+        return;
+      }
+
+      const total = resp.total ?? 0;
+      const passedCount = resp.passed ?? 0;
+      const score = total > 0 ? Math.round((passedCount / total) * 100) : 0;
+
+      setOfficialByQuestion((prev) => ({
+        ...prev,
+        [selectedQuestion.id]: { code: currentCode, language, score },
+      }));
+      setScores((prev) => ({ ...prev, [selectedQuestion.id]: score }));
+
+      const testResults: TestResult[] = Array.isArray(resp.results)
+        ? resp.results.map((r) => ({
+            passed: !!r.passed,
+            status: r.status,
+            input:
+              typeof r.input === "string"
+                ? r.input.substring(0, 200) + (r.input.length > 200 ? "…" : "")
+                : undefined,
+            expected: typeof r.expected === "string" ? r.expected : undefined,
+            actual: typeof r.actual === "string" ? r.actual : undefined,
+          }))
+        : [];
+      setResults(testResults);
+      toast.success(`Submitted! Score for this question: ${score}/100`);
+      setSubmitQuestionConfirmOpen(false);
+    } catch (err: unknown) {
+      const ax = err as Error & { status?: number; response?: { data?: { error?: string } } };
+      if (ax.status === 409) {
+        toast.error(ax.response?.data?.error ?? "You've already submitted this question.");
+      } else {
+        const msg = err instanceof Error ? err.message : "Submit failed";
+        toast.error(msg);
+      }
+    } finally {
+      setSubmittingQuestion(false);
     }
   };
 
@@ -331,10 +488,20 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   }, [justPassed, hasFailed, proctoringState]);
 
   const handleSubmitRound = useCallback(async () => {
+    const missingOfficial = questions.filter((q) => !officialByQuestion[q.id]);
+    if (missingOfficial.length > 0) {
+      toast.error(
+        `Submit each question officially first (${missingOfficial.length} remaining). Use "Submit solution" on every problem.`
+      );
+      setSubmitConfirmOpen(false);
+      return;
+    }
+
     const totalScore =
       questions.length > 0
         ? Math.round(
-            questions.reduce((sum, q) => sum + (scores[q.id] ?? 0), 0) / questions.length
+            questions.reduce((sum, q) => sum + (officialByQuestion[q.id]?.score ?? scores[q.id] ?? 0), 0) /
+              questions.length
           )
         : 0;
     const finalScore = Math.min(100, Math.max(0, totalScore || 0));
@@ -342,10 +509,11 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     try {
       const answers: Record<string, { code: string; language: string; score: number }> = {};
       questions.forEach((q) => {
+        const snap = officialByQuestion[q.id]!;
         answers[q.id] = {
-          code: code[q.id] ?? "",
-          language,
-          score: scores[q.id] ?? 0,
+          code: snap.code,
+          language: snap.language,
+          score: snap.score,
         };
       });
       await api.post("/api/verification/dsa", {
@@ -378,7 +546,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setSubmitting(false);
       setSubmitConfirmOpen(false);
     }
-  }, [questions, scores, code, language]);
+  }, [questions, scores, officialByQuestion]);
 
   useEffect(() => {
     if (secondsRemaining === 0 && inTest && questions.length > 0 && !submitting && !timeUpSubmittedRef.current) {
@@ -663,9 +831,15 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             {/* Question description */}
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
               <div>
-                <h3 className="font-semibold flex items-center gap-2">
+                <h3 className="font-semibold flex items-center gap-2 flex-wrap">
                   {selectedQuestion.title}
                   <Badge variant="outline">{selectedQuestion.difficulty}</Badge>
+                  {officialByQuestion[selectedQuestion.id] && (
+                    <Badge className="gap-1 bg-green-600/15 text-green-800 border-green-600/30">
+                      <Lock className="h-3 w-3" />
+                      Submitted
+                    </Badge>
+                  )}
                 </h3>
                 <p className="mt-2 text-sm whitespace-pre-wrap">{selectedQuestion.description}</p>
               </div>
@@ -694,7 +868,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             {/* Language selector */}
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">Language:</span>
-              <Select value={language} onValueChange={(v) => setLanguage(v as ProgrammingLanguage)}>
+              <Select value={language} onValueChange={(v) => trySetLanguage(v as ProgrammingLanguage)}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -711,14 +885,19 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             {/* Code editor */}
             <CodeEditor
               value={
-                code[selectedQuestion.id] ??
-                selectedQuestion.starterCode?.[language] ??
-                selectedQuestion.starterCode?.python ??
-                ""
+                codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language)
               }
-              onChange={(v) =>
-                setCode((prev) => ({ ...prev, [selectedQuestion.id]: v }))
-              }
+              onChange={(v) => {
+                if (officialByQuestion[selectedQuestion.id]) return;
+                setCodeByLang((prev) => ({
+                  ...prev,
+                  [selectedQuestion.id]: {
+                    ...(prev[selectedQuestion.id] ?? {}),
+                    [language]: v,
+                  },
+                }));
+              }}
+              readOnly={!!officialByQuestion[selectedQuestion.id]}
               language={language}
               height="360px"
             />
@@ -734,6 +913,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   onClick={() => {
                     setCurrentIndex((i) => Math.max(0, i - 1));
                     setResults(null);
+                    setCompileErrorPanel(null);
                   }}
                   disabled={isFirstQuestion || (inTest && !effectivelyFullScreen)}
                 >
@@ -743,7 +923,11 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
                 <Button
                   onClick={runTests}
-                  disabled={running || (inTest && !effectivelyFullScreen)}
+                  disabled={
+                    running ||
+                    (inTest && !effectivelyFullScreen) ||
+                    !!officialByQuestion[selectedQuestion.id]
+                  }
                   variant="secondary"
                   size="lg"
                   className="font-medium"
@@ -756,6 +940,25 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   Run test cases
                 </Button>
 
+                <Button
+                  onClick={() => setSubmitQuestionConfirmOpen(true)}
+                  disabled={
+                    submittingQuestion ||
+                    (inTest && !effectivelyFullScreen) ||
+                    !!officialByQuestion[selectedQuestion.id]
+                  }
+                  variant="default"
+                  size="lg"
+                  className="font-medium bg-emerald-700 hover:bg-emerald-800"
+                >
+                  {submittingQuestion ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Lock className="h-4 w-4 mr-2" />
+                  )}
+                  Submit solution
+                </Button>
+
                 {!isLastQuestion && (
                   <Button
                     size="lg"
@@ -764,6 +967,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                     onClick={() => {
                       setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
                       setResults(null);
+                      setCompileErrorPanel(null);
                     }}
                     disabled={inTest && !effectivelyFullScreen}
                   >
@@ -788,7 +992,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               <AlertDialogContent>
                 <AlertDialogTitle>Submit entire round?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will submit your complete DSA round with all {questions.length} question(s). You cannot change your answers after submitting. Make sure you have run tests and reviewed your solutions. Continue?
+                  This will submit your complete DSA round with all {questions.length} question(s). You must have used
+                  &quot;Submit solution&quot; on each question first. After round submit you cannot change answers.
+                  Continue?
                 </AlertDialogDescription>
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
@@ -810,39 +1016,114 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               </AlertDialogContent>
             </AlertDialog>
 
-            {/* Test results — clears when switching questions */}
-            {results && (
-              <div className="rounded-xl border-2 border-border bg-muted/20 p-4 space-y-2">
-                <h4 className="font-medium text-sm text-foreground">Test results for Q{currentIndex + 1}</h4>
-                {results.map((r, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-start gap-2 text-sm p-2 rounded ${
-                      r.passed ? "bg-green-500/10" : "bg-red-500/10"
-                    }`}
+            <AlertDialog open={langSwitchOpen} onOpenChange={setLangSwitchOpen}>
+              <AlertDialogContent>
+                <AlertDialogTitle>Switch language?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Switching to {pendingLanguage ? supportedLanguages.find((l) => l.language === pendingLanguage)?.displayName : "another language"}{" "}
+                  loads that language&apos;s starter template for this question. Your current {language} code stays saved when you switch back.
+                  Continue?
+                </AlertDialogDescription>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    onClick={() => {
+                      setPendingLanguage(null);
+                    }}
                   >
-                    {r.passed ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+                    Cancel
+                  </AlertDialogCancel>
+                  <Button onClick={confirmLanguageSwitch}>Continue</Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={submitQuestionConfirmOpen} onOpenChange={setSubmitQuestionConfirmOpen}>
+              <AlertDialogContent>
+                <AlertDialogTitle>Submit final answer for this question?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This records your official graded submission for this problem. You cannot re-submit or edit this
+                  question afterward. Continue?
+                </AlertDialogDescription>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={submittingQuestion}>Cancel</AlertDialogCancel>
+                  <Button onClick={() => void handleOfficialSubmitQuestion()} disabled={submittingQuestion}>
+                    {submittingQuestion ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Submitting…
+                      </>
                     ) : (
-                      <XCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
+                      "Yes, submit"
                     )}
-                    <div className="min-w-0">
-                      <div className="font-mono text-xs truncate">
-                        {typeof r.input === "string"
-                          ? `Input: ${r.input}`
-                          : r.passed
-                            ? "Hidden test passed"
-                            : "Hidden test failed"}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {compileErrorPanel && (
+              <div className="rounded-xl border-2 border-orange-500/50 bg-orange-500/5 p-4 space-y-2">
+                <h4 className="font-medium text-sm text-orange-950">Compilation error</h4>
+                <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words text-orange-950">
+                  {compileErrorPanel}
+                </pre>
+              </div>
+            )}
+
+            {/* Test results — clears when switching questions */}
+            {results && !compileErrorPanel && (
+              <div className="rounded-xl border-2 border-border bg-muted/20 p-4 space-y-3">
+                <h4 className="font-medium text-sm text-foreground">Test results for Q{currentIndex + 1}</h4>
+                {results.map((r, i) => {
+                  const hidden = r.input == null && r.expected == null;
+                  const st = r.status;
+                  return (
+                    <div
+                      key={i}
+                      className={`text-sm p-3 rounded-lg border ${
+                        r.passed ? "bg-green-500/10 border-green-600/20" : "bg-red-500/5 border-red-600/15"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        {r.passed ? (
+                          <CheckCircle2 className="h-5 w-5 text-green-600" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-red-600" />
+                        )}
+                        <Badge variant="outline" className={statusBadgeClass(st, r.passed)}>
+                          {hidden ? `Test case ${i + 1}` : `Case ${i + 1}`}: {statusLabel(st) || (r.passed ? "Passed" : "Failed")}
+                        </Badge>
                       </div>
-                      {!r.passed && r.expected != null && (
-                        <div className="text-red-600">Expected: {r.expected}</div>
-                      )}
-                      {!r.passed && r.actual != null && (
-                        <div className="text-amber-600">Got: {r.actual}</div>
+                      {hidden ? (
+                        <p className="text-xs text-muted-foreground">
+                          Hidden test — only status is shown (no input / expected).
+                        </p>
+                      ) : !r.passed && r.input != null && r.expected != null ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                          <div className="rounded-md border bg-background p-2">
+                            <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">Input</div>
+                            <pre className="font-mono whitespace-pre-wrap break-words">{r.input}</pre>
+                          </div>
+                          <div className="rounded-md border bg-background p-2">
+                            <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">Expected</div>
+                            <pre className="font-mono whitespace-pre-wrap break-words">{r.expected}</pre>
+                          </div>
+                          <div className="rounded-md border bg-background p-2">
+                            <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">Your output</div>
+                            <pre className="font-mono whitespace-pre-wrap break-words text-amber-800">
+                              {r.actual ?? "—"}
+                            </pre>
+                          </div>
+                        </div>
+                      ) : r.passed ? (
+                        <p className="text-xs text-green-800">All checks passed for this case.</p>
+                      ) : (
+                        <div className="space-y-1 text-xs">
+                          {r.actual != null && <div className="text-amber-800">Output: {r.actual}</div>}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
