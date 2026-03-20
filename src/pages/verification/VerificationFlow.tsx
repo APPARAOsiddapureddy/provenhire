@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Suspense, lazy, useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -15,12 +15,12 @@ import {
 import { CheckCircle, Clock, Lock, AlertTriangle, RotateCcw, Timer, GraduationCap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import ProfileSetupStage from "./stages/ProfileSetupStage";
-import AptitudeTestStage from "./stages/AptitudeTestStage";
-import DSARoundStage from "./stages/DSARoundStage";
-import ExpertInterviewStage from "./stages/ExpertInterviewStage";
-import HumanExpertInterviewStage from "./stages/HumanExpertInterviewStage";
-import NonTechnicalAssignmentStage from "./stages/NonTechnicalAssignmentStage";
+const ProfileSetupStage = lazy(() => import("./stages/ProfileSetupStage"));
+const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
+const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
+const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"));
+const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
+const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
 import { checkInvalidatedTests, checkCooldownStatus, RETAKE_COOLDOWN_HOURS } from "@/utils/recordingUpload";
 import { runShortlisting, getShortlistStatus, type ShortlistResult } from "@/lib/shortlisting";
@@ -800,7 +800,15 @@ const VerificationFlow = () => {
           </Card>
         )}
 
-        {renderCurrentStage()}
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+          }
+        >
+          {renderCurrentStage()}
+        </Suspense>
 
         {/* All steps complete popup */}
         <Dialog open={showAllCompletePopup} onOpenChange={setShowAllCompletePopup}>

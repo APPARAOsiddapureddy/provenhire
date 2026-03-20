@@ -12,6 +12,17 @@ import { getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
 
 export const jobsRouter = Router();
 
+function normalizeJobStatus(status: string | null | undefined): string {
+  // New semantics: "draft" | "published"
+  // Legacy semantics:
+  // - "active" => published
+  // - "closed" => draft
+  if (!status) return "published";
+  if (status === "active") return "published";
+  if (status === "closed") return "draft";
+  return status;
+}
+
 function parseSalaryMaxLpa(salaryRange?: string | null): number | null {
   if (!salaryRange) return null;
   const lakhMatch =
@@ -31,7 +42,10 @@ function getEffectiveMinimumCertificationLevel(jobTrack: "tech" | "non_technical
 
 jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
   const track = req.query.track as string | undefined;
-  const where: { jobTrack?: string } = {};
+  const where: { jobTrack?: string; status?: { in: string[] } } = {
+    // Only return published jobs publicly.
+    status: { in: ["published", "active"] },
+  };
   if (track === "tech" || track === "technical") {
     where.jobTrack = "tech";
   } else if (track === "non_technical") {
@@ -74,6 +88,7 @@ jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
     const { postedBy, ...job } = j;
     return {
       ...job,
+      status: normalizeJobStatus(job.status),
       companyLogo: postedBy?.companyLogo ?? null,
       recruiterVerified: postedBy?.verificationStatus === "verified",
     };
@@ -93,6 +108,7 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
     assignment: z.string().nullish(),
     roleCategory: z.string().nullish(),
     companyContext: z.string().nullish(),
+    status: z.enum(["draft", "published", "active", "closed"]).optional(),
     minimumCertificationLevel: z.number().int().min(1).max(3).optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -110,6 +126,7 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
 
   const normalizedTrack = (parsed.data.jobTrack ?? "tech") as "tech" | "non_technical";
   const effectiveMinLevel = getEffectiveMinimumCertificationLevel(normalizedTrack, parsed.data.salaryRange ?? null);
+  const normalizedStatus = normalizeJobStatus(parsed.data.status);
 
   const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
   if (!recruiter) {
@@ -136,6 +153,7 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
       roleCategory: parsed.data.roleCategory ?? null,
       companyContext: parsed.data.companyContext ?? null,
       minimumCertificationLevel: effectiveMinLevel,
+      status: normalizedStatus,
       postedById: recruiter?.id ?? null,
     },
   });
@@ -377,11 +395,82 @@ jobsRouter.post("/:id/status", requireAuth, async (req: AuthedRequest, res) => {
   const schema = z.object({ status: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const normalizedStatus = normalizeJobStatus(parsed.data.status);
   const job = await prisma.job.update({
     where: { id: req.params.id },
-    data: { status: parsed.data.status } as any,
+    data: { status: normalizedStatus } as any,
   });
   res.json({ job });
+});
+
+jobsRouter.patch("/:id", requireAuth, async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    title: z.string().min(1).optional(),
+    company: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
+    location: z.string().nullish().optional(),
+    salaryRange: z.string().nullish().optional(),
+    jobType: z.string().nullish().optional(),
+    jobTrack: z.enum(["tech", "non_technical"]).optional(),
+    assignment: z.string().nullish().optional(),
+    roleCategory: z.string().nullish().optional(),
+    companyContext: z.string().nullish().optional(),
+    status: z.enum(["draft", "published", "active", "closed"]).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+  const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
+  if (!recruiter) {
+    return res.status(403).json({
+      error: "Complete your recruiter profile and get verified before posting jobs.",
+      code: "RECRUITER_PROFILE_REQUIRED",
+    });
+  }
+  if (recruiter.verificationStatus !== "verified") {
+    return res.status(403).json({
+      error:
+        recruiter.verificationStatus === "rejected"
+          ? "Your recruiter account was not approved. Please submit updated documents or contact support."
+          : "Your recruiter account is under review. You can post jobs once an admin has verified your profile.",
+      code: "RECRUITER_NOT_VERIFIED",
+      verificationStatus: recruiter.verificationStatus,
+    });
+  }
+
+  const jobId = req.params.id;
+  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  if (job.postedById !== recruiter.id) return res.status(403).json({ error: "Not authorized to edit this job" });
+
+  const nextJobTrack = (parsed.data.jobTrack ?? job.jobTrack ?? "tech") as "tech" | "non_technical";
+  const nextSalaryRange = (parsed.data.salaryRange ?? job.salaryRange ?? null) as string | null;
+  const effectiveMinLevel = getEffectiveMinimumCertificationLevel(nextJobTrack, nextSalaryRange);
+
+  const data: Record<string, unknown> = {};
+
+  if (parsed.data.title !== undefined) data.title = parsed.data.title;
+  if (parsed.data.company !== undefined) data.company = parsed.data.company;
+  if (parsed.data.description !== undefined) data.description = parsed.data.description;
+  if (parsed.data.location !== undefined) data.location = parsed.data.location;
+  if (parsed.data.salaryRange !== undefined) data.salaryRange = parsed.data.salaryRange;
+  if (parsed.data.jobType !== undefined) data.jobType = parsed.data.jobType;
+  if (parsed.data.jobTrack !== undefined) data.jobTrack = nextJobTrack;
+  if (parsed.data.assignment !== undefined) data.assignment = parsed.data.assignment;
+  if (parsed.data.roleCategory !== undefined) data.roleCategory = parsed.data.roleCategory;
+  if (parsed.data.companyContext !== undefined) data.companyContext = parsed.data.companyContext;
+
+  // Policy-controlled field: always recompute minimumCertificationLevel for the updated track.
+  data.minimumCertificationLevel = effectiveMinLevel;
+  if (parsed.data.status !== undefined) data.status = normalizeJobStatus(parsed.data.status);
+
+  const updated = await prisma.job.update({
+    where: { id: jobId },
+    data: data as any,
+  });
+
+  res.json({ job: updated });
 });
 
 jobsRouter.delete("/:id", requireAuth, async (req: AuthedRequest, res) => {
@@ -425,7 +514,12 @@ jobsRouter.get("/recruiter", requireAuth, async (req: AuthedRequest, res) => {
   const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
   if (!recruiter) return res.json({ jobs: [] });
   const jobs = await prisma.job.findMany({ where: { postedById: recruiter.id }, orderBy: { createdAt: "desc" } });
-  res.json({ jobs });
+  res.json({
+    jobs: jobs.map((j) => ({
+      ...j,
+      status: normalizeJobStatus(j.status),
+    })),
+  });
 });
 
 jobsRouter.get("/recruiter/applications", requireAuth, async (req: AuthedRequest, res) => {

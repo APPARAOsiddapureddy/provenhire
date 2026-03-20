@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,12 +10,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Briefcase, ArrowLeft, Upload, Sparkles, FileText, Loader2, X, Eye, MapPin, Clock, DollarSign, Calendar, Wand2 } from "lucide-react";
 
 const PostJob = () => {
   const { user } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+
+  const editingJobId = new URLSearchParams(location.search).get("jobId");
+  const isEditMode = !!editingJobId;
+
+  const normalizeJobStatusForClient = (status: string | null | undefined): "draft" | "published" => {
+    if (!status) return "published";
+    if (status === "active") return "published";
+    if (status === "closed") return "draft";
+    if (status === "draft" || status === "published") return status;
+    return "published";
+  };
+
+  const statusToSubmitRef = useRef<"draft" | "published">("published");
+  const [initializing, setInitializing] = useState(false);
+  const [editingStatus, setEditingStatus] = useState<"draft" | "published" | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [aiParsing, setAiParsing] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -41,6 +58,45 @@ const PostJob = () => {
   const [skillInput, setSkillInput] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [assignmentGenerating, setAssignmentGenerating] = useState(false);
+
+  useEffect(() => {
+    if (!editingJobId || !user) return;
+
+    setInitializing(true);
+    api
+      .get<{ jobs: any[] }>("/api/jobs/recruiter")
+      .then((res) => {
+        const job = (res.jobs ?? []).find((j) => j.id === editingJobId);
+        if (!job) {
+          toast.error("Job not found");
+          navigate("/dashboard/recruiter");
+          return;
+        }
+
+        const normalizedStatus = normalizeJobStatusForClient(job.status);
+        setEditingStatus(normalizedStatus);
+        statusToSubmitRef.current = normalizedStatus;
+
+        setFormData((prev) => ({
+          ...prev,
+          title: job.title ?? "",
+          company: job.company ?? "",
+          description: job.description ?? "",
+          location: job.location ?? "",
+          job_type: job.jobType ?? "",
+          salary_range: job.salaryRange ?? "",
+          job_track: (job.jobTrack ?? "tech") as "tech" | "non_technical",
+          role_category: job.roleCategory ?? "",
+          company_context: job.companyContext ?? "",
+          assignment: job.assignment ?? "",
+          minimum_certification_level: job.minimumCertificationLevel ?? 1,
+        }));
+      })
+      .catch((err: any) => {
+        toast.error(err?.message || "Failed to load job details");
+      })
+      .finally(() => setInitializing(false));
+  }, [editingJobId, user, navigate]);
 
   const parseSalaryMaxLpa = (salaryRange?: string): number | null => {
     if (!salaryRange) return null;
@@ -214,7 +270,9 @@ const PostJob = () => {
 
     setLoading(true);
     try {
-      const { job: newJob } = await api.post<{ job: any }>("/api/jobs", {
+      const desiredStatus = statusToSubmitRef.current;
+
+      const payload = {
         title: formData.title.trim(),
         company: formData.company.trim(),
         description: formData.description.trim(),
@@ -226,16 +284,21 @@ const PostJob = () => {
         roleCategory: formData.role_category || null,
         companyContext: formData.company_context || null,
         minimumCertificationLevel: formData.minimum_certification_level,
-      });
+        status: desiredStatus,
+      };
 
-      if (newJob) {
-        api.post("/api/notifications/admin", { jobId: newJob.id }).catch((err) => {
+      const req = isEditMode && editingJobId ? api.patch<{ job: any }>(`/api/jobs/${editingJobId}`, payload) : api.post<{ job: any }>("/api/jobs", payload);
+      const { job } = await req;
+
+      const shouldNotifyAdmin = desiredStatus === "published" && !!job?.id && !isEditMode;
+      if (shouldNotifyAdmin) {
+        api.post("/api/notifications/admin", { jobId: job.id }).catch((err) => {
           console.warn("Job alert notification failed", err);
         });
       }
 
-      toast.success('Job posted successfully!');
-      navigate('/dashboard/recruiter');
+      toast.success(desiredStatus === "draft" ? "Draft saved successfully!" : "Job published successfully!");
+      navigate("/dashboard/recruiter");
     } catch (error: any) {
       console.error('Error posting job:', error);
       const friendlyMessage = getSubmitErrorMessage(error);
@@ -285,8 +348,13 @@ const PostJob = () => {
           <div className="flex items-center gap-2">
             <Briefcase className="h-6 w-6 text-primary" />
             <h1 className="text-xl font-bold bg-gradient-hero bg-clip-text text-transparent">
-              Post New Job
+              {isEditMode ? "Edit Job" : "Post New Job"}
             </h1>
+            {isEditMode && editingStatus === "draft" && (
+              <Badge variant="outline" className="bg-gray-500/10 border-gray-500/30 text-gray-200">
+                Draft
+              </Badge>
+            )}
           </div>
           <Button variant="outline" onClick={() => navigate('/dashboard/recruiter')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -637,24 +705,42 @@ const PostJob = () => {
                 )}
               </div>
 
-              <div className="flex gap-3">
-                <Button 
+              <div className="space-y-3">
+                <Button
                   type="button"
                   variant="outline"
-                  className="flex-1"
+                  className="w-full"
                   onClick={() => setShowPreview(true)}
                   disabled={!formData.title && !formData.company && !formData.description}
                 >
                   <Eye className="h-4 w-4 mr-2" />
                   Preview Job
                 </Button>
-                <Button 
-                  type="submit" 
-                  className="flex-1 bg-gradient-hero hover:opacity-90"
-                  disabled={loading}
-                >
-                  {loading ? 'Posting...' : 'Post Job'}
-                </Button>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    className="bg-transparent hover:opacity-90"
+                    disabled={loading || initializing}
+                    onClick={() => {
+                      statusToSubmitRef.current = "draft";
+                    }}
+                  >
+                    {loading ? "Saving..." : "Save as Draft"}
+                  </Button>
+
+                  <Button
+                    type="submit"
+                    className="bg-gradient-hero hover:opacity-90"
+                    disabled={loading || initializing}
+                    onClick={() => {
+                      statusToSubmitRef.current = "published";
+                    }}
+                  >
+                    {loading ? "Publishing..." : "Publish Job"}
+                  </Button>
+                </div>
               </div>
             </form>
           </CardContent>

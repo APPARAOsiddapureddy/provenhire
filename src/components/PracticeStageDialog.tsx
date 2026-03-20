@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import CodeEditor from "@/components/CodeEditor";
 import { ChevronLeft, ChevronRight, GraduationCap, Loader2 } from "lucide-react";
-import { allDSAQuestions, type DSAQuestion, type ProgrammingLanguage, supportedLanguages } from "@/data/dsaQuestions";
+import { supportedLanguages, type ProgrammingLanguage } from "@/data/dsaRoundConfig";
 import {
   Select,
   SelectContent,
@@ -26,6 +26,13 @@ interface AptitudeQuestion {
 }
 
 type PracticeType = "aptitude" | "dsa" | "interview";
+
+type ApiPracticeDsaQuestion = {
+  id: string;
+  title: string;
+  description: string;
+  starterCode: Record<string, string>;
+};
 
 interface PracticeStageDialogProps {
   open: boolean;
@@ -67,9 +74,7 @@ export default function PracticeStageDialog({
   const [loading, setLoading] = useState(false);
   const [aptitudeAnswers, setAptitudeAnswers] = useState<Record<string, string>>({});
   const [aptitudeIndex, setAptitudeIndex] = useState(0);
-  const [practiceDsaQuestions] = useState<DSAQuestion[]>(() =>
-    [...allDSAQuestions].sort(() => Math.random() - 0.5).slice(0, 2)
-  );
+  const [practiceDsaQuestions, setPracticeDsaQuestions] = useState<ApiPracticeDsaQuestion[]>([]);
   const [dsaIndex, setDsaIndex] = useState(0);
   const [dsaCode, setDsaCode] = useState<Record<string, string>>({});
   const [dsaLanguage, setDsaLanguage] = useState<ProgrammingLanguage>("python");
@@ -88,10 +93,28 @@ export default function PracticeStageDialog({
   }, [open, type]);
 
   useEffect(() => {
+    if (!open || type !== "dsa") return;
+    if (practiceDsaQuestions.length > 0) return;
+
+    setLoading(true);
+    api
+      .get<ApiPracticeDsaQuestion[]>("/api/verification/dsa/practice-questions")
+      .then((res) => {
+        const firstTwo = (res ?? []).slice(0, 2);
+        setPracticeDsaQuestions(firstTwo);
+        setDsaIndex(0);
+      })
+      .catch(() => {
+        setPracticeDsaQuestions([]);
+      })
+      .finally(() => setLoading(false));
+  }, [open, type, practiceDsaQuestions.length]);
+
+  useEffect(() => {
     if (open && type === "dsa" && practiceDsaQuestions.length > 0) {
       const initial: Record<string, string> = {};
       practiceDsaQuestions.forEach((q) => {
-        initial[q.id] = q.templates[dsaLanguage] ?? q.templates.python;
+        initial[q.id] = q.starterCode?.[dsaLanguage] ?? q.starterCode?.python ?? "";
       });
       setDsaCode(initial);
     }
@@ -133,7 +156,16 @@ export default function PracticeStageDialog({
     }
 
     if (type === "dsa") {
-      if (practiceDsaQuestions.length === 0) return null;
+      if (loading) {
+        return (
+          <div className="py-12 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        );
+      }
+      if (practiceDsaQuestions.length === 0) {
+        return <p className="text-muted-foreground py-4">No practice questions available.</p>;
+      }
       const q = currentDsa;
       return (
         <div className="space-y-4">
@@ -155,7 +187,7 @@ export default function PracticeStageDialog({
             </Select>
           </div>
           <CodeEditor
-            value={dsaCode[q.id] ?? q.templates.python}
+            value={dsaCode[q.id] ?? q.starterCode?.python ?? ""}
             onChange={(v) => setDsaCode((p) => ({ ...p, [q.id]: v }))}
             language={dsaLanguage}
             height="280px"

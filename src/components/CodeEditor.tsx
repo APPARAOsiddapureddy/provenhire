@@ -1,6 +1,6 @@
 import { Component, useCallback, useRef, type ReactNode } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { ProgrammingLanguage } from "@/data/dsaQuestions";
+import { ProgrammingLanguage } from "@/data/dsaRoundConfig";
 import { Loader2 } from "lucide-react";
 
 interface CodeEditorProps {

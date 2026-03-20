@@ -31,13 +31,12 @@ import { toast } from "sonner";
 import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
-  generateDSATest,
-  type DSAQuestion,
-  type ProgrammingLanguage,
   supportedLanguages,
+  type ProgrammingLanguage,
   DSA_TOTAL_MINUTES,
   DSA_MINUTES_PER_QUESTION,
-} from "@/data/dsaQuestions";
+  DSA_PASS_THRESHOLD,
+} from "@/data/dsaRoundConfig";
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -57,10 +56,26 @@ interface DSARoundStageProps {
 
 interface TestResult {
   passed: boolean;
-  input: string;
-  expected: string;
-  actual: string;
+  input?: string;
+  expected?: string;
+  actual?: string;
 }
+
+type ApiDSAExample = {
+  input: string;
+  output: string;
+  explanation?: string;
+};
+
+type ApiDSAQuestion = {
+  id: string;
+  difficulty: string;
+  title: string;
+  description: string;
+  examples: ApiDSAExample[];
+  constraints: string[];
+  starterCode: Record<string, string>;
+};
 
 const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, targetJobTitle, experienceYears = 2 }: DSARoundStageProps) => {
   const navigate = useNavigate();
@@ -68,7 +83,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const testIdRef = useRef<string>(`DSA_${Date.now()}`);
   const [proctoringReady, setProctoringReady] = useState(false);
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
-  const [questions, setQuestions] = useState<DSAQuestion[]>([]);
+  const [questions, setQuestions] = useState<ApiDSAQuestion[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [code, setCode] = useState<Record<string, string>>({});
@@ -83,6 +98,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
   const [hasEvaluatedQuestions, setHasEvaluatedQuestions] = useState(false);
+  const [questionsError, setQuestionsError] = useState<string | null>(null);
+  const [questionsReloadKey, setQuestionsReloadKey] = useState(0);
   const [noDsaSubmitting, setNoDsaSubmitting] = useState(false);
   const [questionSecondsRemaining, setQuestionSecondsRemaining] = useState<number>(DSA_MINUTES_PER_QUESTION * 60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -145,17 +162,50 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   }, [stageStatus]);
 
   useEffect(() => {
-    const q = generateDSATest(experienceYears, targetJobTitle);
-    setQuestions(q);
-    setHasEvaluatedQuestions(true);
-    if (q.length > 0) {
-      const initial: Record<string, string> = {};
-      q.forEach((qu) => {
-        initial[qu.id] = qu.templates[language] || qu.templates.python;
-      });
-      setCode(initial);
-    }
-  }, [experienceYears, targetJobTitle]);
+    let cancelled = false;
+
+    const loadQuestions = async () => {
+      setQuestionsError(null);
+      setHasEvaluatedQuestions(false);
+      setResults(null);
+      setScores({});
+      setCurrentIndex(0);
+      setJustPassed(false);
+      setHasFailed(false);
+      setLocalFinalScore(null);
+
+      try {
+        const q = await api.get<ApiDSAQuestion[]>("/api/verification/dsa/questions");
+        if (cancelled) return;
+
+        const questionsFromApi = Array.isArray(q) ? q : [];
+        setQuestions(questionsFromApi);
+
+        if (questionsFromApi.length > 0) {
+          const initial: Record<string, string> = {};
+          questionsFromApi.forEach((qu) => {
+            const templates = qu.starterCode ?? {};
+            initial[qu.id] = templates[language] ?? templates.python ?? "";
+          });
+          setCode(initial);
+        } else {
+          setCode({});
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to load DSA questions";
+        if (!cancelled) setQuestionsError(msg);
+        toast.error(msg);
+      } finally {
+        if (!cancelled) setHasEvaluatedQuestions(true);
+      }
+    };
+
+    void loadQuestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stageStatus, isRetry, questionsReloadKey]);
 
   useEffect(() => {
     if (proctoringReady && questions.length > 0 && secondsRemaining === null) {
@@ -186,21 +236,28 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setCode((prev) => ({
         ...prev,
         [selectedQuestion.id]:
-          prev[selectedQuestion.id] ?? selectedQuestion.templates[language] ?? selectedQuestion.templates.python,
+          prev[selectedQuestion.id] ??
+          selectedQuestion.starterCode?.[language] ??
+          selectedQuestion.starterCode?.python ??
+          "",
       }));
     }
   }, [selectedQuestion?.id]);
 
   useEffect(() => {
     if (selectedQuestion) {
-      const tpl = selectedQuestion.templates[language] ?? selectedQuestion.templates.python;
+      const tpl =
+        selectedQuestion.starterCode?.[language] ??
+        selectedQuestion.starterCode?.python ??
+        "";
       setCode((prev) => ({ ...prev, [selectedQuestion.id]: tpl }));
     }
   }, [language]);
 
   const runTests = async () => {
     if (!selectedQuestion) return;
-    const currentCode = code[selectedQuestion.id] ?? selectedQuestion.templates[language];
+    const templates = selectedQuestion.starterCode ?? {};
+    const currentCode = code[selectedQuestion.id] ?? templates[language] ?? templates.python ?? "";
     if (!currentCode?.trim()) {
       toast.error("Write some code first");
       return;
@@ -208,48 +265,50 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     setRunning(true);
     setResults(null);
     try {
-      const testResults: TestResult[] = [];
-      for (const tc of selectedQuestion.testCases) {
-        const res = await api.post<{ stdout: string; stderr: string; exitCode: number }>(
-          "/api/execute",
-          {
-            language,
-            code: currentCode,
-            stdin: tc.input,
-          }
-        );
-        const actual = (res.stdout || "").trim();
-        const expected = (tc.expectedOutput || "").trim();
-        const passed = normalizeOutput(actual) === normalizeOutput(expected);
-        testResults.push({
-          passed,
-          input: tc.input.substring(0, 80) + (tc.input.length > 80 ? "…" : ""),
-          expected,
-          actual,
-        });
-      }
+      const resp = await api.post<{
+        passed: number;
+        total: number;
+        results: Array<any>;
+      }>("/api/verification/dsa/run-tests", {
+        questionId: selectedQuestion.id,
+        code: currentCode,
+        language,
+      });
+
+      const total = resp.total ?? 0;
+      const passedCount = resp.passed ?? 0;
+
+      const testResults: TestResult[] = Array.isArray(resp.results)
+        ? resp.results.map((r) => {
+            const passed = !!r.passed;
+            const inputRaw = typeof r.input === "string" ? r.input : undefined;
+            const input =
+              typeof inputRaw === "string"
+                ? inputRaw.substring(0, 80) + (inputRaw.length > 80 ? "…" : "")
+                : undefined;
+            return {
+              passed,
+              input,
+              expected: typeof r.expected === "string" ? r.expected : undefined,
+              actual: typeof r.actual === "string" ? r.actual : undefined,
+            };
+          })
+        : [];
+
       setResults(testResults);
-      const passed = testResults.filter((r) => r.passed).length;
-      const total = testResults.length;
-      const score = total > 0 ? Math.round((passed / total) * 100) : 0;
+      const score = total > 0 ? Math.round((passedCount / total) * 100) : 0;
       setScores((prev) => ({ ...prev, [selectedQuestion.id]: score }));
-      toast.success(`${passed}/${total} tests passed`);
+      toast.success(`${passedCount}/${total} tests passed`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Execution failed";
       toast.error(msg);
-      setResults([{ passed: false, input: "-", expected: "-", actual: msg }]);
+      setResults([{ passed: false, actual: msg }]);
     } finally {
       setRunning(false);
     }
   };
 
-  const normalizeOutput = (s: string) =>
-    s
-      .replace(/\r\n/g, "\n")
-      .trim()
-      .replace(/\s+/g, " ");
-
-  const ELIGIBILITY_THRESHOLD = 60;
+  const ELIGIBILITY_THRESHOLD = DSA_PASS_THRESHOLD;
   // Include local hasFailed so the failed UI shows immediately after a zero-score submission
   // without needing the parent to reload stage status from the server
   const isFailed = stageStatus === "failed" || hasFailed;
@@ -365,6 +424,26 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             <Loader2 className="h-5 w-5 animate-spin" />
             Please wait
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (questionsError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>DSA Round</CardTitle>
+          <CardDescription>Could not load DSA questions</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">{questionsError}</p>
+          <Button
+            onClick={() => setQuestionsReloadKey((k) => k + 1)}
+            variant="outline"
+          >
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
@@ -591,28 +670,23 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                 <p className="mt-2 text-sm whitespace-pre-wrap">{selectedQuestion.description}</p>
               </div>
               {/* Example: one input and one output for clarity */}
-              {selectedQuestion.testCases.length > 0 && (
+              {selectedQuestion.examples.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium text-foreground">Example</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="rounded-md border border-border bg-background p-3">
                       <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Input</span>
                       <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
-                        {selectedQuestion.testCases[0].input}
+                        {selectedQuestion.examples[0].input}
                       </pre>
                     </div>
                     <div className="rounded-md border border-border bg-background p-3">
                       <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Output</span>
                       <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
-                        {selectedQuestion.testCases[0].expectedOutput}
+                        {selectedQuestion.examples[0].output}
                       </pre>
                     </div>
                   </div>
-                  {selectedQuestion.testCases.length > 1 && (
-                    <p className="text-xs text-muted-foreground">
-                      + {selectedQuestion.testCases.length - 1} more test case(s) will run when you click Run tests
-                    </p>
-                  )}
                 </div>
               )}
             </div>
@@ -636,7 +710,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
             {/* Code editor */}
             <CodeEditor
-              value={code[selectedQuestion.id] ?? selectedQuestion.templates[language]}
+              value={
+                code[selectedQuestion.id] ??
+                selectedQuestion.starterCode?.[language] ??
+                selectedQuestion.starterCode?.python ??
+                ""
+              }
               onChange={(v) =>
                 setCode((prev) => ({ ...prev, [selectedQuestion.id]: v }))
               }
@@ -748,12 +827,18 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                       <XCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="font-mono text-xs truncate">Input: {r.input}</div>
-                      {!r.passed && (
-                        <>
-                          <div className="text-red-600">Expected: {r.expected}</div>
-                          <div className="text-amber-600">Got: {r.actual}</div>
-                        </>
+                      <div className="font-mono text-xs truncate">
+                        {typeof r.input === "string"
+                          ? `Input: ${r.input}`
+                          : r.passed
+                            ? "Hidden test passed"
+                            : "Hidden test failed"}
+                      </div>
+                      {!r.passed && r.expected != null && (
+                        <div className="text-red-600">Expected: {r.expected}</div>
+                      )}
+                      {!r.passed && r.actual != null && (
+                        <div className="text-amber-600">Got: {r.actual}</div>
                       )}
                     </div>
                   </div>

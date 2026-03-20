@@ -131,7 +131,9 @@ model Job {
   title          String
   company        String
   location       String?
-  status         String   @default("active")
+  // "draft" | "published"
+  // Legacy values: "active" treated as "published"; "closed" treated as "draft".
+  status         String   @default("published")
   salaryRange    String?
   jobType        String?
   description    String?
@@ -250,6 +252,31 @@ model DsaRoundResult {
   invalidated Boolean @default(false)
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model DsaQuestion {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  difficulty  String
+  examples    Json
+  constraints String[]
+  starterCode Json // { javascript: string, python: string, ... }
+  createdAt   DateTime @default(now())
+
+  testCases DsaTestCase[]
+}
+
+model DsaTestCase {
+  id         String   @id @default(cuid())
+  questionId String
+  input      String
+  expected   String
+  isHidden   Boolean  @default(false)
+
+  question DsaQuestion @relation(fields: [questionId], references: [id])
+
+  @@index([questionId])
 }
 
 model Interview {

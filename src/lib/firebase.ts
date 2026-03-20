@@ -10,11 +10,13 @@ import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, Google
 function getFirebaseConfig() {
   const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
   const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-  // Use our app's domain in production so redirect lands on our site (no init.json 404 from firebaseapp.com).
+  // Prefer explicit auth domain from env (classic *.firebaseapp.com — matches older working setups).
+  // If unset in production, use the current host so OAuth redirect can return to this origin (Firebase Console must list this domain).
   const authDomain =
-    typeof window !== "undefined" && import.meta.env.PROD && window.location?.host
+    (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) ||
+    (typeof window !== "undefined" && import.meta.env.PROD && window.location?.host
       ? window.location.host
-      : (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) || `${import.meta.env.VITE_FIREBASE_PROJECT_ID || "provenhire-c153e"}.firebaseapp.com`;
+      : `${import.meta.env.VITE_FIREBASE_PROJECT_ID || "provenhire-c153e"}.firebaseapp.com`);
   return {
     apiKey,
     authDomain,

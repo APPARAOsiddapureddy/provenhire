@@ -1,8 +1,22 @@
 /**
  * DSA Question Bank - Additional questions for DSA Round
- * Format compatible with dsaQuestions structure
+ * Format compatible with the removed dsaQuestions module.
  */
-import type { DSAQuestion, ProgrammingLanguage } from "./dsaQuestions";
+import type { ProgrammingLanguage } from "./dsaRoundConfig";
+
+type DSAQuestion = {
+  id: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  title: string;
+  description: string;
+  examples: Array<{ input: string; output: string; explanation?: string }>;
+  constraints: string[];
+  testCases: Array<{ input: string; expectedOutput: string }>;
+  hints: string[];
+  topic: string;
+  functionName: string;
+  templates: Record<ProgrammingLanguage, string>;
+};
 
 const LANG_MAP: Record<string, ProgrammingLanguage> = {
   cplusplus: "cpp",

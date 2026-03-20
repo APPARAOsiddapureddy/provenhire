@@ -348,6 +348,355 @@ verificationRouter.get("/dsa/latest", requireAuth, async (req: AuthedRequest, re
   res.json({ result });
 });
 
+// ---------------------------------------------------------------------------
+// DSA questions + test runner API (backend-side, no test cases on the client)
+// ---------------------------------------------------------------------------
+
+const DSA_QUESTIONS_COUNT = 3;
+
+type ProgrammingLanguage = "javascript" | "python" | "java" | "cpp" | "c";
+
+// Judge0 execution helpers (copied from server/src/routes/execute.ts)
+const JUDGE0_CE_URL = process.env.JUDGE0_CE_URL || "https://ce.judge0.com";
+
+// Judge0 CE language IDs (see https://ce.judge0.com for full list)
+const langToJudge0Id: Record<ProgrammingLanguage, number> = {
+  javascript: 63,
+  python: 71,
+  java: 62,
+  cpp: 54,
+  c: 50,
+};
+
+type Judge0Submission = {
+  token?: string;
+  stdout?: string | null;
+  stderr?: string | null;
+  compile_output?: string | null;
+  message?: string | null;
+  status?: { id: number; description?: string };
+  exit_code?: number | null;
+};
+
+function normalizeOutput(s: string): string {
+  return (s || "")
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+async function pollSubmission(token: string): Promise<Judge0Submission> {
+  const url = `${JUDGE0_CE_URL}/submissions/${token}?base64_encoded=false`;
+  for (let i = 0; i < 30; i++) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Judge0 poll error: ${await resp.text()}`);
+    const data = (await resp.json()) as Judge0Submission;
+    const sid = data.status?.id ?? 0;
+    if (sid !== 1 && sid !== 2) return data;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("Execution timed out");
+}
+
+async function executeWithJudge0(languageId: number, code: string, stdin: string): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}> {
+  const url = `${JUDGE0_CE_URL}/submissions/?base64_encoded=false&wait=true`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source_code: code,
+      language_id: languageId,
+      stdin: stdin || "",
+      cpu_time_limit: 5,
+      wall_time_limit: 10,
+      memory_limit: 256000,
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Judge0 error: ${text}`);
+  }
+  let data = (await resp.json()) as Judge0Submission;
+  if (data.token && data.status?.id === undefined && !data.stdout) {
+    data = await pollSubmission(data.token);
+  }
+  const statusId = data.status?.id ?? 0;
+
+  const stdout = data.stdout ?? "";
+  const stderr = data.stderr ?? "";
+  const compileOut = data.compile_output ?? "";
+  const msg = data.message ?? "";
+
+  if (statusId === 6) {
+    return { stdout: "", stderr: compileOut || stderr || "Compilation error", exitCode: 1 };
+  }
+
+  if (statusId >= 7 && statusId <= 14) {
+    return { stdout: "", stderr: msg || stderr || (data.status?.description ?? "Runtime error"), exitCode: 1 };
+  }
+
+  if (statusId === 13) {
+    return { stdout: "", stderr: msg || "Internal error", exitCode: 1 };
+  }
+
+  return {
+    stdout,
+    stderr,
+    exitCode: data.exit_code ?? (statusId === 3 ? 0 : 1),
+  };
+}
+
+// DSA role/experience difficulty distribution (mirrors src/data/dsaRoleDifficulty.ts)
+type DSARoleCategory = "developer" | "infrastructure" | "data" | "analytics" | "unknown";
+
+const ROLE_CATEGORIES: Record<DSARoleCategory, string[]> = {
+  developer: ["frontend", "backend", "full stack", "fullstack", "software engineer", "sde", "system engineer", "platform engineer", "mobile", "qa"],
+  infrastructure: ["devops", "docker", "cloud engineer", "sre", "site reliability", "platform engineer"],
+  data: ["data scientist", "data engineer", "ml engineer", "machine learning", "ai engineer", "data "],
+  analytics: ["data analyst", "business analyst", "product analyst", "marketing analyst"],
+  unknown: [],
+};
+
+const ROLE_DISTRIBUTION: Record<DSARoleCategory, { easy: number; medium: number; hard: number } | null> = {
+  developer: { easy: 20, medium: 50, hard: 30 },
+  infrastructure: { easy: 50, medium: 40, hard: 10 },
+  data: { easy: 80, medium: 20, hard: 0 },
+  analytics: null,
+  unknown: { easy: 40, medium: 40, hard: 20 },
+};
+
+const EXPERIENCE_DISTRIBUTION: Record<string, { easy: number; medium: number; hard: number }> = {
+  "0-1": { easy: 70, medium: 30, hard: 0 },
+  "1-3": { easy: 40, medium: 50, hard: 10 },
+  "3-5": { easy: 20, medium: 50, hard: 30 },
+  "5+": { easy: 10, medium: 40, hard: 50 },
+};
+
+function getRoleCategory(jobTitle: string | null | undefined): DSARoleCategory {
+  if (!jobTitle?.trim()) return "unknown";
+  const t = jobTitle.toLowerCase();
+  for (const [cat, keywords] of Object.entries(ROLE_CATEGORIES)) {
+    if (cat === "unknown") continue;
+    if (keywords.some((k) => t.includes(k))) return cat as DSARoleCategory;
+  }
+  return "unknown";
+}
+
+function getExperienceBucket(years: number): keyof typeof EXPERIENCE_DISTRIBUTION {
+  if (years < 1) return "0-1";
+  if (years <= 3) return "1-3";
+  if (years <= 5) return "3-5";
+  return "5+";
+}
+
+function getCombinedDistribution(jobTitle: string | null | undefined, experienceYears: number): {
+  easy: number;
+  medium: number;
+  hard: number;
+} | null {
+  const category = getRoleCategory(jobTitle);
+  if (category === "analytics") return null;
+  const roleDist = ROLE_DISTRIBUTION[category] ?? ROLE_DISTRIBUTION.unknown;
+  if (!roleDist) return null;
+  const expBucket = getExperienceBucket(experienceYears);
+  const expDist = EXPERIENCE_DISTRIBUTION[expBucket];
+  if (!expDist) return roleDist;
+  const blend = (a: number, b: number) => Math.round(a * 0.6 + b * 0.4);
+  return { easy: blend(roleDist.easy, expDist.easy), medium: blend(roleDist.medium, expDist.medium), hard: blend(roleDist.hard, expDist.hard) };
+}
+
+function distributionToCounts(
+  dist: { easy: number; medium: number; hard: number },
+  total: number
+): { easy: number; medium: number; hard: number } {
+  const sum = dist.easy + dist.medium + dist.hard;
+  if (sum <= 0) return { easy: total, medium: 0, hard: 0 };
+  return {
+    easy: Math.max(0, Math.round((dist.easy / sum) * total)),
+    medium: Math.max(0, Math.round((dist.medium / sum) * total)),
+    hard: Math.max(0, Math.round((dist.hard / sum) * total)),
+  };
+}
+
+function generateDSATestByRoleAndExperience(
+  targetJobTitle: string | null | undefined,
+  experienceYears: number,
+  pool: Array<{ difficulty: string }>,
+  count: number
+): Array<{ difficulty: string }> {
+  const dist = getCombinedDistribution(targetJobTitle, experienceYears);
+  if (!dist) return [];
+
+  const byDiff = (d: "Easy" | "Medium" | "Hard") =>
+    pool.filter((q) => q.difficulty === d).sort(() => Math.random() - 0.5);
+
+  const counts = distributionToCounts(dist, count);
+  const questions: Array<{ difficulty: string }> = [];
+  questions.push(...byDiff("Easy").slice(0, counts.easy));
+  questions.push(...byDiff("Medium").slice(0, counts.medium));
+  questions.push(...byDiff("Hard").slice(0, counts.hard));
+  return questions.sort(() => Math.random() - 0.5).slice(0, count);
+}
+
+verificationRouter.get("/dsa/questions", requireAuth, async (req: AuthedRequest, res) => {
+  const activeStage = await prisma.verificationStage.findFirst({
+    where: { userId: req.user!.id, stageName: "dsa_round", status: "in_progress" },
+  });
+  if (!activeStage) {
+    return res.status(403).json({ error: "DSA round is not active" });
+  }
+
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: req.user!.id },
+    select: { targetJobTitle: true, experienceYears: true },
+  });
+
+  const targetJobTitle = profile?.targetJobTitle ?? null;
+  const experienceYears = profile?.experienceYears ?? 0;
+
+  const pool = await prisma.dsaQuestion.findMany({
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      difficulty: true,
+      examples: true,
+      constraints: true,
+      starterCode: true,
+    },
+  });
+
+  const selected = generateDSATestByRoleAndExperience(
+    targetJobTitle,
+    experienceYears,
+    pool as any,
+    DSA_QUESTIONS_COUNT,
+  ) as typeof pool;
+
+  type PoolItem = (typeof pool)[number];
+
+  return res.json(
+    selected.map((q: PoolItem) => ({
+      id: q.id,
+      title: q.title,
+      description: q.description,
+      difficulty: q.difficulty,
+      examples: q.examples,
+      constraints: q.constraints,
+      starterCode: q.starterCode,
+    }))
+  );
+});
+
+// Practice dialog before the DSA round is started (no "in_progress" stage required).
+verificationRouter.get("/dsa/practice-questions", requireAuth, async (req: AuthedRequest, res) => {
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: req.user!.id },
+    select: { targetJobTitle: true, experienceYears: true },
+  });
+
+  const targetJobTitle = profile?.targetJobTitle ?? null;
+  const experienceYears = profile?.experienceYears ?? 0;
+
+  const pool = await prisma.dsaQuestion.findMany({
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      difficulty: true,
+      examples: true,
+      constraints: true,
+      starterCode: true,
+    },
+  });
+
+  const practiceCount = 2;
+  const selected = generateDSATestByRoleAndExperience(
+    targetJobTitle,
+    experienceYears,
+    pool as any,
+    practiceCount,
+  ) as typeof pool;
+
+  type PoolItem = (typeof pool)[number];
+
+  return res.json(
+    selected.map((q: PoolItem) => ({
+      id: q.id,
+      title: q.title,
+      description: q.description,
+      difficulty: q.difficulty,
+      examples: q.examples,
+      constraints: q.constraints,
+      starterCode: q.starterCode,
+    }))
+  );
+});
+
+verificationRouter.post("/dsa/run-tests", requireAuth, async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    questionId: z.string().min(1),
+    code: z.string().min(1).max(100_000),
+    language: z.enum(["javascript", "python", "java", "cpp", "c"]),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+  const { questionId, code, language } = parsed.data;
+
+  const activeStage = await prisma.verificationStage.findFirst({
+    where: { userId: req.user!.id, stageName: "dsa_round", status: "in_progress" },
+  });
+  if (!activeStage) {
+    return res.status(403).json({ error: "DSA round is not active" });
+  }
+
+  const testCases = await prisma.dsaTestCase.findMany({
+    where: { questionId },
+    select: { input: true, expected: true, isHidden: true },
+  });
+  if (!testCases || testCases.length === 0) {
+    return res.status(404).json({ error: "No test cases found for this question" });
+  }
+
+  const languageId = langToJudge0Id[language as ProgrammingLanguage];
+
+  let passedCount = 0;
+  const results: Array<
+    | { passed: boolean }
+    | { passed: boolean; input: string; expected: string; actual: string }
+  > = [];
+
+  for (const tc of testCases) {
+    const { stdout, stderr } = await executeWithJudge0(languageId, code, tc.input);
+    const rawActual = stdout && stdout.trim().length > 0 ? stdout : stderr;
+    const passed = normalizeOutput(rawActual) === normalizeOutput(tc.expected);
+
+    if (passed) passedCount++;
+
+    if (tc.isHidden) {
+      results.push({ passed });
+    } else {
+      results.push({
+        passed,
+        input: tc.input,
+        expected: tc.expected,
+        actual: rawActual,
+      });
+    }
+  }
+
+  return res.json({
+    passed: passedCount,
+    total: testCases.length,
+    results,
+  });
+});
+
 verificationRouter.get("/technical-scorecard", requireAuth, async (req: AuthedRequest, res) => {
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId: req.user!.id },

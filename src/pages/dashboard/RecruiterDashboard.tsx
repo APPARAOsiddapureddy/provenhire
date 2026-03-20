@@ -254,12 +254,13 @@ const RecruiterDashboard = () => {
   };
 
   const handleToggleJobStatus = async (jobId: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'active' ? 'closed' : 'active';
+    const normalized = normalizeJobStatus(currentStatus);
+    const newStatus = normalized === "published" ? "draft" : "published";
     try {
-      await api.post(`/api/jobs/${jobId}/status`, { status: newStatus });
+      await api.patch(`/api/jobs/${jobId}`, { status: newStatus });
 
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
-      toast.success(`Job ${newStatus === 'active' ? 'activated' : 'closed'} successfully`);
+      toast.success(`Job ${newStatus === "published" ? "published" : "saved as draft"} successfully`);
     } catch (error: any) {
       console.error('Error updating job status:', error);
       toast.error('Failed to update job status');
@@ -337,12 +338,22 @@ const RecruiterDashboard = () => {
     return list;
   }, [candidates, domainFilter, talentSort]);
 
+  const normalizeJobStatus = (status: string | null | undefined): string => {
+    if (!status) return "published";
+    if (status === "active") return "published";
+    if (status === "closed") return "draft";
+    return status;
+  };
+
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-500/10 text-green-600 border-green-500/20';
-      case 'closed': return 'bg-red-500/10 text-red-600 border-red-500/20';
-      case 'draft': return 'bg-gray-500/10 text-gray-600 border-gray-500/20';
-      default: return 'bg-gray-500/10 text-gray-600 border-gray-500/20';
+    const normalized = normalizeJobStatus(status);
+    switch (normalized) {
+      case "published":
+        return "bg-green-500/10 text-green-600 border-green-500/20";
+      case "draft":
+        return "bg-gray-500/10 text-gray-700 border-gray-500/20";
+      default:
+        return "bg-gray-500/10 text-gray-600 border-gray-500/20";
     }
   };
 
@@ -590,8 +601,8 @@ const RecruiterDashboard = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-semibold text-white truncate">{job.title}</h3>
-                            <Badge className={job.status === 'active' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-white/10 text-gray-300 border-white/10'}>
-                              {job.status || 'active'}
+                            <Badge className={getStatusColor(job.status || "published")}>
+                              {normalizeJobStatus(job.status) === "draft" ? "Draft" : "Published"}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-4 text-sm text-[var(--dash-text-muted)]">
@@ -600,9 +611,29 @@ const RecruiterDashboard = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button className="dashboard-btn-ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleToggleJobStatus(job.id, job.status || 'active'); }}>
-                            {job.status === 'active' ? 'Close' : 'Activate'}
-                          </Button>
+                          {normalizeJobStatus(job.status) === "draft" ? (
+                            <Button
+                              className="dashboard-btn-ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/post-job?jobId=${job.id}`);
+                              }}
+                            >
+                              Edit & Publish
+                            </Button>
+                          ) : (
+                            <Button
+                              className="dashboard-btn-ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleJobStatus(job.id, job.status || "published");
+                              }}
+                            >
+                              Close
+                            </Button>
+                          )}
                           <Button variant="ghost" size="sm" className="text-red-400 hover:bg-red-500/10" onClick={(e) => { e.stopPropagation(); setJobToDelete(job.id); }}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -667,8 +698,8 @@ const RecruiterDashboard = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedJob?.title}
-              <Badge className={getStatusColor(selectedJob?.status || 'active')}>
-                {selectedJob?.status || 'active'}
+              <Badge className={getStatusColor(selectedJob?.status || "published")}>
+                {normalizeJobStatus(selectedJob?.status) === "draft" ? "Draft" : "Published"}
               </Badge>
             </DialogTitle>
             <DialogDescription className="flex items-center gap-4">

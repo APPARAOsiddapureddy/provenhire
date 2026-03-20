@@ -61,6 +61,35 @@ const CERT_LABELS: Record<number, string> = {
   3: "🏅 Elite",
 };
 
+type VerificationStageKey = "profile_only" | "aptitude_complete" | "dsa_complete" | "ai_interviewed" | "expert_verified";
+
+const VERIFICATION_STAGE_META: Record<
+  VerificationStageKey,
+  { label: string; depth: number; badgeClass: string }
+> = {
+  profile_only: { label: "Profile Only", depth: 0, badgeClass: "bg-slate-500/10 border-slate-500/30 text-slate-300" },
+  aptitude_complete: { label: "Aptitude Complete", depth: 1, badgeClass: "bg-amber-500/10 border-amber-500/30 text-amber-300" },
+  dsa_complete: { label: "DSA Complete", depth: 2, badgeClass: "bg-sky-500/10 border-sky-500/30 text-sky-300" },
+  ai_interviewed: { label: "AI Interviewed", depth: 3, badgeClass: "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" },
+  expert_verified: { label: "Expert Verified", depth: 4, badgeClass: "bg-violet-500/10 border-violet-500/30 text-violet-300" },
+};
+
+function getVerificationStageKey(a: Applicant): VerificationStageKey {
+  if (a.human_expert_interview_score != null) return "expert_verified";
+  if (a.ai_interview_score != null) return "ai_interviewed";
+  if (a.dsa_score != null) return "dsa_complete";
+  if (a.aptitude_score != null) return "aptitude_complete";
+  return "profile_only";
+}
+
+function getVerificationStageMeta(a: Applicant) {
+  return VERIFICATION_STAGE_META[getVerificationStageKey(a)];
+}
+
+function getHighestStageScore(a: Applicant) {
+  return a.ai_interview_score ?? a.dsa_score ?? a.aptitude_score ?? 0;
+}
+
 function getInitials(name: string | null | undefined): string {
   if (!name?.trim()) return "??";
   return name
@@ -132,7 +161,8 @@ const ApplicantsPage = () => {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "shortlisted" | "elite">("all");
-  const [sortBy, setSortBy] = useState<string>("best_match");
+  const [verificationStageFilter, setVerificationStageFilter] = useState<"all" | VerificationStageKey>("all");
+  const [sortBy, setSortBy] = useState<"newest" | "highest_score" | "stage">("highest_score");
 
   useEffect(() => {
     if (!jobId) return;
@@ -149,22 +179,31 @@ const ApplicantsPage = () => {
   }, [jobId, toast]);
 
   const filtered = applicants.filter((a) => {
-    if (filter === "shortlisted")
-      return ["reviewing", "interview_scheduled", "shortlisted", "hired"].includes(a.status);
+    const stageKey = getVerificationStageKey(a);
+
+    const matchesStage = verificationStageFilter === "all" ? true : stageKey === verificationStageFilter;
+    if (!matchesStage) return false;
+
+    if (filter === "shortlisted") return ["reviewing", "interview_scheduled", "shortlisted", "hired"].includes(a.status);
     if (filter === "elite") return (a.certification_level ?? 0) >= 3;
+
     return true;
   });
 
   const sorted = [...filtered].sort((a, b) => {
     switch (sortBy) {
-      case "coding":
-        return (b.dsa_score ?? -1) - (a.dsa_score ?? -1);
-      case "readiness":
-        return (b.hiring_readiness ?? -1) - (a.hiring_readiness ?? -1);
       case "newest":
         return new Date(b.applied_at || 0).getTime() - new Date(a.applied_at || 0).getTime();
+      case "highest_score":
+        return getHighestStageScore(b) - getHighestStageScore(a);
+      case "stage": {
+        const depthDiff = getVerificationStageMeta(b).depth - getVerificationStageMeta(a).depth;
+        if (depthDiff !== 0) return depthDiff;
+        // Tiebreaker: newest applications first.
+        return new Date(b.applied_at || 0).getTime() - new Date(a.applied_at || 0).getTime();
+      }
       default:
-        return (b.hiring_readiness ?? -1) - (a.hiring_readiness ?? -1);
+        return 0;
     }
   });
 
@@ -267,11 +306,38 @@ const ApplicantsPage = () => {
               onChange={(e) => setSortBy(e.target.value)}
               className="ml-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/5 border border-white/10 text-foreground focus:outline-none focus:border-primary/30"
             >
-              <option value="best_match">Sort: Best Match</option>
-              <option value="coding">Sort: Coding Score</option>
-              <option value="readiness">Sort: Readiness</option>
               <option value="newest">Sort: Newest</option>
+              <option value="highest_score">Sort: Highest Score</option>
+              <option value="stage">Sort: Stage</option>
             </select>
+          </div>
+        </div>
+
+        {/* Verification stage filter bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { key: "all" as const, label: "All" },
+                { key: "profile_only" as const, label: "Profile Only" },
+                { key: "aptitude_complete" as const, label: "Aptitude Complete" },
+                { key: "dsa_complete" as const, label: "DSA Complete" },
+                { key: "ai_interviewed" as const, label: "AI Interviewed" },
+                { key: "expert_verified" as const, label: "Expert Verified" },
+              ] as const
+            ).map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setVerificationStageFilter(f.key as any)}
+                className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                  verificationStageFilter === f.key
+                    ? "bg-primary/20 border-primary/40 text-primary"
+                    : "bg-white/5 border-white/10 text-muted-foreground hover:border-primary/30 hover:text-primary"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -310,6 +376,7 @@ const ApplicantsPage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sorted.map((a, idx) => {
               const lvl = Math.min(3, Math.max(1, a.certification_level ?? 1));
+              const stageMeta = getVerificationStageMeta(a);
               return (
                 <div
                   key={a.application_id}
@@ -346,6 +413,9 @@ const ApplicantsPage = () => {
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <Badge className={CERT_BADGE_CLASS[lvl] ?? CERT_BADGE_CLASS[3]}>
                           {CERT_LABELS[lvl] ?? "Verified"}
+                        </Badge>
+                        <Badge variant="outline" className={stageMeta.badgeClass}>
+                          {stageMeta.label}
                         </Badge>
                         <span className="text-[10px] text-muted-foreground">{formatApplied(a.applied_at)}</span>
                       </div>

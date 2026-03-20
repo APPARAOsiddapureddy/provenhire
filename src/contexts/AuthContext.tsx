@@ -1,8 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { api, hasAuthToken, getAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
-import { signInWithGoogleRedirect, getGoogleRedirectIdToken, isFirebaseConfigured } from "@/lib/firebase";
+import {
+  signInWithGooglePopup,
+  signInWithGoogleRedirect,
+  getGoogleRedirectIdToken,
+  isFirebaseConfigured,
+} from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
 
@@ -37,7 +42,6 @@ interface AuthContextType {
   signIn: (email: string, password: string, role?: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  updatePassword: (newPassword: string) => Promise<UserRole | void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
@@ -51,68 +55,69 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname || "";
-  // Per-pathname so we don't double-run in Strict Mode, and we re-run when navigating away from /auth
-  const lastBootstrapPathRef = useRef<string | null>(null);
-  // Skip redundant /api/auth/me on the next run after we've just completed Google sign-in (avoids 401 and session clear).
+  // Skip redundant /api/auth/me on the next run after we've just completed Google *redirect* sign-in (avoids 401 race right after navigate).
   const skipNextMeRef = useRef(false);
+
+  /** Shared: exchange Firebase id token for app session (popup or redirect return). */
+  const applyGoogleSignInSession = useCallback(async (idToken: string) => {
+    const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>(
+      "/api/auth/google",
+      { idToken }
+    );
+    setAuthToken(data.token);
+    if (data.refreshToken) setRefreshToken(data.refreshToken);
+    setUser(data.user);
+    setUserRole(data.user.role);
+    skipNextMeRef.current = true;
+    if (data.isNewUser) {
+      setNeedsGoogleRoleSelection(true);
+      toast.success("Choose your role to continue");
+      navigate("/auth", { replace: true });
+    } else {
+      toast.success("Signed in with Google successfully.");
+      navigate(
+        data.user.role === "admin"
+          ? "/admin/dashboard"
+          : data.user.role === "recruiter"
+            ? "/dashboard/recruiter"
+            : data.user.role === "expert_interviewer"
+              ? "/dashboard/expert"
+              : "/dashboard/jobseeker",
+        { replace: true }
+      );
+    }
+  }, [navigate]);
 
   useEffect(() => {
     const bootstrap = async () => {
-      // Avoid double run in React Strict Mode for the same pathname.
-      if (lastBootstrapPathRef.current === pathname) {
-        setLoading(false);
-        return;
-      }
-      lastBootstrapPathRef.current = pathname;
-
-      // If we just completed Google sign-in and navigated, we already have user + token; skip /api/auth/me to avoid 401.
+      // If we just completed Google redirect sign-in and navigated, we already have user + token; skip /api/auth/me once.
       if (skipNextMeRef.current) {
         skipNextMeRef.current = false;
         setLoading(false);
         return;
       }
 
-      // Handle Google redirect result first (user returning from OAuth)
+      // Handle Google redirect result first (user returning from OAuth — e.g. popup blocked / mobile)
       if (isFirebaseConfigured()) {
         try {
           const REDIRECT_TIMEOUT_MS = 20_000;
-          const idToken = await Promise.race([
-            getGoogleRedirectIdToken(),
-            new Promise<string | null>((_, reject) =>
-              setTimeout(() => reject(new Error("Sign-in took too long. Please try again.")), REDIRECT_TIMEOUT_MS)
-            ),
-          ]);
+          // Only time out on the OAuth return URL; elsewhere getRedirectResult() is a quick no-op.
+          const idToken =
+            pathname === "/__/auth/handler"
+              ? await Promise.race([
+                  getGoogleRedirectIdToken(),
+                  new Promise<string | null>((_, reject) =>
+                    setTimeout(() => reject(new Error("Sign-in took too long. Please try again.")), REDIRECT_TIMEOUT_MS)
+                  ),
+                ])
+              : await getGoogleRedirectIdToken();
           if (!idToken && pathname === "/__/auth/handler") {
             navigate("/auth", { replace: true });
             setLoading(false);
             return;
           }
           if (idToken) {
-            const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>("/api/auth/google", {
-              idToken,
-            });
-            setAuthToken(data.token);
-            if (data.refreshToken) setRefreshToken(data.refreshToken);
-            setUser(data.user);
-            setUserRole(data.user.role);
-            skipNextMeRef.current = true; // Next bootstrap run (after navigate) should skip /api/auth/me
-            if (data.isNewUser) {
-              setNeedsGoogleRoleSelection(true);
-              toast.success("Choose your role to continue");
-              navigate("/auth", { replace: true });
-            } else {
-              toast.success("Signed in with Google successfully.");
-              navigate(
-                data.user.role === "admin"
-                  ? "/admin/dashboard"
-                  : data.user.role === "recruiter"
-                    ? "/dashboard/recruiter"
-                    : data.user.role === "expert_interviewer"
-                      ? "/dashboard/expert"
-                      : "/dashboard/jobseeker",
-                { replace: true }
-              );
-            }
+            await applyGoogleSignInSession(idToken);
             setLoading(false);
             return;
           }
@@ -136,14 +141,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
         return;
       }
-      // Skip /api/auth/me on public routes so we don't trigger 503 when backend is down (home, about, jobs, auth).
-      // Session is restored when they navigate to a protected route (effect re-runs with new pathname).
-      const publicPaths = ["/", "/auth", "/about", "/jobs", "/for-employers", "/login", "/signup", "/__/auth/handler"];
-      const isPublicPath = publicPaths.includes(pathname) || pathname === "";
-      if (isPublicPath) {
-        setLoading(false);
-        return;
-      }
+      // When we have a token, always restore session via /me (including on /auth), like the pre-redirect-only flow.
       try {
         const { user } = await api.get<{ user: User }>("/api/auth/me");
         setUser(user);
@@ -170,7 +168,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
     bootstrap();
-  }, [navigate, pathname]);
+  }, [navigate, pathname, applyGoogleSignInSession]);
 
   // Show backend-down toast only on /auth so we don't annoy users on About, Jobs, or dashboard (dashboard has its own card).
   useEffect(() => {
@@ -260,8 +258,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       toast.error("Google sign-in is not configured. Please use email and password.");
       return;
     }
-    // Use redirect everywhere to avoid COOP "window.closed" errors from Firebase popup.
-    signInWithGoogleRedirect();
+    setLoading(true);
+    try {
+      const idToken = await signInWithGooglePopup();
+      await applyGoogleSignInSession(idToken);
+    } catch (err: unknown) {
+      const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+      const message = err instanceof Error ? err.message : "";
+      // Popup blocked or COOP / closed signal — fall back to full-page redirect (still supported via /__/auth/handler).
+      if (
+        code === "auth/popup-blocked" ||
+        /cross-origin-opener-policy|window\.closed|blocked by the browser/i.test(message)
+      ) {
+        toast.info("Continuing Google sign-in in this window…");
+        signInWithGoogleRedirect();
+        return;
+      }
+      const msg = err instanceof Error ? err.message : "Google sign-in failed";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const completeGoogleSignUpRole = async (
@@ -332,10 +349,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const updatePassword = async (_newPassword: string): Promise<UserRole | void> => {
-    toast.error("Password update is not configured yet.");
-  };
-
   const changePassword = async (currentPassword: string, newPassword: string) => {
     try {
       await api.post("/api/auth/change-password", { currentPassword, newPassword });
@@ -358,7 +371,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       signIn,
       signOut,
       resetPassword,
-      updatePassword,
       changePassword,
     }),
     [user, userRole, loading, needsGoogleRoleSelection]

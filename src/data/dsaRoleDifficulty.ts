@@ -2,7 +2,7 @@
  * DSA question difficulty logic based on job role and experience level.
  * Role-based distribution is combined with experience-based adjustment.
  */
-import type { DSAQuestion } from "./dsaQuestions";
+type DSAQuestion = { difficulty: "Easy" | "Medium" | "Hard" | string };
 
 export type DSARoleCategory = "developer" | "infrastructure" | "data" | "analytics" | "unknown";
 

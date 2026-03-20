@@ -19,6 +19,7 @@
     "seed:test-credentials": "tsx prisma/seed-test-credentials.ts",
     "seed:feature-flags": "tsx prisma/seed-feature-flags.ts",
     "seed:skill-verifications": "tsx prisma/seed-skill-verifications.ts",
+    "seed:dsa": "tsx prisma/seeds/dsaQuestions.seed.ts",
     "clear-test-users": "tsx prisma/clear-test-users.ts"
   },
   "dependencies": {
