@@ -17,9 +17,11 @@ import {
   Users,
   ArrowLeftRight,
   MessageCircle,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useProctorSocket } from "@/hooks/useProctorSocket";
+import { getAuthToken } from "@/lib/api";
 
 interface ProctoringAlert {
   id?: string;
@@ -158,11 +160,32 @@ const RealtimeProctoringAlerts = () => {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    
-    if (diffMins < 1) return 'Just now';
+
+    if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
     return date.toLocaleDateString();
+  };
+
+  const downloadProctoringCsv = async () => {
+    const token = getAuthToken();
+    try {
+      const r = await fetch("/api/admin/export-proctoring-events", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) throw new Error("failed");
+      const csv = await r.text();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = u;
+      a.download = "provenhire-proctoring-events.csv";
+      a.click();
+      URL.revokeObjectURL(u);
+      toast.success("Proctoring events export downloaded");
+    } catch {
+      toast.error("Download failed");
+    }
   };
 
   return (
@@ -178,12 +201,16 @@ const RealtimeProctoringAlerts = () => {
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={downloadProctoringCsv}>
+              <Download className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">CSV</span>
+            </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setSoundEnabled(!soundEnabled)}
-              className={soundEnabled ? 'text-primary' : 'text-muted-foreground'}
+              className={soundEnabled ? "text-primary" : "text-muted-foreground"}
             >
               <Volume2 className="h-4 w-4" />
             </Button>

@@ -85,6 +85,35 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
+/** Decode JWT `exp` (seconds) for proactive refresh — not verified; server still validates. */
+function getAccessTokenExpMs(token: string): number | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const pad = "=".repeat((4 - (part.length % 4)) % 4);
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/") + pad;
+    const payload = JSON.parse(atob(b64)) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refresh access token before a request if it's missing or expires soon.
+ * Avoids a visible 401 on the first fetch (browser DevTools still may show rare edge cases).
+ */
+async function ensureFreshAccessTokenIfNeeded(): Promise<void> {
+  const token = getAuthToken();
+  if (!token) return;
+  const expMs = getAccessTokenExpMs(token);
+  if (expMs == null) return;
+  // Refresh when expired or within 3 minutes of expiry (access JWT is 15m).
+  const REFRESH_SKEW_MS = 3 * 60 * 1000;
+  if (expMs - Date.now() > REFRESH_SKEW_MS) return;
+  await refreshAccessToken();
+}
+
 /** Single user-facing message when backend is down (dev or prod). Export for toasts and UI. */
 export const BACKEND_DOWN_MSG = isDev
   ? "Backend isn't running. From the project root run: npm run dev (starts both frontend and backend)."
@@ -96,6 +125,20 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     err.status = 503;
     err.isBackendUnavailable = true;
     throw err;
+  }
+
+  // Proactive refresh for protected calls (skip when caller passes an explicit token, e.g. select-role).
+  const isPublicAuthEndpoint =
+    path.startsWith("/api/auth/login") ||
+    path.startsWith("/api/auth/register") ||
+    path.startsWith("/api/auth/forgot-password") ||
+    path.startsWith("/api/auth/reset-password") ||
+    path.startsWith("/api/auth/google") ||
+    path.startsWith("/api/auth/email-verification") ||
+    path.startsWith("/api/auth/refresh");
+
+  if (tokenOverride === undefined && !isPublicAuthEndpoint && !retried) {
+    await ensureFreshAccessTokenIfNeeded();
   }
 
   const headers = new Headers(options.headers || {});
@@ -131,14 +174,6 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   // On 401, we normally try to refresh the JWT. However, auth endpoints like
   // `/api/auth/login` are expected to return 401 for invalid credentials and
   // should NOT trigger the "session expired" UX (that toast is meant for protected calls).
-  const isPublicAuthEndpoint =
-    path.startsWith("/api/auth/login") ||
-    path.startsWith("/api/auth/register") ||
-    path.startsWith("/api/auth/forgot-password") ||
-    path.startsWith("/api/auth/reset-password") ||
-    path.startsWith("/api/auth/google") ||
-    path.startsWith("/api/auth/email-verification");
-
   if (res.status === 401 && !retried && tokenOverride === undefined && !isPublicAuthEndpoint) {
     const refreshed = await refreshAccessToken();
     if (refreshed) return request<T>(path, options, true);

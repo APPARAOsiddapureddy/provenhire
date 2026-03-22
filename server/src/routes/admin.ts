@@ -16,6 +16,23 @@ import {
   type FeatureFlagMode,
 } from "../services/featureFlag.service.js";
 
+function csvEscape(s: string | null | undefined): string {
+  if (s == null || s === "") return "";
+  const str = String(s);
+  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/** Align with public jobs API semantics for admin UI */
+function normalizeJobStatusAdmin(status: string | null | undefined): string {
+  if (!status) return "published";
+  if (status === "active") return "published";
+  if (status === "closed") return "draft";
+  return status;
+}
+
 export const adminRouter = Router();
 
 /** All admin routes require admin role */
@@ -151,6 +168,39 @@ adminRouter.patch("/recruiters/:id/verification", async (req: AuthedRequest, res
     },
   });
   res.json({ ok: true, verificationStatus: parsed.data.status });
+});
+
+/** All jobs (draft + published) with poster user — `createdAt` is the job posted timestamp */
+adminRouter.get("/jobs", async (_req, res) => {
+  const jobs = await prisma.job.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      postedBy: {
+        include: {
+          user: { select: { id: true, email: true, name: true } },
+        },
+      },
+    },
+  });
+  res.json({
+    jobs: jobs.map((j) => ({
+      id: j.id,
+      title: j.title,
+      company: j.company,
+      location: j.location,
+      status: normalizeJobStatusAdmin(j.status),
+      raw_status: j.status,
+      job_track: j.jobTrack ?? "tech",
+      salary_range: j.salaryRange,
+      minimum_certification_level: j.minimumCertificationLevel,
+      created_at: j.createdAt.toISOString(),
+      posted_at: j.createdAt.toISOString(),
+      posted_by_recruiter_profile_id: j.postedById,
+      posted_by_user_id: j.postedBy?.userId ?? null,
+      posted_by_email: j.postedBy?.user?.email ?? null,
+      posted_by_name: j.postedBy?.fullName ?? j.postedBy?.user?.name ?? null,
+    })),
+  });
 });
 
 /** Aggregate stats for admin dashboard */
@@ -346,15 +396,6 @@ adminRouter.get("/export-users", async (_req, res) => {
     }),
   ]);
 
-  const escape = (s: string | null | undefined): string => {
-    if (s == null || s === "") return "";
-    const str = String(s);
-    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  };
-
   const rows: string[] = [];
   rows.push("Type,User ID,Name,Email,Phone,Company/Role,Verification Status,Created At");
 
@@ -363,11 +404,11 @@ adminRouter.get("/export-users", async (_req, res) => {
       [
         "Job Seeker",
         p.userId,
-        escape(p.fullName ?? p.user?.name),
-        escape(p.email ?? p.user?.email),
-        escape(p.phone),
-        escape(p.targetJobTitle ?? p.currentRole ?? ""),
-        escape(p.verificationStatus ?? ""),
+        csvEscape(p.fullName ?? p.user?.name),
+        csvEscape(p.email ?? p.user?.email),
+        csvEscape(p.phone),
+        csvEscape(p.targetJobTitle ?? p.currentRole ?? ""),
+        csvEscape(p.verificationStatus ?? ""),
         p.createdAt.toISOString(),
       ].join(",")
     );
@@ -377,10 +418,10 @@ adminRouter.get("/export-users", async (_req, res) => {
       [
         "Recruiter",
         p.userId,
-        escape(p.user?.name),
-        escape(p.user?.email),
-        escape(p.phone),
-        escape(p.companyName ?? ""),
+        csvEscape(p.user?.name),
+        csvEscape(p.user?.email),
+        csvEscape(p.phone),
+        csvEscape(p.companyName ?? ""),
         "",
         p.createdAt.toISOString(),
       ].join(",")
@@ -391,10 +432,10 @@ adminRouter.get("/export-users", async (_req, res) => {
       [
         "Interviewer",
         i.userId ?? "",
-        escape(i.name ?? i.user?.name),
-        escape(i.user?.email),
-        escape(i.phone),
-        escape(i.domain ?? ""),
+        csvEscape(i.name ?? i.user?.name),
+        csvEscape(i.user?.email),
+        csvEscape(i.phone),
+        csvEscape(i.domain ?? ""),
         "",
         i.createdAt.toISOString(),
       ].join(",")
@@ -404,6 +445,256 @@ adminRouter.get("/export-users", async (_req, res) => {
   const csv = rows.join("\n");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="provenhire-users-export.csv"');
+  res.send("\uFEFF" + csv);
+});
+
+/** Job seekers only (Excel-friendly IDs) */
+adminRouter.get("/export-job-seekers", async (_req, res) => {
+  const profiles = await prisma.jobSeekerProfile.findMany({
+    include: { user: { select: { id: true, email: true, name: true, createdAt: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  const rows: string[] = [];
+  rows.push(
+    "Profile ID,User ID,Name,Email,Phone,College,Verification Status,Profile Created At,User Created At",
+  );
+  for (const p of profiles) {
+    rows.push(
+      [
+        p.id,
+        p.userId,
+        csvEscape(p.fullName ?? p.user?.name),
+        csvEscape(p.user?.email ?? p.email),
+        csvEscape(p.phone),
+        csvEscape(p.college),
+        csvEscape(p.verificationStatus ?? ""),
+        p.createdAt.toISOString(),
+        p.user?.createdAt?.toISOString() ?? "",
+      ].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-job-seekers.csv"');
+  res.send("\uFEFF" + csv);
+});
+
+/** Recruiters only */
+adminRouter.get("/export-recruiters", async (_req, res) => {
+  const profiles = await prisma.recruiterProfile.findMany({
+    include: { user: { select: { id: true, email: true, name: true, createdAt: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  const rows: string[] = [];
+  rows.push(
+    "Recruiter Profile ID,User ID,Name,Work Email,User Email,Phone,Company,Verification Status,Profile Created At",
+  );
+  for (const p of profiles) {
+    rows.push(
+      [
+        p.id,
+        p.userId,
+        csvEscape(p.fullName ?? p.user?.name),
+        csvEscape(p.workEmail),
+        csvEscape(p.user?.email),
+        csvEscape(p.phone),
+        csvEscape(p.companyName),
+        csvEscape(p.verificationStatus ?? ""),
+        p.createdAt.toISOString(),
+      ].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-recruiters.csv"');
+  res.send("\uFEFF" + csv);
+});
+
+/** All jobs with poster columns */
+adminRouter.get("/export-jobs", async (_req, res) => {
+  const jobs = await prisma.job.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      postedBy: {
+        include: {
+          user: { select: { id: true, email: true, name: true } },
+        },
+      },
+    },
+  });
+  const rows: string[] = [];
+  rows.push(
+    "Job ID,Title,Company,Location,Status,Job Track,Salary Range,Posted At (UTC),Posted By User ID,Posted By Email,Posted By Name,Recruiter Profile ID",
+  );
+  for (const j of jobs) {
+    rows.push(
+      [
+        j.id,
+        csvEscape(j.title),
+        csvEscape(j.company),
+        csvEscape(j.location),
+        csvEscape(normalizeJobStatusAdmin(j.status)),
+        csvEscape(j.jobTrack ?? "tech"),
+        csvEscape(j.salaryRange),
+        j.createdAt.toISOString(),
+        j.postedBy?.userId ?? "",
+        csvEscape(j.postedBy?.user?.email),
+        csvEscape(j.postedBy?.fullName ?? j.postedBy?.user?.name),
+        j.postedById ?? "",
+      ].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-jobs.csv"');
+  res.send("\uFEFF" + csv);
+});
+
+/** Job applications */
+adminRouter.get("/export-applications", async (_req, res) => {
+  const applications = await prisma.jobApplication.findMany({
+    include: {
+      job: true,
+      jobSeeker: { select: { id: true, email: true, name: true } },
+    },
+    orderBy: { appliedAt: "desc" },
+    take: 5000,
+  });
+  const rows: string[] = [];
+  rows.push(
+    "Application ID,Job ID,Job Title,Company,Applicant User ID,Applicant Email,Applicant Name,Status,Applied At (UTC)",
+  );
+  for (const a of applications) {
+    rows.push(
+      [
+        a.id,
+        a.jobId,
+        csvEscape(a.job?.title),
+        csvEscape(a.job?.company),
+        a.jobSeekerId,
+        csvEscape(a.jobSeeker?.email),
+        csvEscape(a.jobSeeker?.name),
+        csvEscape(a.status),
+        a.appliedAt.toISOString(),
+      ].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-applications.csv"');
+  res.send("\uFEFF" + csv);
+});
+
+/** Interviewer applications (careers form) */
+adminRouter.get("/export-interviewer-applications", async (_req, res) => {
+  const apps = await prisma.interviewerApplication.findMany({ orderBy: { createdAt: "desc" } });
+  const rows: string[] = [];
+  rows.push(
+    "Application ID,Name,Email,Phone,Track,Experience Years,Domains,LinkedIn,Status,Created At (UTC),Reviewed At (UTC)",
+  );
+  for (const a of apps) {
+    const domains =
+      Array.isArray(a.domains) ? (a.domains as string[]).join("; ") : a.domains ? String(a.domains) : "";
+    rows.push(
+      [
+        a.id,
+        csvEscape(a.name),
+        csvEscape(a.email),
+        csvEscape(a.phone),
+        csvEscape(a.track),
+        a.experienceYears ?? "",
+        csvEscape(domains),
+        csvEscape(a.linkedIn),
+        csvEscape(a.status),
+        a.createdAt.toISOString(),
+        a.reviewedAt?.toISOString() ?? "",
+      ].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="provenhire-interviewer-applications.csv"',
+  );
+  res.send("\uFEFF" + csv);
+});
+
+/** Test / verification appeals */
+adminRouter.get("/export-appeals", async (_req, res) => {
+  const appeals = await prisma.appeal.findMany({
+    orderBy: { createdAt: "desc" },
+    include: { user: { select: { id: true, email: true, name: true } } },
+    take: 5000,
+  });
+  const rows: string[] = [];
+  rows.push("Appeal ID,User ID,User Email,User Name,Stage,Reason,Status,Created At (UTC)");
+  for (const a of appeals) {
+    rows.push(
+      [
+        a.id,
+        a.userId,
+        csvEscape(a.user?.email),
+        csvEscape(a.user?.name),
+        csvEscape(a.stage),
+        csvEscape(a.reason),
+        csvEscape(a.status),
+        a.createdAt.toISOString(),
+      ].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-appeals.csv"');
+  res.send("\uFEFF" + csv);
+});
+
+/** Proctoring events (for analysis) */
+adminRouter.get("/export-proctoring-events", async (_req, res) => {
+  const events = await prisma.proctoringEvent.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 10000,
+  });
+  const rows: string[] = [];
+  rows.push(
+    "Event ID,Session ID,User ID,Test Type,Event Type,Severity,Risk Score,Message,Created At (UTC)",
+  );
+  for (const e of events) {
+    rows.push(
+      [
+        e.id,
+        csvEscape(e.sessionId),
+        csvEscape(e.userId),
+        csvEscape(e.testType),
+        csvEscape(e.type),
+        csvEscape(e.severity),
+        e.riskScore ?? "",
+        csvEscape(e.message),
+        e.createdAt.toISOString(),
+      ].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-proctoring-events.csv"');
+  res.send("\uFEFF" + csv);
+});
+
+/** Feature flags snapshot (integrity settings) */
+adminRouter.get("/export-feature-flags", async (_req, res) => {
+  const flags = await prisma.platformFeatureFlag.findMany({
+    orderBy: { featureName: "asc" },
+  });
+  const rows: string[] = [];
+  rows.push("Feature Name,Mode,Description,Updated At (UTC)");
+  for (const f of flags) {
+    rows.push(
+      [csvEscape(f.featureName), csvEscape(f.mode), csvEscape(f.description), f.updatedAt.toISOString()].join(","),
+    );
+  }
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="provenhire-feature-flags.csv"');
   res.send("\uFEFF" + csv);
 });
 

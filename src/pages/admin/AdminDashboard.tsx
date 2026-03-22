@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "@/lib/api";
+import { api, getAuthToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,11 @@ interface Job {
   location: string | null;
   status: string | null;
   created_at: string;
+  posted_at?: string;
+  posted_by_user_id?: string | null;
+  posted_by_email?: string | null;
+  posted_by_name?: string | null;
+  posted_by_recruiter_profile_id?: string | null;
 }
 
 interface InterviewerApplication {
@@ -158,7 +163,7 @@ const AdminDashboard = () => {
     setLoading(true);
     try {
       const [jobsRes, jobSeekersRes, recruitersRes, statsRes, applicationsRes, interviewerAppsRes] = await Promise.allSettled([
-        api.get<{ jobs: Job[] }>("/api/jobs"),
+        api.get<{ jobs: Job[] }>("/api/admin/jobs"),
         api.get<{ jobSeekers: JobSeeker[] }>("/api/admin/job-seekers"),
         api.get<{ recruiters: Recruiter[] }>("/api/admin/recruiters"),
         api.get<{ totalJobSeekers: number; totalRecruiters: number; totalInterviewers: number; totalJobs: number; totalApplications: number; totalVerified: number; certificationLevels?: Record<number, number> }>("/api/admin/stats"),
@@ -200,12 +205,34 @@ const AdminDashboard = () => {
     await signOut();
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-IN", {
+  const formatDateDisplay = (value: string | Date | null | undefined) => {
+    if (value == null || value === "") return "—";
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("en-IN", {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
+  };
+
+  const downloadAdminCsv = async (path: string, filename: string, successMsg: string) => {
+    const token = getAuthToken();
+    try {
+      const r = await fetch(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!r.ok) throw new Error("Download failed");
+      const csv = await r.text();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = u;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(u);
+      toast.success(successMsg);
+    } catch {
+      toast.error("Download failed");
+    }
   };
 
   const filteredJobSeekers = jobSeekers.filter((seeker) => {
@@ -244,9 +271,12 @@ const AdminDashboard = () => {
     if (!jobSearch) return true;
     const query = jobSearch.toLowerCase();
     return (
+      job.id.toLowerCase().includes(query) ||
       job.title.toLowerCase().includes(query) ||
       job.company.toLowerCase().includes(query) ||
-      job.location?.toLowerCase().includes(query)
+      job.location?.toLowerCase().includes(query) ||
+      job.posted_by_email?.toLowerCase().includes(query) ||
+      job.posted_by_name?.toLowerCase().includes(query)
     );
   });
 
@@ -466,7 +496,7 @@ const AdminDashboard = () => {
                 <div className="hidden md:block text-right text-sm text-muted-foreground">
                   <div className="font-medium text-foreground truncate max-w-[180px]">{currentUser.email}</div>
                   <div className="text-xs">
-                    Last login: {currentUser.last_sign_in_at ? formatDate(currentUser.last_sign_in_at) : "—"}
+                    Last login: {currentUser.last_sign_in_at ? formatDateDisplay(currentUser.last_sign_in_at) : "—"}
                   </div>
                 </div>
               )}
@@ -493,25 +523,9 @@ const AdminDashboard = () => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
-                  const url = "/api/admin/export-users";
-                  const token = localStorage.getItem("ph_jwt") || "";
-                  try {
-                    const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-                    if (!r.ok) throw new Error("Download failed");
-                    const csv = await r.text();
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-                    const u = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = u;
-                    a.download = "provenhire-users-export.csv";
-                    a.click();
-                    URL.revokeObjectURL(u);
-                    toast.success("Users export downloaded");
-                  } catch {
-                    toast.error("Download failed");
-                  }
-                }}
+                onClick={() =>
+                  downloadAdminCsv("/api/admin/export-users", "provenhire-users-export.csv", "All users export downloaded")
+                }
                 className="shrink-0"
               >
                 <Download className="h-4 w-4 sm:mr-2" />
@@ -653,7 +667,7 @@ const AdminDashboard = () => {
                 {adminActions.slice(0, 5).map((action) => (
                   <div key={action.id} className="flex items-center justify-between">
                     <span>{action.action}</span>
-                    <span className="text-muted-foreground">{formatDate(action.time)}</span>
+                    <span className="text-muted-foreground">{formatDateDisplay(action.time)}</span>
                   </div>
                 ))}
               </div>
@@ -787,8 +801,27 @@ const AdminDashboard = () => {
           <TabsContent value="jobseekers">
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="text-base sm:text-lg">Job Seekers</CardTitle>
-                <CardDescription>All registered job seekers on the platform</CardDescription>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Job Seekers</CardTitle>
+                    <CardDescription>All registered job seekers on the platform</CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 w-fit"
+                    onClick={() =>
+                      downloadAdminCsv(
+                        "/api/admin/export-job-seekers",
+                        "provenhire-job-seekers.csv",
+                        "Job seekers export downloaded",
+                      )
+                    }
+                  >
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    Download CSV
+                  </Button>
+                </div>
                 <div className="flex flex-col md:flex-row gap-3 mt-3">
                   <Input
                     placeholder="Search by user ID, college, skill..."
@@ -840,6 +873,8 @@ const AdminDashboard = () => {
                           disabled={filteredJobSeekers.length === 0}
                         />
                       </TableHead>
+                      <TableHead className="font-mono text-xs whitespace-nowrap min-w-[100px]">Profile ID</TableHead>
+                      <TableHead className="font-mono text-xs whitespace-nowrap min-w-[100px]">User ID</TableHead>
                       <TableHead>Name / Email</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>College</TableHead>
@@ -854,7 +889,7 @@ const AdminDashboard = () => {
                   <TableBody>
                     {filteredJobSeekers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="text-center text-muted-foreground">
+                        <TableCell colSpan={12} className="text-center text-muted-foreground">
                           No job seekers match your filters.
                         </TableCell>
                       </TableRow>
@@ -868,6 +903,8 @@ const AdminDashboard = () => {
                               aria-label={`Select ${seeker.profile?.full_name || seeker.profile?.email || "user"}`}
                             />
                           </TableCell>
+                          <TableCell className="font-mono text-[10px] max-w-[140px] break-all align-top">{seeker.id}</TableCell>
+                          <TableCell className="font-mono text-[10px] max-w-[140px] break-all align-top">{seeker.user_id}</TableCell>
                           <TableCell>
                             <div className="font-medium">{seeker.profile?.full_name || "—"}</div>
                             <div className="text-xs text-muted-foreground">{seeker.profile?.email || seeker.user_id?.slice(0, 12) + "…"}</div>
@@ -902,7 +939,7 @@ const AdminDashboard = () => {
                               {seeker.verification_status || "pending"}
                             </Badge>
                           </TableCell>
-                          <TableCell>{formatDate(seeker.created_at)}</TableCell>
+                          <TableCell>{formatDateDisplay(seeker.created_at)}</TableCell>
                           <TableCell>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -952,8 +989,27 @@ const AdminDashboard = () => {
           <TabsContent value="recruiters">
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="text-base sm:text-lg">Recruiters</CardTitle>
-                <CardDescription>All registered recruiters on the platform</CardDescription>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Recruiters</CardTitle>
+                    <CardDescription>All registered recruiters on the platform</CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 w-fit"
+                    onClick={() =>
+                      downloadAdminCsv(
+                        "/api/admin/export-recruiters",
+                        "provenhire-recruiters.csv",
+                        "Recruiters export downloaded",
+                      )
+                    }
+                  >
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    Download CSV
+                  </Button>
+                </div>
                 <div className="flex flex-col md:flex-row gap-3 mt-3">
                   <Input
                     placeholder="Search by name, email, company..."
@@ -994,6 +1050,8 @@ const AdminDashboard = () => {
                             disabled={filteredRecruiters.length === 0}
                           />
                         </TableHead>
+                        <TableHead className="font-mono text-xs whitespace-nowrap min-w-[100px]">Profile ID</TableHead>
+                        <TableHead className="font-mono text-xs whitespace-nowrap min-w-[100px]">User ID</TableHead>
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Company</TableHead>
@@ -1005,7 +1063,7 @@ const AdminDashboard = () => {
                   <TableBody>
                     {filteredRecruiters.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center text-muted-foreground">
                           No recruiters match your search.
                         </TableCell>
                       </TableRow>
@@ -1019,6 +1077,8 @@ const AdminDashboard = () => {
                               aria-label={`Select ${recruiter.full_name || recruiter.email || "recruiter"}`}
                             />
                           </TableCell>
+                          <TableCell className="font-mono text-[10px] max-w-[140px] break-all align-top">{recruiter.id}</TableCell>
+                          <TableCell className="font-mono text-[10px] max-w-[140px] break-all align-top">{recruiter.user_id}</TableCell>
                           <TableCell className="font-medium">{recruiter.full_name || "-"}</TableCell>
                           <TableCell>{recruiter.email || "-"}</TableCell>
                           <TableCell>{recruiter.company_name || "-"}</TableCell>
@@ -1027,7 +1087,7 @@ const AdminDashboard = () => {
                               {recruiter.verification_status || "pending"}
                             </Badge>
                           </TableCell>
-                          <TableCell>{formatDate(recruiter.created_at)}</TableCell>
+                          <TableCell>{formatDateDisplay(recruiter.created_at)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
                               <Button variant="outline" size="sm" onClick={() => { setRecruiterReview(recruiter); setVerificationRejectReason(""); }}>
@@ -1203,8 +1263,25 @@ const AdminDashboard = () => {
           <TabsContent value="jobs">
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="text-base sm:text-lg">Jobs</CardTitle>
-                <CardDescription>All job listings on the platform</CardDescription>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Jobs</CardTitle>
+                    <CardDescription>
+                      All listings including drafts. Posted date uses the record&apos;s created time (when the job was first saved).
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 w-fit"
+                    onClick={() =>
+                      downloadAdminCsv("/api/admin/export-jobs", "provenhire-jobs.csv", "Jobs export downloaded")
+                    }
+                  >
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    Download CSV
+                  </Button>
+                </div>
                 <div className="flex flex-col md:flex-row gap-3 mt-3">
                   <Input
                     placeholder="Search by title, company, location..."
@@ -1215,40 +1292,57 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[640px]">
+                  <Table className="min-w-[900px]">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="font-mono text-xs whitespace-nowrap min-w-[100px]">Job ID</TableHead>
                         <TableHead>Title</TableHead>
                         <TableHead>Company</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Posted</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredJobs.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground">
-                          No jobs match your search.
-                        </TableCell>
+                        <TableHead>Location</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Posted by</TableHead>
+                        <TableHead>Posted</TableHead>
                       </TableRow>
-                    ) : (
-                      filteredJobs.map((job) => (
-                        <TableRow key={job.id}>
-                          <TableCell className="font-medium">{job.title}</TableCell>
-                          <TableCell>{job.company}</TableCell>
-                          <TableCell>{job.location || "Remote"}</TableCell>
-                          <TableCell>
-                            <Badge variant={job.status === "active" ? "default" : "secondary"}>
-                              {job.status || "active"}
-                            </Badge>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredJobs.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground">
+                            No jobs match your search.
                           </TableCell>
-                          <TableCell>{formatDate(job.created_at)}</TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        filteredJobs.map((job) => (
+                          <TableRow key={job.id}>
+                            <TableCell className="font-mono text-[10px] max-w-[140px] break-all align-top">{job.id}</TableCell>
+                            <TableCell className="font-medium">{job.title}</TableCell>
+                            <TableCell>{job.company}</TableCell>
+                            <TableCell>{job.location || "—"}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  job.status === "published" || job.status === "active"
+                                    ? "default"
+                                    : job.status === "draft" || job.status === "closed"
+                                      ? "secondary"
+                                      : "outline"
+                                }
+                              >
+                                {job.status || "—"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">{job.posted_by_name || "—"}</div>
+                              <div className="text-xs text-muted-foreground font-mono break-all">
+                                {job.posted_by_email || job.posted_by_user_id?.slice(0, 12) || "—"}
+                              </div>
+                            </TableCell>
+                            <TableCell>{formatDateDisplay(job.posted_at || job.created_at)}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
@@ -1257,8 +1351,27 @@ const AdminDashboard = () => {
           <TabsContent value="applications">
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="text-base sm:text-lg">Job Applications</CardTitle>
-                <CardDescription>Recent applications across all jobs</CardDescription>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Job Applications</CardTitle>
+                    <CardDescription>Recent applications across all jobs</CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 w-fit"
+                    onClick={() =>
+                      downloadAdminCsv(
+                        "/api/admin/export-applications",
+                        "provenhire-applications.csv",
+                        "Applications export downloaded",
+                      )
+                    }
+                  >
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    Download CSV
+                  </Button>
+                </div>
                 <Input
                   placeholder="Search by job title, company, or applicant email..."
                   value={applicationSearch}
@@ -1268,38 +1381,42 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[640px]">
+                  <Table className="min-w-[800px]">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="font-mono text-xs whitespace-nowrap">Application ID</TableHead>
+                        <TableHead className="font-mono text-xs whitespace-nowrap">Job ID</TableHead>
                         <TableHead>Applicant</TableHead>
-                      <TableHead>Job</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Applied</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredApplications.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                          No applications match.
-                        </TableCell>
+                        <TableHead>Job</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Applied</TableHead>
                       </TableRow>
-                    ) : (
-                      filteredApplications.map((a) => (
-                        <TableRow key={a.id}>
-                          <TableCell className="font-medium">{a.seekerEmail || a.seekerId?.slice(0, 8) + "…"}</TableCell>
-                          <TableCell>{a.jobTitle || "—"}</TableCell>
-                          <TableCell>{a.company || "—"}</TableCell>
-                          <TableCell>
-                            <Badge variant={a.status === "hired" ? "default" : "secondary"}>{a.status}</Badge>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredApplications.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                            No applications match.
                           </TableCell>
-                          <TableCell>{formatDate(a.appliedAt)}</TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        filteredApplications.map((a) => (
+                          <TableRow key={a.id}>
+                            <TableCell className="font-mono text-[10px] max-w-[120px] break-all align-top">{a.id}</TableCell>
+                            <TableCell className="font-mono text-[10px] max-w-[120px] break-all align-top">{a.jobId}</TableCell>
+                            <TableCell className="font-medium">{a.seekerEmail || a.seekerId?.slice(0, 8) + "…"}</TableCell>
+                            <TableCell>{a.jobTitle || "—"}</TableCell>
+                            <TableCell>{a.company || "—"}</TableCell>
+                            <TableCell>
+                              <Badge variant={a.status === "hired" ? "default" : "secondary"}>{a.status}</Badge>
+                            </TableCell>
+                            <TableCell>{formatDateDisplay(a.appliedAt as string)}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
@@ -1328,10 +1445,24 @@ const AdminDashboard = () => {
           <TabsContent value="subscribers">
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="text-base sm:text-lg">Newsletter Subscribers</CardTitle>
-                <CardDescription>
-                  Users who subscribed to newsletter updates. Total: {stats.totalSubscribers}
-                </CardDescription>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Newsletter Subscribers</CardTitle>
+                    <CardDescription>
+                      Users who subscribed to newsletter updates. Total: {stats.totalSubscribers}
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 w-fit"
+                    disabled
+                    title="Connect a subscribers export endpoint when this list is backed by the API."
+                  >
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    Download CSV
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="text-center py-8 text-muted-foreground">
@@ -1350,35 +1481,58 @@ const AdminDashboard = () => {
           <TabsContent value="interviewer-apps">
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="text-base sm:text-lg">Interviewer Applications</CardTitle>
-                <CardDescription>                Apply to become an Expert Interviewer. Approve to create account and send invite link.</CardDescription>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Interviewer Applications</CardTitle>
+                    <CardDescription>
+                      Apply to become an Expert Interviewer. Approve to create account and send invite link.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 w-fit"
+                    onClick={() =>
+                      downloadAdminCsv(
+                        "/api/admin/export-interviewer-applications",
+                        "provenhire-interviewer-applications.csv",
+                        "Interviewer applications export downloaded",
+                      )
+                    }
+                  >
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    Download CSV
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
                 <div className="overflow-x-auto">
                   <Table className="min-w-[640px]">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="font-mono text-xs whitespace-nowrap">Application ID</TableHead>
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Phone</TableHead>
                         <TableHead>Track</TableHead>
-                      <TableHead>Experience</TableHead>
-                      <TableHead>Domains</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Applied</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                        <TableHead>Experience</TableHead>
+                        <TableHead>Domains</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Applied</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {interviewerApplications.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                           No interviewer applications yet.
                         </TableCell>
                       </TableRow>
                     ) : (
                       interviewerApplications.map((app) => (
                         <TableRow key={app.id}>
+                          <TableCell className="font-mono text-[10px] max-w-[120px] break-all align-top">{app.id}</TableCell>
                           <TableCell className="font-medium">{app.name}</TableCell>
                           <TableCell>{app.email}</TableCell>
                           <TableCell>{app.phone || "-"}</TableCell>
@@ -1407,7 +1561,7 @@ const AdminDashboard = () => {
                               {app.status}
                             </Badge>
                           </TableCell>
-                          <TableCell>{formatDate(app.createdAt)}</TableCell>
+                          <TableCell>{formatDateDisplay(app.createdAt)}</TableCell>
                           <TableCell>
                             {app.status === "pending" && (
                               <div className="flex gap-2">

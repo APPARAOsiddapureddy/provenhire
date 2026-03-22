@@ -7,16 +7,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { 
-  Scale, 
-  Eye, 
-  CheckCircle, 
-  XCircle, 
+import {
+  Scale,
+  Eye,
+  CheckCircle,
+  XCircle,
   Clock,
   FileText,
-  Loader2
+  Loader2,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getAuthToken } from "@/lib/api";
 
 interface TestAppeal {
   id: string;
@@ -109,7 +111,28 @@ const TestAppealsManager = () => {
     });
   };
 
-  const pendingCount = appeals.filter(a => a.status === 'pending').length;
+  const pendingCount = appeals.filter((a) => a.status === "pending").length;
+
+  const downloadAppealsCsv = async () => {
+    const token = getAuthToken();
+    try {
+      const r = await fetch("/api/admin/export-appeals", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) throw new Error("failed");
+      const csv = await r.text();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = u;
+      a.download = "provenhire-appeals.csv";
+      a.click();
+      URL.revokeObjectURL(u);
+      toast.success("Appeals export downloaded");
+    } catch {
+      toast.error("Download failed");
+    }
+  };
 
   if (loading) {
     return (
@@ -183,14 +206,20 @@ const TestAppealsManager = () => {
 
       {/* Appeals Table */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Scale className="h-5 w-5" />
-            Test Invalidation Appeals
-          </CardTitle>
-          <CardDescription>
-            Review and respond to candidate appeals for invalidated tests
-          </CardDescription>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Scale className="h-5 w-5" />
+              Test Invalidation Appeals
+            </CardTitle>
+            <CardDescription>
+              Review and respond to candidate appeals for invalidated tests
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" className="shrink-0 w-fit" onClick={downloadAppealsCsv}>
+            <Download className="h-4 w-4 sm:mr-2" />
+            Download CSV
+          </Button>
         </CardHeader>
         <CardContent>
           {appeals.length === 0 ? (

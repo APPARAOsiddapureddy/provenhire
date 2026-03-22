@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Shield, RefreshCw } from "lucide-react";
+import { Loader2, Shield, RefreshCw, Download } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { getAuthToken } from "@/lib/api";
 
 type FeatureFlagMode = "OFF" | "MONITOR" | "STRICT";
 
@@ -55,6 +57,27 @@ const IntegrityControls = () => {
     fetchFlags();
   }, []);
 
+  const downloadFlagsCsv = async () => {
+    const token = getAuthToken();
+    try {
+      const r = await fetch("/api/admin/export-feature-flags", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) throw new Error("failed");
+      const csv = await r.text();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = u;
+      a.download = "provenhire-feature-flags.csv";
+      a.click();
+      URL.revokeObjectURL(u);
+      toast.success("Feature flags export downloaded");
+    } catch {
+      toast.error("Download failed");
+    }
+  };
+
   const handleModeChange = async (featureName: string, mode: FeatureFlagMode) => {
     setUpdating(featureName);
     try {
@@ -93,13 +116,20 @@ const IntegrityControls = () => {
               Configure proctoring and integrity monitoring. Changes apply globally without redeploy.
             </CardDescription>
           </div>
-          <button
-            onClick={fetchFlags}
-            className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={downloadFlagsCsv}>
+              <Download className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">CSV</span>
+            </Button>
+            <button
+              type="button"
+              onClick={fetchFlags}
+              className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
