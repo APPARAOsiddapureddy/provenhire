@@ -58,20 +58,28 @@ export interface RawDSAQuestion {
 
 export function convertToDSAQuestion(raw: RawDSAQuestion, id: string): DSAQuestion {
   const diff = raw.questionType as "Easy" | "Medium" | "Hard";
+  const testCases = raw.testCases.map((t) => ({ input: t.input, expectedOutput: t.output }));
+  // Use the first sample test case as Example I/O (same as first public case after seeding).
+  const examples =
+    testCases.length > 0
+      ? testCases.slice(0, 2).map((t) => ({
+          input: t.input,
+          output: t.expectedOutput,
+        }))
+      : [
+          {
+            input: "No sample I/O defined for this question.",
+            output: "Add test cases in the question bank.",
+          },
+        ];
   return {
     id,
     difficulty: diff,
     title: raw.questionName,
     description: raw.question,
-    // Explicit, non-test examples for seeding (never use real test case I/O here).
-    examples: [
-      {
-        input: "Refer to the problem description for input/output format.",
-        output: "Refer to the problem description for the expected result.",
-      },
-    ],
+    examples,
     constraints: [],
-    testCases: raw.testCases.map((t) => ({ input: t.input, expectedOutput: t.output })),
+    testCases,
     hints: [],
     topic: "DSA",
     functionName: "solve",

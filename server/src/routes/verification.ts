@@ -447,6 +447,52 @@ function generateDSATestByRoleAndExperience(
   return questions.sort(() => Math.random() - 0.5).slice(0, count);
 }
 
+/** Bank-seeded rows used placeholder copy; replace with first public test case for display. */
+const DSA_EXAMPLE_PLACEHOLDER_SNIPPET = "refer to the problem description";
+
+function dsaExamplesLookPlaceholder(examples: unknown): boolean {
+  if (!Array.isArray(examples) || examples.length === 0) return true;
+  const first = examples[0] as { input?: unknown; output?: unknown };
+  const inStr = String(first?.input ?? "").toLowerCase();
+  const outStr = String(first?.output ?? "").toLowerCase();
+  return (
+    inStr.includes(DSA_EXAMPLE_PLACEHOLDER_SNIPPET) || outStr.includes(DSA_EXAMPLE_PLACEHOLDER_SNIPPET)
+  );
+}
+
+function dsaMergeExamplesWithSample(
+  examples: unknown,
+  sample: { input: string; expected: string } | undefined
+): unknown {
+  if (!sample || !dsaExamplesLookPlaceholder(examples)) return examples;
+  return [{ input: sample.input, output: sample.expected }];
+}
+
+async function dsaFirstPublicSampleByQuestionId(
+  questionIds: string[]
+): Promise<Map<string, { input: string; expected: string }>> {
+  const map = new Map<string, { input: string; expected: string }>();
+  if (questionIds.length === 0) return map;
+
+  const rows = await prisma.dsaTestCase.findMany({
+    where: { questionId: { in: questionIds } },
+    orderBy: { id: "asc" },
+    select: { questionId: true, input: true, expected: true, isHidden: true },
+  });
+
+  for (const row of rows) {
+    if (map.has(row.questionId)) continue;
+    if (row.isHidden) continue;
+    map.set(row.questionId, { input: row.input, expected: row.expected });
+  }
+  for (const row of rows) {
+    if (!map.has(row.questionId)) {
+      map.set(row.questionId, { input: row.input, expected: row.expected });
+    }
+  }
+  return map;
+}
+
 verificationRouter.get("/dsa/questions", requireAuth, async (req: AuthedRequest, res) => {
   const activeStage = await prisma.verificationStage.findFirst({
     where: { userId: req.user!.id, stageName: "dsa_round", status: "in_progress" },
@@ -484,13 +530,15 @@ verificationRouter.get("/dsa/questions", requireAuth, async (req: AuthedRequest,
 
   type PoolItem = (typeof pool)[number];
 
+  const sampleById = await dsaFirstPublicSampleByQuestionId(selected.map((q) => q.id));
+
   return res.json(
     selected.map((q: PoolItem) => ({
       id: q.id,
       title: q.title,
       description: q.description,
       difficulty: q.difficulty,
-      examples: q.examples,
+      examples: dsaMergeExamplesWithSample(q.examples, sampleById.get(q.id)),
       constraints: q.constraints,
       starterCode: q.starterCode,
     }))
@@ -529,13 +577,15 @@ verificationRouter.get("/dsa/practice-questions", requireAuth, async (req: Authe
 
   type PoolItem = (typeof pool)[number];
 
+  const sampleById = await dsaFirstPublicSampleByQuestionId(selected.map((q) => q.id));
+
   return res.json(
     selected.map((q: PoolItem) => ({
       id: q.id,
       title: q.title,
       description: q.description,
       difficulty: q.difficulty,
-      examples: q.examples,
+      examples: dsaMergeExamplesWithSample(q.examples, sampleById.get(q.id)),
       constraints: q.constraints,
       starterCode: q.starterCode,
     }))

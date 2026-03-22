@@ -956,22 +956,28 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               </div>
               {/* Example: one input and one output for clarity */}
               {selectedQuestion.examples.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-foreground">Example</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="rounded-md border border-border bg-background p-3">
-                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Input</span>
-                      <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
-                        {selectedQuestion.examples[0].input}
-                      </pre>
+                <div className="space-y-4">
+                  {selectedQuestion.examples.map((ex, exIdx) => (
+                    <div key={exIdx} className="space-y-2">
+                      <h4 className="text-sm font-medium text-foreground">
+                        {selectedQuestion.examples.length > 1 ? `Example ${exIdx + 1}` : "Example"}
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="rounded-md border border-border bg-background p-3">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Input</span>
+                          <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
+                            {ex.input}
+                          </pre>
+                        </div>
+                        <div className="rounded-md border border-border bg-background p-3">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Output</span>
+                          <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
+                            {ex.output}
+                          </pre>
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-md border border-border bg-background p-3">
-                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Output</span>
-                      <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
-                        {selectedQuestion.examples[0].output}
-                      </pre>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               )}
             </div>

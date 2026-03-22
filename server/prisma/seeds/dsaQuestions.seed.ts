@@ -5,7 +5,7 @@
  *   cd server && npm run seed:dsa
  *
  * Rules:
- * - Examples must be explicitly authored (never derived from hidden test inputs).
+ * - Each question must include at least one example in source data (bank uses first 1–2 test cases as examples).
  * - Each question is validated with Zod before upsert.
  */
 import { PrismaClient } from "@prisma/client";
