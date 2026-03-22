@@ -291,15 +291,56 @@ function normalizeAnswer(s: string): string {
   return (s || "").toString().trim().toLowerCase();
 }
 
+type AptitudeAnswersJson = {
+  totalMarks?: number;
+  earnedMarks?: number;
+  correct?: number;
+  questions?: number;
+};
+
+/**
+ * AptitudeTestResult.score is normally **raw earned marks**; answers.totalMarks / earnedMarks come from POST /aptitude.
+ * Legacy rows (e.g. test seed) stored **0–100 percent** in score with empty answers — do not divide that by 25.
+ */
+function buildAptitudeLatestResult(row: { score: number | null; answers: unknown }): {
+  total_score: number;
+  total_marks: number;
+  percentage: number;
+  score: number;
+} {
+  const answers = (row.answers ?? null) as AptitudeAnswersJson | null;
+  const totalFromAnswers =
+    typeof answers?.totalMarks === "number" && answers.totalMarks > 0 ? answers.totalMarks : null;
+  const earnedFromAnswers = typeof answers?.earnedMarks === "number" ? answers.earnedMarks : null;
+  const stored = row.score ?? 0;
+
+  if (totalFromAnswers != null) {
+    const earned = earnedFromAnswers != null ? earnedFromAnswers : stored;
+    const percentage = Math.min(100, Math.max(0, Math.round((earned / totalFromAnswers) * 100)));
+    return {
+      total_score: earned,
+      total_marks: totalFromAnswers,
+      percentage,
+      score: earned,
+    };
+  }
+
+  // No totalMarks on record: treat stored score as 0–100 (synthetic / legacy percent rows)
+  const percentage = Math.min(100, Math.max(0, Math.round(stored)));
+  return {
+    total_score: percentage,
+    total_marks: 100,
+    percentage,
+    score: percentage,
+  };
+}
+
 verificationRouter.get("/aptitude/latest", requireAuth, async (req: AuthedRequest, res) => {
   const row = await prisma.aptitudeTestResult.findFirst({
     where: { userId: req.user!.id },
     orderBy: { completedAt: "desc" },
   });
-  const score = row?.score ?? 0;
-  const answers = row?.answers as { totalMarks?: number; earnedMarks?: number } | null | undefined;
-  const totalMarks = answers?.totalMarks ?? 25; // 25 is minimum session total (fresher); actual is 25/30/35
-  const result = row ? { total_score: score, score, total_marks: totalMarks } : null;
+  const result = row ? buildAptitudeLatestResult(row) : null;
   res.json({ result });
 });
 

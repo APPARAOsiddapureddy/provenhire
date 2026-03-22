@@ -16,16 +16,22 @@ export async function getAptitudeScoreZeroToHundred(
     select: { score: true, answers: true },
   });
   const answers = latest?.answers as { earnedMarks?: number; totalMarks?: number } | null | undefined;
-  const totalMarks = typeof answers?.totalMarks === "number" && answers.totalMarks > 0
-    ? answers.totalMarks
-    : 25;
-  const earnedMarks = typeof answers?.earnedMarks === "number"
-    ? answers.earnedMarks
-    : (typeof latest?.score === "number" ? latest.score : null);
-  if (typeof earnedMarks === "number" && totalMarks > 0) {
-    return Math.round((earnedMarks / totalMarks) * 100);
+  const totalMarks =
+    typeof answers?.totalMarks === "number" && answers.totalMarks > 0 ? answers.totalMarks : null;
+  const earnedMarks =
+    typeof answers?.earnedMarks === "number"
+      ? answers.earnedMarks
+      : typeof latest?.score === "number"
+        ? latest.score
+        : null;
+  if (totalMarks != null && totalMarks > 0 && typeof earnedMarks === "number") {
+    return Math.min(100, Math.max(0, Math.round((earnedMarks / totalMarks) * 100)));
   }
-  return stageScore <= 100 ? stageScore : null;
+  // No structured marks (e.g. legacy seed): AptitudeTestResult.score is already 0–100
+  if (typeof latest?.score === "number" && latest.score >= 0 && latest.score <= 100) {
+    return Math.round(latest.score);
+  }
+  return stageScore <= 100 ? Math.round(stageScore) : null;
 }
 
 /**
@@ -42,14 +48,22 @@ export async function getAptitudeScoresZeroToHundredBatch(
     orderBy: { completedAt: "desc" },
     select: { userId: true, score: true, answers: true },
   });
-  const latestByUser = new Map<string, { earnedMarks: number; totalMarks: number }>();
+  const latestByUser = new Map<string, { earnedMarks: number; totalMarks: number } | { percent: number }>();
   for (const r of results) {
     if (!latestByUser.has(r.userId)) {
       const ans = r.answers as { earnedMarks?: number; totalMarks?: number } | null | undefined;
-      const totalMarks = typeof ans?.totalMarks === "number" && ans.totalMarks > 0 ? ans.totalMarks : 25;
-      const earnedMarks = typeof ans?.earnedMarks === "number" ? ans.earnedMarks : (typeof r.score === "number" ? r.score : NaN);
-      if (typeof earnedMarks === "number" && !Number.isNaN(earnedMarks) && totalMarks > 0) {
+      const totalMarks =
+        typeof ans?.totalMarks === "number" && ans.totalMarks > 0 ? ans.totalMarks : null;
+      const earnedMarks =
+        typeof ans?.earnedMarks === "number"
+          ? ans.earnedMarks
+          : typeof r.score === "number"
+            ? r.score
+            : NaN;
+      if (totalMarks != null && totalMarks > 0 && typeof earnedMarks === "number" && !Number.isNaN(earnedMarks)) {
         latestByUser.set(r.userId, { earnedMarks, totalMarks });
+      } else if (typeof r.score === "number" && r.score >= 0 && r.score <= 100) {
+        latestByUser.set(r.userId, { percent: Math.round(r.score) });
       }
     }
   }
@@ -61,10 +75,12 @@ export async function getAptitudeScoresZeroToHundredBatch(
       continue;
     }
     const row = latestByUser.get(uid);
-    if (row && row.totalMarks > 0) {
-      out.set(uid, Math.round((row.earnedMarks / row.totalMarks) * 100));
+    if (row && "totalMarks" in row && row.totalMarks > 0) {
+      out.set(uid, Math.min(100, Math.max(0, Math.round((row.earnedMarks / row.totalMarks) * 100))));
+    } else if (row && "percent" in row) {
+      out.set(uid, row.percent);
     } else {
-      out.set(uid, stage <= 100 ? stage : null);
+      out.set(uid, stage <= 100 ? Math.round(stage) : null);
     }
   }
   return out;

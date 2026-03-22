@@ -87,7 +87,6 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     }
   }, []);
   const isFailed = stageStatus === "failed" || (submitted && !justPassed);
-  const displayScore = submittedScore ?? stageScore ?? 0;
 
   const inTest = proctoringReady && !justPassed && !isFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
@@ -362,7 +361,12 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
 
   // When the stage is already failed (e.g. user returning after a previous attempt),
   // show the retry UI directly without requiring proctoring setup again.
-  const scorePctDisplay = totalMarks > 0 ? Math.round((displayScore / totalMarks) * 100) : 0;
+  const scorePctDisplay =
+    submittedScore != null && totalMarks > 0
+      ? Math.round((submittedScore / totalMarks) * 100)
+      : typeof stageScore === "number" && stageScore >= 0 && stageScore <= 100
+        ? Math.round(stageScore)
+        : 0;
   const passThresholdPct = totalMarks > 0 ? Math.round((passThreshold / totalMarks) * 100) : passThreshold;
 
   // Proctoring is only needed when the user is actually about to take the test.

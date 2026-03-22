@@ -418,8 +418,13 @@ const JobSeekerDashboard = () => {
           else setCertificationLevel("C");
         } else {
           const aptScore = aptitudeResult?.total_score ?? 0;
-          const aptTotal = aptitudeResult?.total_marks ?? (aptitudeResult?.answers as { totalMarks?: number })?.totalMarks ?? 25;
-          const aptitudePct = aptTotal > 0 ? (aptScore / aptTotal) * 100 : 0;
+          const aptTotal = aptitudeResult?.total_marks ?? (aptitudeResult?.answers as { totalMarks?: number })?.totalMarks ?? 0;
+          const aptitudePct =
+            typeof aptitudeResult?.percentage === "number"
+              ? aptitudeResult.percentage
+              : aptTotal > 0
+                ? (aptScore / aptTotal) * 100
+                : 0;
           const dsaPct = dsaResult?.total_score ?? 0; // already 0–100
           const interviewPct = Number(interviewScore) || 0; // expert_interview score is already 0–100
           const overallAvg = (aptitudePct + dsaPct + interviewPct) / 3;
@@ -619,8 +624,9 @@ const JobSeekerDashboard = () => {
                 roleType={roleType}
                 completedUpToStage={completedUpToStage}
                 aptitudeScore={testResults.aptitude ? (() => {
+                  const t = testResults.aptitude.total_marks ?? 0;
+                  if (typeof testResults.aptitude.percentage === "number") return testResults.aptitude.percentage;
                   const s = testResults.aptitude.total_score ?? 0;
-                  const t = testResults.aptitude.total_marks ?? 20;
                   return t > 0 ? Math.round((s / t) * 100) : Math.round(s);
                 })() : undefined}
                 dsaScore={testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : undefined}
@@ -838,9 +844,18 @@ const JobSeekerDashboard = () => {
                   const isLocked = status === 'locked';
                   const isFailed = stageData?.status === 'failed';
                   const aptitudeScore = testResults.aptitude?.total_score ?? 0;
-                  const aptitudeTotal = testResults.aptitude?.total_marks ?? 25;
-                  const aptitudePct = testResults.aptitude && aptitudeTotal > 0 ? Math.round((aptitudeScore / aptitudeTotal) * 100) : null;
-                  const aptitudeDisplay = testResults.aptitude ? `${aptitudeScore}/${aptitudeTotal} (${aptitudePct ?? 0}%)` : null;
+                  const aptitudeTotal = testResults.aptitude?.total_marks ?? 0;
+                  const aptitudePct =
+                    testResults.aptitude && typeof testResults.aptitude.percentage === "number"
+                      ? testResults.aptitude.percentage
+                      : testResults.aptitude && aptitudeTotal > 0
+                        ? Math.round((aptitudeScore / aptitudeTotal) * 100)
+                        : null;
+                  const aptitudeDisplay = testResults.aptitude
+                    ? aptitudeTotal > 0
+                      ? `${aptitudeScore}/${aptitudeTotal} (${aptitudePct ?? 0}%)`
+                      : `${aptitudePct ?? 0}%`
+                    : null;
                   const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 3}` : null;
                   const dsaPct = testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : null;
                   const stageDesc: Record<string, string> = {

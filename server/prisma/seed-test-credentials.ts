@@ -112,12 +112,24 @@ async function main() {
     }
 
     if ("aptitudeScore" in u && u.aptitudeScore != null) {
+      const pct = Math.min(100, Math.max(0, Math.round(u.aptitudeScore)));
+      // Match real POST /aptitude shape: earned/total for display; use 100-scale for synthetic test users
+      const answers = {
+        earnedMarks: pct,
+        totalMarks: 100,
+        questions: 0,
+        correct: 0,
+        syntheticPercentSeed: true,
+      };
       const existing = await prisma.aptitudeTestResult.findFirst({ where: { userId: user.id } });
       if (existing) {
-        await prisma.aptitudeTestResult.update({ where: { id: existing.id }, data: { score: u.aptitudeScore } });
+        await prisma.aptitudeTestResult.update({
+          where: { id: existing.id },
+          data: { score: pct, answers },
+        });
       } else {
         await prisma.aptitudeTestResult.create({
-          data: { userId: user.id, score: u.aptitudeScore, answers: {} },
+          data: { userId: user.id, score: pct, answers },
         });
       }
     }
