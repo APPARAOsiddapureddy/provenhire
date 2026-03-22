@@ -408,6 +408,13 @@ adminRouter.get("/export-users", async (_req, res) => {
 });
 
 const BULK_DELETE_MAX = 100;
+/** Smaller transactions avoid DB / serverless timeouts when deleting many users at once. */
+const BULK_DELETE_BATCH_SIZE = 12;
+
+const PRISMA_TX_BATCH_OPTS = {
+  maxWait: 20_000,
+  timeout: 120_000,
+} as const;
 
 /** Shared cascade delete for one user (must run inside a transaction). */
 async function adminDeleteUserData(tx: Prisma.TransactionClient, userId: string, emailNormalized: string) {
@@ -416,6 +423,25 @@ async function adminDeleteUserData(tx: Prisma.TransactionClient, userId: string,
     create: { email: emailNormalized },
     update: {},
   });
+
+  const interviewer = await tx.interviewer.findFirst({ where: { userId } });
+
+  // Expert interviews: drop sessions where this user is the candidate OR the interviewer (FK cleanup).
+  await tx.humanInterviewSession.deleteMany({
+    where: {
+      OR: [
+        { userId },
+        ...(interviewer ? [{ interviewerId: interviewer.id }] : []),
+      ],
+    },
+  });
+
+  // Candidate booked on another expert's slot — clear FK before deleting User.
+  await tx.interviewerSlot.updateMany({
+    where: { bookedUserId: userId },
+    data: { bookedUserId: null },
+  });
+
   await tx.notification.deleteMany({ where: { userId } });
   await tx.verificationStage.deleteMany({ where: { userId } });
   await tx.aptitudeTestResult.deleteMany({ where: { userId } });
@@ -426,20 +452,29 @@ async function adminDeleteUserData(tx: Prisma.TransactionClient, userId: string,
   await tx.savedJob.deleteMany({ where: { userId } });
   await tx.jobSeekerProfile.deleteMany({ where: { userId } });
   await tx.recruiterProfile.deleteMany({ where: { userId } });
+
+  // AI interviews have child messages (no DB cascade) — delete messages first.
+  await tx.interviewMessage.deleteMany({
+    where: { interview: { userId } },
+  });
   await tx.interview.deleteMany({ where: { userId } });
+
   await tx.refreshToken.deleteMany({ where: { userId } });
   await tx.passwordResetToken.deleteMany({ where: { userId } });
   await tx.appeal.deleteMany({ where: { userId } });
-  await tx.humanInterviewSession.deleteMany({ where: { userId } });
   await tx.jobAlertSubscription.deleteMany({ where: { userId } });
   await tx.resumeAnalysis.deleteMany({ where: { userId } });
   await tx.userPreferences.deleteMany({ where: { userId } });
   await tx.candidateSkillVerification.deleteMany({ where: { userId } });
-  const interviewer = await tx.interviewer.findFirst({ where: { userId } });
+
   if (interviewer) {
-    await tx.interviewerSlot.updateMany({ where: { interviewerId: interviewer.id }, data: { bookedUserId: null } });
+    await tx.interviewerSlot.updateMany({
+      where: { interviewerId: interviewer.id },
+      data: { bookedUserId: null },
+    });
     await tx.interviewer.delete({ where: { id: interviewer.id } });
   }
+
   await tx.user.delete({ where: { id: userId } });
 }
 
@@ -479,11 +514,28 @@ adminRouter.post("/users/bulk-delete", async (req: AuthedRequest, res) => {
     });
   }
 
-  await prisma.$transaction(async (tx) => {
-    for (const u of deletable) {
-      await adminDeleteUserData(tx, u.id, u.email.trim().toLowerCase());
+  try {
+    for (let i = 0; i < deletable.length; i += BULK_DELETE_BATCH_SIZE) {
+      const chunk = deletable.slice(i, i + BULK_DELETE_BATCH_SIZE);
+      await prisma.$transaction(
+        async (tx) => {
+          for (const u of chunk) {
+            await adminDeleteUserData(tx, u.id, u.email.trim().toLowerCase());
+          }
+        },
+        PRISMA_TX_BATCH_OPTS,
+      );
     }
-  });
+  } catch (e: unknown) {
+    const code = e && typeof e === "object" && "code" in e ? String((e as { code: string }).code) : undefined;
+    const message = e instanceof Error ? e.message : "Bulk delete failed";
+    console.error("[admin/users/bulk-delete]", code ?? "", message, e);
+    return res.status(500).json({
+      error: "Could not complete bulk delete. Try a smaller selection or retry.",
+      details: message,
+      ...(code ? { code } : {}),
+    });
+  }
 
   res.json({
     ok: true,
@@ -503,9 +555,21 @@ adminRouter.delete("/users/:userId", async (req, res) => {
   if (user.role === "admin") return res.status(400).json({ error: "Cannot delete admin users" });
 
   const email = user.email.trim().toLowerCase();
-  await prisma.$transaction(async (tx) => {
-    await adminDeleteUserData(tx, userId, email);
-  });
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        await adminDeleteUserData(tx, userId, email);
+      },
+      { maxWait: 20_000, timeout: 60_000 },
+    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Delete failed";
+    console.error("[admin/users/:userId DELETE]", message, e);
+    return res.status(500).json({
+      error: "Could not delete user (related data may still exist).",
+      details: message,
+    });
+  }
 
   res.json({ ok: true, message: "User deleted. Email blocked from future signups." });
 });
