@@ -1,6 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { requireAdmin, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { hashToken, generateRefreshToken } from "../utils/jwt.js";
@@ -406,6 +407,94 @@ adminRouter.get("/export-users", async (_req, res) => {
   res.send("\uFEFF" + csv);
 });
 
+const BULK_DELETE_MAX = 100;
+
+/** Shared cascade delete for one user (must run inside a transaction). */
+async function adminDeleteUserData(tx: Prisma.TransactionClient, userId: string, emailNormalized: string) {
+  await tx.blockedEmail.upsert({
+    where: { email: emailNormalized },
+    create: { email: emailNormalized },
+    update: {},
+  });
+  await tx.notification.deleteMany({ where: { userId } });
+  await tx.verificationStage.deleteMany({ where: { userId } });
+  await tx.aptitudeTestResult.deleteMany({ where: { userId } });
+  await tx.aptitudeSession.deleteMany({ where: { userId } });
+  await tx.dsaRoundResult.deleteMany({ where: { userId } });
+  await tx.dsaSubmission.deleteMany({ where: { userId } });
+  await tx.jobApplication.deleteMany({ where: { jobSeekerId: userId } });
+  await tx.savedJob.deleteMany({ where: { userId } });
+  await tx.jobSeekerProfile.deleteMany({ where: { userId } });
+  await tx.recruiterProfile.deleteMany({ where: { userId } });
+  await tx.interview.deleteMany({ where: { userId } });
+  await tx.refreshToken.deleteMany({ where: { userId } });
+  await tx.passwordResetToken.deleteMany({ where: { userId } });
+  await tx.appeal.deleteMany({ where: { userId } });
+  await tx.humanInterviewSession.deleteMany({ where: { userId } });
+  await tx.jobAlertSubscription.deleteMany({ where: { userId } });
+  await tx.resumeAnalysis.deleteMany({ where: { userId } });
+  await tx.userPreferences.deleteMany({ where: { userId } });
+  await tx.candidateSkillVerification.deleteMany({ where: { userId } });
+  const interviewer = await tx.interviewer.findFirst({ where: { userId } });
+  if (interviewer) {
+    await tx.interviewerSlot.updateMany({ where: { interviewerId: interviewer.id }, data: { bookedUserId: null } });
+    await tx.interviewer.delete({ where: { id: interviewer.id } });
+  }
+  await tx.user.delete({ where: { id: userId } });
+}
+
+/**
+ * Delete many users in a single DB transaction (faster than N separate HTTP deletes).
+ * Skips admins and the requesting admin. Emails are blocked from future signups.
+ */
+adminRouter.post("/users/bulk-delete", async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    userIds: z.array(z.string().min(1)).min(1).max(BULK_DELETE_MAX),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+
+  const adminId = req.user!.id;
+  const uniqueIds = [...new Set(parsed.data.userIds)].filter((id) => id !== adminId);
+  if (uniqueIds.length === 0) {
+    return res.status(400).json({ error: "No valid user IDs to delete." });
+  }
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, email: true, role: true },
+  });
+
+  const deletable = users.filter((u) => u.role !== "admin");
+  const notFound = uniqueIds.length - users.length;
+  const skippedAdmin = users.filter((u) => u.role === "admin").length;
+
+  if (deletable.length === 0) {
+    return res.status(400).json({
+      error: "No users deleted. Admin accounts cannot be removed.",
+      notFound,
+      skippedAdmin,
+    });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const u of deletable) {
+      await adminDeleteUserData(tx, u.id, u.email.trim().toLowerCase());
+    }
+  });
+
+  res.json({
+    ok: true,
+    deleted: deletable.length,
+    notFound,
+    skippedAdmin,
+    skippedSelf: parsed.data.userIds.includes(adminId) ? 1 : 0,
+    message: `Deleted ${deletable.length} user(s). Their emails are blocked from future signups.`,
+  });
+});
+
 /** Delete user (job seeker or recruiter) — email is blocked from future signups */
 adminRouter.delete("/users/:userId", async (req, res) => {
   const { userId } = req.params;
@@ -415,34 +504,7 @@ adminRouter.delete("/users/:userId", async (req, res) => {
 
   const email = user.email.trim().toLowerCase();
   await prisma.$transaction(async (tx) => {
-    await tx.blockedEmail.upsert({
-      where: { email },
-      create: { email },
-      update: {},
-    });
-    await tx.notification.deleteMany({ where: { userId } });
-    await tx.verificationStage.deleteMany({ where: { userId } });
-    await tx.aptitudeTestResult.deleteMany({ where: { userId } });
-    await tx.dsaRoundResult.deleteMany({ where: { userId } });
-    await tx.jobApplication.deleteMany({ where: { jobSeekerId: userId } });
-    await tx.savedJob.deleteMany({ where: { userId } });
-    await tx.jobSeekerProfile.deleteMany({ where: { userId } });
-    await tx.recruiterProfile.deleteMany({ where: { userId } });
-    await tx.interview.deleteMany({ where: { userId } });
-    await tx.refreshToken.deleteMany({ where: { userId } });
-    await tx.passwordResetToken.deleteMany({ where: { userId } });
-    await tx.appeal.deleteMany({ where: { userId } });
-    await tx.humanInterviewSession.deleteMany({ where: { userId } });
-    await tx.jobAlertSubscription.deleteMany({ where: { userId } });
-    await tx.resumeAnalysis.deleteMany({ where: { userId } });
-    await tx.userPreferences.deleteMany({ where: { userId } });
-    await tx.candidateSkillVerification.deleteMany({ where: { userId } });
-    const interviewer = await tx.interviewer.findFirst({ where: { userId } });
-    if (interviewer) {
-      await tx.interviewerSlot.updateMany({ where: { interviewerId: interviewer.id }, data: { bookedUserId: null } });
-      await tx.interviewer.delete({ where: { id: interviewer.id } });
-    }
-    await tx.user.delete({ where: { id: userId } });
+    await adminDeleteUserData(tx, userId, email);
   });
 
   res.json({ ok: true, message: "User deleted. Email blocked from future signups." });

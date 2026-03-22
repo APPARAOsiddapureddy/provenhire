@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -131,6 +132,14 @@ const AdminDashboard = () => {
   const [inviteLinkDialog, setInviteLinkDialog] = useState<{ email: string; link: string } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ userId: string; email: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** user_id values for bulk delete */
+  const [selectedSeekerUserIds, setSelectedSeekerUserIds] = useState<Set<string>>(new Set());
+  const [selectedRecruiterUserIds, setSelectedRecruiterUserIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteDialog, setBulkDeleteDialog] = useState<{
+    userIds: string[];
+    kind: "jobseekers" | "recruiters";
+    preview: { email: string; name: string }[];
+  } | null>(null);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [messageRecipient, setMessageRecipient] = useState<{ userId: string; label: string } | null>(null);
 
@@ -251,6 +260,116 @@ const AdminDashboard = () => {
     );
   });
 
+  const allFilteredSeekersSelected =
+    filteredJobSeekers.length > 0 && filteredJobSeekers.every((s) => selectedSeekerUserIds.has(s.user_id));
+  const allFilteredRecruitersSelected =
+    filteredRecruiters.length > 0 && filteredRecruiters.every((r) => selectedRecruiterUserIds.has(r.user_id));
+
+  const toggleSeekerSelection = (userId: string) => {
+    setSelectedSeekerUserIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(userId)) n.delete(userId);
+      else n.add(userId);
+      return n;
+    });
+  };
+
+  const toggleRecruiterSelection = (userId: string) => {
+    setSelectedRecruiterUserIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(userId)) n.delete(userId);
+      else n.add(userId);
+      return n;
+    });
+  };
+
+  const setAllSeekersInFilter = (checked: boolean) => {
+    setSelectedSeekerUserIds((prev) => {
+      const n = new Set(prev);
+      if (checked) {
+        filteredJobSeekers.forEach((s) => n.add(s.user_id));
+      } else {
+        filteredJobSeekers.forEach((s) => n.delete(s.user_id));
+      }
+      return n;
+    });
+  };
+
+  const setAllRecruitersInFilter = (checked: boolean) => {
+    setSelectedRecruiterUserIds((prev) => {
+      const n = new Set(prev);
+      if (checked) {
+        filteredRecruiters.forEach((r) => n.add(r.user_id));
+      } else {
+        filteredRecruiters.forEach((r) => n.delete(r.user_id));
+      }
+      return n;
+    });
+  };
+
+  const openBulkDeleteSeekers = () => {
+    const ids = [...selectedSeekerUserIds];
+    if (ids.length === 0) return;
+    if (ids.length > 100) {
+      toast.error("You can delete at most 100 users at once. Narrow your selection.");
+      return;
+    }
+    const preview = ids.slice(0, 10).map((id) => {
+      const s = jobSeekers.find((j) => j.user_id === id);
+      return {
+        email: s?.profile?.email || id.slice(0, 12) + "…",
+        name: s?.profile?.full_name || "Job seeker",
+      };
+    });
+    setBulkDeleteDialog({ userIds: ids, kind: "jobseekers", preview });
+  };
+
+  const openBulkDeleteRecruiters = () => {
+    const ids = [...selectedRecruiterUserIds];
+    if (ids.length === 0) return;
+    if (ids.length > 100) {
+      toast.error("You can delete at most 100 users at once. Narrow your selection.");
+      return;
+    }
+    const preview = ids.slice(0, 10).map((id) => {
+      const r = recruiters.find((x) => x.user_id === id);
+      return {
+        email: r?.email || id.slice(0, 12) + "…",
+        name: r?.full_name || "Recruiter",
+      };
+    });
+    setBulkDeleteDialog({ userIds: ids, kind: "recruiters", preview });
+  };
+
+  const handleBulkDeleteUsers = async () => {
+    if (!bulkDeleteDialog || bulkDeleteDialog.userIds.length === 0) return;
+    setDeleting(true);
+    try {
+      const res = await api.post<{
+        ok?: boolean;
+        deleted?: number;
+        message?: string;
+        skippedAdmin?: number;
+        notFound?: number;
+      }>("/api/admin/users/bulk-delete", { userIds: bulkDeleteDialog.userIds });
+      const extra =
+        (res.skippedAdmin ?? 0) > 0 || (res.notFound ?? 0) > 0
+          ? ` (${[res.skippedAdmin ? `${res.skippedAdmin} admin(s) skipped` : "", res.notFound ? `${res.notFound} not found` : ""].filter(Boolean).join(", ")})`
+          : "";
+      toast.success((res.message ?? `Deleted ${res.deleted ?? 0} user(s).`) + extra);
+      setBulkDeleteDialog(null);
+      setSelectedSeekerUserIds(new Set());
+      setSelectedRecruiterUserIds(new Set());
+      setDeleteDialog(null);
+      await fetchAllData();
+    } catch (err: unknown) {
+      const ax = err as Error & { message?: string };
+      toast.error(ax?.message || "Bulk delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleApproveInterviewer = async (appId: string) => {
     setApprovingId(appId);
     try {
@@ -278,8 +397,19 @@ const AdminDashboard = () => {
     setDeleting(true);
     try {
       await api.del(`/api/admin/users/${deleteDialog.userId}`);
-      setJobSeekers((prev) => prev.filter((s) => s.user_id !== deleteDialog.userId));
-      setRecruiters((prev) => prev.filter((r) => r.user_id !== deleteDialog.userId));
+      const uid = deleteDialog.userId;
+      setJobSeekers((prev) => prev.filter((s) => s.user_id !== uid));
+      setRecruiters((prev) => prev.filter((r) => r.user_id !== uid));
+      setSelectedSeekerUserIds((prev) => {
+        const n = new Set(prev);
+        n.delete(uid);
+        return n;
+      });
+      setSelectedRecruiterUserIds((prev) => {
+        const n = new Set(prev);
+        n.delete(uid);
+        return n;
+      });
       toast.success("User deleted. Email blocked from future signups.");
       setDeleteDialog(null);
       fetchAllData();
@@ -619,6 +749,41 @@ const AdminDashboard = () => {
             </DialogContent>
           </Dialog>
 
+          <Dialog open={!!bulkDeleteDialog} onOpenChange={() => !deleting && setBulkDeleteDialog(null)}>
+            <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Delete {bulkDeleteDialog?.userIds.length ?? 0} users</DialogTitle>
+                <DialogDescription>
+                  This cannot be undone. All selected accounts will be removed and their emails blocked from future signups.
+                  Admin accounts in the selection are skipped automatically.
+                </DialogDescription>
+              </DialogHeader>
+              {bulkDeleteDialog && (
+                <div className="space-y-2 text-sm border rounded-md p-3 bg-muted/40 max-h-48 overflow-y-auto">
+                  {bulkDeleteDialog.preview.map((p, i) => (
+                    <div key={i} className="truncate">
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-muted-foreground"> — {p.email}</span>
+                    </div>
+                  ))}
+                  {bulkDeleteDialog.userIds.length > bulkDeleteDialog.preview.length && (
+                    <p className="text-muted-foreground pt-1">
+                      …and {bulkDeleteDialog.userIds.length - bulkDeleteDialog.preview.length} more
+                    </p>
+                  )}
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBulkDeleteDialog(null)} disabled={deleting}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={handleBulkDeleteUsers} disabled={deleting}>
+                  {deleting ? "Deleting…" : `Delete ${bulkDeleteDialog?.userIds.length ?? 0} users`}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <TabsContent value="jobseekers">
             <Card>
               <CardHeader className="p-4 sm:p-6">
@@ -642,12 +807,39 @@ const AdminDashboard = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                {selectedSeekerUserIds.size > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 mt-3 p-3 rounded-lg border border-destructive/30 bg-destructive/5">
+                    <span className="text-sm font-medium">
+                      {selectedSeekerUserIds.size} job seeker{selectedSeekerUserIds.size === 1 ? "" : "s"} selected
+                    </span>
+                    <Button size="sm" variant="destructive" onClick={openBulkDeleteSeekers} disabled={deleting}>
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Delete selected
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedSeekerUserIds(new Set())}
+                      disabled={deleting}
+                    >
+                      Clear selection
+                    </Button>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
                 <div className="overflow-x-auto">
                   <Table className="min-w-[640px]">
                     <TableHeader>
                       <TableRow>
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={allFilteredSeekersSelected}
+                          onCheckedChange={(v) => setAllSeekersInFilter(v === true)}
+                          aria-label="Select all visible job seekers"
+                          disabled={filteredJobSeekers.length === 0}
+                        />
+                      </TableHead>
                       <TableHead>Name / Email</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>College</TableHead>
@@ -662,13 +854,20 @@ const AdminDashboard = () => {
                   <TableBody>
                     {filteredJobSeekers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center text-muted-foreground">
+                        <TableCell colSpan={10} className="text-center text-muted-foreground">
                           No job seekers match your filters.
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredJobSeekers.map((seeker) => (
                         <TableRow key={seeker.id}>
+                          <TableCell className="w-10">
+                            <Checkbox
+                              checked={selectedSeekerUserIds.has(seeker.user_id)}
+                              onCheckedChange={() => toggleSeekerSelection(seeker.user_id)}
+                              aria-label={`Select ${seeker.profile?.full_name || seeker.profile?.email || "user"}`}
+                            />
+                          </TableCell>
                           <TableCell>
                             <div className="font-medium">{seeker.profile?.full_name || "—"}</div>
                             <div className="text-xs text-muted-foreground">{seeker.profile?.email || seeker.user_id?.slice(0, 12) + "…"}</div>
@@ -762,12 +961,39 @@ const AdminDashboard = () => {
                     onChange={(e) => setRecruiterSearch(e.target.value)}
                   />
                 </div>
+                {selectedRecruiterUserIds.size > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 mt-3 p-3 rounded-lg border border-destructive/30 bg-destructive/5">
+                    <span className="text-sm font-medium">
+                      {selectedRecruiterUserIds.size} recruiter{selectedRecruiterUserIds.size === 1 ? "" : "s"} selected
+                    </span>
+                    <Button size="sm" variant="destructive" onClick={openBulkDeleteRecruiters} disabled={deleting}>
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Delete selected
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedRecruiterUserIds(new Set())}
+                      disabled={deleting}
+                    >
+                      Clear selection
+                    </Button>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
                 <div className="overflow-x-auto">
                   <Table className="min-w-[640px]">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={allFilteredRecruitersSelected}
+                            onCheckedChange={(v) => setAllRecruitersInFilter(v === true)}
+                            aria-label="Select all visible recruiters"
+                            disabled={filteredRecruiters.length === 0}
+                          />
+                        </TableHead>
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Company</TableHead>
@@ -779,13 +1005,20 @@ const AdminDashboard = () => {
                   <TableBody>
                     {filteredRecruiters.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center text-muted-foreground">
                           No recruiters match your search.
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredRecruiters.map((recruiter) => (
                         <TableRow key={recruiter.id}>
+                          <TableCell className="w-10">
+                            <Checkbox
+                              checked={selectedRecruiterUserIds.has(recruiter.user_id)}
+                              onCheckedChange={() => toggleRecruiterSelection(recruiter.user_id)}
+                              aria-label={`Select ${recruiter.full_name || recruiter.email || "recruiter"}`}
+                            />
+                          </TableCell>
                           <TableCell className="font-medium">{recruiter.full_name || "-"}</TableCell>
                           <TableCell>{recruiter.email || "-"}</TableCell>
                           <TableCell>{recruiter.company_name || "-"}</TableCell>
