@@ -98,21 +98,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // Handle Google redirect result first (user returning from OAuth — e.g. popup blocked / mobile)
+      // Handle Google redirect result first (user returning from OAuth — e.g. popup blocked / mobile).
+      // IMPORTANT: avoid hard-failing with a short timeout; some browsers/networks can take longer.
       if (isFirebaseConfigured()) {
         try {
-          const REDIRECT_TIMEOUT_MS = 20_000;
-          // Only time out on the OAuth return URL; elsewhere getRedirectResult() is a quick no-op.
-          const idToken =
-            pathname === "/__/auth/handler"
-              ? await Promise.race([
-                  getGoogleRedirectIdToken(),
-                  new Promise<string | null>((_, reject) =>
-                    setTimeout(() => reject(new Error("Sign-in took too long. Please try again.")), REDIRECT_TIMEOUT_MS)
-                  ),
-                ])
-              : await getGoogleRedirectIdToken();
+          const idToken = await getGoogleRedirectIdToken();
           if (!idToken && pathname === "/__/auth/handler") {
+            // If redirect handler lands here without a token, route back to /auth.
             navigate("/auth", { replace: true });
             setLoading(false);
             return;
@@ -123,11 +115,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             return;
           }
         } catch (err) {
-          console.error("[AuthContext] Google redirect result failed:", err);
-          toast.error(err instanceof Error ? err.message : "Google sign-in failed");
-          setLoading(false);
-          if (pathname === "/__/auth/handler") navigate("/auth", { replace: true });
-          return;
+          // Do not break app bootstrap on redirect parsing errors; continue with normal session restore.
+          console.warn("[AuthContext] Google redirect result failed:", err);
+          if (pathname === "/__/auth/handler") {
+            navigate("/auth", { replace: true });
+            setLoading(false);
+            return;
+          }
         }
       }
 
