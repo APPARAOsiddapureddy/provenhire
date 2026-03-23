@@ -9,6 +9,60 @@ export function normalizeExact(raw: string): string {
     .replace(/\n{2,}/g, "\n");
 }
 
+function isNumericToken(t: string): boolean {
+  return /^[-+]?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(t.trim());
+}
+
+function tokenEquals(a: string, b: string): boolean {
+  const at = normalizeExact(a);
+  const bt = normalizeExact(b);
+  if (at === bt) return true;
+
+  // Numeric tolerance for token-level comparisons.
+  if (isNumericToken(at) && isNumericToken(bt)) {
+    const an = Number(at);
+    const bn = Number(bt);
+    if (!Number.isNaN(an) && !Number.isNaN(bn)) {
+      return Math.abs(an - bn) < 1e-5;
+    }
+  }
+
+  // Common boolean / textual output variants.
+  const al = at.toLowerCase();
+  const bl = bt.toLowerCase();
+  if (al === bl) return true;
+  if ((al === "true" || al === "false") && (bl === "true" || bl === "false")) return al === bl;
+  if ((al === "yes" || al === "no") && (bl === "yes" || bl === "no")) return al === bl;
+
+  return false;
+}
+
+/**
+ * Relaxed exact comparator:
+ * 1) strict normalized string equality
+ * 2) JSON structural equality when both parse
+ * 3) token-by-token equivalence (case-insensitive text + numeric tolerance)
+ */
+function compareExactRelaxed(actual: string, expected: string): boolean {
+  const na = normalizeExact(actual);
+  const ne = normalizeExact(expected);
+  if (na === ne) return true;
+
+  // Structural compare for JSON-like outputs.
+  try {
+    const aObj = JSON.parse(na);
+    const eObj = JSON.parse(ne);
+    if (JSON.stringify(aObj) === JSON.stringify(eObj)) return true;
+  } catch {
+    // Not JSON — continue with token compare.
+  }
+
+  const aTokens = tokenize(na);
+  const eTokens = tokenize(ne);
+  if (aTokens.length !== eTokens.length) return false;
+  return aTokens.every((t, i) => tokenEquals(t, eTokens[i] ?? ""));
+}
+
 function tokenize(raw: string): string[] {
   return (raw || "")
     .replace(/[\[\](){},"']/g, " ")
@@ -21,7 +75,7 @@ function tokenize(raw: string): string[] {
 export function compareOutput(actual: string, expected: string, type: ExpectedType): boolean {
   switch (type) {
     case "exact":
-      return normalizeExact(actual) === normalizeExact(expected);
+      return compareExactRelaxed(actual, expected);
     case "numeric": {
       const a = parseFloat(String(actual).trim());
       const e = parseFloat(String(expected).trim());
@@ -32,11 +86,19 @@ export function compareOutput(actual: string, expected: string, type: ExpectedTy
       const aTokens = tokenize(actual);
       const eTokens = tokenize(expected);
       if (aTokens.length !== eTokens.length) return false;
-      return aTokens.every((t, i) => normalizeExact(t) === normalizeExact(eTokens[i]!));
+      return aTokens.every((t, i) => tokenEquals(t, eTokens[i]!));
     }
     case "set": {
-      const aSet = new Set(tokenize(actual).map(normalizeExact));
-      const eSet = new Set(tokenize(expected).map(normalizeExact));
+      const normalizeSetToken = (x: string) => {
+        const nx = normalizeExact(x);
+        if (isNumericToken(nx)) {
+          const n = Number(nx);
+          if (!Number.isNaN(n)) return String(Math.round(n * 1e5) / 1e5);
+        }
+        return nx.toLowerCase();
+      };
+      const aSet = new Set(tokenize(actual).map(normalizeSetToken));
+      const eSet = new Set(tokenize(expected).map(normalizeSetToken));
       if (aSet.size !== eSet.size) return false;
       for (const item of eSet) {
         if (!aSet.has(item)) return false;

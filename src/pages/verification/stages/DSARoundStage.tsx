@@ -795,6 +795,14 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs sm:text-sm text-muted-foreground">
+          <p className="font-medium text-foreground mb-1">How this compiler is evaluated</p>
+          <p>
+            Write a complete solution that reads from <span className="font-mono">stdin</span> and prints only final answer
+            to <span className="font-mono">stdout</span>. Hidden tests use the same format as examples. Extra debug logs can fail tests.
+          </p>
+        </div>
+
         {!effectivelyFullScreen && inTest && fullscreenRequired && (
           <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
