@@ -84,15 +84,17 @@ const PENDING_REVIEW_MESSAGE =
 
 interviewRouter.post("/start", requireAuth, async (req: AuthedRequest, res) => {
   try {
+    // experienceLevel optional for backward compatibility (older/cached clients that only send jobRole).
     const schema = z.object({
       jobRole: z.string().min(1),
-      experienceLevel: z.enum(["junior", "mid", "senior"]),
+      experienceLevel: z.enum(["junior", "mid", "senior"]).optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
     }
-    const { jobRole, experienceLevel } = parsed.data;
+    const { jobRole } = parsed.data;
+    const experienceLevel = parsed.data.experienceLevel ?? "mid";
 
     const plan = await buildQuestionPlan(jobRole, experienceLevel);
     const interview = await prisma.interview.create({
