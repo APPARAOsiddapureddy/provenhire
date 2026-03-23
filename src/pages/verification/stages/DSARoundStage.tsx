@@ -252,8 +252,27 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setHasFailed(false);
       setLocalFinalScore(null);
 
+      const fetchQuestionsWithRecovery = async (): Promise<ApiDSAQuestion[]> => {
+        try {
+          return await api.get<ApiDSAQuestion[]>("/api/verification/dsa/questions");
+        } catch (err: unknown) {
+          const status = (err as { status?: number })?.status;
+          const msg = err instanceof Error ? err.message : "";
+          const looksInactiveDsa =
+            status === 403 && /dsa round is not active/i.test(msg);
+          if (!looksInactiveDsa) throw err;
+
+          // Recovery path: activate stage and retry once.
+          await api.post("/api/verification/stages/update", {
+            stageName: "dsa_round",
+            status: "in_progress",
+          });
+          return await api.get<ApiDSAQuestion[]>("/api/verification/dsa/questions");
+        }
+      };
+
       try {
-        const q = await api.get<ApiDSAQuestion[]>("/api/verification/dsa/questions");
+        const q = await fetchQuestionsWithRecovery();
         if (cancelled) return;
 
         const questionsFromApi = Array.isArray(q) ? q : [];
