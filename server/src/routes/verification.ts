@@ -28,6 +28,56 @@ function toStageResponse(rows: { stageName: string; status: string; score?: numb
   }));
 }
 
+/**
+ * When aptitude is completed, the client should call stages/update to set dsa_round → in_progress.
+ * If the user refreshes or skips "Continue to DSA", dsa_round can stay "locked" while the UI still
+ * shows DSA as the next step (first "locked" after completed). Official DSA APIs require in_progress.
+ * This reconciliation is NOT tied to integrity / proctoring feature flags.
+ */
+async function reconcileTechnicalVerificationStages(userId: string): Promise<void> {
+  let rows = await prisma.verificationStage.findMany({ where: { userId } });
+  const st = (name: string) => rows.find((r) => r.stageName === name)?.status;
+
+  if (st("aptitude_test") === "completed" && st("dsa_round") === "locked") {
+    await prisma.verificationStage.updateMany({
+      where: { userId, stageName: "dsa_round" },
+      data: { status: "in_progress" },
+    });
+    rows = await prisma.verificationStage.findMany({ where: { userId } });
+  }
+
+  const st2 = (name: string) => rows.find((r) => r.stageName === name)?.status;
+  if (st2("dsa_round") === "completed" && st2("expert_interview") === "locked") {
+    await prisma.verificationStage.updateMany({
+      where: { userId, stageName: "expert_interview" },
+      data: { status: "in_progress" },
+    });
+  }
+}
+
+/** Ensure DSA round is in_progress when aptitude is done but stage row was never advanced (same as reconcile). */
+async function ensureDsaRoundActiveForOfficialApis(userId: string): Promise<boolean> {
+  const already = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "dsa_round", status: "in_progress" },
+  });
+  if (already) return true;
+
+  const apt = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "aptitude_test", status: "completed" },
+  });
+  const dsa = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "dsa_round" },
+  });
+  if (apt && dsa?.status === "locked") {
+    await prisma.verificationStage.updateMany({
+      where: { userId, stageName: "dsa_round" },
+      data: { status: "in_progress" },
+    });
+    return true;
+  }
+  return false;
+}
+
 verificationRouter.get("/stages", requireAuth, async (req: AuthedRequest, res) => {
   try {
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
@@ -44,6 +94,9 @@ verificationRouter.get("/stages", requireAuth, async (req: AuthedRequest, res) =
         })),
         skipDuplicates: true,
       });
+    }
+    if (roleType !== "non_technical") {
+      await reconcileTechnicalVerificationStages(req.user!.id);
     }
     const [stages, certification] = await Promise.all([
       prisma.verificationStage.findMany({ where: { userId: req.user!.id } }),
@@ -535,11 +588,12 @@ async function dsaFirstPublicSampleByQuestionId(
 }
 
 verificationRouter.get("/dsa/questions", requireAuth, async (req: AuthedRequest, res) => {
-  const activeStage = await prisma.verificationStage.findFirst({
-    where: { userId: req.user!.id, stageName: "dsa_round", status: "in_progress" },
-  });
-  if (!activeStage) {
-    return res.status(403).json({ error: "DSA round is not active" });
+  const ok = await ensureDsaRoundActiveForOfficialApis(req.user!.id);
+  if (!ok) {
+    return res.status(403).json({
+      error:
+        "DSA round is not active yet. Finish the aptitude test, then open the DSA step from verification (or refresh the page).",
+    });
   }
 
   const profile = await prisma.jobSeekerProfile.findUnique({
@@ -655,10 +709,8 @@ verificationRouter.post("/dsa/run-tests", requireAuth, async (req: AuthedRequest
     });
   }
 
-  const activeStage = await prisma.verificationStage.findFirst({
-    where: { userId, stageName: "dsa_round", status: "in_progress" },
-  });
-  if (!activeStage) {
+  const dsaOk = await ensureDsaRoundActiveForOfficialApis(userId);
+  if (!dsaOk) {
     return res.status(403).json({ error: "DSA round is not active" });
   }
 
@@ -712,10 +764,8 @@ verificationRouter.post("/dsa/submit", requireAuth, async (req: AuthedRequest, r
   const { questionId, code, language } = parsed.data;
   const userId = req.user!.id;
 
-  const activeStage = await prisma.verificationStage.findFirst({
-    where: { userId, stageName: "dsa_round", status: "in_progress" },
-  });
-  if (!activeStage) {
+  const dsaOkSubmit = await ensureDsaRoundActiveForOfficialApis(userId);
+  if (!dsaOkSubmit) {
     return res.status(403).json({ error: "DSA round is not active" });
   }
 
