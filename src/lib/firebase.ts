@@ -50,6 +50,17 @@ export function isFirebaseConfigured(): boolean {
   return !!(import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_PROJECT_ID);
 }
 
+/**
+ * Full-page redirect avoids popup + window.close(), which some browsers block when COOP is strict.
+ * Set VITE_GOOGLE_USE_REDIRECT=false to force popup even in production (e.g. debugging).
+ */
+export function preferGoogleRedirectSignIn(): boolean {
+  const v = import.meta.env.VITE_GOOGLE_USE_REDIRECT;
+  if (v === "false" || v === "0") return false;
+  if (v === "true" || v === "1") return true;
+  return import.meta.env.PROD;
+}
+
 /** User-friendly messages for Firebase auth error codes. */
 function firebaseAuthErrorMessage(code: string): string {
   const messages: Record<string, string> = {
@@ -88,10 +99,10 @@ export async function signInWithGooglePopup(): Promise<string> {
  * Call this when user clicks "Sign in with Google"; the page will redirect to Google and back.
  * On return, bootstrap runs getGoogleRedirectIdToken() and completes the flow.
  */
-export function signInWithGoogleRedirect(): void {
+export async function signInWithGoogleRedirect(): Promise<void> {
   const auth = getAuth(getFirebaseApp());
   const provider = new GoogleAuthProvider();
-  signInWithRedirect(auth, provider);
+  await signInWithRedirect(auth, provider);
 }
 
 /** Call on app load after returning from Google OAuth redirect (legacy). Returns id token if user just signed in, else null. */

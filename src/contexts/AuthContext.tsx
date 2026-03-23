@@ -7,6 +7,7 @@ import {
   signInWithGoogleRedirect,
   getGoogleRedirectIdToken,
   isFirebaseConfigured,
+  preferGoogleRedirectSignIn,
 } from "@/lib/firebase";
 
 type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
@@ -258,6 +259,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       toast.error("Google sign-in is not configured. Please use email and password.");
       return;
     }
+
+    // Production default: redirect flow (no popup / window.close — avoids COOP console errors and is more reliable on mobile).
+    if (preferGoogleRedirectSignIn()) {
+      setLoading(true);
+      try {
+        toast.info("Redirecting to Google…");
+        await signInWithGoogleRedirect();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Google sign-in failed";
+        toast.error(msg);
+        setLoading(false);
+      }
+      return;
+    }
+
     setLoading(true);
     try {
       const idToken = await signInWithGooglePopup();
@@ -265,13 +281,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err: unknown) {
       const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
       const message = err instanceof Error ? err.message : "";
-      // Popup blocked or COOP / closed signal — fall back to full-page redirect (still supported via /__/auth/handler).
+      const status = err && typeof err === "object" && "status" in err ? (err as { status?: number }).status : undefined;
+      const apiData =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { code?: string; error?: string } } }).response?.data
+          : undefined;
+
+      if (status === 403 && apiData?.code === "EMAIL_BLOCKED") {
+        toast.error(apiData.error || "This email cannot be used to sign in.");
+        return;
+      }
+      if (status === 403) {
+        toast.error(apiData?.error || "Sign-in was denied for this account.");
+        return;
+      }
+
+      // Popup blocked or COOP / closed signal — fall back to full-page redirect.
       if (
         code === "auth/popup-blocked" ||
-        /cross-origin-opener-policy|window\.closed|blocked by the browser/i.test(message)
+        /cross-origin-opener-policy|window\.closed|blocked by the browser|policy would block the window\.close/i.test(
+          message,
+        )
       ) {
         toast.info("Continuing Google sign-in in this window…");
-        signInWithGoogleRedirect();
+        try {
+          await signInWithGoogleRedirect();
+        } catch (redirErr: unknown) {
+          const rmsg = redirErr instanceof Error ? redirErr.message : "Redirect sign-in failed";
+          toast.error(rmsg);
+        }
         return;
       }
       const msg = err instanceof Error ? err.message : "Google sign-in failed";

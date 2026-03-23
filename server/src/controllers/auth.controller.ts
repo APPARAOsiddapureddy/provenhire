@@ -321,7 +321,10 @@ export async function googleAuth(req: Request, res: Response) {
     }
     const blocked = await prisma.blockedEmail.findUnique({ where: { email } });
     if (blocked) {
-      return res.status(403).json({ error: "This email cannot be used for sign in." });
+      return res.status(403).json({
+        error: "This email cannot be used for sign in. It may be blocked after a removed account—use another Google account or contact support.",
+        code: "EMAIL_BLOCKED",
+      });
     }
     let user = await prisma.user.findFirst({
       where: {
