@@ -594,7 +594,19 @@ const VerificationFlow = () => {
                       <GraduationCap className="h-4 w-4 mr-2" />
                       Practice
                     </Button>
-                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, dsa_round: true }))}>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await api.post("/api/verification/stages/update", {
+                            stageName: "dsa_round",
+                            status: "in_progress",
+                          });
+                        } catch {
+                          // Non-blocking: backend reconciliation also attempts to auto-activate when eligible.
+                        }
+                        setTestStageStarted((p) => ({ ...p, dsa_round: true }));
+                      }}
+                    >
                       Start DSA Round
                     </Button>
                   </div>

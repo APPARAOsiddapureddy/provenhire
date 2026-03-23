@@ -59,14 +59,14 @@ export function isFirebaseConfigured(): boolean {
 }
 
 /**
- * Full-page redirect avoids popup + window.close(), which some browsers block when COOP is strict.
- * Set VITE_GOOGLE_USE_REDIRECT=false to force popup even in production (e.g. debugging).
+ * Prefer popup flow by default (historically stable UX here).
+ * Set VITE_GOOGLE_USE_REDIRECT=true to force redirect flow when needed.
  */
 export function preferGoogleRedirectSignIn(): boolean {
   const v = import.meta.env.VITE_GOOGLE_USE_REDIRECT;
   if (v === "false" || v === "0") return false;
   if (v === "true" || v === "1") return true;
-  return import.meta.env.PROD;
+  return false;
 }
 
 /** User-friendly messages for Firebase auth error codes. */
