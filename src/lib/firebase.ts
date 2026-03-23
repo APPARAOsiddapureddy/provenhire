@@ -10,13 +10,25 @@ import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, Google
 function getFirebaseConfig() {
   const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
   const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-  // Prefer explicit auth domain from env (classic *.firebaseapp.com — matches older working setups).
-  // If unset in production, use the current host so OAuth redirect can return to this origin (Firebase Console must list this domain).
+  const host = typeof window !== "undefined" ? window.location?.host : undefined;
+
+  /**
+   * IMPORTANT:
+   * In production we always use the current site hostname (e.g. `www.provenhire.in`).
+   * This prevents old deployments (or older env values) from forcing the Firebase
+   * authDomain back to `*.firebaseapp.com`.
+   */
   const authDomain =
-    (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) ||
-    (typeof window !== "undefined" && import.meta.env.PROD && window.location?.host
-      ? window.location.host
-      : `${import.meta.env.VITE_FIREBASE_PROJECT_ID || "provenhire-c153e"}.firebaseapp.com`);
+    (import.meta.env.PROD && host ? host : undefined) ??
+    ((import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined) ||
+      (projectId ? `${projectId}.firebaseapp.com` : undefined));
+
+  if (!apiKey || !authDomain || !projectId) {
+    // Keep this explicit to avoid silent failures in OAuth flows.
+    throw new Error(
+      "Firebase is not configured correctly. Add VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID and set Firebase Authorized domains for your production hostname."
+    );
+  }
   return {
     apiKey,
     authDomain,
