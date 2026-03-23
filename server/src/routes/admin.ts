@@ -15,6 +15,11 @@ import {
   FEATURE_FLAG_MODES,
   type FeatureFlagMode,
 } from "../services/featureFlag.service.js";
+import { evaluateInterview, parseInterviewEvaluationJson } from "../services/ai.service.js";
+import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
+import type { QuestionPlanItem } from "../data/aiInterviewStaticQuestions.js";
+import type { QuestionAnswerPair } from "../services/ai.service.js";
+import { upsertSkillVerification } from "../services/skillVerification.service.js";
 
 function csvEscape(s: string | null | undefined): string {
   if (s == null || s === "") return "";
@@ -863,4 +868,218 @@ adminRouter.delete("/users/:userId", async (req, res) => {
   }
 
   res.json({ ok: true, message: "User deleted. Email blocked from future signups." });
+});
+
+// --- AI Interview Pro Upgrade: question bank & pending reviews ---
+
+adminRouter.get("/questions", async (req, res) => {
+  const role = typeof req.query.role === "string" ? req.query.role : undefined;
+  const level = typeof req.query.level === "string" ? req.query.level : undefined;
+  const type = typeof req.query.type === "string" ? req.query.type : undefined;
+  const isActive =
+    req.query.isActive === "true" ? true : req.query.isActive === "false" ? false : undefined;
+  const tag = typeof req.query.tag === "string" ? req.query.tag : undefined;
+  const where: Prisma.InterviewQuestionBankWhereInput = {};
+  if (role) where.role = role;
+  if (level) where.experienceLevel = level;
+  if (type) where.type = type;
+  if (isActive !== undefined) where.isActive = isActive;
+  if (tag) where.tags = { has: tag };
+  const rows = await prisma.interviewQuestionBank.findMany({
+    where,
+    orderBy: [{ role: "asc" }, { experienceLevel: "asc" }, { type: "asc" }],
+  });
+  res.json({ questions: rows });
+});
+
+adminRouter.post("/questions", async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    role: z.string().min(1),
+    experienceLevel: z.enum(["junior", "mid", "senior"]),
+    type: z.enum(["conceptual", "scenario", "problem_solving", "behavioral"]),
+    prompt: z.string().min(1),
+    keyPoints: z.array(z.string()).min(1),
+    difficulty: z.number().int().min(1).max(5).optional(),
+    tags: z.array(z.string()).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  const d = parsed.data;
+  const row = await prisma.interviewQuestionBank.create({
+    data: {
+      role: d.role,
+      experienceLevel: d.experienceLevel,
+      type: d.type,
+      prompt: d.prompt,
+      keyPoints: d.keyPoints,
+      difficulty: d.difficulty ?? 2,
+      tags: d.tags ?? [],
+      createdBy: req.user?.id ?? null,
+    },
+  });
+  res.status(201).json({ question: row });
+});
+
+adminRouter.patch("/questions/:id", async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    prompt: z.string().min(1).optional(),
+    keyPoints: z.array(z.string()).min(1).optional(),
+    difficulty: z.number().int().min(1).max(5).optional(),
+    isActive: z.boolean().optional(),
+    tags: z.array(z.string()).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  try {
+    const d = parsed.data;
+    const data: Prisma.InterviewQuestionBankUpdateInput = {};
+    if (d.prompt !== undefined) data.prompt = d.prompt;
+    if (d.keyPoints !== undefined) data.keyPoints = d.keyPoints;
+    if (d.difficulty !== undefined) data.difficulty = d.difficulty;
+    if (d.isActive !== undefined) data.isActive = d.isActive;
+    if (d.tags !== undefined) data.tags = d.tags;
+    if (req.user?.id) data.createdBy = req.user.id;
+    const row = await prisma.interviewQuestionBank.update({
+      where: { id: req.params.id },
+      data,
+    });
+    res.json({ question: row });
+  } catch {
+    res.status(404).json({ error: "Question not found" });
+  }
+});
+
+adminRouter.delete("/questions/:id", async (_req, res) => {
+  try {
+    const row = await prisma.interviewQuestionBank.update({
+      where: { id: _req.params.id },
+      data: { isActive: false },
+    });
+    res.json({ question: row, softDeleted: true });
+  } catch {
+    res.status(404).json({ error: "Question not found" });
+  }
+});
+
+adminRouter.get("/questions/analytics", async (_req, res) => {
+  const grouped = await prisma.interviewQuestionResult.groupBy({
+    by: ["questionBankId"],
+    _count: { id: true },
+    _avg: { scoreConceptual: true, scoreReasoning: true, scoreCommunication: true },
+    where: { questionBankId: { not: null } },
+  });
+  res.json({ analytics: grouped });
+});
+
+adminRouter.get("/interviews/pending-review", async (_req, res) => {
+  const rows = await prisma.interview.findMany({
+    where: { status: "pending_review" },
+    orderBy: { completedAt: "asc" },
+    include: {
+      user: { select: { id: true, email: true, name: true } },
+    },
+  });
+  res.json({ interviews: rows });
+});
+
+adminRouter.post("/interviews/:id/re-evaluate", async (_req, res) => {
+  const interview = await prisma.interview.findUnique({
+    where: { id: _req.params.id },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
+  });
+  if (!interview) return res.status(404).json({ error: "Interview not found" });
+  const plan: QuestionPlanItem[] = Array.isArray(interview.questionPlan)
+    ? (interview.questionPlan as QuestionPlanItem[])
+    : [];
+  const transcript = interview.messages.map((m) => `${m.sender.toUpperCase()}: ${m.message}`).join("\n");
+  const userMessages = interview.messages.filter((m) => m.sender === "user");
+  const pairs: QuestionAnswerPair[] = userMessages.map((msg, i) => ({
+    question: plan[i]?.prompt ?? "",
+    keyPoints: plan[i]?.keyPoints ?? [],
+    answer: msg.message,
+  }));
+  const evaluationRaw = await evaluateInterview(transcript, pairs, {
+    experienceLevel: interview.experienceLevel ?? "mid",
+    jobRole: interview.jobRole,
+  });
+  const evaluation = parseInterviewEvaluationJson(evaluationRaw);
+  if (!evaluation || evaluation.fallback_triggered) {
+    return res.status(502).json({ error: "Re-evaluation failed; Gemini unavailable or invalid output" });
+  }
+  const { total, badge } = computeAiInterviewAggregateScore(evaluation);
+  await prisma.interviewQuestionResult.deleteMany({ where: { interviewId: interview.id } });
+  const perQ = evaluation.per_question_scores;
+  if (Array.isArray(perQ)) {
+    for (const row of perQ as Array<Record<string, unknown>>) {
+      const qi = Number(row.question_index);
+      if (!Number.isFinite(qi) || qi < 0 || qi >= userMessages.length) continue;
+      const um = userMessages[qi];
+      const bankId = plan[qi]?.questionBankId ?? null;
+      await prisma.interviewQuestionResult.create({
+        data: {
+          interviewId: interview.id,
+          messageId: um.id,
+          questionBankId: typeof bankId === "string" ? bankId : null,
+          questionIndex: qi,
+          questionType: plan[qi]?.type ?? "unknown",
+          scoreConceptual: Number(row.score_conceptual) || null,
+          scoreReasoning: Number(row.score_reasoning) || null,
+          scoreCommunication: Number(row.score_communication) || null,
+          rationale: row.rationale != null ? String(row.rationale) : null,
+          keyPointsHit: Array.isArray(row.key_points_hit) ? (row.key_points_hit as string[]).map(String) : [],
+          keyPointsMissed: Array.isArray(row.key_points_missed)
+            ? (row.key_points_missed as string[]).map(String)
+            : [],
+        },
+      });
+    }
+  }
+  await prisma.interview.update({
+    where: { id: interview.id },
+    data: {
+      totalScore: total,
+      badgeLevel: badge,
+      finalVerdict: evaluation.final_verdict != null ? String(evaluation.final_verdict) : null,
+      scoreBreakdown: evaluation as object,
+      status: "completed",
+      reviewFlag: false,
+      reviewReason: null,
+    },
+  });
+  await prisma.verificationStage.updateMany({
+    where: { userId: interview.userId, stageName: "expert_interview" },
+    data: { status: "completed", score: total },
+  });
+  await upsertSkillVerification(interview.userId, "INTERVIEW", total, new Date());
+  res.json({ ok: true, totalScore: total, badgeLevel: badge });
+});
+
+adminRouter.post("/interviews/:id/proctoring-override", async (req: AuthedRequest, res) => {
+  const schema = z.object({
+    action: z.enum(["approve", "reject"]),
+    note: z.string().min(1),
+    clearIntegrityFlag: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const interview = await prisma.interview.findUnique({ where: { id: req.params.id } });
+  if (!interview) return res.status(404).json({ error: "Interview not found" });
+  await prisma.proctoringReviewLog.create({
+    data: {
+      interviewId: interview.id,
+      adminId: req.user?.id ?? null,
+      action: parsed.data.action,
+      note: parsed.data.note,
+    },
+  });
+  if (parsed.data.clearIntegrityFlag || parsed.data.action === "approve") {
+    await prisma.interview.update({
+      where: { id: interview.id },
+      data: {
+        integrityFlag: null,
+        riskScore: Math.min(interview.riskScore ?? 0, 20),
+      },
+    });
+  }
+  res.json({ ok: true });
 });

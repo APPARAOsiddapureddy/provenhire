@@ -137,6 +137,66 @@ export async function generateLearningResources(profile: string) {
 
 export type QuestionAnswerPair = { question: string; keyPoints: string[]; answer: string };
 
+export type EvaluateInterviewOptions = {
+  experienceLevel?: string;
+  jobRole?: string;
+};
+
+const CANONICAL_EVALUATION_FALLBACK = {
+  technical_accuracy: 5,
+  depth_of_knowledge: 5,
+  problem_solving: 5,
+  communication_clarity: 5,
+  concept_score: 50,
+  reasoning_score: 50,
+  communication_score: 50,
+  confidence_score: 50,
+  strengths: ["Evaluation unavailable — interview flagged for manual review."],
+  weaknesses: ["Evaluation unavailable — interview flagged for manual review."],
+  final_verdict: "PENDING_MANUAL_REVIEW",
+  confidence_level: "Low",
+  fallback_triggered: true,
+  fallback_reason: "gemini_error",
+  per_question_scores: [] as unknown[],
+  authenticity_concern: false,
+  authenticity_reason: "",
+};
+
+function experienceCalibrationBlock(level: string | undefined): string {
+  const l = (level || "mid").toLowerCase();
+  if (l === "junior") {
+    return `EXPERIENCE CALIBRATION (junior): Evaluate for foundational understanding, clear communication, and willingness to learn. Score 70+ for correct core concepts even if depth is limited. Do not penalize missing advanced edge cases.`;
+  }
+  if (l === "senior") {
+    return `EXPERIENCE CALIBRATION (senior): Evaluate for depth, systems thinking, trade-off articulation, and mentoring signal. Score 70+ only if the candidate demonstrates ownership and architectural awareness. Penalize surface-level answers.`;
+  }
+  return `EXPERIENCE CALIBRATION (mid): Evaluate for solid practical application and trade-off reasoning. Expect familiarity with tooling and common patterns. Score 70+ for correct application with reasonable trade-off awareness.`;
+}
+
+export function canonicalEvaluationFallbackJson(reason: string): string {
+  return JSON.stringify({ ...CANONICAL_EVALUATION_FALLBACK, fallback_reason: reason });
+}
+
+/** Strip markdown fences and parse evaluation JSON; returns null on failure. */
+export function parseInterviewEvaluationJson(raw: string): Record<string, unknown> | null {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    return JSON.parse(cleaned) as Record<string, unknown>;
+  } catch {
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      return JSON.parse(m[0]) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+}
+
 /**
  * Evaluate interview answers against expected key points. For each Q&A, scores how well
  * the candidate's answer matches the ideal answer criteria (keyPoints). Marks are given
@@ -144,29 +204,29 @@ export type QuestionAnswerPair = { question: string; keyPoints: string[]; answer
  */
 export async function evaluateInterview(
   transcript: string,
-  questionAnswerPairs?: QuestionAnswerPair[]
+  questionAnswerPairs?: QuestionAnswerPair[],
+  options?: EvaluateInterviewOptions,
 ): Promise<string> {
   const rubric = questionAnswerPairs?.length
     ? `
 SCORING RUBRIC (answer-based marks):
 For each question, the candidate's answer must be compared against the KEY POINTS (ideal answer criteria).
-- concept_score (0-100): How well does the answer cover the key points? Give higher marks when the answer matches or addresses most key points accurately.
-- reasoning_score (0-100): Structured thinking, logical flow, and problem decomposition in the answer.
-- communication_score (0-100): Clarity, coherence, and articulation.
-- confidence_score (0-100): Answer structure and confidence (completeness, no hedging).
+- Per question: score_conceptual, score_reasoning, score_communication (each 0-100), rationale (1-2 sentences), key_points_hit, key_points_missed (string arrays).
 
 QUESTION-ANSWER PAIRS WITH KEY POINTS:
 ${questionAnswerPairs
   .map(
     (p, i) =>
-      `Q${i + 1}: ${p.question}
+      `Q${i + 1} (question_index ${i}): ${p.question}
 Key points (ideal answer should cover): ${p.keyPoints.join("; ")}
 Candidate answer: ${p.answer}
 ---`
   )
   .join("\n")}
 
-Score each answer 0-100 for concept_score based on how well it matches the key points. Then compute overall concept_score as the average. Be fair: partial matches get partial credit; exact matches get full marks.`
+Then compute aggregate technical_accuracy, depth_of_knowledge, problem_solving, communication_clarity (0-10 each),
+and concept_score, reasoning_score, communication_score, confidence_score (0-100 each) as interview-level summaries.
+Also include per_question_scores: one object per question with question_index matching the Q index (0-based).`
     : `
 Scoring rubric:
 - concept_score reflects conceptual knowledge and technical understanding.
@@ -174,41 +234,59 @@ Scoring rubric:
 - communication_score reflects clarity, coherence, and articulation.
 - confidence_score reflects answer structure and confidence under questioning.`;
 
-  const system = `You are a senior technical interviewer. Return STRICT JSON only:
+  const authenticityBlock = `
+AUTHENTICITY: Also assess answer authenticity. Flag if: (1) answers appear AI-generated (overly structured, formulaic intros like "Great question"), (2) answers share identical structure across questions, or (3) content is clearly off-topic.
+Return "authenticity_concern": true/false and "authenticity_reason": brief string if true.`;
+
+  const system = `You are a senior technical interviewer. Return STRICT JSON only (no markdown):
 {
-  "technical_accuracy": 0-10,
-  "depth_of_knowledge": 0-10,
-  "problem_solving": 0-10,
-  "communication_clarity": 0-10,
-  "concept_score": 0-100,
-  "communication_score": 0-100,
-  "reasoning_score": 0-100,
-  "confidence_score": 0-100,
-  "strengths": [],
-  "weaknesses": [],
-  "final_verdict": "",
-  "confidence_level": "Low|Medium|High"
+  "technical_accuracy": <0-10 number>,
+  "depth_of_knowledge": <0-10>,
+  "problem_solving": <0-10>,
+  "communication_clarity": <0-10>,
+  "concept_score": <0-100>,
+  "communication_score": <0-100>,
+  "reasoning_score": <0-100>,
+  "confidence_score": <0-100>,
+  "strengths": [<string>],
+  "weaknesses": [<string>],
+  "final_verdict": <string, max 3 sentences for candidate display>,
+  "confidence_level": "Low"|"Medium"|"High",
+  "authenticity_concern": <boolean>,
+  "authenticity_reason": <string, empty if not concerned>,
+  "per_question_scores": [
+    {
+      "question_index": <0-based int>,
+      "score_conceptual": <0-100>,
+      "score_reasoning": <0-100>,
+      "score_communication": <0-100>,
+      "rationale": <string>,
+      "key_points_hit": [<string>],
+      "key_points_missed": [<string>]
+    }
+  ]
 }
-${rubric}`;
+${experienceCalibrationBlock(options?.experienceLevel)}
+Role context: ${options?.jobRole || "Technical candidate"}
+${rubric}
+${authenticityBlock}`;
+
+  const fullPrompt = `${system}\n\nTranscript:\n${transcript}`;
 
   try {
-    return await geminiChat([{ role: "system", content: system }, { role: "user", content: transcript }]);
+    if (!gemini) throw new Error("GEMINI_API_KEY required for AI features");
+    const response = await gemini.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: fullPrompt,
+      config: { temperature: 0.2, responseMimeType: "application/json" },
+    });
+    const text = (response as { text?: string })?.text ?? "";
+    if (!text.trim()) throw new Error("empty_model_response");
+    return text;
   } catch (e) {
     console.error("[evaluateInterview]", e);
-    return JSON.stringify({
-      technical_accuracy: 5,
-      depth_of_knowledge: 5,
-      problem_solving: 5,
-      communication_clarity: 5,
-      concept_score: 50,
-      communication_score: 50,
-      reasoning_score: 50,
-      confidence_score: 50,
-      strengths: ["Completed interview"],
-      weaknesses: ["Evaluation unavailable"],
-      final_verdict: "Interview completed. Evaluation service temporarily unavailable.",
-      confidence_level: "Low",
-    });
+    const msg = e instanceof Error ? e.message : "gemini_error";
+    return canonicalEvaluationFallbackJson(msg);
   }
 }
 

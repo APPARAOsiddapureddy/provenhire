@@ -156,7 +156,18 @@ function extractDsaSignals(dsa: { score: number | null; answers: unknown } | nul
   };
 }
 
-function extractAiSignals(interview: { scoreBreakdown: unknown; totalScore: number | null } | null) {
+function extractAiSignals(
+  interview: { scoreBreakdown: unknown; totalScore: number | null; integrityFlag: string | null } | null,
+) {
+  if (interview?.integrityFlag === "integrity_violation") {
+    return {
+      aiInterviewScore: 0,
+      conceptScore: 0,
+      communicationScore: 0,
+      reasoningScore: 0,
+      confidenceScore: 0,
+    };
+  }
   const breakdown = (interview?.scoreBreakdown ?? {}) as Record<string, unknown>;
   const technicalAccuracy = clamp(extractNumeric(breakdown.technical_accuracy, 0) * 10);
   const depth = clamp(extractNumeric(breakdown.depth_of_knowledge, 0) * 10);
@@ -212,7 +223,7 @@ export async function buildTechnicalScorecard(userId: string): Promise<Technical
       prisma.interview.findFirst({
         where: { userId, status: "completed" },
         orderBy: { completedAt: "desc" },
-        select: { totalScore: true, scoreBreakdown: true },
+        select: { totalScore: true, scoreBreakdown: true, integrityFlag: true },
       }),
       prisma.proctoringEvent.findMany({
         where: { userId, testType: { in: ["aptitude", "dsa", "ai_interview"] } },
@@ -249,7 +260,11 @@ export async function buildTechnicalScorecard(userId: string): Promise<Technical
   const gate2Passed = finalScore >= 65; // PRD shortlist threshold 65%
   const integrityOverride = integritySignals.integrityScore < 50;
 
-  const shortlisted = gate1Passed && gate2Passed && !integrityOverride;
+  const interviewIntegrityHold =
+    interviewLatest?.integrityFlag === "review_required" ||
+    interviewLatest?.integrityFlag === "integrity_violation";
+
+  const shortlisted = gate1Passed && gate2Passed && !integrityOverride && !interviewIntegrityHold;
   const candidateStatus: TechnicalScorecard["candidate_status"] = integrityOverride
     ? "integrity_risk"
     : shortlisted

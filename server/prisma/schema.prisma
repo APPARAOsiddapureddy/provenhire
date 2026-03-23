@@ -301,18 +301,31 @@ model Interview {
   id            String   @id @default(uuid())
   userId        String
   jobRole       String
+  /// junior | mid | senior — AI interview calibration + DB question selection
+  experienceLevel String?
   totalScore    Int?
   badgeLevel    String?
   finalVerdict  String?
   scoreBreakdown Json?
+  /// in_progress | completed | pending_review
   status        String   @default("in_progress")
   questionIndex Int      @default(0)
   questionPlan  Json?
   createdAt     DateTime @default(now())
   completedAt   DateTime?
+  reviewFlag          Boolean   @default(false)
+  reviewReason        String?
+  riskScore           Float?
+  integrityFlag       String?
+  reviewRequestedAt   DateTime?
+  reviewRequestReason String?   @db.VarChar(500)
+  reviewOutcome       String?
+  reviewOutcomeNote   String?
 
-  user      User              @relation(fields: [userId], references: [id])
-  messages  InterviewMessage[]
+  user              User                    @relation(fields: [userId], references: [id])
+  messages          InterviewMessage[]
+  questionResults   InterviewQuestionResult[]
+  proctoringReviews ProctoringReviewLog[]
 }
 
 model InterviewMessage {
@@ -324,8 +337,73 @@ model InterviewMessage {
   isFollowup  Boolean @default(false)
   audioUrl    String?  // Stored audio for user answers (no video storage)
   createdAt   DateTime @default(now())
+  /// 0-based index of the question this user message answers (Pro Upgrade)
+  questionIndex           Int?
+  transcriptionConfidence Float?
+  inputMode               String  @default("typed") // voice | typed
+  rawTranscript           String?  @db.Text
+  answerLengthChars       Int?
+  pasteCount              Int     @default(0)
+  timeToSubmitSeconds     Int?
+  flagAntiGaming          Boolean @default(false)
+  flagReason              String?
 
-  interview Interview @relation(fields: [interviewId], references: [id])
+  interview       Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  questionResult  InterviewQuestionResult?
+}
+
+/// Admin-managed AI interview questions (optional; static fallback when QUESTION_BANK_SOURCE=static)
+model InterviewQuestionBank {
+  id              String   @id @default(uuid())
+  role            String
+  experienceLevel String // junior | mid | senior
+  type            String // conceptual | scenario | problem_solving | behavioral
+  prompt          String   @db.Text
+  keyPoints       Json // string[]
+  difficulty      Int      @default(2)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+  tags            String[] @default([])
+
+  results InterviewQuestionResult[]
+
+  @@index([role, experienceLevel, type, isActive])
+}
+
+model InterviewQuestionResult {
+  id                 String   @id @default(uuid())
+  interviewId        String
+  messageId          String   @unique
+  questionBankId     String?
+  questionIndex      Int
+  questionType       String
+  scoreConceptual    Float?
+  scoreReasoning     Float?
+  scoreCommunication Float?
+  rationale          String?  @db.Text
+  keyPointsHit       String[] @default([])
+  keyPointsMissed    String[] @default([])
+  flagAntiGaming     Boolean  @default(false)
+  flagReason         String?
+
+  interview    Interview             @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  message      InterviewMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  questionBank InterviewQuestionBank? @relation(fields: [questionBankId], references: [id], onDelete: SetNull)
+}
+
+model ProctoringReviewLog {
+  id          String   @id @default(uuid())
+  interviewId String
+  adminId     String?
+  action      String
+  note        String   @db.Text
+  createdAt   DateTime @default(now())
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId])
 }
 
 model ResumeAnalysis {
