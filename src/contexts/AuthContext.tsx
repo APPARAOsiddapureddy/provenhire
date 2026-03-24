@@ -212,8 +212,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!data?.token) {
         throw new Error("Invalid response from server. Please try again.");
       }
-      setAuthToken(data.token);
-      if (data.refreshToken) setRefreshToken(data.refreshToken);
+      // Keep signup flow deterministic: register account, then user signs in from login screen.
+      // Do not persist auth session here (avoids auth-state races with Google SSO flow).
       if (role === "recruiter") {
         await api.post(
           "/api/users/recruiter-profile",
@@ -221,8 +221,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           { token: data.token },
         );
       }
-      setUser(data.user);
-      setUserRole(data.user?.role ?? null);
+      setAuthToken(null);
+      setRefreshToken(null);
+      setUser(null);
+      setUserRole(null);
     } catch (err: any) {
       throw err;
     } finally {
