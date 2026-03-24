@@ -240,8 +240,7 @@ const Auth = () => {
         role === "recruiter" ? companySize : undefined,
         roleType
       );
-      switchMode("login");
-      setSignInEmail(normalizedEmail);
+      toast.success("Account created. Redirecting to your dashboard…");
     } catch (error: any) {
       const is409 = error?.status === 409 || String(error?.message || "").toLowerCase().includes("already registered");
       const formMsg = is409

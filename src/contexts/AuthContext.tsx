@@ -205,6 +205,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       companySize?: string,
       roleType?: "technical" | "non_technical"
     ) => {
+      // Email registration only — establish app session from register response (same as a successful login).
+      // Avoids a separate login step that was racing dashboard mounts and triggering 401 + portal errors.
       const data = await api.post<{ user: User; token: string; refreshToken?: string }>("/api/auth/register", {
         email: email.trim().toLowerCase(),
         password,
@@ -218,10 +220,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (role === "recruiter") {
         await api.post("/api/users/recruiter-profile", { companyName, companySize }, { token: data.token });
       }
-      setAuthToken(null);
-      setRefreshToken(null);
-      setUser(null);
-      setUserRole(null);
+      setAuthToken(data.token);
+      if (data.refreshToken) setRefreshToken(data.refreshToken);
+      setUser(data.user);
+      setUserRole(data.user.role);
+      setNeedsGoogleRoleSelection(false);
     },
     []
   );

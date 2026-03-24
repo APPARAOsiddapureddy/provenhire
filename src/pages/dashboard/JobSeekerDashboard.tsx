@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
-import { api, BACKEND_DOWN_MSG } from "@/lib/api";
+import { api, BACKEND_DOWN_MSG, hasAuthToken } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -103,6 +103,8 @@ const JobSeekerDashboard = () => {
   const [loadError, setLoadError] = useState(false);
   const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'resume' | 'applications'>('candidate');
   const appliedAndRefetchedRef = useRef(false);
+  /** Invalidate in-flight dashboard fetches on unmount or user change — prevents 401 cascades + Sonner/DOM errors */
+  const dashboardFetchGenRef = useRef(0);
   const [resumeProfile, setResumeProfile] = useState<CandidateProfileViewProfile | null>(null);
   const [resumeProfileLoading, setResumeProfileLoading] = useState(false);
   const showJobTitleModal = Boolean(
@@ -287,9 +289,14 @@ const JobSeekerDashboard = () => {
       setTestResults({ aptitude: null, dsa: null });
       return;
     }
+    const gen = ++dashboardFetchGenRef.current;
+    const stale = () => gen !== dashboardFetchGenRef.current;
     setLoading(true);
     setLoadError(false);
-    loadDashboardData();
+    void loadDashboardData(stale);
+    return () => {
+      dashboardFetchGenRef.current += 1;
+    };
   }, [user?.id]);
 
   // Load candidate-profile (same shape as recruiters see) when user opens My Resume tab
@@ -336,7 +343,12 @@ const JobSeekerDashboard = () => {
     return () => clearTimeout(id);
   }, []);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (stale: () => boolean) => {
+    if (stale()) return;
+    if (!hasAuthToken()) {
+      setLoading(false);
+      return;
+    }
     try {
       // Phase 1 (critical): render quickly with profile + stage pipeline.
       // Phase 2 (secondary): load applications/saved/results in background.
@@ -344,6 +356,8 @@ const JobSeekerDashboard = () => {
         api.get<{ profile: any }>("/api/users/job-seeker-profile"),
         api.get<{ stages: any[]; certification_level?: number; certification_label?: string }>("/api/verification/stages"),
       ]);
+
+      if (stale()) return;
 
       const profileData = profileRes.status === "fulfilled" ? profileRes.value : null;
       const stagesData = stagesRes.status === "fulfilled" ? stagesRes.value : null;
@@ -372,11 +386,13 @@ const JobSeekerDashboard = () => {
           msg.includes("temporarily unavailable") ||
           msg.includes("Backend not running") ||
           msg.includes("npm run dev");
-        toast.error(
-          is503
-            ? BACKEND_DOWN_MSG
-            : "Some dashboard sections are still loading. Showing available data first."
-        );
+        if (!stale()) {
+          toast.error(
+            is503
+              ? BACKEND_DOWN_MSG
+              : "Some dashboard sections are still loading. Showing available data first."
+          );
+        }
       }
 
       if (profile) {
@@ -395,6 +411,8 @@ const JobSeekerDashboard = () => {
       } else {
         setProfile(null);
       }
+      if (stale()) return;
+
       setVerificationStages(stagesList);
       setStats({
         applicationsSent: 0,
@@ -408,6 +426,8 @@ const JobSeekerDashboard = () => {
         const total = role === "non_technical" ? 3 : 5;
         setVerificationProgress((completed / total) * 100);
       }
+
+      if (stale()) return;
 
       setLoading(false);
 
@@ -423,6 +443,8 @@ const JobSeekerDashboard = () => {
       const savedJobsData = secondary[1].status === "fulfilled" ? secondary[1].value : null;
       const aptitudeData = secondary[2].status === "fulfilled" ? secondary[2].value : null;
       const dsaData = secondary[3].status === "fulfilled" ? secondary[3].value : null;
+
+      if (stale()) return;
 
       const secondaryError = secondary.some((r) => r.status === "rejected");
       if (secondaryError) {
@@ -472,12 +494,13 @@ const JobSeekerDashboard = () => {
         }
       }
     } catch (error: unknown) {
+      if (stale()) return;
       console.error('Error loading dashboard data:', error);
       setLoadError(true);
       const err = error as Error & { status?: number; isBackendUnavailable?: boolean };
       const msg = err.message || 'Failed to load dashboard';
       const isUnavailable = err.isBackendUnavailable === true || err.status === 503 || msg.includes("Service unavailable") || msg.includes("npm run dev");
-      toast.error(isUnavailable ? BACKEND_DOWN_MSG : msg);
+      if (!stale()) toast.error(isUnavailable ? BACKEND_DOWN_MSG : msg);
       setLoading(false);
     }
   };
@@ -634,7 +657,12 @@ const JobSeekerDashboard = () => {
           <div className="dashboard-section-content">
             <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
               <span>{BACKEND_DOWN_MSG}</span>
-              <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-200 hover:bg-amber-500/20 shrink-0 ml-2" onClick={() => { setLoadError(false); setLoading(true); loadDashboardData(); }}>Retry</Button>
+              <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-200 hover:bg-amber-500/20 shrink-0 ml-2" onClick={() => {
+                  const gen = ++dashboardFetchGenRef.current;
+                  setLoadError(false);
+                  setLoading(true);
+                  void loadDashboardData(() => gen !== dashboardFetchGenRef.current);
+                }}>Retry</Button>
             </div>
           </div>
         )}
