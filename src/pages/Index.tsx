@@ -21,18 +21,18 @@ import {
 import VerificationStagesCard from "@/components/VerificationStagesCard";
 
 const Index = () => {
-  const { user, userRole, loading } = useAuth();
+  const { user, userRole, isInitializing } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (loading || !user || userRole === null) return;
+    if (isInitializing || !user || userRole === null) return;
     if (userRole === "admin") navigate("/admin/dashboard", { replace: true });
     else if (userRole === "recruiter") navigate("/dashboard/recruiter", { replace: true });
     else if (userRole === "expert_interviewer") navigate("/dashboard/expert", { replace: true });
     else if (userRole === "jobseeker") navigate("/dashboard/jobseeker", { replace: true });
-  }, [user, userRole, loading, navigate]);
+  }, [user, userRole, isInitializing, navigate]);
 
-  if (loading || (user && userRole !== null)) {
+  if (isInitializing || (user && userRole !== null)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="h-10 w-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />

@@ -91,8 +91,27 @@ const Auth = () => {
     form?: string;
   }>({});
 
-  const { signUp, signIn, signInWithGoogle, user, userRole, loading, needsGoogleRoleSelection, completeGoogleSignUpRole, resetPassword } = useAuth();
+  const {
+    signUp,
+    signIn,
+    signInWithGoogle,
+    user,
+    userRole,
+    isInitializing,
+    isGoogleSignInBusy,
+    needsGoogleRoleSelection,
+    completeGoogleSignUpRole,
+    resetPassword,
+  } = useAuth();
   const navigate = useNavigate();
+
+  /** Email/password only — independent of Google SSO busy state */
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [signupSubmitting, setSignupSubmitting] = useState(false);
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+
+  const authFormsLocked = isInitializing;
+  const googleDisabled = authFormsLocked || isGoogleSignInBusy;
 
   const isRedirecting = Boolean(user && userRole === null && authMode !== "reset" && !isReset);
 
@@ -148,6 +167,7 @@ const Auth = () => {
       return;
     }
     setSignInErrors({});
+    setLoginSubmitting(true);
     try {
       if (isDemo) {
         await signIn(normalizedEmail, signInPassword || "any", loginRole);
@@ -161,6 +181,8 @@ const Auth = () => {
           ? "Invalid email or password. Please try again."
           : msg,
       });
+    } finally {
+      setLoginSubmitting(false);
     }
   };
 
@@ -206,6 +228,7 @@ const Auth = () => {
       return;
     }
     setSignUpErrors({});
+    setSignupSubmitting(true);
     try {
       const roleType = role === "jobseeker" ? (jobSeekerTrack === "tech" ? "technical" : "non_technical") : undefined;
       await signUp(
@@ -237,6 +260,8 @@ const Auth = () => {
           },
         });
       }
+    } finally {
+      setSignupSubmitting(false);
     }
   };
 
@@ -251,11 +276,14 @@ const Auth = () => {
       toast.error("Invalid email format", { description: "Please enter a valid registered email address." });
       return;
     }
+    setForgotSubmitting(true);
     try {
       await resetPassword(normalizedEmail);
       setResetEmail("");
     } catch (error) {
       // Error handled in context
+    } finally {
+      setForgotSubmitting(false);
     }
   };
 
@@ -359,10 +387,10 @@ const Auth = () => {
               </div>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={forgotSubmitting || authFormsLocked}
                 className="w-full py-3 px-4 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? "Sending..." : "Send Reset Link"}
+                {forgotSubmitting ? "Sending..." : "Send Reset Link"}
               </button>
             </form>
             <div className="mt-6 text-center">
@@ -702,7 +730,7 @@ const Auth = () => {
               <p className="auth-form-sub">Your verified profile is waiting. Pick up where you left off.</p>
 
               <form onSubmit={handleSignIn} className="space-y-6" noValidate>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
                 <div className="auth-divider">
                   <span className="text-xs text-muted-foreground uppercase tracking-wider shrink-0">or sign in with email</span>
                 </div>
@@ -753,7 +781,9 @@ const Auth = () => {
                     Forgot password?
                   </button>
                 </div>
-                <button type="submit" className="auth-cta w-full" disabled={loading}>{loading ? "Signing in..." : "Sign In →"}</button>
+                <button type="submit" className="auth-cta w-full" disabled={loginSubmitting || authFormsLocked}>
+                  {loginSubmitting ? "Signing in..." : "Sign In →"}
+                </button>
               </form>
 
               <p className="auth-switch">
@@ -772,7 +802,7 @@ const Auth = () => {
               <p className="auth-form-sub">Join free. Prove your skills. Get hired by companies that trust evidence.</p>
 
               <form onSubmit={handleSignUp} className="space-y-6" noValidate>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
                 <div className="auth-divider">
                   <span className="text-xs text-muted-foreground uppercase tracking-wider shrink-0">or sign up with email</span>
                 </div>
@@ -932,7 +962,9 @@ const Auth = () => {
                   </div>
                   {signUpErrors.confirmPassword && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.confirmPassword}</p>}
                 </div>
-                <button type="submit" className="auth-cta w-full" disabled={loading}>{loading ? "Creating..." : "Start Verification →"}</button>
+                <button type="submit" className="auth-cta w-full" disabled={signupSubmitting || authFormsLocked}>
+                  {signupSubmitting ? "Creating..." : "Start Verification →"}
+                </button>
               </form>
 
               <p className="auth-switch">
@@ -953,7 +985,7 @@ const Auth = () => {
                 <div className="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-200">Password updated. Please sign in.</div>
               )}
               <form onSubmit={handleSignIn} className="space-y-6" noValidate>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
                 <div className="auth-divider">
                   <span className="text-xs text-muted-foreground shrink-0">or sign in with email</span>
                 </div>
@@ -999,8 +1031,12 @@ const Auth = () => {
                 <div className="text-right">
                   <button type="button" onClick={() => setAuthMode("forgot")} className="text-sm text-primary hover:underline">Forgot password?</button>
                 </div>
-                <button type="submit" disabled={loading} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
-                  {loading ? "Signing in..." : "Sign In"}
+                <button
+                  type="submit"
+                  disabled={loginSubmitting || authFormsLocked}
+                  className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50"
+                >
+                  {loginSubmitting ? "Signing in..." : "Sign In"}
                 </button>
               </form>
               <p className="text-center mt-4 text-sm text-muted-foreground">
@@ -1011,7 +1047,7 @@ const Auth = () => {
             <>
               <h2 className="text-lg font-semibold mb-4">Create Account</h2>
               <form onSubmit={handleSignUp} className="space-y-6" noValidate>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={loading} />
+                <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
                 <div className="auth-divider">
                   <span className="text-xs text-muted-foreground shrink-0">or sign up with email</span>
                 </div>
@@ -1157,8 +1193,12 @@ const Auth = () => {
                   </div>
                   {signUpErrors.confirmPassword && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.confirmPassword}</p>}
                 </div>
-                <button type="submit" disabled={loading} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
-                  {loading ? "Creating..." : "Create Account"}
+                <button
+                  type="submit"
+                  disabled={signupSubmitting || authFormsLocked}
+                  className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 disabled:opacity-50"
+                >
+                  {signupSubmitting ? "Creating..." : "Create Account"}
                 </button>
               </form>
               <p className="text-center mt-4 text-sm text-muted-foreground">

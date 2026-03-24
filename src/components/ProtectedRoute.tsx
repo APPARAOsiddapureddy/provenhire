@@ -14,10 +14,10 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole, allowedRoles }: ProtectedRouteProps) {
-  const { user, userRole, loading } = useAuth();
+  const { user, userRole, isInitializing } = useAuth();
   const roles = allowedRoles ?? (allowedRole ? [allowedRole] : undefined);
 
-  if (loading) {
+  if (isInitializing) {
     return <PageLoaderFullScreen />;
   }
 

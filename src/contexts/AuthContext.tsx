@@ -1,5 +1,17 @@
+/**
+ * Authentication — two isolated flows:
+ *
+ * 1) Email/password: `signUp` → POST /api/auth/register (then optional profile); `signIn` → POST /api/auth/login.
+ *    Does not touch Firebase. Does not set Google-specific flags.
+ *
+ * 2) Google SSO: Firebase getIdToken → POST /api/auth/google → app JWT. Optional later: POST /api/auth/google/select-role
+ *    from dashboards (JobSeeker). Uses `isGoogleSignInBusy` only during the Google handoff.
+ *
+ * `isInitializing` is strictly session restore on cold load (token + /api/auth/me, or OAuth return at /__/auth/handler).
+ * It must not be toggled by email login/signup so those flows do not block each other or the rest of the app.
+ */
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, ReactNode } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, hasAuthToken, getAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
 import {
@@ -23,7 +35,10 @@ type User = {
 interface AuthContextType {
   user: User | null;
   userRole: UserRole;
-  loading: boolean;
+  /** True until first session bootstrap finishes (JWT restore or Google redirect handling). */
+  isInitializing: boolean;
+  /** True only while the Google popup/redirect handoff to the backend is in flight. */
+  isGoogleSignInBusy: boolean;
   needsGoogleRoleSelection: boolean;
   completeGoogleSignUpRole: (
     role: "jobseeker" | "recruiter",
@@ -52,15 +67,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
-  const [loading, setLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isGoogleSignInBusy, setIsGoogleSignInBusy] = useState(false);
   const [needsGoogleRoleSelection, setNeedsGoogleRoleSelection] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
-  const pathname = location.pathname || "";
-  // Skip redundant /api/auth/me on the next run after we've just completed Google *redirect* sign-in (avoids 401 race right after navigate).
   const skipNextMeRef = useRef(false);
 
-  /** Shared: exchange Firebase id token for app session (popup or redirect return). */
   const applyGoogleSignInSession = useCallback(async (idToken: string) => {
     const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>(
       "/api/auth/google",
@@ -71,8 +83,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(data.user);
     setUserRole(data.user.role);
     skipNextMeRef.current = true;
-    // Revert to stable flow: do not block Google login with role-selection step.
-    // New Google users are created server-side as jobseekers with technical track by default.
     setNeedsGoogleRoleSelection(false);
     toast.success("Signed in with Google successfully.");
     navigate(
@@ -89,35 +99,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const bootstrap = async () => {
-      // If we just completed Google redirect sign-in and navigated, we already have user + token; skip /api/auth/me once.
       if (skipNextMeRef.current) {
         skipNextMeRef.current = false;
-        setLoading(false);
+        setIsInitializing(false);
         return;
       }
 
-      // Handle Google redirect result first (user returning from OAuth — e.g. popup blocked / mobile).
-      // IMPORTANT: avoid hard-failing with a short timeout; some browsers/networks can take longer.
-      const isGoogleRedirectHandler = pathname === "/__/auth/handler";
+      const path =
+        typeof window !== "undefined"
+          ? (window.location.pathname || "").replace(/\/+$/, "") || "/"
+          : "/";
+      const isGoogleRedirectHandler = path === "/__/auth/handler";
+
       if (isGoogleRedirectHandler && isFirebaseConfigured()) {
         try {
           const idToken = await getGoogleRedirectIdToken();
           if (!idToken) {
-            // If redirect handler lands here without a token, route back to /auth.
             navigate("/auth", { replace: true });
-            setLoading(false);
+            setIsInitializing(false);
             return;
           }
-          if (idToken) {
-            await applyGoogleSignInSession(idToken);
-            setLoading(false);
-            return;
-          }
+          await applyGoogleSignInSession(idToken);
+          setIsInitializing(false);
+          return;
         } catch (err) {
-          // Do not break app bootstrap on redirect parsing errors; continue with normal session restore.
           console.warn("[AuthContext] Google redirect result failed:", err);
           navigate("/auth", { replace: true });
-          setLoading(false);
+          setIsInitializing(false);
           return;
         }
       }
@@ -125,19 +133,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!hasAuthToken()) {
         setUser(null);
         setUserRole(null);
-        setLoading(false);
+        setIsInitializing(false);
         return;
       }
-      // If backend is already known down, don't call API.
       if (isBackendDownCooldown()) {
-        setLoading(false);
+        setIsInitializing(false);
         return;
       }
-      // When we have a token, always restore session via /me (including on /auth), like the pre-redirect-only flow.
       try {
-        const { user } = await api.get<{ user: User }>("/api/auth/me");
-        setUser(user);
-        setUserRole(user.role);
+        const { user: u } = await api.get<{ user: User }>("/api/auth/me");
+        setUser(u);
+        setUserRole(u.role);
       } catch (err: unknown) {
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
@@ -148,7 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           msg.includes("Backend not running") ||
           msg.includes("npm run dev");
         if (isBackendDown) {
-          // Don't clear user/token; toast is shown once via ph_backend_503.
+          // keep token; BackendGate / toasts handle UX
         } else {
           setUser(null);
           setUserRole(null);
@@ -156,27 +162,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setRefreshToken(null);
         }
       } finally {
-        setLoading(false);
+        setIsInitializing(false);
       }
     };
-    bootstrap();
-    // Intentionally bootstrapped once on app mount.
-    // Re-running on every route change causes redundant /api/auth/me calls and slower navigation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void bootstrap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; pathname read from window inside effect
+  }, [applyGoogleSignInSession, navigate]);
 
-  // Show backend-down toast only on /auth so we don't annoy users on About, Jobs, or dashboard (dashboard has its own card).
   useEffect(() => {
     const onBackend503 = () => {
-      const path = (window.location.pathname || "").split("?")[0];
-      if (path !== "/auth") return;
+      const p = (window.location.pathname || "").split("?")[0];
+      if (p !== "/auth") return;
       toast.error(BACKEND_DOWN_MSG);
     };
     window.addEventListener("ph_backend_503", onBackend503);
     return () => window.removeEventListener("ph_backend_503", onBackend503);
   }, []);
 
-  // When any API call gets 401 after failed refresh, api.ts clears tokens and dispatches this event.
   useEffect(() => {
     const onSessionExpired = () => {
       setUser(null);
@@ -193,17 +195,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => window.removeEventListener("ph_session_expired", onSessionExpired);
   }, [navigate]);
 
-  const signUp = async (
-    email: string,
-    password: string,
-    role: UserRole,
-    fullName?: string,
-    companyName?: string,
-    companySize?: string,
-    roleType?: "technical" | "non_technical"
-  ) => {
-    setLoading(true);
-    try {
+  const signUp = useCallback(
+    async (
+      email: string,
+      password: string,
+      role: UserRole,
+      fullName?: string,
+      companyName?: string,
+      companySize?: string,
+      roleType?: "technical" | "non_technical"
+    ) => {
       const data = await api.post<{ user: User; token: string; refreshToken?: string }>("/api/auth/register", {
         email: email.trim().toLowerCase(),
         password,
@@ -214,154 +215,137 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!data?.token) {
         throw new Error("Invalid response from server. Please try again.");
       }
-      // Keep signup flow deterministic: register account, then user signs in from login screen.
-      // Do not persist auth session here (avoids auth-state races with Google SSO flow).
       if (role === "recruiter") {
-        await api.post(
-          "/api/users/recruiter-profile",
-          { companyName, companySize },
-          { token: data.token },
-        );
+        await api.post("/api/users/recruiter-profile", { companyName, companySize }, { token: data.token });
       }
       setAuthToken(null);
       setRefreshToken(null);
       setUser(null);
       setUserRole(null);
-    } catch (err: any) {
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    []
+  );
 
-  const signIn = async (email: string, password: string) => {
-    setLoading(true);
-    try {
-      const data = await api.post<{ user: User; token: string; refreshToken?: string }>("/api/auth/login", {
-        email: email.trim().toLowerCase(),
-        password,
-      });
-      setAuthToken(data.token);
-      if (data.refreshToken) setRefreshToken(data.refreshToken);
-      setUser(data.user);
-      setUserRole(data.user.role);
-    } catch (err: any) {
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
+  const signIn = useCallback(async (email: string, password: string, _role?: UserRole) => {
+    void _role; // demo / UI only; login API does not accept role
+    const data = await api.post<{ user: User; token: string; refreshToken?: string }>("/api/auth/login", {
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    setAuthToken(data.token);
+    if (data.refreshToken) setRefreshToken(data.refreshToken);
+    setUser(data.user);
+    setUserRole(data.user.role);
+  }, []);
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = useCallback(async () => {
     if (!isFirebaseConfigured()) {
       toast.error("Google sign-in is not configured. Please use email and password.");
       return;
     }
 
-    // Production default: redirect flow (no popup / window.close — avoids COOP console errors and is more reliable on mobile).
-    if (preferGoogleRedirectSignIn()) {
-      setLoading(true);
-      try {
-        toast.info("Redirecting to Google…");
-        await signInWithGoogleRedirect();
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Google sign-in failed";
-        toast.error(msg);
-        setLoading(false);
-      }
-      return;
-    }
-
-    setLoading(true);
+    setIsGoogleSignInBusy(true);
     try {
-      const idToken = await signInWithGooglePopup();
-      await applyGoogleSignInSession(idToken);
-    } catch (err: unknown) {
-      const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
-      const message = err instanceof Error ? err.message : "";
-      const status = err && typeof err === "object" && "status" in err ? (err as { status?: number }).status : undefined;
-      const apiData =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { code?: string; error?: string } } }).response?.data
-          : undefined;
-
-      if (status === 403 && apiData?.code === "EMAIL_BLOCKED") {
-        toast.error(apiData.error || "This email cannot be used to sign in.");
-        return;
-      }
-      if (status === 403) {
-        toast.error(apiData?.error || "Sign-in was denied for this account.");
-        return;
-      }
-
-      // Popup blocked or COOP / closed signal — fall back to full-page redirect.
-      if (
-        code === "auth/popup-blocked" ||
-        /cross-origin-opener-policy|window\.closed|blocked by the browser|policy would block the window\.close/i.test(
-          message,
-        )
-      ) {
-        toast.info("Continuing Google sign-in in this window…");
+      if (preferGoogleRedirectSignIn()) {
         try {
+          toast.info("Redirecting to Google…");
           await signInWithGoogleRedirect();
-        } catch (redirErr: unknown) {
-          const rmsg = redirErr instanceof Error ? redirErr.message : "Redirect sign-in failed";
-          toast.error(rmsg);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Google sign-in failed";
+          toast.error(msg);
         }
         return;
       }
-      const msg = err instanceof Error ? err.message : "Google sign-in failed";
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const completeGoogleSignUpRole = async (
-    role: "jobseeker" | "recruiter",
-    companyName?: string,
-    companySize?: string,
-    roleType?: "technical" | "non_technical"
-  ) => {
-    const token = getAuthToken();
-    if (!token) {
-      toast.error("Session lost. Please sign in with Google again.");
-      setNeedsGoogleRoleSelection(false);
-      navigate("/auth", { replace: true });
-      return;
-    }
-    try {
-      const data = await api.post<{ user: User | null; token?: string; refreshToken?: string }>(
-        "/api/auth/google/select-role",
-        {
-          role,
-          ...(role === "recruiter" && { companyName, companySize }),
-          ...(role === "jobseeker" && roleType && { roleType }),
-        },
-        { token }
-      );
-      if (data.token) setAuthToken(data.token);
-      if (data.refreshToken) setRefreshToken(data.refreshToken);
-      if (data.user) {
-        setUser(data.user);
-        setUserRole(data.user.role);
+      try {
+        const idToken = await signInWithGooglePopup();
+        await applyGoogleSignInSession(idToken);
+      } catch (err: unknown) {
+        const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+        const message = err instanceof Error ? err.message : "";
+        const status = err && typeof err === "object" && "status" in err ? (err as { status?: number }).status : undefined;
+        const apiData =
+          err && typeof err === "object" && "response" in err
+            ? (err as { response?: { data?: { code?: string; error?: string } } }).response?.data
+            : undefined;
+
+        if (status === 403 && apiData?.code === "EMAIL_BLOCKED") {
+          toast.error(apiData.error || "This email cannot be used to sign in.");
+          return;
+        }
+        if (status === 403) {
+          toast.error(apiData?.error || "Sign-in was denied for this account.");
+          return;
+        }
+
+        if (
+          code === "auth/popup-blocked" ||
+          /cross-origin-opener-policy|window\.closed|blocked by the browser|policy would block the window\.close/i.test(
+            message,
+          )
+        ) {
+          toast.info("Continuing Google sign-in in this window…");
+          try {
+            await signInWithGoogleRedirect();
+          } catch (redirErr: unknown) {
+            const rmsg = redirErr instanceof Error ? redirErr.message : "Redirect sign-in failed";
+            toast.error(rmsg);
+          }
+          return;
+        }
+        const msg = err instanceof Error ? err.message : "Google sign-in failed";
+        toast.error(msg);
       }
-      setNeedsGoogleRoleSelection(false);
-      toast.success("Welcome! Redirecting to your dashboard.");
-      navigate(
-        role === "recruiter" ? "/dashboard/recruiter" : "/dashboard/jobseeker",
-        { replace: true }
-      );
-    } catch (err: unknown) {
-      const status = (err as { status?: number })?.status;
-      const msg = err instanceof Error ? err.message : "Failed to save role";
-      const isBackendDown = status === 503 || msg.includes("Run npm run dev") || msg.includes("Backend not running");
-      if (!isBackendDown) toast.error(msg);
-      throw err;
+    } finally {
+      setIsGoogleSignInBusy(false);
     }
-  };
+  }, [applyGoogleSignInSession]);
 
-  const signOut = async () => {
+  const completeGoogleSignUpRole = useCallback(
+    async (
+      role: "jobseeker" | "recruiter",
+      companyName?: string,
+      companySize?: string,
+      roleType?: "technical" | "non_technical"
+    ) => {
+      const token = getAuthToken();
+      if (!token) {
+        toast.error("Session lost. Please sign in with Google again.");
+        setNeedsGoogleRoleSelection(false);
+        navigate("/auth", { replace: true });
+        return;
+      }
+      try {
+        const data = await api.post<{ user: User | null; token?: string; refreshToken?: string }>(
+          "/api/auth/google/select-role",
+          {
+            role,
+            ...(role === "recruiter" && { companyName, companySize }),
+            ...(role === "jobseeker" && roleType && { roleType }),
+          },
+          { token }
+        );
+        if (data.token) setAuthToken(data.token);
+        if (data.refreshToken) setRefreshToken(data.refreshToken);
+        if (data.user) {
+          setUser(data.user);
+          setUserRole(data.user.role);
+        }
+        setNeedsGoogleRoleSelection(false);
+        toast.success("Welcome! Redirecting to your dashboard.");
+        navigate(role === "recruiter" ? "/dashboard/recruiter" : "/dashboard/jobseeker", { replace: true });
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status;
+        const msg = err instanceof Error ? err.message : "Failed to save role";
+        const isBackendDown = status === 503 || msg.includes("Run npm run dev") || msg.includes("Backend not running");
+        if (!isBackendDown) toast.error(msg);
+        throw err;
+      }
+    },
+    [navigate]
+  );
+
+  const signOut = useCallback(async () => {
     setAuthToken(null);
     setRefreshToken(null);
     setUser(null);
@@ -369,9 +353,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setNeedsGoogleRoleSelection(false);
     toast.success("Signed out successfully");
     navigate("/");
-  };
+  }, [navigate]);
 
-  const resetPassword = async (email: string) => {
+  const resetPassword = useCallback(async (email: string) => {
     try {
       const data = await api.post<{ ok: boolean; resetLink?: string; message?: string }>("/api/auth/forgot-password", {
         email: email.trim().toLowerCase(),
@@ -381,27 +365,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else {
         toast.success("If an account exists, check your email for a reset link.");
       }
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to send reset link");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to send reset link";
+      toast.error(msg);
       throw err;
     }
-  };
+  }, []);
 
-  const changePassword = async (currentPassword: string, newPassword: string) => {
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     try {
       await api.post("/api/auth/change-password", { currentPassword, newPassword });
       toast.success("Password updated successfully.");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to change password");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to change password";
+      toast.error(msg);
       throw err;
     }
-  };
+  }, []);
 
   const value = useMemo<AuthContextType>(
     () => ({
       user,
       userRole,
-      loading,
+      isInitializing,
+      isGoogleSignInBusy,
       needsGoogleRoleSelection,
       completeGoogleSignUpRole,
       signInWithGoogle,
@@ -411,7 +398,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       resetPassword,
       changePassword,
     }),
-    [user, userRole, loading, needsGoogleRoleSelection]
+    [
+      user,
+      userRole,
+      isInitializing,
+      isGoogleSignInBusy,
+      needsGoogleRoleSelection,
+      completeGoogleSignUpRole,
+      signInWithGoogle,
+      signUp,
+      signIn,
+      signOut,
+      resetPassword,
+      changePassword,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
