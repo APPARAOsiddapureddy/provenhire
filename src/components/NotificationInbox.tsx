@@ -15,7 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api, isBackendDownCooldown } from "@/lib/api";
+import { api, isBackendDownCooldown, hasAuthToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 
@@ -30,7 +30,7 @@ interface Message {
 }
 
 const NotificationInbox = () => {
-  const { user, needsGoogleRoleSelection } = useAuth();
+  const { user, needsGoogleRoleSelection, isInitializing } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [open, setOpen] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
@@ -41,7 +41,7 @@ const NotificationInbox = () => {
   const latestUnread = unreadMessages[0];
 
   const fetchMessages = async () => {
-    if (!user || needsGoogleRoleSelection || isBackendDownCooldown()) return;
+    if (!user || needsGoogleRoleSelection || isInitializing || !hasAuthToken() || isBackendDownCooldown()) return;
     try {
       const { notifications } = await api.get<{ notifications: Message[] }>("/api/notifications");
       if (notifications) {
@@ -53,16 +53,24 @@ const NotificationInbox = () => {
   };
 
   useEffect(() => {
-    if (!user || needsGoogleRoleSelection) return;
+    if (!user || needsGoogleRoleSelection || isInitializing || !hasAuthToken()) return;
     fetchMessages();
-  }, [user, needsGoogleRoleSelection]);
+  }, [user, needsGoogleRoleSelection, isInitializing]);
 
   useEffect(() => {
-    if (latestUnread && !popupShown && user) {
+    if (latestUnread && !popupShown && user && !isInitializing && hasAuthToken()) {
       setPopupOpen(true);
       setPopupShown(true);
     }
-  }, [latestUnread, popupShown, user]);
+  }, [latestUnread, popupShown, user, isInitializing]);
+
+  /** Close Radix portals cleanly on sign-out / session clear to avoid removeChild DOM errors */
+  useEffect(() => {
+    if (!user) {
+      setOpen(false);
+      setPopupOpen(false);
+    }
+  }, [user]);
 
   const markAsRead = async (id: string) => {
     await api.post("/api/notifications/read", { id });
@@ -76,7 +84,7 @@ const NotificationInbox = () => {
     setPopupOpen(false);
   };
 
-  if (!user) return null;
+  if (!user || isInitializing || !hasAuthToken()) return null;
 
   return (
     <>

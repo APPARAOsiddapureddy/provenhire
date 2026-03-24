@@ -61,6 +61,15 @@ function generateSixDigitCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+/**
+ * BlockedEmail is opt-in so production is open by default (Google SSO was returning 403 for many users).
+ * Set ENFORCE_BLOCKED_EMAILS=true (or 1) on the server to reject register + Google sign-in for listed emails.
+ */
+function isBlockedEmailListEnforced(): boolean {
+  const v = process.env.ENFORCE_BLOCKED_EMAILS;
+  return v === "true" || v === "1";
+}
+
 export async function sendEmailVerificationCode(req: Request, res: Response) {
   try {
     const parsed = emailVerificationSendSchema.safeParse(req.body ?? {});
@@ -211,9 +220,11 @@ export async function register(req: Request, res: Response) {
     }
     const { name, email, password, role, roleType } = parsed.data;
     const normalizedEmail = email.trim().toLowerCase();
-    const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
-    if (blocked) {
-      return res.status(403).json({ error: "This email cannot be used for registration" });
+    if (isBlockedEmailListEnforced()) {
+      const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
+      if (blocked) {
+        return res.status(403).json({ error: "This email cannot be used for registration" });
+      }
     }
     const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
@@ -331,12 +342,15 @@ export async function googleAuth(req: Request, res: Response) {
     if (!email) {
       return res.status(400).json({ error: "Google account did not provide an email address." });
     }
-    const blocked = await prisma.blockedEmail.findUnique({ where: { email } });
-    if (blocked) {
-      return res.status(403).json({
-        error: "This email cannot be used for sign in. It may be blocked after a removed account—use another Google account or contact support.",
-        code: "EMAIL_BLOCKED",
-      });
+    if (isBlockedEmailListEnforced()) {
+      const blocked = await prisma.blockedEmail.findUnique({ where: { email } });
+      if (blocked) {
+        return res.status(403).json({
+          error:
+            "This email cannot be used for sign in. It may be blocked after a removed account—use another Google account or contact support.",
+          code: "EMAIL_BLOCKED",
+        });
+      }
     }
     let user = await prisma.user.findFirst({
       where: {

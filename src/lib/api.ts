@@ -64,25 +64,49 @@ export function setRefreshToken(token: string | null) {
   } catch {}
 }
 
+/** Single in-flight refresh so parallel API calls don't stampede /api/auth/refresh (fixes flaky 401s + removeChild). */
+let refreshMutex: Promise<boolean> | null = null;
+
 async function refreshAccessToken(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
-  try {
-    const res = await fetch(`${API_BASE}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data.token) {
-      setAuthToken(data.token);
-      return true;
+  if (refreshMutex) return refreshMutex;
+  refreshMutex = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data.token) {
+        setAuthToken(data.token);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      refreshMutex = null;
     }
-    return false;
-  } catch {
-    return false;
-  }
+  })();
+  return refreshMutex;
+}
+
+let lastSessionExpiredEmit = 0;
+const SESSION_EXPIRED_DEBOUNCE_MS = 800;
+
+function emitSessionExpiredOnce(): void {
+  if (typeof window === "undefined") return;
+  const now = Date.now();
+  if (now - lastSessionExpiredEmit < SESSION_EXPIRED_DEBOUNCE_MS) return;
+  lastSessionExpiredEmit = now;
+  window.dispatchEvent(new CustomEvent("ph_session_expired"));
+}
+
+function isAuthMePath(path: string): boolean {
+  return path === "/api/auth/me" || path.endsWith("/api/auth/me");
 }
 
 /** Decode JWT `exp` (seconds) for proactive refresh — not verified; server still validates. */
@@ -185,12 +209,18 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
       err.status = 401;
       throw err;
     }
-    // Refresh failed — clear session so AuthContext can redirect to login
+    // Refresh failed — clear session. Bootstrap /api/auth/me handles UX without a global redirect storm.
     setAuthToken(null);
     setRefreshToken(null);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("ph_session_expired"));
+    if (typeof window !== "undefined" && !isAuthMePath(path)) {
+      emitSessionExpiredOnce();
     }
+    const errorBody401 = await res.json().catch(() => ({}));
+    const msg401 = (errorBody401?.message ?? errorBody401?.error ?? "Unauthorized") as string;
+    const err401 = new Error(msg401) as Error & { response?: { data?: unknown }; status?: number };
+    err401.response = { data: errorBody401 };
+    err401.status = 401;
+    throw err401;
   }
 
   if (!res.ok) {

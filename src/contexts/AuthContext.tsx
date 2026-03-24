@@ -73,28 +73,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
   const skipNextMeRef = useRef(false);
 
-  const applyGoogleSignInSession = useCallback(async (idToken: string) => {
-    const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>(
-      "/api/auth/google",
-      { idToken }
-    );
-    setAuthToken(data.token);
-    if (data.refreshToken) setRefreshToken(data.refreshToken);
-    setUser(data.user);
-    setUserRole(data.user.role);
-    skipNextMeRef.current = true;
-    setNeedsGoogleRoleSelection(false);
-    toast.success("Signed in with Google successfully.");
-    navigate(
-      data.user.role === "admin"
-        ? "/admin/dashboard"
-        : data.user.role === "recruiter"
-          ? "/dashboard/recruiter"
-          : data.user.role === "expert_interviewer"
-            ? "/dashboard/expert"
-            : "/dashboard/jobseeker",
-      { replace: true }
-    );
+  /** Exchange Firebase id token for app session. Returns false on API failure (toast already shown). */
+  const applyGoogleSignInSession = useCallback(async (idToken: string): Promise<boolean> => {
+    try {
+      const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>(
+        "/api/auth/google",
+        { idToken }
+      );
+      setAuthToken(data.token);
+      if (data.refreshToken) setRefreshToken(data.refreshToken);
+      setUser(data.user);
+      setUserRole(data.user.role);
+      skipNextMeRef.current = true;
+      setNeedsGoogleRoleSelection(false);
+      toast.success("Signed in with Google successfully.");
+      navigate(
+        data.user.role === "admin"
+          ? "/admin/dashboard"
+          : data.user.role === "recruiter"
+            ? "/dashboard/recruiter"
+            : data.user.role === "expert_interviewer"
+              ? "/dashboard/expert"
+              : "/dashboard/jobseeker",
+        { replace: true }
+      );
+      return true;
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      const apiData =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { code?: string; error?: string } } }).response?.data
+          : undefined;
+      const msg = err instanceof Error ? err.message : "";
+      if (status === 403 && apiData?.code === "EMAIL_BLOCKED") {
+        toast.error(apiData.error || "This email cannot be used to sign in.");
+      } else if (status === 403) {
+        toast.error(apiData?.error || "Sign-in was denied for this account.");
+      } else if (status === 401) {
+        toast.error(msg && msg !== "Request failed" ? msg : "Invalid or expired Google sign-in. Please try again.");
+      } else {
+        toast.error(msg && msg !== "Request failed" ? msg : "Google sign-in failed. Please try again.");
+      }
+      return false;
+    }
   }, [navigate]);
 
   useEffect(() => {
@@ -119,8 +140,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setIsInitializing(false);
             return;
           }
-          await applyGoogleSignInSession(idToken);
+          const googleOk = await applyGoogleSignInSession(idToken);
           setIsInitializing(false);
+          if (!googleOk) {
+            navigate("/auth", { replace: true });
+          }
           return;
         } catch (err) {
           console.warn("[AuthContext] Google redirect result failed:", err);
@@ -266,20 +290,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } catch (err: unknown) {
         const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
         const message = err instanceof Error ? err.message : "";
-        const status = err && typeof err === "object" && "status" in err ? (err as { status?: number }).status : undefined;
-        const apiData =
-          err && typeof err === "object" && "response" in err
-            ? (err as { response?: { data?: { code?: string; error?: string } } }).response?.data
-            : undefined;
-
-        if (status === 403 && apiData?.code === "EMAIL_BLOCKED") {
-          toast.error(apiData.error || "This email cannot be used to sign in.");
-          return;
-        }
-        if (status === 403) {
-          toast.error(apiData?.error || "Sign-in was denied for this account.");
-          return;
-        }
 
         if (
           code === "auth/popup-blocked" ||

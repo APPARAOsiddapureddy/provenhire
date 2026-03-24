@@ -63,7 +63,7 @@ const deriveCertificationFromStages = (
 };
 
 const JobSeekerDashboard = () => {
-  const { user, signOut, changePassword, completeGoogleSignUpRole } = useAuth();
+  const { user, signOut, changePassword, completeGoogleSignUpRole, isInitializing } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [profile, setProfile] = useState<any>(null);
@@ -280,13 +280,19 @@ const JobSeekerDashboard = () => {
   };
 
   useEffect(() => {
-    if (!user) {
+    if (isInitializing || !user) {
+      if (!user) {
+        setLoading(false);
+        setProfile(null);
+        setApplications([]);
+        setSavedJobs([]);
+        setVerificationStages([]);
+        setTestResults({ aptitude: null, dsa: null });
+      }
+      return;
+    }
+    if (!hasAuthToken()) {
       setLoading(false);
-      setProfile(null);
-      setApplications([]);
-      setSavedJobs([]);
-      setVerificationStages([]);
-      setTestResults({ aptitude: null, dsa: null });
       return;
     }
     const gen = ++dashboardFetchGenRef.current;
@@ -297,7 +303,7 @@ const JobSeekerDashboard = () => {
     return () => {
       dashboardFetchGenRef.current += 1;
     };
-  }, [user?.id]);
+  }, [user?.id, isInitializing]);
 
   // Load candidate-profile (same shape as recruiters see) when user opens My Resume tab
   useEffect(() => {
