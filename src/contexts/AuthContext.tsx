@@ -17,6 +17,7 @@ type User = {
   name?: string | null;
   email: string;
   role: UserRole;
+  authProvider?: string | null;
 };
 
 interface AuthContextType {
@@ -70,23 +71,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(data.user);
     setUserRole(data.user.role);
     skipNextMeRef.current = true;
-    if (data.isNewUser) {
-      setNeedsGoogleRoleSelection(true);
-      toast.success("Choose your role to continue");
-      navigate("/auth", { replace: true });
-    } else {
-      toast.success("Signed in with Google successfully.");
-      navigate(
-        data.user.role === "admin"
-          ? "/admin/dashboard"
-          : data.user.role === "recruiter"
-            ? "/dashboard/recruiter"
-            : data.user.role === "expert_interviewer"
-              ? "/dashboard/expert"
-              : "/dashboard/jobseeker",
-        { replace: true }
-      );
-    }
+    // Revert to stable flow: do not block Google login with role-selection step.
+    // New Google users are created server-side as jobseekers with technical track by default.
+    setNeedsGoogleRoleSelection(false);
+    toast.success("Signed in with Google successfully.");
+    navigate(
+      data.user.role === "admin"
+        ? "/admin/dashboard"
+        : data.user.role === "recruiter"
+          ? "/dashboard/recruiter"
+          : data.user.role === "expert_interviewer"
+            ? "/dashboard/expert"
+            : "/dashboard/jobseeker",
+      { replace: true }
+    );
   }, [navigate]);
 
   useEffect(() => {
@@ -327,7 +325,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
     try {
-      const data = await api.post<{ user: User | null }>(
+      const data = await api.post<{ user: User | null; token?: string; refreshToken?: string }>(
         "/api/auth/google/select-role",
         {
           role,
@@ -336,6 +334,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         },
         { token }
       );
+      if (data.token) setAuthToken(data.token);
+      if (data.refreshToken) setRefreshToken(data.refreshToken);
       if (data.user) {
         setUser(data.user);
         setUserRole(data.user.role);

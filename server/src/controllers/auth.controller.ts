@@ -162,7 +162,13 @@ export async function verifyEmailVerificationCode(req: Request, res: Response) {
   });
 }
 
-async function createSession(user: { id: string; role: string; name: string | null; email: string }) {
+async function createSession(user: {
+  id: string;
+  role: string;
+  name: string | null;
+  email: string;
+  authProvider?: string | null;
+}) {
   const accessToken = signJwt({ userId: user.id, role: user.role });
   const refreshTokenPlain = generateRefreshToken();
   const refreshExpires = new Date();
@@ -177,7 +183,13 @@ async function createSession(user: { id: string; role: string; name: string | nu
   });
 
   return {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      authProvider: user.authProvider ?? null,
+    },
     token: accessToken,
     refreshToken: refreshTokenPlain,
     expiresIn: 15 * 60,
@@ -353,7 +365,7 @@ export async function googleAuth(req: Request, res: Response) {
           userId: user.id,
           fullName: firebaseUser.name ?? null,
           email,
-          roleType: "technical",
+          roleType: null,
         },
         update: { fullName: firebaseUser.name ?? user.name },
       });
@@ -418,7 +430,9 @@ export async function googleSelectRole(req: Request, res: Response) {
     });
   }
   const updated = await prisma.user.findUnique({ where: { id: userId } });
-  return res.json({ user: updated ? { id: updated.id, name: updated.name, email: updated.email, role: updated.role } : null });
+  if (!updated) return res.status(404).json({ error: "User not found" });
+  const session = await createSession(updated);
+  return res.json({ ...session });
 }
 
 export async function refresh(req: Request, res: Response) {
@@ -456,7 +470,7 @@ export async function me(req: Request, res: Response) {
     ]);
     if (!user) return res.status(404).json({ error: "User not found" });
     return res.json({
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, authProvider: user.authProvider },
       certification_level: certification.level,
       certification_label: certification.label,
       role_type: certification.roleType,
