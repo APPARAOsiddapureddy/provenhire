@@ -8,7 +8,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ScrollToTop from "./components/ScrollToTop";
 import BackendGate from "./components/BackendGate";
-import { api } from "./lib/api";
+import { api, hasAuthToken } from "./lib/api";
 import { PageLoaderFullScreen } from "./components/PageLoader";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -74,6 +74,31 @@ const ApiWarmup = () => {
   return null;
 };
 
+// Prefetch frequently visited private routes after login to reduce route-change latency.
+const RouteChunkPrefetch = () => {
+  useEffect(() => {
+    if (!hasAuthToken()) return;
+    const prefetch = () => {
+      void import("./pages/verification/VerificationFlow");
+      void import("./pages/dashboard/PostJob");
+      void import("./pages/dashboard/CandidateSearch");
+      void import("./pages/dashboard/ApplicantsPage");
+      void import("./pages/admin/AdminDashboard");
+    };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const idleId = (window as Window & { requestIdleCallback: (cb: () => void) => number }).requestIdleCallback(prefetch);
+      return () => {
+        if ("cancelIdleCallback" in window) {
+          (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
+        }
+      };
+    }
+    const timer = globalThis.setTimeout(prefetch, 400);
+    return () => globalThis.clearTimeout(timer);
+  }, []);
+  return null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -82,6 +107,7 @@ const App = () => (
       <BrowserRouter>
         <AuthHashRedirect />
         <ApiWarmup />
+        <RouteChunkPrefetch />
         <ScrollToTop />
         <AuthProvider>
           <Suspense fallback={<PageLoaderFullScreen />}>

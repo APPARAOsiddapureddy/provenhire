@@ -96,12 +96,6 @@ const Auth = () => {
 
   const isRedirecting = Boolean(user && userRole === null && authMode !== "reset" && !isReset);
 
-  // Pre-warm backend in production only (cold start). Skip in dev to avoid 503 console errors when backend isn't running.
-  useEffect(() => {
-    if (!import.meta.env.PROD) return;
-    api.get("/api/health").catch(() => {});
-  }, []);
-
   useEffect(() => {
     if (!user || authMode === "reset" || needsGoogleRoleSelection) return;
     if (userRole === "admin") navigate("/admin/dashboard", { replace: true });

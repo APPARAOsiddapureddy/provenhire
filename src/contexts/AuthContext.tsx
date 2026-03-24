@@ -98,10 +98,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       // Handle Google redirect result first (user returning from OAuth — e.g. popup blocked / mobile).
       // IMPORTANT: avoid hard-failing with a short timeout; some browsers/networks can take longer.
-      if (isFirebaseConfigured()) {
+      const isGoogleRedirectHandler = pathname === "/__/auth/handler";
+      if (isGoogleRedirectHandler && isFirebaseConfigured()) {
         try {
           const idToken = await getGoogleRedirectIdToken();
-          if (!idToken && pathname === "/__/auth/handler") {
+          if (!idToken) {
             // If redirect handler lands here without a token, route back to /auth.
             navigate("/auth", { replace: true });
             setLoading(false);
@@ -115,11 +116,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } catch (err) {
           // Do not break app bootstrap on redirect parsing errors; continue with normal session restore.
           console.warn("[AuthContext] Google redirect result failed:", err);
-          if (pathname === "/__/auth/handler") {
-            navigate("/auth", { replace: true });
-            setLoading(false);
-            return;
-          }
+          navigate("/auth", { replace: true });
+          setLoading(false);
+          return;
         }
       }
 
@@ -161,7 +160,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
     bootstrap();
-  }, [navigate, pathname, applyGoogleSignInSession]);
+    // Intentionally bootstrapped once on app mount.
+    // Re-running on every route change causes redundant /api/auth/me calls and slower navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Show backend-down toast only on /auth so we don't annoy users on About, Jobs, or dashboard (dashboard has its own card).
   useEffect(() => {
