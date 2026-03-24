@@ -56,7 +56,13 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<FirebaseDe
   if (!admin.apps.length) {
     throw new Error("Firebase is not configured. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY or GOOGLE_APPLICATION_CREDENTIALS.");
   }
-  const decoded = await admin.auth().verifyIdToken(idToken);
+  const timeoutMs = Number(process.env.FIREBASE_VERIFY_TIMEOUT_MS || 12000);
+  const decoded = await Promise.race([
+    admin.auth().verifyIdToken(idToken),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Firebase token verification timed out")), timeoutMs),
+    ),
+  ]);
   return {
     uid: decoded.uid,
     email: decoded.email ?? undefined,

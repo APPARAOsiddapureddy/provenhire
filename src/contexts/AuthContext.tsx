@@ -62,10 +62,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   /** Shared: exchange Firebase id token for app session (popup or redirect return). */
   const applyGoogleSignInSession = useCallback(async (idToken: string) => {
-    const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>(
-      "/api/auth/google",
-      { idToken }
-    );
+    const AUTH_EXCHANGE_TIMEOUT_MS = 15000;
+    const data = await Promise.race([
+      api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>(
+        "/api/auth/google",
+        { idToken }
+      ),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Google sign-in is taking too long. Please try again.")), AUTH_EXCHANGE_TIMEOUT_MS),
+      ),
+    ]);
     setAuthToken(data.token);
     if (data.refreshToken) setRefreshToken(data.refreshToken);
     setUser(data.user);
