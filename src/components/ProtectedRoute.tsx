@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { PageLoaderFullScreen } from '@/components/PageLoader';
+import { hasAuthToken } from '@/lib/api';
 
 type AllowedRole = 'recruiter' | 'jobseeker' | 'expert_interviewer' | 'admin';
 
@@ -21,6 +22,12 @@ const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole, all
   }
 
   if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  // Guard against stale in-memory user when token has already been cleared/expired.
+  // Prevents protected pages from mounting and firing a 401 cascade.
+  if (!hasAuthToken()) {
     return <Navigate to="/auth" replace />;
   }
 

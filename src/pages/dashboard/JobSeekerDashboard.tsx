@@ -591,7 +591,7 @@ const JobSeekerDashboard = () => {
           setProfile((p: any) => (p ? { ...p, targetJobTitle: title } : p));
         }}
       />
-      <Dialog open={showRoleTrackChooser} onOpenChange={() => {}}>
+      <Dialog open={showRoleTrackChooser} onOpenChange={setShowRoleTrackChooser}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Choose how you want to continue</DialogTitle>

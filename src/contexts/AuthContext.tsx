@@ -182,7 +182,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setAuthToken(null);
       setRefreshToken(null);
       setNeedsGoogleRoleSelection(false);
-      toast.error("Session expired. Please sign in again.");
+      if ((window.location.pathname || "").split("?")[0] !== "/auth") {
+        toast.error("Session expired. Please sign in again.");
+      }
       navigate("/auth", { replace: true });
     };
     window.addEventListener("ph_session_expired", onSessionExpired);
