@@ -12,6 +12,8 @@ import { upsertSkillVerification, getSkillVerifications } from "../services/skil
 import { DSA_API_LANGUAGES, DSA_PRACTICE_COUNT, DSA_QUESTIONS_COUNT, type DsaApiLanguage } from "../constants/dsa.js";
 import { checkRateLimit } from "../middleware/dsaRateLimit.js";
 import { evaluateDsaAgainstTestCases, persistDsaSubmission } from "../services/dsaEvaluation.js";
+import { getHumanInterviewEligibility } from "../services/humanInterviewGate.service.js";
+import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -824,29 +826,8 @@ verificationRouter.get("/technical-scorecard", requireAuth, async (req: AuthedRe
 
   const scorecard = await buildTechnicalScorecard(req.user!.id);
 
-  // Keep human expert stage aligned with new shortlist logic.
-  const humanStage = await prisma.verificationStage.findFirst({
-    where: { userId: req.user!.id, stageName: "human_expert_interview" },
-  });
-  if (scorecard.shortlisted) {
-    if (humanStage) {
-      if (humanStage.status === "locked" || humanStage.status === "failed") {
-        await prisma.verificationStage.update({
-          where: { id: humanStage.id },
-          data: { status: "in_progress" },
-        });
-      }
-    } else {
-      await prisma.verificationStage.create({
-        data: { userId: req.user!.id, stageName: "human_expert_interview", status: "in_progress" },
-      });
-    }
-  } else if (humanStage && humanStage.status === "in_progress") {
-    await prisma.verificationStage.update({
-      where: { id: humanStage.id },
-      data: { status: "locked" },
-    });
-  }
+  // Human Expert stage is unlocked only after admin approval (+ payment when required).
+  // Shortlist on the scorecard remains informational for the candidate UI.
 
   return res.json(scorecard);
 });
@@ -962,6 +943,14 @@ verificationRouter.get("/human-interview-session", requireAuth, async (req: Auth
 
 /** Match interviewers by track and role (targetJobTitle). Role must match (Backend, Frontend, etc.). */
 verificationRouter.get("/matched-interviewers", requireAuth, async (req: AuthedRequest, res) => {
+  const eligibility = await getHumanInterviewEligibility(req.user!.id);
+  if (!eligibility.can_access_slots) {
+    return res.status(403).json({
+      error: "Slot list is available after admin approval and any required payment.",
+      interviewers: [],
+      gated: true,
+    });
+  }
   const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
   const track = (profile?.roleType as string) === "non_technical" ? "non_technical" : "technical";
   const targetTitle = profile?.targetJobTitle ?? null;
@@ -1032,16 +1021,50 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const { slotId } = parsed.data;
 
+  const eligibility = await getHumanInterviewEligibility(req.user!.id);
+  if (!eligibility.can_access_slots) {
+    return res.status(403).json({
+      error: "Complete admin review and payment (if required) before booking a slot.",
+    });
+  }
+
+  const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
+  const track = (profile?.roleType as string) === "non_technical" ? "non_technical" : "technical";
+
+  const openAttempt =
+    track === "technical"
+      ? await prisma.humanInterviewAttempt.findFirst({
+          where: {
+            candidateId: req.user!.id,
+            paymentStatus: { in: ["paid", "waived"] },
+            slotId: null,
+          },
+          orderBy: { createdAt: "desc" },
+        })
+      : null;
+  let legacyTechnicalBooking = false;
+  if (track === "technical" && !openAttempt) {
+    const expertDone = await prisma.verificationStage.findFirst({
+      where: { userId: req.user!.id, stageName: "expert_interview", status: "completed" },
+    });
+    const anyQueue = await prisma.adminReviewQueue.findFirst({
+      where: { candidateId: req.user!.id },
+    });
+    if (expertDone && !anyQueue) {
+      legacyTechnicalBooking = true;
+    } else {
+      return res.status(400).json({ error: "No active booking attempt. Contact support if this persists." });
+    }
+  }
+
   const slot = await prisma.interviewerSlot.findUnique({
     where: { id: slotId },
-    include: { interviewer: true },
+    include: { interviewer: { select: { id: true, userId: true, name: true, track: true, domain: true, domains: true } } },
   });
   if (!slot) return res.status(404).json({ error: "Slot not found" });
   if (slot.status !== "available") return res.status(400).json({ error: "Slot is no longer available" });
   if (!slot.interviewer?.userId) return res.status(400).json({ error: "Interviewer not active" });
 
-  const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
-  const track = (profile?.roleType as string) === "non_technical" ? "non_technical" : "technical";
   if (slot.interviewer.track !== track) {
     return res.status(400).json({ error: "Interviewer track does not match your profile" });
   }
@@ -1056,21 +1079,51 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
   });
   if (existingSession) return res.status(400).json({ error: "You already have a scheduled interview" });
 
-  const [session] = await prisma.$transaction([
-    prisma.humanInterviewSession.create({
-      data: {
-        userId: req.user!.id,
-        interviewerId: slot.interviewerId,
-        slotId: slot.id,
-        scheduledAt: slot.startsAt,
-        status: "scheduled",
-      },
-    }),
-    prisma.interviewerSlot.update({
-      where: { id: slotId },
-      data: { status: "booked", bookedUserId: req.user!.id },
-    }),
-  ]);
+  let session: Awaited<ReturnType<typeof prisma.humanInterviewSession.create>>;
+  if (track === "non_technical" || legacyTechnicalBooking) {
+    const out = await prisma.$transaction([
+      prisma.humanInterviewSession.create({
+        data: {
+          userId: req.user!.id,
+          interviewerId: slot.interviewerId,
+          slotId: slot.id,
+          scheduledAt: slot.startsAt,
+          status: "scheduled",
+          attemptNumber: 1,
+          paymentStatus: "waived",
+        },
+      }),
+      prisma.interviewerSlot.update({
+        where: { id: slotId },
+        data: { status: "booked", bookedUserId: req.user!.id },
+      }),
+    ]);
+    session = out[0];
+  } else {
+    const out = await prisma.$transaction([
+      prisma.humanInterviewSession.create({
+        data: {
+          userId: req.user!.id,
+          interviewerId: slot.interviewerId,
+          slotId: slot.id,
+          scheduledAt: slot.startsAt,
+          status: "scheduled",
+          attemptNumber: openAttempt!.attemptNumber,
+          paymentStatus: openAttempt!.paymentStatus === "waived" ? "waived" : "paid",
+          humanInterviewAttemptId: openAttempt!.id,
+        },
+      }),
+      prisma.interviewerSlot.update({
+        where: { id: slotId },
+        data: { status: "booked", bookedUserId: req.user!.id },
+      }),
+      prisma.humanInterviewAttempt.update({
+        where: { id: openAttempt!.id },
+        data: { slotId: slot.id },
+      }),
+    ]);
+    session = out[0];
+  }
 
   // MVP: No Daily.co. Interviewer adds Google Meet link when ready.
 
@@ -1083,6 +1136,20 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
     await prisma.verificationStage.create({
       data: { userId: req.user!.id, stageName: "human_expert_interview", status: "in_progress" },
     });
+  }
+
+  const slotLabel = slot.startsAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const booker = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    select: { email: true, name: true },
+  });
+  if (booker?.email) {
+    void sendHumanInterviewSlotBookedEmail(
+      booker.email,
+      booker.name,
+      slotLabel,
+      slot.interviewer?.name
+    ).catch(() => {});
   }
 
   res.status(201).json({ session, message: "Slot booked successfully" });

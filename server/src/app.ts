@@ -21,6 +21,7 @@ import { interviewerApplicationRouter } from "./routes/interviewer-application.j
 import { expertRouter } from "./routes/expert.js";
 import { cronRouter } from "./routes/cron.js";
 import { settingsRouter } from "./routes/settings.js";
+import { humanInterviewRouter } from "./routes/humanInterview.js";
 
 export function createApp() {
   const app = express();
@@ -148,6 +149,7 @@ export function createApp() {
         "/api/interviewer-application",
         "/api/expert",
         "/api/settings",
+        "/api/human-interview",
       ],
     });
   });
@@ -157,6 +159,7 @@ export function createApp() {
   app.use("/api/ai", aiRouter);
   app.use("/api/jobs", jobsRouter);
   app.use("/api/verification", verificationRouter);
+  app.use("/api/human-interview", humanInterviewRouter);
   app.use("/api/notifications", notificationsRouter);
   app.use("/api/uploads", uploadsRouter);
   app.use("/api/users", usersRouter);

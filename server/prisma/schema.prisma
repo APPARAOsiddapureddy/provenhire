@@ -39,6 +39,9 @@ model User {
   notifications       Notification[]
   appeals             Appeal[]
   humanInterviewSessions HumanInterviewSession[]
+  humanInterviewAttempts HumanInterviewAttempt[]
+  adminReviewQueuesCandidate AdminReviewQueue[] @relation("AdminReviewCandidate")
+  adminReviewQueuesReviewer  AdminReviewQueue[] @relation("AdminReviewReviewer")
   bookedSlots         InterviewerSlot[]
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
@@ -326,6 +329,49 @@ model Interview {
   messages          InterviewMessage[]
   questionResults   InterviewQuestionResult[]
   proctoringReviews ProctoringReviewLog[]
+  adminReviewQueue  AdminReviewQueue?
+}
+
+/// After AI interview submission: admin approves/rejects before human expert stage + payment gate.
+model AdminReviewQueue {
+  id            String    @id @default(uuid())
+  candidateId   String
+  aiInterviewId String    @unique
+  status        String    @default("pending")
+  createdAt     DateTime  @default(now())
+  reviewedAt  DateTime?
+  reviewerId  String?
+
+  candidate   User      @relation("AdminReviewCandidate", fields: [candidateId], references: [id], onDelete: Cascade)
+  aiInterview Interview @relation(fields: [aiInterviewId], references: [id], onDelete: Cascade)
+  reviewer    User?     @relation("AdminReviewReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  attempts    HumanInterviewAttempt[]
+
+  @@index([candidateId])
+  @@index([status, createdAt])
+}
+
+/// One row per admin approval cycle: tracks payment (₹399 retries) and links to booking.
+model HumanInterviewAttempt {
+  id                  String    @id @default(uuid())
+  candidateId         String
+  adminReviewQueueId  String
+  attemptNumber       Int
+  paymentStatus       String    @default("pending")
+  slotId              String?
+  amountPaise         Int?
+  razorpayOrderId     String?   @unique
+  razorpayPaymentId   String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  candidate User             @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  queue     AdminReviewQueue @relation(fields: [adminReviewQueueId], references: [id], onDelete: Cascade)
+  slot      InterviewerSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  session   HumanInterviewSession?
+
+  @@index([candidateId])
+  @@index([adminReviewQueueId])
 }
 
 model InterviewMessage {
@@ -514,6 +560,7 @@ model InterviewerSlot {
   interviewer Interviewer @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
   bookedUser  User?      @relation(fields: [bookedUserId], references: [id])
   session     HumanInterviewSession?
+  attemptBookings HumanInterviewAttempt[]
 }
 
 model HumanInterviewSession {
@@ -530,6 +577,10 @@ model HumanInterviewSession {
   evaluationNotes      String?
   evaluationPass       Boolean?
   evaluationSubmittedAt DateTime?
+  attemptNumber        Int       @default(1)
+  paymentStatus        String    @default("waived")
+  humanInterviewAttemptId String? @unique
+  humanInterviewAttempt HumanInterviewAttempt? @relation(fields: [humanInterviewAttemptId], references: [id], onDelete: SetNull)
 
   user        User         @relation(fields: [userId], references: [id])
   interviewer Interviewer  @relation(fields: [interviewerId], references: [id])

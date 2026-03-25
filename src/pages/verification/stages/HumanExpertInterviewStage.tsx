@@ -44,12 +44,13 @@ export default function HumanExpertInterviewStage({ onComplete, onReturnToDashbo
           setBookedSession({ scheduledAt: sessionRes.session.scheduledAt, meetingLink: sessionRes.session.meetingLink });
         }
       } catch {
-        toast.error("Failed to load interviewers");
+        toast.error("Booking isn’t available yet — use your dashboard to complete payment or wait for review.");
+        navigate("/dashboard/jobseeker");
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [navigate]);
 
   const handleBook = async (slotId: string) => {
     setBookingSlotId(slotId);

@@ -106,6 +106,15 @@ const JobSeekerDashboard = () => {
   /** Invalidate in-flight dashboard fetches on unmount or user change — prevents 401 cascades + Sonner/DOM errors */
   const dashboardFetchGenRef = useRef(0);
   const [resumeProfile, setResumeProfile] = useState<CandidateProfileViewProfile | null>(null);
+  /** Technical: admin review + human interview payment gate */
+  const [humanInterviewGate, setHumanInterviewGate] = useState<{
+    admin_review_status: string;
+    requires_payment: boolean;
+    can_access_slots: boolean;
+    can_access_payment_page: boolean;
+    block_human_interview_section: boolean;
+    payment_status: string;
+  } | null>(null);
   const [resumeProfileLoading, setResumeProfileLoading] = useState(false);
   const showJobTitleModal = Boolean(
     !loading &&
@@ -142,6 +151,7 @@ const JobSeekerDashboard = () => {
     if (!stage) {
       return allPrevCompleted ? 'active' : idx === 0 ? 'active' : 'locked';
     }
+    if (stage.status === 'pending_review') return 'locked';
     if (stage.status === 'completed') return 'done';
     if (stage.status === 'in_progress' || stage.status === 'failed') return 'active';
     // Locked but all previous completed = next to do, show Start button
@@ -425,6 +435,24 @@ const JobSeekerDashboard = () => {
         interviews: 0,
         profileViews: profile?.profileViews ?? 0,
       });
+
+      if ((profile?.roleType ?? profile?.role_type ?? "technical") === "technical" && !stale()) {
+        try {
+          const g = await api.get<{
+            admin_review_status: string;
+            requires_payment: boolean;
+            can_access_slots: boolean;
+            can_access_payment_page: boolean;
+            block_human_interview_section: boolean;
+            payment_status: string;
+          }>("/api/human-interview/eligibility");
+          if (!stale()) setHumanInterviewGate(g);
+        } catch {
+          if (!stale()) setHumanInterviewGate(null);
+        }
+      } else if (!stale()) {
+        setHumanInterviewGate(null);
+      }
 
       if (stagesList.length > 0) {
         const completed = stagesList.filter((s: { status?: string }) => s.status === 'completed').length;
@@ -996,6 +1024,9 @@ const JobSeekerDashboard = () => {
                         <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${dsaPct ?? 0}%` }} /></div><div className="dashboard-score-text">{dsaSolved} Problems Solved{dsaPct != null ? ` (${dsaPct}%)` : ''}</div></>
                       )}
                       {isCompleted && stageName === 'non_tech_assignment' && <div className="dashboard-score-text">Score: {stageData?.score ?? 0}/100</div>}
+                      {stageName === 'expert_interview' && stageData?.status === 'pending_review' && (
+                        <div className="mt-3 text-sm font-semibold text-amber-600">Under review — expect an email in 10–15 hours</div>
+                      )}
                       {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
                       {isCompleted && stageName === 'human_expert_interview' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
                       {isActive && (
@@ -1007,13 +1038,25 @@ const JobSeekerDashboard = () => {
                   );
                 })}
 
-                {roleType === 'technical' && (
-                <div className={`dashboard-stage-card full-width ${getStageStatus('human_expert_interview') === 'active' ? 'active-stage' : 'locked-stage'}`}>
+                {roleType === 'technical' && (() => {
+                  const showHumanExpertCta =
+                    getStageStatus('human_expert_interview') === 'active' ||
+                    (humanInterviewGate &&
+                      (humanInterviewGate.can_access_payment_page || humanInterviewGate.can_access_slots));
+                  const humanPillActive = getStageStatus('human_expert_interview') === 'active' || !!showHumanExpertCta;
+                  return (
+                <div className={`dashboard-stage-card full-width ${humanPillActive ? 'active-stage' : 'locked-stage'}`}>
                   <div className="flex items-start justify-between mb-4">
-                    <div className={`dashboard-stage-num ${getStageStatus('human_expert_interview') === 'active' ? 'active-num' : 'locked-num'}`}>05</div>
-                    <div className={`flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px] ${getStageStatus('human_expert_interview') === 'active' ? 'dashboard-pill-active' : 'dashboard-pill-locked'}`}>
-                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: getStageStatus('human_expert_interview') === 'active' ? 'var(--dash-gold)' : 'var(--dash-text-muted)' }} />
-                      {getStageStatus('human_expert_interview') === 'active' ? 'In Progress' : 'Locked'}
+                    <div className={`dashboard-stage-num ${humanPillActive ? 'active-num' : 'locked-num'}`}>05</div>
+                    <div className={`flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px] ${humanPillActive ? 'dashboard-pill-active' : 'dashboard-pill-locked'}`}>
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: humanPillActive ? 'var(--dash-gold)' : 'var(--dash-text-muted)' }} />
+                      {humanInterviewGate?.admin_review_status === 'pending'
+                        ? 'Awaiting admin review'
+                        : humanInterviewGate?.requires_payment || humanInterviewGate?.payment_status === 'pending'
+                          ? 'Payment required'
+                          : humanPillActive
+                            ? 'In Progress'
+                            : 'Locked'}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-5 items-start">
@@ -1027,11 +1070,28 @@ const JobSeekerDashboard = () => {
                         <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> ID Verified</span>
                         <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> NDA Expert</span>
                       </div>
-                      {getStageStatus('human_expert_interview') === 'active' && (
-                        <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
-                          {verificationStages.find((s: any) => s.stage_name === 'human_expert_interview')?.status === 'failed'
-                            ? 'Retry Human Expert Interview →'
-                            : 'Start Human Expert Interview →'}
+                      {showHumanExpertCta && (
+                        <Button
+                          className="dashboard-btn-gold w-full mt-4 py-3"
+                          onClick={() => {
+                            if (humanInterviewGate?.can_access_payment_page) {
+                              navigate('/human-interview/payment');
+                              return;
+                            }
+                            if (humanInterviewGate?.can_access_slots) {
+                              navigate('/human-interview/slots');
+                              return;
+                            }
+                            navigate('/verification');
+                          }}
+                        >
+                          {humanInterviewGate?.can_access_payment_page
+                            ? 'Pay ₹399 — Human interview →'
+                            : humanInterviewGate?.can_access_slots
+                              ? 'Book your interview slot →'
+                              : verificationStages.find((s: any) => s.stage_name === 'human_expert_interview')?.status === 'failed'
+                                ? 'Retry Human Expert Interview →'
+                                : 'Start Human Expert Interview →'}
                         </Button>
                       )}
                     </div>
@@ -1042,7 +1102,8 @@ const JobSeekerDashboard = () => {
                     </div>
                   </div>
                 </div>
-                )}
+                  );
+                })()}
               </div>
               {roleType === "technical" && (
                 <VerificationPipelineCard

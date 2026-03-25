@@ -37,6 +37,8 @@ const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
 const InterviewerCareers = lazy(() => import("./pages/careers/InterviewerCareers"));
 const InterviewRoom = lazy(() => import("./pages/interview/InterviewRoom"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const HumanInterviewPaymentPage = lazy(() => import("./pages/human-interview/HumanInterviewPaymentPage"));
+const HumanInterviewSlotsPage = lazy(() => import("./pages/human-interview/HumanInterviewSlotsPage"));
 
 // Create QueryClient instance outside component to ensure stability
 const queryClient = new QueryClient({
@@ -202,6 +204,22 @@ const App = () => (
                     <VerificationFlow />
                   </ProtectedRoute>
                 } 
+              />
+              <Route
+                path="/human-interview/payment"
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <HumanInterviewPaymentPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/human-interview/slots"
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <HumanInterviewSlotsPage />
+                  </ProtectedRoute>
+                }
               />
               <Route 
                 path="/post-job" 

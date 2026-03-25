@@ -207,3 +207,94 @@ export async function sendSkillExpiredEmail(to: string, skillName: string): Prom
   return !error;
 }
 
+const baseUrl = () => process.env.BASE_URL || "https://www.provenhire.in";
+
+export async function sendAiInterviewUnderReviewEmail(to: string, name?: string | null): Promise<boolean> {
+  if (!resend) return false;
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: "Your AI interview is under review",
+    html: `
+      <p>Hi ${name?.trim() || "there"},</p>
+      <p>Your AI interview is under review. You will receive an email within <strong>10–15 hours</strong> with your result.</p>
+      <p><a href="${baseUrl()}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Go to your dashboard →</a></p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+
+export async function sendHumanInterviewApprovedEmail(to: string, name?: string | null): Promise<boolean> {
+  if (!resend) return false;
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: "You are eligible for the Human Expert Interview",
+    html: `
+      <p>Hi ${name?.trim() || "there"},</p>
+      <p><strong>Congratulations!</strong> You have cleared the review stage. You are now eligible for the Human Expert Interview.</p>
+      <p>Sign in and use <strong>Book Your Interview Slot</strong> on your dashboard to continue.</p>
+      <p><a href="${baseUrl()}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Open dashboard →</a></p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+
+export async function sendHumanInterviewRejectedEmail(to: string, name?: string | null): Promise<boolean> {
+  if (!resend) return false;
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: "Human Expert Interview — review outcome",
+    html: `
+      <p>Hi ${name?.trim() || "there"},</p>
+      <p>After review, you are not eligible for the Human Expert Interview at this time. Please retake the AI Interview to reapply.</p>
+      <p><a href="${baseUrl()}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Return to your dashboard →</a></p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+
+export async function sendHumanInterviewSlotBookedEmail(
+  to: string,
+  name: string | null | undefined,
+  slotLabel: string,
+  interviewerName?: string | null
+): Promise<boolean> {
+  if (!resend) return false;
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: "Your Human Expert Interview is confirmed",
+    html: `
+      <p>Hi ${name?.trim() || "there"},</p>
+      <p>Your Human Expert Interview is confirmed.</p>
+      <p><strong>Time:</strong> ${slotLabel}</p>
+      ${interviewerName ? `<p><strong>Expert:</strong> ${interviewerName}</p>` : ""}
+      <p>You will receive joining details in your dashboard before the session.</p>
+      <p><a href="${baseUrl()}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">View dashboard →</a></p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+
+export async function sendHumanInterviewPaymentFailedEmail(to: string, name?: string | null): Promise<boolean> {
+  if (!resend) return false;
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to,
+    subject: "Payment unsuccessful — please retry",
+    html: `
+      <p>Hi ${name?.trim() || "there"},</p>
+      <p>Your payment for the Human Expert Interview could not be confirmed. Please retry from your dashboard.</p>
+      <p><a href="${baseUrl()}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Return to dashboard →</a></p>
+      <p>— The ProvenHire Team</p>
+    `,
+  });
+  return !error;
+}
+

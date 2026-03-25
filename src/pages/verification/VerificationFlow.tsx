@@ -23,13 +23,12 @@ const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertIntervi
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
 import { checkInvalidatedTests, checkCooldownStatus, RETAKE_COOLDOWN_HOURS } from "@/utils/recordingUpload";
-import { runShortlisting, getShortlistStatus, type ShortlistResult } from "@/lib/shortlisting";
 
-type StageStatus = 'locked' | 'in_progress' | 'completed' | 'failed';
+type StageStatus = 'locked' | 'in_progress' | 'completed' | 'failed' | 'pending_review';
 
 interface VerificationStage {
   stage_name: string;
-  status: StageStatus;
+  status: StageStatus | string;
   score?: number;
 }
 
@@ -50,7 +49,6 @@ const VerificationFlow = () => {
     aptitude: { inCooldown: false },
     dsa: { inCooldown: false }
   });
-  const [shortlistResult, setShortlistResult] = useState<ShortlistResult | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
   const [showAllCompletePopup, setShowAllCompletePopup] = useState(false);
@@ -176,9 +174,11 @@ const VerificationFlow = () => {
           setStages(stagesList);
           const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
           const firstFailed = stagesList.find((s) => s.status === 'failed');
+          const firstPendingReview = stagesList.find((s) => s.status === 'pending_review');
           const firstLocked = stagesList.find((s) => s.status === 'locked');
           if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
           else if (firstFailed) setCurrentStage(firstFailed.stage_name);
+          else if (firstPendingReview) setCurrentStage(firstPendingReview.stage_name);
           else if (firstLocked) setCurrentStage(firstLocked.stage_name);
           else {
             const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
@@ -194,9 +194,11 @@ const VerificationFlow = () => {
         setStages(stagesList);
         const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
         const firstFailed = stagesList.find((s) => s.status === 'failed');
+        const firstPendingReview = stagesList.find((s) => s.status === 'pending_review');
         const firstLocked = stagesList.find((s) => s.status === 'locked');
         if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
         else if (firstFailed) setCurrentStage(firstFailed.stage_name);
+        else if (firstPendingReview) setCurrentStage(firstPendingReview.stage_name);
         else if (firstLocked) setCurrentStage(firstLocked.stage_name);
         else {
           const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
@@ -206,21 +208,6 @@ const VerificationFlow = () => {
           }
         }
 
-        const expertDone = data.find((s) => s.stage_name === 'expert_interview' && s.status === 'completed');
-        if (expertDone) {
-          getShortlistStatus(user!.id).then((sl) => {
-            setShortlistResult(sl ?? null);
-            if (sl && !sl.shortlisted) {
-              setStages((prev) =>
-                prev.map((s) =>
-                  s.stage_name === 'human_expert_interview' ? { ...s, status: 'locked' as StageStatus } : s
-                )
-              );
-            }
-          });
-        } else {
-          setShortlistResult(null);
-        }
       };
 
       const timeoutPromise = new Promise<never>((_, reject) =>
@@ -278,6 +265,8 @@ const VerificationFlow = () => {
         return <Clock className="h-5 w-5 text-yellow-500" />;
       case 'failed':
         return <AlertTriangle className="h-5 w-5 text-amber-500" />;
+      case 'pending_review':
+        return <Clock className="h-5 w-5 text-amber-500" />;
       default:
         return <Lock className="h-5 w-5 text-muted-foreground" />;
     }
@@ -368,39 +357,7 @@ const VerificationFlow = () => {
 
       await api.post("/api/verification/stages/update", { stageName, status: "completed" });
 
-      if (stageName === 'expert_interview' && nextStage === 'human_expert_interview') {
-        let sl: ShortlistResult;
-        try {
-          sl = await runShortlisting(user.id);
-        } catch (shortlistErr: any) {
-          sl = {
-            shortlisted: false,
-            combined_score_pct: 0,
-            stage_2_score_pct: null,
-            stage_3_score_pct: null,
-            stage_4_score_pct: null,
-            threshold_pct: 65,
-          };
-          toast({
-            title: "Shortlist check skipped",
-            description: shortlistErr?.message ?? "Could not compute shortlist. You can retry or continue from dashboard.",
-            variant: "destructive",
-          });
-        }
-        setShortlistResult(sl);
-        if (!sl.shortlisted) {
-          setShowAllCompletePopup(true);
-          toast({
-            title: "Stage 4 (AI Expert Interview) complete",
-            description: `Combined score ${sl.combined_score_pct.toFixed(1)}% (threshold ${sl.threshold_pct}%). Not shortlisted for Stage 5.`,
-          });
-        } else {
-          toast({
-            title: "Shortlisted for Stage 5",
-            description: "You can now schedule your Human Expert Interview.",
-          });
-        }
-      } else if (nextStage) {
+      if (nextStage && !(stageName === "expert_interview" && nextStage === "human_expert_interview")) {
         await api.post("/api/verification/stages/update", { stageName: nextStage, status: "in_progress" });
       }
 
@@ -634,7 +591,23 @@ const VerificationFlow = () => {
       case 'expert_interview':
         return (
           <div className="space-y-6">
-            {!testStageStarted.expert_interview ? (
+            {getStageStatus("expert_interview") === "pending_review" ? (
+              <Card className="border-2 border-amber-500/30 bg-amber-500/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-amber-600" />
+                    Under review
+                  </CardTitle>
+                  <CardDescription>
+                    Your AI interview is being reviewed. You will receive an email within 10–15 hours. You can return to
+                    your dashboard to track status.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button onClick={handleReturnToDashboard}>Back to dashboard</Button>
+                </CardContent>
+              </Card>
+            ) : !testStageStarted.expert_interview ? (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="pt-6">
                   <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Expert Interview</h3>
@@ -668,40 +641,12 @@ const VerificationFlow = () => {
               <>
             <ExpertInterviewStage
               targetJobTitle={targetJobTitle}
-              onComplete={() => completeAndAdvanceStage('expert_interview')}
+              onInterviewAwaitingReview={async () => {
+                await loadVerificationStages();
+                handleReturnToDashboard();
+              }}
               onReturnToDashboard={handleReturnToDashboard}
             />
-            {stages.find(s => s.stage_name === 'expert_interview')?.status === 'completed' && (
-              <>
-                {shortlistResult && !shortlistResult.shortlisted ? (
-                  <Alert className="border-amber-500/50 bg-amber-500/10">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                    <AlertTitle>Not shortlisted for Stage 5</AlertTitle>
-                    <AlertDescription>
-                      Combined score: {shortlistResult.combined_score_pct.toFixed(1)}% (threshold {shortlistResult.threshold_pct}%). Stage 5 is only for shortlisted candidates. Retry Stage 4 when attempts allow or explore non-tech jobs.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
-              <div className="bg-success-muted border border-success-border rounded-xl p-6 text-center">
-                <div className="w-16 h-16 mx-auto bg-success-muted rounded-full flex items-center justify-center mb-4">
-                  <CheckCircle className="h-8 w-8 text-success" />
-                </div>
-                <h3 className="text-xl font-bold text-success mb-2">AI Interview Verified</h3>
-                <p className="text-muted-foreground mb-4">
-                  {shortlistResult?.shortlisted ? "You're shortlisted. Schedule your Human Expert Interview (Stage 5)." : "Great job. You can now schedule your Human Expert Interview (Stage 5)."}
-                </p>
-                <div className="bg-background p-4 rounded-lg border border-success-border">
-                  <p className="text-foreground font-medium">
-                    Next step: book a live 30–45 minute session with a domain expert.
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Choose a slot that works for you. You’ll receive confirmation after booking.
-                  </p>
-                </div>
-              </div>
-                )}
-              </>
-            )}
               </>
             )}
           </div>

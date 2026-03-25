@@ -20,6 +20,14 @@ import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
 import type { QuestionPlanItem } from "../data/aiInterviewStaticQuestions.js";
 import type { QuestionAnswerPair } from "../services/ai.service.js";
 import { upsertSkillVerification } from "../services/skillVerification.service.js";
+import {
+  candidateHadAdminRejection,
+  HUMAN_INTERVIEW_PRICE_PAISE,
+} from "../services/humanInterviewGate.service.js";
+import {
+  sendHumanInterviewApprovedEmail,
+  sendHumanInterviewRejectedEmail,
+} from "../services/resend.js";
 
 function csvEscape(s: string | null | undefined): string {
   if (s == null || s === "") return "";
@@ -1046,11 +1054,19 @@ adminRouter.post("/interviews/:id/re-evaluate", async (_req, res) => {
       reviewReason: null,
     },
   });
+  await prisma.adminReviewQueue.upsert({
+    where: { aiInterviewId: interview.id },
+    create: {
+      candidateId: interview.userId,
+      aiInterviewId: interview.id,
+      status: "pending",
+    },
+    update: { status: "pending", reviewedAt: null, reviewerId: null },
+  });
   await prisma.verificationStage.updateMany({
     where: { userId: interview.userId, stageName: "expert_interview" },
-    data: { status: "completed", score: total },
+    data: { status: "pending_review", score: total },
   });
-  await upsertSkillVerification(interview.userId, "INTERVIEW", total, new Date());
   res.json({ ok: true, totalScore: total, badgeLevel: badge });
 });
 
@@ -1082,4 +1098,153 @@ adminRouter.post("/interviews/:id/proctoring-override", async (req: AuthedReques
     });
   }
   res.json({ ok: true });
+});
+
+/** Pending AI interview → human expert admin reviews */
+adminRouter.get("/ai-interview-queue/pending", async (_req, res) => {
+  try {
+    const items = await prisma.adminReviewQueue.findMany({
+      where: { status: "pending" },
+      orderBy: { createdAt: "asc" },
+      include: {
+        candidate: { select: { id: true, name: true, email: true } },
+        aiInterview: {
+          select: {
+            id: true,
+            totalScore: true,
+            completedAt: true,
+            status: true,
+            jobRole: true,
+            finalVerdict: true,
+          },
+        },
+      },
+    });
+    res.json({ items });
+  } catch (e) {
+    console.error("[admin/ai-interview-queue/pending]", e);
+    res.status(500).json({ error: "Failed to load queue" });
+  }
+});
+
+adminRouter.post("/ai-interview-queue/:id/approve", async (req: AuthedRequest, res) => {
+  try {
+    const queue = await prisma.adminReviewQueue.findUnique({
+      where: { id: req.params.id },
+      include: { aiInterview: true },
+    });
+    if (!queue) return res.status(404).json({ error: "Queue item not found" });
+    if (queue.status !== "pending") return res.status(400).json({ error: "Already processed" });
+
+    const hadRejection = await candidateHadAdminRejection(queue.candidateId);
+    const payWaiver = !hadRejection;
+    const score = queue.aiInterview.totalScore ?? 0;
+    const completedAt = queue.aiInterview.completedAt ?? new Date();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.adminReviewQueue.update({
+        where: { id: queue.id },
+        data: { status: "approved", reviewedAt: new Date(), reviewerId: req.user?.id ?? null },
+      });
+      await tx.verificationStage.updateMany({
+        where: { userId: queue.candidateId, stageName: "expert_interview" },
+        data: { status: "completed", score },
+      });
+      const attemptCount = await tx.humanInterviewAttempt.count({ where: { candidateId: queue.candidateId } });
+      await tx.humanInterviewAttempt.create({
+        data: {
+          candidateId: queue.candidateId,
+          adminReviewQueueId: queue.id,
+          attemptNumber: attemptCount + 1,
+          paymentStatus: payWaiver ? "waived" : "pending",
+          amountPaise: payWaiver ? null : HUMAN_INTERVIEW_PRICE_PAISE,
+        },
+      });
+
+      if (payWaiver) {
+        const existingHuman = await tx.verificationStage.findFirst({
+          where: { userId: queue.candidateId, stageName: "human_expert_interview" },
+        });
+        if (existingHuman) {
+          await tx.verificationStage.update({
+            where: { id: existingHuman.id },
+            data: { status: "in_progress" },
+          });
+        } else {
+          await tx.verificationStage.create({
+            data: { userId: queue.candidateId, stageName: "human_expert_interview", status: "in_progress" },
+          });
+        }
+      } else {
+        await tx.verificationStage.updateMany({
+          where: { userId: queue.candidateId, stageName: "human_expert_interview" },
+          data: { status: "locked" },
+        });
+      }
+    });
+
+    await upsertSkillVerification(queue.candidateId, "INTERVIEW", score, completedAt);
+
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: queue.candidateId },
+      select: { verificationStatus: true },
+    });
+    if (profile && profile.verificationStatus !== "expert_verified") {
+      await prisma.jobSeekerProfile.updateMany({
+        where: { userId: queue.candidateId },
+        data: { verificationStatus: "verified" },
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: queue.candidateId },
+      select: { email: true, name: true },
+    });
+    if (user?.email) {
+      void sendHumanInterviewApprovedEmail(user.email, user.name).catch(() => {});
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[admin/ai-interview-queue/approve]", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : "Approve failed" });
+  }
+});
+
+adminRouter.post("/ai-interview-queue/:id/reject", async (req: AuthedRequest, res) => {
+  try {
+    const queue = await prisma.adminReviewQueue.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!queue) return res.status(404).json({ error: "Queue item not found" });
+    if (queue.status !== "pending") return res.status(400).json({ error: "Already processed" });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.adminReviewQueue.update({
+        where: { id: queue.id },
+        data: { status: "rejected", reviewedAt: new Date(), reviewerId: req.user?.id ?? null },
+      });
+      await tx.verificationStage.updateMany({
+        where: { userId: queue.candidateId, stageName: "expert_interview" },
+        data: { status: "failed" },
+      });
+      await tx.verificationStage.updateMany({
+        where: { userId: queue.candidateId, stageName: "human_expert_interview" },
+        data: { status: "locked" },
+      });
+    });
+
+    const user = await prisma.user.findUnique({
+      where: { id: queue.candidateId },
+      select: { email: true, name: true },
+    });
+    if (user?.email) {
+      void sendHumanInterviewRejectedEmail(user.email, user.name).catch(() => {});
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[admin/ai-interview-queue/reject]", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : "Reject failed" });
+  }
 });

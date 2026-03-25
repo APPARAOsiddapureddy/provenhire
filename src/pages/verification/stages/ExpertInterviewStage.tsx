@@ -21,6 +21,14 @@ import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const INTERVIEW_ROLES = [
   "Frontend Developer",
@@ -46,14 +54,15 @@ const EXPERIENCE_OPTIONS = [
 
 interface ExpertInterviewStageProps {
   targetJobTitle?: string;
-  onComplete: () => void;
   onReturnToDashboard?: () => void;
+  /** After final AI submission: admin review queue (backend); return user to dashboard. */
+  onInterviewAwaitingReview?: () => void;
 }
 
 const ExpertInterviewStage = ({
   targetJobTitle = "",
-  onComplete,
   onReturnToDashboard,
+  onInterviewAwaitingReview,
 }: ExpertInterviewStageProps) => {
   const { user } = useAuth();
   const fallbackTestIdRef = useRef(`AI_INTERVIEW_${Date.now()}`);
@@ -80,6 +89,7 @@ const ExpertInterviewStage = ({
   const [tick, setTick] = useState(0);
   const [reviewReason, setReviewReason] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -409,17 +419,9 @@ const ExpertInterviewStage = ({
         setResult(res);
         stopCamera();
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-
+        setReviewModalOpen(true);
         if (res.pendingReview) {
           toast.info("Your interview was saved and is under review.");
-        } else {
-          const aiScore = typeof res.totalScore === "number" ? Math.round(res.totalScore) : undefined;
-          await api.post("/api/verification/stages/update", {
-            stageName: "expert_interview",
-            status: "completed",
-            score: aiScore,
-          });
-          onComplete();
         }
       } else {
         setQuestion(res.question);
@@ -455,8 +457,28 @@ const ExpertInterviewStage = ({
   const notVerified = result?.badgeLevel === "Not Verified";
   const showNumericScore = result && !result.pendingReview && !notVerified;
 
+  const dismissReviewModal = () => {
+    setReviewModalOpen(false);
+    onInterviewAwaitingReview?.();
+  };
+
   return (
     <div className="space-y-4">
+      <Dialog open={reviewModalOpen} onOpenChange={(o) => !o && dismissReviewModal()}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Interview submitted</DialogTitle>
+            <DialogDescription className="text-base text-foreground/90 pt-2">
+              Your interview is under review. You will receive an email within 10–15 hours with your result.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button className="w-full sm:w-auto" onClick={dismissReviewModal}>
+              Got it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
       <TestProctoringBar showTabSwitch={tabSwitchDetectionEnabled} />
       {!effectivelyFullScreen && inTest && fullscreenRequired && (

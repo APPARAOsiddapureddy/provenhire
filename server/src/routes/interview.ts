@@ -8,7 +8,6 @@ import {
   canonicalEvaluationFallbackJson,
   type QuestionAnswerPair,
 } from "../services/ai.service.js";
-import { upsertSkillVerification } from "../services/skillVerification.service.js";
 import {
   type QuestionPlanItem,
   buildStaticQuestionPlan,
@@ -20,6 +19,7 @@ import {
   integrityFlagFromRiskScore,
 } from "../services/aiInterviewProctoringRisk.service.js";
 import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
+import { recordAiInterviewSubmittedForAdminReview } from "../services/humanInterviewGate.service.js";
 
 export const interviewRouter = Router();
 
@@ -256,6 +256,11 @@ interviewRouter.post("/respond", requireAuth, async (req: AuthedRequest, res) =>
             integrityFlag,
           },
         });
+        await recordAiInterviewSubmittedForAdminReview({
+          userId: interview.userId,
+          interviewId,
+          score: 50,
+        });
         return res.json({
           completed: true,
           pendingReview: true,
@@ -315,26 +320,11 @@ interviewRouter.post("/respond", requireAuth, async (req: AuthedRequest, res) =>
         }
       }
 
-      const existing = await prisma.verificationStage.findFirst({
-        where: { userId: interview.userId, stageName: "expert_interview" },
+      await recordAiInterviewSubmittedForAdminReview({
+        userId: interview.userId,
+        interviewId,
+        score: total,
       });
-      if (existing) {
-        await prisma.verificationStage.update({
-          where: { id: existing.id },
-          data: { status: "completed", score: total },
-        });
-      } else {
-        await prisma.verificationStage.create({
-          data: {
-            userId: interview.userId,
-            stageName: "expert_interview",
-            status: "completed",
-            score: total,
-          },
-        });
-      }
-      const completedAt = new Date();
-      await upsertSkillVerification(interview.userId, "INTERVIEW", total, completedAt);
 
       return res.json({
         completed: true,
