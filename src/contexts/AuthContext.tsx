@@ -180,10 +180,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (isBackendDown) {
           // keep token; BackendGate / toasts handle UX
         } else {
-          setUser(null);
-          setUserRole(null);
-          setAuthToken(null);
-          setRefreshToken(null);
+          // If Google sign-in is in flight, do not clear the JWT based on
+          // a transient `/api/auth/me` race. We'll validate once the token is set.
+          if (!skipNextMeRef.current) {
+            setUser(null);
+            setUserRole(null);
+            setAuthToken(null);
+            setRefreshToken(null);
+          }
         }
       } finally {
         setIsInitializing(false);
@@ -272,6 +276,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
+    // Prevent bootstrap from clearing a JWT during the Google auth exchange.
+    skipNextMeRef.current = true;
     setIsGoogleSignInBusy(true);
     try {
       if (preferGoogleRedirectSignIn()) {

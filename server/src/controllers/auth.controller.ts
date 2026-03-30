@@ -379,7 +379,7 @@ export async function googleAuth(req: Request, res: Response) {
           userId: user.id,
           fullName: firebaseUser.name ?? null,
           email,
-          roleType: null,
+          roleType: "technical",
         },
         update: { fullName: firebaseUser.name ?? user.name },
       });
