@@ -393,6 +393,15 @@ export async function googleAuth(req: Request, res: Response) {
         } as Prisma.UserUpdateInput,
       });
     }
+
+    // Testing mode: ensure existing Google jobseekers default to technical (no chooser popup).
+    // This also prevents stage-loading logic from falling back to "technical" while profile roleType is null.
+    if (user.role === "jobseeker") {
+      await prisma.jobSeekerProfile.updateMany({
+        where: { userId: user.id, roleType: null },
+        data: { roleType: "technical" },
+      });
+    }
     const session = await createSession(user);
     return res.json({ ...session, isNewUser });
   } catch (err) {

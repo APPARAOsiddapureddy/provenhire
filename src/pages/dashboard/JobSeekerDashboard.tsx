@@ -246,13 +246,7 @@ const JobSeekerDashboard = () => {
     }
   };
 
-  useEffect(() => {
-    // Ask only for Google users who are still in default jobseeker path without explicit track set.
-    if (loading) return;
-    const isGoogleUser = String(user?.authProvider || "").toUpperCase() === "GOOGLE";
-    const trackMissing = !profile || !(profile.roleType ?? profile.role_type);
-    setShowRoleTrackChooser(Boolean(isGoogleUser && user?.role === "jobseeker" && trackMissing));
-  }, [loading, profile, user?.authProvider, user?.role]);
+  // Track chooser disabled for now (testing technical jobseekers only).
 
   const chooseTrack = async (nextTrack: "technical" | "non_technical") => {
     setRoleTrackSaving(true);
