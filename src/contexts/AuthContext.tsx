@@ -165,10 +165,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       try {
+        // If the user signs in/out while this request is in flight (e.g. after manual signup),
+        // ignore stale responses so we don't clear a fresh session.
+        const tokenAtMeRequest = getAuthToken();
         const { user: u } = await api.get<{ user: User }>("/api/auth/me");
+        if (getAuthToken() !== tokenAtMeRequest) return;
         setUser(u);
         setUserRole(u.role);
       } catch (err: unknown) {
+        // Same stale-response protection: don't clear the session if a new JWT
+        // was already stored while `/api/auth/me` was in flight.
+        const tokenAtMeRequest = getAuthToken();
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
         const isBackendDown =
@@ -182,7 +189,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } else {
           // If Google sign-in is in flight, do not clear the JWT based on
           // a transient `/api/auth/me` race. We'll validate once the token is set.
-          if (!skipNextMeRef.current) {
+          if (getAuthToken() === tokenAtMeRequest && !skipNextMeRef.current) {
             setUser(null);
             setUserRole(null);
             setAuthToken(null);
