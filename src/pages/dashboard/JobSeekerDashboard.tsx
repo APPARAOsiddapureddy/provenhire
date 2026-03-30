@@ -398,13 +398,7 @@ const JobSeekerDashboard = () => {
           msg.includes("temporarily unavailable") ||
           msg.includes("Backend not running") ||
           msg.includes("npm run dev");
-        if (!stale()) {
-          toast.error(
-            is503
-              ? BACKEND_DOWN_MSG
-              : "Some dashboard sections are still loading. Showing available data first."
-          );
-        }
+        void is503; // Inline banner (loadError) covers backend issues; avoid disruptive toasts on dashboard.
       }
 
       if (profile) {
@@ -530,7 +524,7 @@ const JobSeekerDashboard = () => {
       const err = error as Error & { status?: number; isBackendUnavailable?: boolean };
       const msg = err.message || 'Failed to load dashboard';
       const isUnavailable = err.isBackendUnavailable === true || err.status === 503 || msg.includes("Service unavailable") || msg.includes("npm run dev");
-      if (!stale()) toast.error(isUnavailable ? BACKEND_DOWN_MSG : msg);
+      void isUnavailable; // Inline banner (loadError) covers backend issues; avoid disruptive toasts on dashboard.
       setLoading(false);
     }
   };
