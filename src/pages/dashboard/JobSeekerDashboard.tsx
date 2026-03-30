@@ -264,6 +264,8 @@ const JobSeekerDashboard = () => {
       setProfile((p: any) => ({ ...(p || {}), roleType: nextTrack, role_type: nextTrack }));
       toast.success(`Switched to ${nextTrack === "technical" ? "Technical" : "Non-Technical"} track.`);
       setShowRoleTrackChooser(false);
+      // Refetch stages so the verification pipeline matches the newly selected track.
+      void loadDashboardData(() => false);
     } catch (e: any) {
       toast.error(e?.message || "Could not update track");
     } finally {
