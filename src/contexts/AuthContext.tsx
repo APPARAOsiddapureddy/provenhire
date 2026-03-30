@@ -164,10 +164,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setIsInitializing(false);
         return;
       }
+      // Capture once so stale `/me` responses can't clear a newer session.
+      const tokenAtMeRequest = getAuthToken();
       try {
         // If the user signs in/out while this request is in flight (e.g. after manual signup),
         // ignore stale responses so we don't clear a fresh session.
-        const tokenAtMeRequest = getAuthToken();
         const { user: u } = await api.get<{ user: User }>("/api/auth/me");
         if (getAuthToken() !== tokenAtMeRequest) return;
         setUser(u);
@@ -175,7 +176,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } catch (err: unknown) {
         // Same stale-response protection: don't clear the session if a new JWT
         // was already stored while `/api/auth/me` was in flight.
-        const tokenAtMeRequest = getAuthToken();
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
         const isBackendDown =
