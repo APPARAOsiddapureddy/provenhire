@@ -238,6 +238,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         name: fullName ?? undefined,
         roleType: roleType ?? undefined,
       });
+
       if (!data?.token) {
         throw new Error("Invalid response from server. Please try again.");
       }

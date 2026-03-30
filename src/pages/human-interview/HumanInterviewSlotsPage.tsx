@@ -7,6 +7,9 @@ import { toast } from "sonner";
 import { Calendar, Loader2 } from "lucide-react";
 
 type Eligibility = {
+  admin_review_status: string;
+  requires_payment: boolean;
+  can_access_payment_page: boolean;
   can_access_slots: boolean;
   block_human_interview_section: boolean;
 };
@@ -27,16 +30,24 @@ const formatSlot = (d: string) =>
 export default function HumanInterviewSlotsPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [eligibility, setEligibility] = useState<Eligibility | null>(null);
   const [interviewers, setInterviewers] = useState<MatchedInterviewer[]>([]);
   const [bookingSlotId, setBookingSlotId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
+      let eligibilityLocal: Eligibility | null = null;
       try {
         const e = await api.get<Eligibility>("/api/human-interview/eligibility");
+        setEligibility(e);
+        eligibilityLocal = e;
         if (e.block_human_interview_section || !e.can_access_slots) {
           toast.message("Slot booking isn’t available yet.");
-          navigate("/dashboard/jobseeker", { replace: true });
+          if (e.can_access_payment_page) {
+            navigate("/human-interview/payment", { replace: true });
+          } else {
+            navigate("/dashboard/jobseeker", { replace: true });
+          }
           return;
         }
       } catch {
@@ -50,12 +61,19 @@ export default function HumanInterviewSlotsPage() {
         );
         if (res.gated) {
           toast.error("Complete payment or wait for admin approval first.");
-          navigate("/dashboard/jobseeker", { replace: true });
+          if (eligibilityLocal?.can_access_payment_page) {
+            navigate("/human-interview/payment", { replace: true });
+          } else {
+            navigate("/dashboard/jobseeker", { replace: true });
+          }
           return;
         }
         setInterviewers(res.interviewers ?? []);
       } catch {
         toast.error("Could not load slots");
+        if (eligibilityLocal?.can_access_payment_page) {
+          navigate("/human-interview/payment", { replace: true });
+        }
       } finally {
         setLoading(false);
       }

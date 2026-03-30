@@ -21,7 +21,6 @@ import type { QuestionPlanItem } from "../data/aiInterviewStaticQuestions.js";
 import type { QuestionAnswerPair } from "../services/ai.service.js";
 import { upsertSkillVerification } from "../services/skillVerification.service.js";
 import {
-  candidateHadAdminRejection,
   HUMAN_INTERVIEW_PRICE_PAISE,
 } from "../services/humanInterviewGate.service.js";
 import {
@@ -1135,9 +1134,6 @@ adminRouter.post("/ai-interview-queue/:id/approve", async (req: AuthedRequest, r
     });
     if (!queue) return res.status(404).json({ error: "Queue item not found" });
     if (queue.status !== "pending") return res.status(400).json({ error: "Already processed" });
-
-    const hadRejection = await candidateHadAdminRejection(queue.candidateId);
-    const payWaiver = !hadRejection;
     const score = queue.aiInterview.totalScore ?? 0;
     const completedAt = queue.aiInterview.completedAt ?? new Date();
 
@@ -1150,18 +1146,20 @@ adminRouter.post("/ai-interview-queue/:id/approve", async (req: AuthedRequest, r
         where: { userId: queue.candidateId, stageName: "expert_interview" },
         data: { status: "completed", score },
       });
-      const attemptCount = await tx.humanInterviewAttempt.count({ where: { candidateId: queue.candidateId } });
+      const priorAttempts = await tx.humanInterviewAttempt.count({ where: { candidateId: queue.candidateId } });
+      const attemptNumber = priorAttempts + 1;
+      const firstAttempt = attemptNumber === 1;
       await tx.humanInterviewAttempt.create({
         data: {
           candidateId: queue.candidateId,
           adminReviewQueueId: queue.id,
-          attemptNumber: attemptCount + 1,
-          paymentStatus: payWaiver ? "waived" : "pending",
-          amountPaise: payWaiver ? null : HUMAN_INTERVIEW_PRICE_PAISE,
+          attemptNumber,
+          paymentStatus: firstAttempt ? "waived" : "pending",
+          amountPaise: firstAttempt ? null : HUMAN_INTERVIEW_PRICE_PAISE,
         },
       });
 
-      if (payWaiver) {
+      if (firstAttempt) {
         const existingHuman = await tx.verificationStage.findFirst({
           where: { userId: queue.candidateId, stageName: "human_expert_interview" },
         });
@@ -1220,6 +1218,8 @@ adminRouter.post("/ai-interview-queue/:id/reject", async (req: AuthedRequest, re
     if (queue.status !== "pending") return res.status(400).json({ error: "Already processed" });
 
     await prisma.$transaction(async (tx) => {
+      const priorAttempts = await tx.humanInterviewAttempt.count({ where: { candidateId: queue.candidateId } });
+      const attemptNumber = priorAttempts + 1;
       await tx.adminReviewQueue.update({
         where: { id: queue.id },
         data: { status: "rejected", reviewedAt: new Date(), reviewerId: req.user?.id ?? null },
@@ -1231,6 +1231,15 @@ adminRouter.post("/ai-interview-queue/:id/reject", async (req: AuthedRequest, re
       await tx.verificationStage.updateMany({
         where: { userId: queue.candidateId, stageName: "human_expert_interview" },
         data: { status: "locked" },
+      });
+      await tx.humanInterviewAttempt.create({
+        data: {
+          candidateId: queue.candidateId,
+          adminReviewQueueId: queue.id,
+          attemptNumber,
+          paymentStatus: "failed",
+          amountPaise: null,
+        },
       });
     });
 

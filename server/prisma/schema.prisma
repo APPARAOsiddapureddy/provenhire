@@ -40,6 +40,7 @@ model User {
   appeals             Appeal[]
   humanInterviewSessions HumanInterviewSession[]
   humanInterviewAttempts HumanInterviewAttempt[]
+  humanInterviewBookings HumanInterviewBooking[]
   adminReviewQueuesCandidate AdminReviewQueue[] @relation("AdminReviewCandidate")
   adminReviewQueuesReviewer  AdminReviewQueue[] @relation("AdminReviewReviewer")
   bookedSlots         InterviewerSlot[]
@@ -369,6 +370,7 @@ model HumanInterviewAttempt {
   queue     AdminReviewQueue @relation(fields: [adminReviewQueueId], references: [id], onDelete: Cascade)
   slot      InterviewerSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
   session   HumanInterviewSession?
+  bookings  HumanInterviewBooking[]
 
   @@index([candidateId])
   @@index([adminReviewQueueId])
@@ -561,6 +563,7 @@ model InterviewerSlot {
   bookedUser  User?      @relation(fields: [bookedUserId], references: [id])
   session     HumanInterviewSession?
   attemptBookings HumanInterviewAttempt[]
+  humanInterviewBookings HumanInterviewBooking[]
 }
 
 model HumanInterviewSession {
@@ -585,6 +588,29 @@ model HumanInterviewSession {
   user        User         @relation(fields: [userId], references: [id])
   interviewer Interviewer  @relation(fields: [interviewerId], references: [id])
   slot        InterviewerSlot? @relation(fields: [slotId], references: [id])
+  bookings    HumanInterviewBooking[]
+}
+
+/// Canonical slot booking record for the Human Expert Interview.
+/// Matches the PRD table `human_interview_bookings`.
+model HumanInterviewBooking {
+  bookingId               String   @id @default(uuid()) @map("booking_id")
+  candidateId             String   @map("candidate_id")
+  slotId                  String   @map("slot_id")
+  attemptNumber           Int      @map("attempt_number")
+  paymentStatus           String   @map("payment_status")
+  humanInterviewAttemptId String? @map("human_interview_attempt_id")
+  humanInterviewSessionId String? @map("human_interview_session_id")
+  createdAt               DateTime @default(now())
+
+  candidate User @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  slot      InterviewerSlot @relation(fields: [slotId], references: [id], onDelete: Restrict)
+
+  attempt HumanInterviewAttempt? @relation(fields: [humanInterviewAttemptId], references: [id], onDelete: SetNull)
+  session HumanInterviewSession? @relation(fields: [humanInterviewSessionId], references: [id], onDelete: SetNull)
+
+  @@map("human_interview_bookings")
+  @@index([candidateId, createdAt])
 }
 
 model ProctoringEvent {

@@ -1081,8 +1081,8 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
 
   let session: Awaited<ReturnType<typeof prisma.humanInterviewSession.create>>;
   if (track === "non_technical" || legacyTechnicalBooking) {
-    const out = await prisma.$transaction([
-      prisma.humanInterviewSession.create({
+    session = await prisma.$transaction(async (tx) => {
+      const createdSession = await tx.humanInterviewSession.create({
         data: {
           userId: req.user!.id,
           interviewerId: slot.interviewerId,
@@ -1092,16 +1092,28 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
           attemptNumber: 1,
           paymentStatus: "waived",
         },
-      }),
-      prisma.interviewerSlot.update({
+      });
+
+      await tx.interviewerSlot.update({
         where: { id: slotId },
         data: { status: "booked", bookedUserId: req.user!.id },
-      }),
-    ]);
-    session = out[0];
+      });
+
+      await tx.humanInterviewBooking.create({
+        data: {
+          candidateId: req.user!.id,
+          slotId: slot.id,
+          attemptNumber: 1,
+          paymentStatus: "waived",
+          humanInterviewSessionId: createdSession.id,
+        },
+      });
+
+      return createdSession;
+    });
   } else {
-    const out = await prisma.$transaction([
-      prisma.humanInterviewSession.create({
+    session = await prisma.$transaction(async (tx) => {
+      const createdSession = await tx.humanInterviewSession.create({
         data: {
           userId: req.user!.id,
           interviewerId: slot.interviewerId,
@@ -1112,17 +1124,31 @@ verificationRouter.post("/book-slot", requireAuth, async (req: AuthedRequest, re
           paymentStatus: openAttempt!.paymentStatus === "waived" ? "waived" : "paid",
           humanInterviewAttemptId: openAttempt!.id,
         },
-      }),
-      prisma.interviewerSlot.update({
+      });
+
+      await tx.interviewerSlot.update({
         where: { id: slotId },
         data: { status: "booked", bookedUserId: req.user!.id },
-      }),
-      prisma.humanInterviewAttempt.update({
+      });
+
+      await tx.humanInterviewAttempt.update({
         where: { id: openAttempt!.id },
         data: { slotId: slot.id },
-      }),
-    ]);
-    session = out[0];
+      });
+
+      await tx.humanInterviewBooking.create({
+        data: {
+          candidateId: req.user!.id,
+          slotId: slot.id,
+          attemptNumber: openAttempt!.attemptNumber,
+          paymentStatus: openAttempt!.paymentStatus === "waived" ? "waived" : "paid",
+          humanInterviewAttemptId: openAttempt!.id,
+          humanInterviewSessionId: createdSession.id,
+        },
+      });
+
+      return createdSession;
+    });
   }
 
   // MVP: No Daily.co. Interviewer adds Google Meet link when ready.

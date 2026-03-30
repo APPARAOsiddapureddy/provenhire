@@ -110,6 +110,10 @@ humanInterviewRouter.post("/payment/verify", requireAuth, async (req: AuthedRequ
       where: { id: req.user!.id },
       select: { email: true, name: true },
     });
+    await prisma.humanInterviewAttempt.updateMany({
+      where: { razorpayOrderId: orderId, candidateId: req.user!.id },
+      data: { paymentStatus: "failed" },
+    });
     if (user?.email) {
       void sendHumanInterviewPaymentFailedEmail(user.email, user.name).catch(() => {});
     }
@@ -145,6 +149,17 @@ humanInterviewRouter.post("/payment/verify", requireAuth, async (req: AuthedRequ
     res.json({ ok: true });
   } catch (e) {
     console.error("[human-interview/payment/verify]", e);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { email: true, name: true },
+    });
+    await prisma.humanInterviewAttempt.updateMany({
+      where: { razorpayOrderId: orderId, candidateId: req.user!.id },
+      data: { paymentStatus: "failed" },
+    });
+    if (user?.email) {
+      void sendHumanInterviewPaymentFailedEmail(user.email, user.name).catch(() => {});
+    }
     res.status(400).json({ error: e instanceof Error ? e.message : "Verify failed" });
   }
 });

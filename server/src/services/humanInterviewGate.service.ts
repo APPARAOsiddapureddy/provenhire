@@ -126,11 +126,11 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
     where: { userId, stageName: "expert_interview" },
   });
   const latestQueue = await getLatestAdminQueueForCandidate(userId);
+  const humanInterviewAttemptsCount = await prisma.humanInterviewAttempt.count({
+    where: { candidateId: userId },
+  });
 
   if (!latestQueue && expertStage?.status === "completed") {
-    const sessionCount = await prisma.humanInterviewSession.count({
-      where: { userId, status: { in: ["scheduled", "in_progress", "completed"] } },
-    });
     return {
       admin_review_status: "approved",
       latest_queue_id: null,
@@ -139,7 +139,7 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
       can_access_slots: true,
       can_access_payment_page: false,
       block_human_interview_section: false,
-      human_interview_attempts: sessionCount,
+      human_interview_attempts: humanInterviewAttemptsCount,
       attempt_id: null,
       razorpay_key_id: process.env.RAZORPAY_KEY_ID?.trim() || null,
       expert_interview_stage_status: expertStage.status,
@@ -151,10 +151,6 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
         where: { adminReviewQueueId: latestQueue.id },
       })
     : null;
-
-  const sessionCount = await prisma.humanInterviewSession.count({
-    where: { userId, status: { in: ["scheduled", "in_progress", "completed"] } },
-  });
 
   let admin_review_status: AdminReviewUiStatus = "none";
   if (latestQueue) {
@@ -175,10 +171,18 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
             : "pending";
 
   const requires_payment =
-    admin_review_status === "approved" && attempt != null && attempt.paymentStatus === "pending";
+    admin_review_status === "approved" &&
+    attempt != null &&
+    attempt.attemptNumber >= 2 &&
+    attempt.paymentStatus === "pending";
 
+  // Slot booking is allowed only if:
+  // - it's the first attempt (attemptNumber===1) and payment is waived, OR
+  // - payment is confirmed for paid retries.
   const can_access_slots =
-    admin_review_status === "approved" && attempt != null && (payment_status === "paid" || payment_status === "waived");
+    admin_review_status === "approved" &&
+    attempt != null &&
+    ((attempt.attemptNumber === 1 && attempt.paymentStatus === "waived") || attempt.paymentStatus === "paid");
 
   const can_access_payment_page = requires_payment;
 
@@ -197,7 +201,7 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
     can_access_slots,
     can_access_payment_page,
     block_human_interview_section,
-    human_interview_attempts: sessionCount,
+    human_interview_attempts: humanInterviewAttemptsCount,
     attempt_id: attempt?.id ?? null,
     razorpay_key_id: razorpayKey,
     expert_interview_stage_status: expertStage?.status ?? null,
