@@ -4,6 +4,7 @@ const isDev = import.meta.env.DEV;
 
 /** After a 503, block further API requests for this long to avoid a flood of errors (e.g. dashboard firing 5+ calls). */
 const BACKEND_DOWN_COOLDOWN_MS = 25_000;
+const REQUEST_TIMEOUT_MS = isDev ? 20_000 : 25_000;
 let backendDownUntil = 0;
 let didEmit503Event = false;
 
@@ -175,9 +176,26 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   const url = path.startsWith("/") ? `${API_BASE}${path}` : `${API_BASE}/${path}`;
   let res: Response;
   try {
-    res = await fetch(url, { ...options, headers });
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    // If caller provided a signal, abort our controller when it aborts.
+    if (options.signal) {
+      if (options.signal.aborted) {
+        controller.abort();
+      } else {
+        options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+    }
+
+    res = await fetch(url, { ...options, headers, signal: controller.signal });
+    globalThis.clearTimeout(timeoutId);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Network error";
+    const isTimeout =
+      (e instanceof DOMException && e.name === "AbortError") ||
+      msg.toLowerCase().includes("abort") ||
+      msg.toLowerCase().includes("timeout");
     const isNetworkError =
       msg.includes("fetch") ||
       msg.includes("Failed") ||
@@ -185,9 +203,11 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
       msg.includes("Connection refused") ||
       msg.includes("Load failed") ||
       msg.includes("blocked");
-    if (isNetworkError) {
+    if (isTimeout || isNetworkError) {
       setBackendDownCooldown();
-      const err = new Error(BACKEND_DOWN_MSG) as Error & { status?: number; isBackendUnavailable?: boolean };
+      const err = new Error(
+        isTimeout ? "The request is taking too long. Please try again." : BACKEND_DOWN_MSG
+      ) as Error & { status?: number; isBackendUnavailable?: boolean };
       err.status = 503;
       err.isBackendUnavailable = true;
       throw err;
