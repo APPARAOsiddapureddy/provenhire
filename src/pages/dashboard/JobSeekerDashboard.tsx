@@ -8,14 +8,6 @@ import { Progress } from "@/components/ui/progress";
 import { api, BACKEND_DOWN_MSG, hasAuthToken } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
@@ -87,8 +79,6 @@ const JobSeekerDashboard = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [showVerificationDialog, setShowVerificationDialog] = useState(false);
-  const [showRoleTrackChooser, setShowRoleTrackChooser] = useState(false);
-  const [roleTrackSaving, setRoleTrackSaving] = useState(false);
   const [editingProfile, setEditingProfile] = useState({
     bio: '',
     location: '',
@@ -243,37 +233,6 @@ const JobSeekerDashboard = () => {
       setConfirmNewPassword("");
     } catch {
       // handled in context
-    }
-  };
-
-  // Track chooser disabled for now (testing technical jobseekers only).
-
-  const chooseTrack = async (nextTrack: "technical" | "non_technical") => {
-    setRoleTrackSaving(true);
-    try {
-      await api.post("/api/users/job-seeker-profile", { roleType: nextTrack });
-      setProfile((p: any) => ({ ...(p || {}), roleType: nextTrack, role_type: nextTrack }));
-      toast.success(`Switched to ${nextTrack === "technical" ? "Technical" : "Non-Technical"} track.`);
-      setShowRoleTrackChooser(false);
-      // Refetch stages so the verification pipeline matches the newly selected track.
-      void loadDashboardData(() => false);
-    } catch (e: any) {
-      toast.error(e?.message || "Could not update track");
-    } finally {
-      setRoleTrackSaving(false);
-    }
-  };
-
-  const switchToRecruiter = async () => {
-    setRoleTrackSaving(true);
-    try {
-      await completeGoogleSignUpRole("recruiter");
-      // completeGoogleSignUpRole handles navigation + session update.
-      setShowRoleTrackChooser(false);
-    } catch {
-      toast.error("Could not switch to recruiter. Please try again.");
-    } finally {
-      setRoleTrackSaving(false);
     }
   };
 
@@ -638,32 +597,6 @@ const JobSeekerDashboard = () => {
           setProfile((p: any) => (p ? { ...p, targetJobTitle: title } : p));
         }}
       />
-      <Dialog open={showRoleTrackChooser} onOpenChange={setShowRoleTrackChooser}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Choose how you want to continue</DialogTitle>
-            <DialogDescription>
-              You are signed in. Select your path now. You can switch later from profile/settings.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
-            <Button onClick={() => chooseTrack("technical")} disabled={roleTrackSaving} className="justify-start">
-              Continue as Job Seeker - Technical
-            </Button>
-            <Button onClick={() => chooseTrack("non_technical")} disabled={roleTrackSaving} variant="secondary" className="justify-start">
-              Continue as Job Seeker - Non-Technical
-            </Button>
-            <Button onClick={switchToRecruiter} disabled={roleTrackSaving} variant="outline" className="justify-start">
-              Switch to Recruiter Dashboard
-            </Button>
-          </div>
-          <DialogFooter>
-            <p className="text-xs text-muted-foreground w-full">
-              If you choose recruiter, your account role is updated in database and session is refreshed immediately.
-            </p>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{ name: hasCompletedProfileSetup ? userName : "Welcome", role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
