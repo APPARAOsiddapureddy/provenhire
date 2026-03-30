@@ -121,10 +121,7 @@ const JobSeekerDashboard = () => {
     profile &&
     !(profile.targetJobTitle ?? profile.target_job_title)?.trim()
   );
-  const roleTypeFromProfile = profile?.roleType ?? profile?.role_type;
-  const isGoogleUser = String(user?.authProvider || "").toUpperCase() === "GOOGLE";
-  const trackMissingNow = Boolean(isGoogleUser && user?.role === "jobseeker" && !roleTypeFromProfile);
-  const roleType = (roleTypeFromProfile ?? "technical") as "technical" | "non_technical";
+  const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
   const stageOrder = roleType === "non_technical" ? [...NON_TECHNICAL_STAGE_ORDER] : [...TECHNICAL_STAGE_ORDER];
 
   /** Highest completed stage for Skill Passport progressive display */
@@ -653,13 +650,7 @@ const JobSeekerDashboard = () => {
           setProfile((p: any) => (p ? { ...p, targetJobTitle: title } : p));
         }}
       />
-      <Dialog
-        open={showRoleTrackChooser || trackMissingNow}
-        onOpenChange={(open) => {
-          if (trackMissingNow) return; // force-close disabled until track is selected
-          setShowRoleTrackChooser(open);
-        }}
-      >
+      <Dialog open={showRoleTrackChooser} onOpenChange={setShowRoleTrackChooser}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Choose how you want to continue</DialogTitle>
@@ -905,7 +896,7 @@ const JobSeekerDashboard = () => {
             </div>
           </div>
         )}
-        {!loading && dashboardSection === 'candidate' && !trackMissingNow && (
+        {!loading && dashboardSection === 'candidate' && (
           <div className="dashboard-candidate-section">
             <div className="dashboard-section-header flex-wrap gap-4">
               <div className="section-header-left">
@@ -1128,13 +1119,6 @@ const JobSeekerDashboard = () => {
                   nextStageLabel={nextStageLabel}
                 />
               )}
-            </div>
-          </div>
-        )}
-        {!loading && dashboardSection === 'candidate' && trackMissingNow && (
-          <div className="dashboard-section-content">
-            <div className="rounded-xl border border-[var(--dash-navy-border)] bg-[var(--dash-navy-mid)] p-8 text-center text-[var(--dash-text-muted)]">
-              Choose your path to continue. Use the dialog to select Technical, Non-Technical, or Recruiter.
             </div>
           </div>
         )}
