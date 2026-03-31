@@ -51,6 +51,8 @@ const ProctoringSetupGate = ({
   const [requesting, setRequesting] = useState<string | null>(null);
   const [skippedScreenShare, setSkippedScreenShare] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
+  const [cameraHealthy, setCameraHealthy] = useState(true);
+  const [micHealthy, setMicHealthy] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const supportsScreenShare =
@@ -64,6 +66,37 @@ const ProctoringSetupGate = ({
       videoRef.current.srcObject = state.cameraStream;
     }
   }, [state.camera, state.cameraStream]);
+
+  // Block "Start" if the camera stream is granted but not actually producing frames.
+  useEffect(() => {
+    if (state.camera !== "granted" || !state.cameraStream) {
+      setCameraHealthy(true);
+      return;
+    }
+    const stream = state.cameraStream;
+    const track = stream.getVideoTracks?.()[0] ?? null;
+    const trackLive = !!track && track.readyState === "live" && track.enabled !== false;
+    let t: number | null = null;
+    const check = () => {
+      const v = videoRef.current;
+      const metaOk = !!v && v.readyState >= 1 && (v.videoWidth ?? 0) > 0;
+      setCameraHealthy(trackLive && metaOk);
+    };
+    t = window.setInterval(check, 600);
+    check();
+    return () => {
+      if (t != null) window.clearInterval(t);
+    };
+  }, [state.camera, state.cameraStream]);
+
+  useEffect(() => {
+    if (state.microphone !== "granted" || !state.microphoneStream) {
+      setMicHealthy(true);
+      return;
+    }
+    const track = state.microphoneStream.getAudioTracks?.()[0] ?? null;
+    setMicHealthy(!!track && track.readyState === "live" && track.enabled !== false);
+  }, [state.microphone, state.microphoneStream]);
 
   const screenStreamRef = useRef<MediaStream | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -151,6 +184,8 @@ const ProctoringSetupGate = ({
   const canProceed =
     state.camera === "granted" &&
     state.microphone === "granted" &&
+    cameraHealthy &&
+    micHealthy &&
     (!enableScreenShare ||
       state.screenShare === "granted" ||
       state.screenShare === "unsupported" ||
@@ -196,7 +231,7 @@ const ProctoringSetupGate = ({
           <ProctoringNotice />
           <Button
             onClick={() => onReady(bypassState)}
-            className="bg-green-600 hover:bg-green-700 w-full"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 w-full"
           >
             <CheckCircle2 className="h-4 w-4 mr-2" />
             Start {testName}
@@ -275,6 +310,12 @@ const ProctoringSetupGate = ({
                 <p className="text-sm text-muted-foreground">
                   Enable your webcam for face verification and proctoring
                 </p>
+                {state.camera === "granted" && !cameraHealthy && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-1 flex items-center gap-1">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Camera is not streaming correctly. Please retry.
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -286,6 +327,11 @@ const ProctoringSetupGate = ({
                   disabled={!!requesting}
                 >
                   {requesting === "camera" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Grant"}
+                </Button>
+              )}
+              {state.camera === "granted" && !cameraHealthy && (
+                <Button size="sm" variant="outline" onClick={requestCameraAndMic} disabled={!!requesting}>
+                  Retry
                 </Button>
               )}
             </div>
@@ -300,6 +346,12 @@ const ProctoringSetupGate = ({
                 <p className="text-sm text-muted-foreground">
                   Enable your microphone for audio monitoring during the test
                 </p>
+                {state.microphone === "granted" && !micHealthy && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-1 flex items-center gap-1">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Microphone looks inactive. Please retry.
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -311,6 +363,11 @@ const ProctoringSetupGate = ({
                   disabled={!!requesting}
                 >
                   {requesting === "mic" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Grant"}
+                </Button>
+              )}
+              {state.microphone === "granted" && !micHealthy && (
+                <Button size="sm" variant="outline" onClick={requestCameraAndMic} disabled={!!requesting}>
+                  Retry
                 </Button>
               )}
             </div>
@@ -402,7 +459,7 @@ const ProctoringSetupGate = ({
                 }
               }}
               disabled={!!requesting || !consentAccepted}
-              className="bg-green-600 hover:bg-green-700"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {requesting ? (
                 <>

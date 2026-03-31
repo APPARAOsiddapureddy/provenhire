@@ -18,6 +18,7 @@ export const APTITUDE_QUESTION_COUNT = 20;
 export interface McqQuestionRaw {
   _id?: { $oid?: string };
   question: string;
+  questionType?: string;
   option_1: string;
   option_2: string;
   option_3: string;
@@ -56,12 +57,57 @@ function loadQuestions(): McqQuestionRaw[] {
   if (cachedQuestions) return cachedQuestions;
   const p = join(__dirname, "aptitude-questions.json");
   const raw = readFileSync(p, "utf-8");
-  cachedQuestions = JSON.parse(raw) as McqQuestionRaw[];
+  const parsed = JSON.parse(raw) as McqQuestionRaw[];
+  cachedQuestions = parsed.filter(isValidMcqQuestionRaw);
   return cachedQuestions;
 }
 
 function getQuestionId(q: McqQuestionRaw): string {
   return q._id?.$oid || `q-${q.question.slice(0, 30).replace(/\W/g, "")}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function normalizeText(s: unknown): string {
+  return (s ?? "").toString().trim();
+}
+
+function normalizeOptionKey(s: string): string {
+  return s.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isValidMcqQuestionRaw(q: McqQuestionRaw): boolean {
+  const question = normalizeText(q?.question);
+  const answer = normalizeText(q?.answer);
+  if (!question || !answer) return false;
+  const optionsRaw = [q.option_1, q.option_2, q.option_3, q.option_4].map(normalizeText).filter(Boolean);
+  if (optionsRaw.length < 2) return false;
+  const uniq = new Map<string, string>();
+  for (const opt of optionsRaw) {
+    const key = normalizeOptionKey(opt);
+    if (!uniq.has(key)) uniq.set(key, opt);
+  }
+  if (uniq.size < 2) return false;
+  const answerKey = normalizeOptionKey(answer);
+  if (!uniq.has(answerKey)) return false;
+  return true;
+}
+
+function isVerbal(q: McqQuestionRaw): boolean {
+  const type = normalizeText(q.questionType).toLowerCase();
+  if (type === "verbal") return true;
+  if (type === "quantitative" || type === "logical") return false;
+  const text = normalizeText(q.question).toLowerCase();
+  const hasMathSignals = /(\d|[%+\-*/=₹$])/.test(text);
+  if (hasMathSignals) return false;
+  // Common verbal patterns in aptitude datasets.
+  if (
+    /(synonym|antonym|meaning of|spell(?:ing)?|grammar|sentence|fill in the blanks|comprehension|passage|idiom|phrase|one word|error in|choose the correct word)/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  // Default: treat unknown as quant/logical to keep verbal strictly limited.
+  return false;
 }
 
 /**
@@ -72,11 +118,15 @@ function getQuestionId(q: McqQuestionRaw): string {
  */
 export function createAptitudeSession(experienceYears: number): AptitudeSession {
   const all = loadQuestions();
-  const byDifficulty = {
-    easy: all.filter((q) => (q.difficultyLevel || "").toLowerCase() === "easy"),
-    medium: all.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium"),
-    hard: all.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard"),
-  };
+  const verbalPool = all.filter(isVerbal);
+  const quantLogicalPool = all.filter((q) => !isVerbal(q));
+  const byDifficulty = (pool: McqQuestionRaw[]) => ({
+    easy: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "easy"),
+    medium: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium"),
+    hard: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard"),
+  });
+  const verbalByDiff = byDifficulty(verbalPool);
+  const quantByDiff = byDifficulty(quantLogicalPool);
 
   let needEasy: number;
   let needMedium: number;
@@ -103,18 +153,50 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
   };
 
   const used = new Set<McqQuestionRaw>();
-  const easy = pick(byDifficulty.easy, needEasy, used);
+  // Enforce fixed distribution: total 20 questions, exactly 2 verbal, remaining quant/logical.
+  // Prefer easier verbal for freshers; scale slightly with experience.
+  let needVerbalEasy = 2;
+  let needVerbalMedium = 0;
+  let needVerbalHard = 0;
+  if (experienceYears >= 1 && experienceYears <= 3) {
+    needVerbalEasy = 1;
+    needVerbalMedium = 1;
+  } else if (experienceYears > 3) {
+    needVerbalEasy = 0;
+    needVerbalMedium = 1;
+    needVerbalHard = 1;
+  }
+  const verbalEasy = pick(verbalByDiff.easy, needVerbalEasy, used);
+  verbalEasy.forEach((q) => used.add(q));
+  const verbalMedium = pick(verbalByDiff.medium, needVerbalMedium, used);
+  verbalMedium.forEach((q) => used.add(q));
+  const verbalHard = pick(verbalByDiff.hard, needVerbalHard, used);
+  verbalHard.forEach((q) => used.add(q));
+  const selectedVerbal: McqQuestionRaw[] = [...verbalEasy, ...verbalMedium, ...verbalHard];
+  const verbalNeeded = 2 - selectedVerbal.length;
+  if (verbalNeeded > 0) {
+    const fallbackVerbal = verbalPool.filter((q) => !used.has(q));
+    const more = pick(fallbackVerbal, verbalNeeded, used);
+    more.forEach((q) => used.add(q));
+    selectedVerbal.push(...more);
+  }
+
+  const needQuantEasy = Math.max(0, needEasy - verbalEasy.length);
+  const needQuantMedium = Math.max(0, needMedium - verbalMedium.length);
+  const needQuantHard = Math.max(0, needHard - verbalHard.length);
+
+  const easy = pick(quantByDiff.easy, needQuantEasy, used);
   easy.forEach((q) => used.add(q));
-  const medium = pick(byDifficulty.medium, needMedium, used);
+  const medium = pick(quantByDiff.medium, needQuantMedium, used);
   medium.forEach((q) => used.add(q));
-  const hard = pick(byDifficulty.hard, needHard, used);
+  const hard = pick(quantByDiff.hard, needQuantHard, used);
   hard.forEach((q) => used.add(q));
 
-  let selected: McqQuestionRaw[] = [...easy, ...medium, ...hard];
-  const targetTotal = needEasy + needMedium + needHard;
+  let selected: McqQuestionRaw[] = [...selectedVerbal, ...easy, ...medium, ...hard];
+  const targetTotal = APTITUDE_QUESTION_COUNT;
   const needed = targetTotal - selected.length;
   if (needed > 0) {
-    const fallback = all.filter((q) => !used.has(q));
+    const fallback = quantLogicalPool.filter((q) => !used.has(q));
     selected = [...selected, ...pick(fallback, needed)];
   }
   selected = shuffleArray(selected);
@@ -126,11 +208,17 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
     const marks = diff === "easy" ? APTITUDE_MARKS.easy : diff === "medium" ? APTITUDE_MARKS.medium : APTITUDE_MARKS.hard;
     answerKey[id] = (q.answer || "").trim();
     marksKey[id] = marks;
-    const opts = [q.option_1, q.option_2, q.option_3, q.option_4].filter(Boolean);
+    const opts = [q.option_1, q.option_2, q.option_3, q.option_4].map(normalizeText).filter(Boolean);
+    const uniq = new Map<string, string>();
+    for (const opt of opts) {
+      const key = normalizeOptionKey(opt);
+      if (!uniq.has(key)) uniq.set(key, opt);
+    }
+    const cleanOpts = Array.from(uniq.values());
     return {
       id,
       question: q.question,
-      options: shuffleArray(opts),
+      options: shuffleArray(cleanOpts),
       marks,
     };
   });

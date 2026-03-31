@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAuth, optionalAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { createAptitudeSession, getPracticeAptitudeQuestions } from "../data/aptitude-loader.js";
-import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession } from "../data/aptitude-session-db.js";
+import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
@@ -219,17 +219,54 @@ verificationRouter.get("/aptitude/questions", requireAuth, async (req: AuthedReq
     // Allow retry anytime — no expiry block. Users can re-attempt whenever they want.
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const experienceYears = profile?.experienceYears ?? 0;
+    const existing = await getAptitudeSession(req.user!.id);
+    if (existing?.questions && existing?.answerKey && existing?.marksKey) {
+      const questions = existing.questions as any[];
+      const totalMarks =
+        existing.marksKey && typeof existing.marksKey === "object"
+          ? Object.values(existing.marksKey as Record<string, number>).reduce((a, b) => a + (Number(b) || 0), 0)
+          : questions.length;
+      const passThreshold = Math.ceil(totalMarks * 0.6);
+      return res.json({
+        questions,
+        timeLimitMinutes: 30,
+        totalMarks,
+        passThreshold,
+        draft: existing.draft ?? null,
+      });
+    }
+
     const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSession(experienceYears);
-    await storeAptitudeSession(req.user!.id, answerKey, marksKey);
+    await storeAptitudeSession(req.user!.id, questions, answerKey, marksKey);
     return res.json({
       questions,
       timeLimitMinutes: 30, // 30 minutes total
       totalMarks,
       passThreshold,
+      draft: null,
     });
   } catch (e) {
     console.error("[verification/aptitude/questions]", e);
     return res.status(500).json({ error: "Failed to load aptitude questions" });
+  }
+});
+
+verificationRouter.post("/aptitude/draft", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const schema = z.object({
+      answers: z.record(z.string(), z.string()).optional(),
+      reviewed: z.array(z.string()).optional(),
+      visited: z.array(z.string()).optional(),
+      currentIndex: z.number().int().nonnegative().optional(),
+      secondsRemaining: z.number().int().nonnegative().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+    await updateAptitudeDraft(req.user!.id, parsed.data);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("[verification/aptitude/draft]", e);
+    return res.status(500).json({ error: "Failed to save progress" });
   }
 });
 
@@ -274,7 +311,14 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
       }
       let earnedMarks = 0;
       let correctCount = 0;
-      for (const [qId, selected] of Object.entries(parsed.data.answers)) {
+      let attemptedCount = 0;
+      const answersIncoming = parsed.data.answers as Record<string, string>;
+      const allQuestionIds = Object.keys(answerKey);
+      for (const qId of allQuestionIds) {
+        const selectedRaw = answersIncoming[qId];
+        const selected = typeof selectedRaw === "string" ? selectedRaw : "";
+        if (selected.trim().length === 0) continue;
+        attemptedCount++;
         const expected = answerKey[qId];
         const qMarks = marksKey?.[qId] ?? 1;
         if (expected != null && normalizeAnswer(selected) === normalizeAnswer(expected)) {
@@ -284,9 +328,14 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
       }
       score = earnedMarks; // Raw earned marks (total varies 25–35 by experience). Pass threshold 60%.
       const totalMarksVal = marksKey ? Object.values(marksKey).reduce((a, b) => a + b, 0) : Object.keys(answerKey).length;
+      const totalQuestions = allQuestionIds.length;
+      const skippedCount = Math.max(0, totalQuestions - attemptedCount);
+      const incorrectCount = Math.max(0, attemptedCount - correctCount);
       answersPayload = {
-        questions: Object.keys(answerKey).length,
+        questions: totalQuestions,
         correct: correctCount,
+        incorrect: incorrectCount,
+        skipped: skippedCount,
         earnedMarks,
         totalMarks: totalMarksVal,
         ...(parsed.data.meta?.timeTakenSeconds != null ? { timeTakenSeconds: parsed.data.meta.timeTakenSeconds } : {}),
@@ -324,7 +373,18 @@ verificationRouter.post("/aptitude", requireAuth, async (req: AuthedRequest, res
       });
     }
     await upsertSkillVerification(req.user!.id, "APTITUDE", scoreToStore, completedAt);
-    return res.json({ result, score });
+    const breakdown =
+      answersPayload && typeof answersPayload === "object"
+        ? {
+            totalQuestions: Number((answersPayload as any).questions ?? 0),
+            correct: Number((answersPayload as any).correct ?? 0),
+            incorrect: Number((answersPayload as any).incorrect ?? 0),
+            skipped: Number((answersPayload as any).skipped ?? 0),
+            earnedMarks: Number((answersPayload as any).earnedMarks ?? score ?? 0),
+            totalMarks: Number((answersPayload as any).totalMarks ?? 0),
+          }
+        : null;
+    return res.json({ result, score, breakdown });
   } catch (err) {
     const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : null;
     const isDb = code === "P1001" || code === "P1002" || code === "P2021" || code === "P2003";

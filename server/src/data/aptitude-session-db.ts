@@ -9,20 +9,23 @@ const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 export async function storeAptitudeSession(
   userId: string,
+  questions: unknown,
   answerKey: Record<string, string>,
   marksKey: Record<string, number>
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + TTL_MS);
   await prisma.aptitudeSession.upsert({
     where: { userId },
-    create: { userId, answerKey, marksKey, expiresAt },
-    update: { answerKey, marksKey, expiresAt },
+    create: { userId, questions: questions as object, answerKey, marksKey, expiresAt },
+    update: { questions: questions as object, answerKey, marksKey, expiresAt },
   });
 }
 
 export async function getAptitudeSession(userId: string): Promise<{
+  questions: unknown;
   answerKey: Record<string, string>;
   marksKey: Record<string, number>;
+  draft: unknown;
 } | null> {
   const row = await prisma.aptitudeSession.findUnique({
     where: { userId },
@@ -32,9 +35,20 @@ export async function getAptitudeSession(userId: string): Promise<{
     return null;
   }
   return {
+    questions: row.questions,
     answerKey: row.answerKey as Record<string, string>,
     marksKey: row.marksKey as Record<string, number>,
+    draft: row.draft,
   };
+}
+
+export async function updateAptitudeDraft(userId: string, draft: unknown): Promise<void> {
+  await prisma.aptitudeSession
+    .update({
+      where: { userId },
+      data: { draft: draft as object },
+    })
+    .catch(() => {});
 }
 
 export async function clearAptitudeSession(userId: string): Promise<void> {

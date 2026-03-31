@@ -169,7 +169,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       try {
         // If the user signs in/out while this request is in flight (e.g. after manual signup),
         // ignore stale responses so we don't clear a fresh session.
-        const { user: u } = await api.get<{ user: User }>("/api/auth/me");
+        const fetchMe = async (): Promise<User> => {
+          const { user: u } = await api.get<{ user: User }>("/api/auth/me");
+          return u;
+        };
+        let u: User;
+        try {
+          u = await fetchMe();
+        } catch (err: unknown) {
+          const status = (err as { status?: number })?.status;
+          const msg = err instanceof Error ? err.message : "";
+          const isBackendDown =
+            status === 503 ||
+            msg.includes("Service unavailable") ||
+            msg.includes("temporarily unavailable") ||
+            msg.includes("Backend not running") ||
+            msg.includes("taking too long");
+          if (!isBackendDown) throw err;
+          // Retry once to smooth over Render cold starts / transient gateway timeouts.
+          await new Promise((r) => setTimeout(r, 800));
+          u = await fetchMe();
+        }
         if (getAuthToken() !== tokenAtMeRequest) return;
         setUser(u);
         setUserRole(u.role);

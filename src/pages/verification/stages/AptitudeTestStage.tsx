@@ -18,6 +18,7 @@ import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2, ChevronLeft, ChevronRight, RotateCcw, Bookmark, BookmarkCheck, CircleHelp, Sparkles, Trophy, Target } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const APTITUDE_TIME_MINUTES = 30; // 30 minutes total
 
@@ -57,6 +58,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const [currentIndex, setCurrentIndex] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [submittedScore, setSubmittedScore] = useState<number | null>(null);
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
+  const [breakdown, setBreakdown] = useState<{ correct: number; incorrect: number; skipped: number; totalQuestions: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [justPassed, setJustPassed] = useState(false);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
@@ -153,11 +156,35 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           timeLimitMinutes?: number;
           totalMarks?: number;
           passThreshold?: number;
+          draft?: {
+            answers?: Record<string, string>;
+            reviewed?: string[];
+            visited?: string[];
+            currentIndex?: number;
+            secondsRemaining?: number;
+          } | null;
         }>("/api/verification/aptitude/questions");
         setQuestions(res.questions ?? []);
         const mins = res.timeLimitMinutes ?? APTITUDE_TIME_MINUTES;
         setTimeLimitMinutes(mins);
-        setSecondsRemaining(mins * 60);
+        const draft = res.draft ?? null;
+        if (draft?.answers && typeof draft.answers === "object") {
+          setAnswers(draft.answers);
+        }
+        if (Array.isArray(draft?.reviewed)) {
+          setReviewed(new Set(draft.reviewed));
+        }
+        if (Array.isArray(draft?.visited)) {
+          setVisited(new Set(draft.visited));
+        }
+        if (typeof draft?.currentIndex === "number" && draft.currentIndex >= 0) {
+          setCurrentIndex(draft.currentIndex);
+        }
+        if (typeof draft?.secondsRemaining === "number" && draft.secondsRemaining >= 0) {
+          setSecondsRemaining(draft.secondsRemaining);
+        } else {
+          setSecondsRemaining(mins * 60);
+        }
         setTotalMarks(res.totalMarks ?? 20);
         setPassThreshold(res.passThreshold ?? 12);
       } catch (e: unknown) {
@@ -174,6 +201,31 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       }
     })();
   }, []);
+
+  // Autosave aptitude progress (answers, visited, review marks, timer) to backend session draft.
+  const draftSaveTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!inTest) return;
+    if (questions.length === 0) return;
+    if (secondsRemaining == null) return;
+    if (loading) return;
+    if (draftSaveTimerRef.current != null) window.clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = window.setTimeout(() => {
+      void api
+        .post("/api/verification/aptitude/draft", {
+          answers,
+          reviewed: Array.from(reviewed),
+          visited: Array.from(visited),
+          currentIndex,
+          secondsRemaining,
+        })
+        .catch(() => {});
+    }, 700);
+    return () => {
+      if (draftSaveTimerRef.current != null) window.clearTimeout(draftSaveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: save on these state changes while test is active
+  }, [inTest, questions.length, answers, reviewed, visited, currentIndex, secondsRemaining, loading]);
 
   useEffect(() => {
     if (!inTest || secondsRemaining == null || secondsRemaining <= 0) return;
@@ -236,7 +288,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     submittingRef.current = true;
     setLoading(true);
     try {
-      const res = await api.post<{ result: { score?: number }; score?: number }>(
+      const res = await api.post<{ result: { score?: number }; score?: number; breakdown?: any }>(
         "/api/verification/aptitude",
         {
           answers,
@@ -248,6 +300,16 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         }
       );
       const score = res.score ?? res.result?.score ?? 0;
+      if (res.breakdown) {
+        setBreakdown({
+          totalQuestions: Number(res.breakdown.totalQuestions ?? questions.length),
+          correct: Number(res.breakdown.correct ?? 0),
+          incorrect: Number(res.breakdown.incorrect ?? 0),
+          skipped: Number(res.breakdown.skipped ?? 0),
+        });
+      } else {
+        setBreakdown(null);
+      }
       // Backend POST /aptitude already stores percent in VerificationStage; do not send raw marks
       // so resume/profile APIs show percent consistently (not marks).
       const stagePayload = { stageName: "aptitude_test" as const, status: score >= passThreshold ? "completed" : "failed" as const };
@@ -327,6 +389,12 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       setCurrentIndex(index);
     }
   };
+
+  const answeredCount = questions.reduce((acc, q) => (answers[q.id] != null && answers[q.id] !== "" ? acc + 1 : acc), 0);
+  const visitedCount = visited.size;
+  const skippedCount = Math.max(0, visitedCount - answeredCount);
+  const reviewCount = reviewed.size;
+  const unvisitedCount = Math.max(0, questions.length - visitedCount);
 
   if (loadingQuestions) {
     return (
@@ -417,8 +485,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             <CardTitle className="text-lg sm:text-xl">Aptitude Test</CardTitle>
             <CardDescription className="text-sm">
               {!isFailed && !justPassed
-                ? `Question ${currentIndex + 1} of ${questions.length}. Submit anytime. Need ${passThreshold}/${totalMarks} to pass.`
-                : `Need ${passThreshold}/${totalMarks} to pass.`}
+                ? `Question ${currentIndex + 1} of ${questions.length}. You need at least ${passThresholdPct}% to pass.`
+                : `You need at least ${passThresholdPct}% to pass.`}
             </CardDescription>
           </div>
           {inTest && (
@@ -551,13 +619,15 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                   const current = i === currentIndex;
                   const status = current
                     ? "current"
-                    : answered
-                      ? "answered"
+                    : markedReview && answered
+                      ? "reviewed_answered"
                       : markedReview
                         ? "reviewed"
-                        : hasVisited && !answered
-                          ? "skipped"
-                          : "unvisited";
+                        : answered
+                          ? "answered"
+                          : hasVisited && !answered
+                            ? "skipped"
+                            : "unvisited";
                   return (
                     <button
                       key={q.id}
@@ -567,6 +637,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                       className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
                         status === "current"
                           ? "ring-2 ring-primary bg-primary text-primary-foreground"
+                          : status === "reviewed_answered"
+                            ? "bg-violet-500/20 text-violet-700 dark:text-violet-400 border border-violet-500/40"
                           : status === "answered"
                             ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/40"
                             : status === "reviewed"
@@ -578,6 +650,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                       title={
                         status === "current"
                           ? `Q${i + 1}: Current`
+                          : status === "reviewed_answered"
+                            ? `Q${i + 1}: Answered (Marked for review)`
                           : status === "answered"
                             ? `Q${i + 1}: Answered`
                             : status === "reviewed"
@@ -689,7 +763,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                   </Button>
                 ) : (
                   <Button
-                    onClick={handleSubmit}
+                    onClick={() => setSubmitConfirmOpen(true)}
                     disabled={loading || backendUnavailable || (inTest && !effectivelyFullScreen)}
                   >
                     {loading ? "Submitting..." : "Submit test"}
@@ -708,6 +782,48 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           </>
         )}
       </CardContent>
+      <Dialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm submission</DialogTitle>
+            <DialogDescription>
+              You are about to submit your aptitude round. Review your progress below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-md border p-3">
+              <div className="text-muted-foreground">Answered</div>
+              <div className="text-lg font-semibold">{answeredCount}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-muted-foreground">Marked for review</div>
+              <div className="text-lg font-semibold">{reviewCount}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-muted-foreground">Skipped</div>
+              <div className="text-lg font-semibold">{skippedCount}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-muted-foreground">Not visited</div>
+              <div className="text-lg font-semibold">{unvisitedCount}</div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setSubmitConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setSubmitConfirmOpen(false);
+                handleSubmit();
+              }}
+              disabled={loading || backendUnavailable}
+            >
+              Submit now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

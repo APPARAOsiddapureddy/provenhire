@@ -113,8 +113,126 @@ type ApiDSAQuestion = {
   starterCode: Record<string, string>;
 };
 
+function defaultStarter(lang: ProgrammingLanguage): string {
+  switch (lang) {
+    case "python":
+      return `# Write your solution in the solve() function.
+# Read input from STDIN and write output to STDOUT.
+
+def solve():
+    # TODO: implement
+    pass
+
+if __name__ == "__main__":
+    solve()
+`;
+    case "javascript":
+      return `// Read input from STDIN and write output to STDOUT.
+// Implement your logic inside solve().
+
+function solve(input) {
+  // TODO: implement
+  return "";
+}
+
+const fs = require("fs");
+const input = fs.readFileSync(0, "utf8");
+process.stdout.write(String(solve(input)));
+`;
+    case "java":
+      return `import java.io.*;
+import java.util.*;
+
+public class Main {
+  // Read input from STDIN and write output to STDOUT.
+  public static void main(String[] args) throws Exception {
+    FastScanner fs = new FastScanner(System.in);
+    // TODO: parse input
+    // TODO: implement solution
+    // System.out.print(answer);
+  }
+
+  static class FastScanner {
+    private final InputStream in;
+    private final byte[] buffer = new byte[1 << 16];
+    private int ptr = 0, len = 0;
+    FastScanner(InputStream is) { in = is; }
+    private int read() throws IOException {
+      if (ptr >= len) {
+        len = in.read(buffer);
+        ptr = 0;
+        if (len <= 0) return -1;
+      }
+      return buffer[ptr++];
+    }
+    String next() throws IOException {
+      StringBuilder sb = new StringBuilder();
+      int c;
+      while ((c = read()) != -1 && c <= ' ') {}
+      if (c == -1) return null;
+      do {
+        sb.append((char)c);
+        c = read();
+      } while (c != -1 && c > ' ');
+      return sb.toString();
+    }
+    String nextLine() throws IOException {
+      StringBuilder sb = new StringBuilder();
+      int c;
+      while ((c = read()) != -1 && c == '\r') {}
+      if (c == -1) return null;
+      while (c != -1 && c != '\n') {
+        if (c != '\r') sb.append((char)c);
+        c = read();
+      }
+      return sb.toString();
+    }
+    Integer nextInt() throws IOException {
+      String s = next();
+      return s == null ? null : Integer.parseInt(s);
+    }
+    Long nextLong() throws IOException {
+      String s = next();
+      return s == null ? null : Long.parseLong(s);
+    }
+  }
+}
+`;
+    case "cpp":
+      return `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
+
+  // TODO: parse input from stdin
+  // TODO: implement solution
+  // cout << answer;
+
+  return 0;
+}
+`;
+    case "c":
+      return `#include <stdio.h>
+
+int main() {
+  // TODO: parse input from stdin
+  // TODO: implement solution
+  // printf("%d\\n", answer);
+  return 0;
+}
+`;
+  }
+}
+
 function getStarterForQuestion(q: ApiDSAQuestion, lang: ProgrammingLanguage): string {
-  return q.starterCode?.[lang] ?? q.starterCode?.python ?? "";
+  const fromApi = q.starterCode?.[lang];
+  if (typeof fromApi === "string" && fromApi.trim().length > 0) return fromApi;
+  // Do not fall back to Python for C++/Java — it confuses candidates. Use a language-appropriate boilerplate.
+  const pythonFallback = q.starterCode?.python;
+  if (lang === "python" && typeof pythonFallback === "string" && pythonFallback.trim().length > 0) return pythonFallback;
+  return defaultStarter(lang);
 }
 
 const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, targetJobTitle, experienceYears = 2 }: DSARoundStageProps) => {
@@ -286,7 +404,44 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               initial[qu.id]![lang] = getStarterForQuestion(qu, lang);
             });
           });
-          setCodeByLang(initial);
+          // Restore locally autosaved buffers if they match this question set.
+          const storageKey = user?.id ? `ph:dsaProgress:${user.id}` : null;
+          let restored = false;
+          if (storageKey) {
+            try {
+              const raw = localStorage.getItem(storageKey);
+              if (raw) {
+                const saved = JSON.parse(raw) as any;
+                const savedIds: string[] = Array.isArray(saved?.questionIds) ? saved.questionIds : [];
+                const idsNow = questionsFromApi.map((qq) => qq.id);
+                const sameSet =
+                  savedIds.length === idsNow.length && savedIds.every((id, idx) => id === idsNow[idx]);
+                if (sameSet && saved?.codeByLang && typeof saved.codeByLang === "object") {
+                  const merged: typeof initial = { ...initial };
+                  for (const qid of idsNow) {
+                    const perQ = (saved.codeByLang?.[qid] ?? null) as any;
+                    if (!perQ || typeof perQ !== "object") continue;
+                    merged[qid] = { ...(merged[qid] ?? {}) };
+                    supportedLanguages.forEach(({ language: lang }) => {
+                      const v = perQ?.[lang];
+                      if (typeof v === "string") merged[qid]![lang] = v;
+                    });
+                  }
+                  setCodeByLang(merged);
+                  if (typeof saved?.language === "string") setLanguage(saved.language as ProgrammingLanguage);
+                  if (typeof saved?.currentIndex === "number" && saved.currentIndex >= 0) setCurrentIndex(saved.currentIndex);
+                  if (typeof saved?.secondsRemaining === "number" && saved.secondsRemaining >= 0) setSecondsRemaining(saved.secondsRemaining);
+                  if (typeof saved?.questionSecondsRemaining === "number" && saved.questionSecondsRemaining >= 0) {
+                    setQuestionSecondsRemaining(saved.questionSecondsRemaining);
+                  }
+                  restored = true;
+                }
+              }
+            } catch {
+              // ignore
+            }
+          }
+          if (!restored) setCodeByLang(initial);
         } else {
           setCodeByLang({});
         }
@@ -307,6 +462,35 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       cancelled = true;
     };
   }, [stageStatus, isRetry, questionsReloadKey]);
+
+  // Autosave DSA editor buffers locally (recoverable on refresh/tab close).
+  const dsaSaveTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!user?.id) return;
+    if (!inTest) return;
+    if (questions.length === 0) return;
+    if (dsaSaveTimerRef.current != null) window.clearTimeout(dsaSaveTimerRef.current);
+    dsaSaveTimerRef.current = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          `ph:dsaProgress:${user.id}`,
+          JSON.stringify({
+            questionIds: questions.map((q) => q.id),
+            codeByLang,
+            language,
+            currentIndex,
+            secondsRemaining,
+            questionSecondsRemaining,
+          })
+        );
+      } catch {
+        // ignore
+      }
+    }, 800);
+    return () => {
+      if (dsaSaveTimerRef.current != null) window.clearTimeout(dsaSaveTimerRef.current);
+    };
+  }, [user?.id, inTest, questions, codeByLang, language, currentIndex, secondsRemaining, questionSecondsRemaining]);
 
   useEffect(() => {
     if (proctoringReady && questions.length > 0 && secondsRemaining === null) {
