@@ -6,7 +6,7 @@
  * - 5+ years: 5 easy, 5 medium, 10 hard (35 marks, pass 21)
  */
 
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -53,9 +53,24 @@ function shuffleArray<T>(arr: T[]): T[] {
 
 let cachedQuestions: McqQuestionRaw[] | null = null;
 
+function resolveAptitudeQuestionsPath(): string {
+  const name = "aptitude-questions.json";
+  const candidates = [
+    join(__dirname, name),
+    join(process.cwd(), "dist", "src", "data", name),
+    join(process.cwd(), "src", "data", name),
+    join(process.cwd(), "server", "src", "data", name),
+    join(process.cwd(), "server", "dist", "src", "data", name),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  throw new Error(`aptitude-questions.json not found (tried: ${candidates.join("; ")})`);
+}
+
 function loadQuestions(): McqQuestionRaw[] {
   if (cachedQuestions) return cachedQuestions;
-  const p = join(__dirname, "aptitude-questions.json");
+  const p = resolveAptitudeQuestionsPath();
   const raw = readFileSync(p, "utf-8");
   const parsed = JSON.parse(raw) as McqQuestionRaw[];
   cachedQuestions = parsed.filter(isValidMcqQuestionRaw);

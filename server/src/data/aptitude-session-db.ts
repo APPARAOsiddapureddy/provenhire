@@ -7,12 +7,36 @@ import { prisma } from "../config/prisma.js";
 
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+/** Prisma client expects `testStartedAt`; if deploy ran before `migrate deploy`, SELECT fails. Self-heal once. */
+let aptitudeSessionSchemaReady = false;
+let aptitudeSessionSchemaPromise: Promise<void> | null = null;
+
+async function ensureAptitudeSessionSchema(): Promise<void> {
+  if (aptitudeSessionSchemaReady) return;
+  if (!aptitudeSessionSchemaPromise) {
+    aptitudeSessionSchemaPromise = (async () => {
+      await prisma.$executeRaw`
+        ALTER TABLE "AptitudeSession" ADD COLUMN IF NOT EXISTS "testStartedAt" TIMESTAMP(3);
+      `;
+      aptitudeSessionSchemaReady = true;
+    })();
+  }
+  try {
+    await aptitudeSessionSchemaPromise;
+  } catch (e) {
+    aptitudeSessionSchemaPromise = null;
+    console.error("[aptitude-session] ensure schema (testStartedAt) failed:", e);
+    throw e;
+  }
+}
+
 export async function storeAptitudeSession(
   userId: string,
   questions: unknown,
   answerKey: Record<string, string>,
   marksKey: Record<string, number>
 ): Promise<void> {
+  await ensureAptitudeSessionSchema();
   const expiresAt = new Date(Date.now() + TTL_MS);
   const now = new Date();
   await prisma.aptitudeSession.upsert({
@@ -42,6 +66,7 @@ export async function getAptitudeSession(userId: string): Promise<{
   draft: unknown;
   testStartedAt: Date | null;
 } | null> {
+  await ensureAptitudeSessionSchema();
   const row = await prisma.aptitudeSession.findUnique({
     where: { userId },
   });
@@ -59,6 +84,7 @@ export async function getAptitudeSession(userId: string): Promise<{
 }
 
 export async function updateAptitudeDraft(userId: string, draft: unknown): Promise<void> {
+  await ensureAptitudeSessionSchema();
   await prisma.aptitudeSession
     .update({
       where: { userId },
@@ -70,5 +96,6 @@ export async function updateAptitudeDraft(userId: string, draft: unknown): Promi
 }
 
 export async function clearAptitudeSession(userId: string): Promise<void> {
+  await ensureAptitudeSessionSchema();
   await prisma.aptitudeSession.delete({ where: { userId } }).catch(() => {});
 }

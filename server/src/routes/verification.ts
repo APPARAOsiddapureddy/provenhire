@@ -350,6 +350,18 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
     });
   } catch (e) {
     console.error("[verification/aptitude/questions]", e);
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === "P2022" || e.code === "P2021") {
+        return res.status(503).json({
+          error:
+            "Verification database is updating. Wait a minute and try again, or contact support if this persists.",
+        });
+      }
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/aptitude-questions\.json|ENOENT/i.test(msg)) {
+      return res.status(500).json({ error: "Aptitude question bank is missing on the server. Please contact support." });
+    }
     return res.status(500).json({ error: "Failed to load aptitude questions" });
   }
 });

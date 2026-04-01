@@ -1,3 +1,6 @@
+-- AptitudeSession: server-side test window (also applied by migration 20260402120000_aptitude_session_test_started_at)
+ALTER TABLE "AptitudeSession" ADD COLUMN IF NOT EXISTS "testStartedAt" TIMESTAMP(3);
+
 -- Run this if you get "column X does not exist" or prisma migrate deploy fails.
 -- From project root: psql $DATABASE_URL -f server/prisma/fix-missing-columns.sql
 -- Or: cd server && npx prisma db execute --file prisma/fix-missing-columns.sql
