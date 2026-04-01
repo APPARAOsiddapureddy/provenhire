@@ -25,7 +25,10 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
     ["copy_paste_detection", ["COPY_PASTE_ATTEMPT"]],
     ["devtools_detection", ["DEVTOOLS_OPENED"]],
     ["fullscreen_required", ["FULLSCREEN_EXIT"]],
-    ["multiple_face_detection", ["NO_FACE_DETECTED", "MULTIPLE_FACES_DETECTED", "LOOKING_AWAY_FROM_SCREEN", "LOW_VISIBILITY"]],
+    [
+      "multiple_face_detection",
+      ["NO_FACE_DETECTED", "MULTIPLE_FACES_DETECTED", "LOOKING_AWAY_FROM_SCREEN", "LOW_VISIBILITY", "PHONE_DETECTED"],
+    ],
     ["microphone_monitoring", ["CANDIDATE_SPEAKING_DURING_CODING", "SUSPICIOUS_BACKGROUND_NOISE", "MULTIPLE_VOICES_DETECTED", "MICROPHONE_MUTED_ATTEMPT"]],
   ];
   for (const [flagName, types] of flagChecks) {

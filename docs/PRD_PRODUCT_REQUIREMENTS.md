@@ -1,7 +1,7 @@
 # ProvenHire Product Requirement Document
 
-**Version 1.0**  
-**Last updated:** March 2025  
+**Version 1.1**  
+**Last updated:** April 2026  
 **Document type:** Product Requirements — Ideology & User Journeys
 
 ---
@@ -244,7 +244,7 @@ To configure, operate, and maintain the platform so it runs smoothly and stays t
 
 ### 3. Level 1 — Cognitive Verified
 
-- **Aptitude Test:** Timed MCQ assessment. Must meet a passing threshold.
+- **Aptitude Test:** **20** timed MCQs (mixed verbal + quant/logical), **30 minutes**, pass **≥ 60%** of weighted marks for that attempt. The product UX shows scores as **percentages** (e.g. “72%”) so they read like DSA/AI scores; underlying totals vary by experience band (**25 / 30 / 35** marks). See **`docs/PRD_VERIFICATION_SCORING.md`** for storage (raw marks on `AptitudeTestResult`, **0–100** on verification stage and skill verification).
 - On pass: **Level 1 achieved.** Candidate can now **see and apply to entry-level jobs**.
 - Job board unlocks with Level 1–eligible roles (junior, internship, associate).
 - Clear prompt: “Complete DSA and AI Interview to unlock more roles.”
@@ -326,7 +326,7 @@ The verification pipeline is structured around **certification levels**. Each le
 | Stage | Purpose | Output | Unlocks |
 |-------|---------|--------|---------|
 | Profile & Resume | Baseline data and intent | Profile completeness | Path to Level 1 |
-| Aptitude Test | General aptitude and reasoning | Score, pass/fail | Level 1 — Cognitive Verified |
+| Aptitude Test | General aptitude and reasoning | **Percent (0–100)** on profile/stage; pass/fail at **60%** of weighted total; full detail in scoring PRD | Level 1 — Cognitive Verified |
 | DSA Round | Coding ability and problem-solving | Score, code quality | — |
 | AI Expert Interview | Communication, domain knowledge, clarity | Score, feedback | Level 2 — Skill Passport |
 | Human Expert Interview | Depth and fit for senior roles | Score, qualitative feedback | Level 3 — Elite Verified |
@@ -380,7 +380,7 @@ A verified candidate profile includes:
 
 - **Certification level:** Level 0, 1 (Cognitive Verified), 2 (Skill Passport), or 3 (Elite Verified)
 - **Stage status:** Completed, passed, failed, in progress
-- **Scores:** Aptitude, Live Coding, AI interview, expert interview
+- **Scores:** **Aptitude (0–100 % surface)**, Live Coding (0–100), AI interview (0–100), expert interview — aligned in recruiter/candidate APIs where applicable
 - **Skill freshness:** Last verified date or expiry status per skill (Aptitude, Live Coding, Interview)
 - **Feedback excerpts:** Strengths, improvement areas
 - **Integrity summary:** Proctoring events, if any
@@ -550,4 +550,4 @@ The discovery system helps recruiters find the right verified candidates at the 
 
 ---
 
-*This document describes product ideology, user roles, and flows. Technical architecture and implementation details are covered in separate documents.*
+*This document describes product ideology, user roles, and flows. Technical architecture is covered in other docs; **verification scoring (including aptitude as 0–100 in the product surface)** is specified in **`docs/PRD_VERIFICATION_SCORING.md`**.*

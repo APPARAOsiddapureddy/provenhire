@@ -66,6 +66,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [checkingBackend, setCheckingBackend] = useState(false);
   const submittingRef = useRef(false);
+  const proctorVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const checkBackend = useCallback(async () => {
     setCheckingBackend(true);
@@ -112,6 +113,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
     multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    proctorVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
     onMaxTabSwitches: tabSwitchMode === "STRICT"
@@ -195,7 +197,13 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         if (status === 503 || (typeof msg === "string" && (msg.includes("Backend not running") || msg.includes("temporarily unavailable")))) {
           setBackendUnavailable(true);
         }
-        toast.error(code === "SKILL_ACTIVE" ? msg : "Failed to load aptitude questions. Please refresh.");
+        const userMsg =
+          code === "SKILL_ACTIVE"
+            ? msg
+            : typeof msg === "string" && msg.length > 0 && msg !== "Request failed"
+              ? msg
+              : "Failed to load aptitude questions. Please refresh.";
+        toast.error(userMsg);
       } finally {
         setLoadingQuestions(false);
       }
@@ -774,6 +782,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 </span>
               </div>
               <LiveProctoringPreview
+                ref={proctorVideoRef}
                 cameraStream={proctoringState?.cameraStream ?? null}
                 brandName="ProvenHire"
                 position="bottom-inside"

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback } from "react";
+import { useRef, useEffect, useMemo, useState, useCallback, forwardRef, type MutableRefObject } from "react";
 import { Shield } from "lucide-react";
 
 interface LiveProctoringPreviewProps {
@@ -12,14 +12,26 @@ interface LiveProctoringPreviewProps {
 /**
  * Camera preview shown during proctored tests so the job seeker
  * sees they are being monitored — deters cheating.
+ * Ref (optional) exposes the underlying &lt;video&gt; for TF proctoring on the same stream.
  */
-const LiveProctoringPreview = ({
-  cameraStream,
-  brandName = "ProvenHire",
-  position = "top-right",
-}: LiveProctoringPreviewProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+const LiveProctoringPreview = forwardRef<HTMLVideoElement | null, LiveProctoringPreviewProps>(function LiveProctoringPreview(
+  { cameraStream, brandName = "ProvenHire", position = "top-right" },
+  forwardedRef
+) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const setVideoRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      videoRef.current = node;
+      if (typeof forwardedRef === "function") {
+        forwardedRef(node);
+      } else if (forwardedRef) {
+        (forwardedRef as MutableRefObject<HTMLVideoElement | null>).current = node;
+      }
+    },
+    [forwardedRef]
+  );
 
   const isBottomInside = position === "bottom-inside";
   const isFixedOverlay = !isBottomInside;
@@ -146,7 +158,7 @@ const LiveProctoringPreview = ({
       </div>
       <div className="relative aspect-video bg-muted">
         <video
-          ref={videoRef}
+          ref={setVideoRef}
           autoPlay
           playsInline
           muted
@@ -159,6 +171,6 @@ const LiveProctoringPreview = ({
       </div>
     </div>
   );
-};
+});
 
 export default LiveProctoringPreview;

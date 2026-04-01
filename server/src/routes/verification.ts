@@ -3,7 +3,12 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireAuth, requireJobSeeker, optionalAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
-import { createAptitudeSession, getPracticeAptitudeQuestions } from "../data/aptitude-loader.js";
+import {
+  createAptitudeSession,
+  getPracticeAptitudeQuestions,
+  storeMemoryAptitudeSession,
+  getMemoryAptitudeSubmitContext,
+} from "../data/aptitude-loader.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
@@ -25,6 +30,27 @@ import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
 export const verificationRouter = Router();
+
+/** DB session row or in-memory fallback (same process) so aptitude works when Prisma session table errors. */
+async function resolveAptitudeSubmitSession(userId: string): Promise<{
+  answerKey: Record<string, string>;
+  marksKey: Record<string, number>;
+  testStartedAt: Date | null;
+} | null> {
+  try {
+    const row = await getAptitudeSession(userId);
+    if (row?.answerKey && typeof row.answerKey === "object" && Object.keys(row.answerKey).length > 0) {
+      return {
+        answerKey: row.answerKey,
+        marksKey: row.marksKey ?? {},
+        testStartedAt: row.testStartedAt ?? null,
+      };
+    }
+  } catch (e) {
+    console.warn("[verification/aptitude] session read failed; trying in-memory keys", e);
+  }
+  return getMemoryAptitudeSubmitContext(userId);
+}
 
 const technicalStages = ["profile_setup", "aptitude_test", "dsa_round", "expert_interview"];
 const nonTechnicalStages = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
@@ -320,9 +346,19 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
 verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
     // Allow retry anytime — no expiry block. Users can re-attempt whenever they want.
-    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
-    const experienceYears = profile?.experienceYears ?? 0;
-    const existing = await getAptitudeSession(req.user!.id);
+    let experienceYears = 0;
+    try {
+      const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
+      experienceYears = profile?.experienceYears ?? 0;
+    } catch (profileErr) {
+      console.warn("[verification/aptitude/questions] profile read failed; using default experience band", profileErr);
+    }
+    let existing: Awaited<ReturnType<typeof getAptitudeSession>> = null;
+    try {
+      existing = await getAptitudeSession(req.user!.id);
+    } catch (readErr) {
+      console.warn("[verification/aptitude/questions] could not read session row (will issue new set)", readErr);
+    }
     if (existing?.questions && existing?.answerKey && existing?.marksKey) {
       const questions = existing.questions as any[];
       const totalMarks =
@@ -340,7 +376,15 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
     }
 
     const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSession(experienceYears);
-    await storeAptitudeSession(req.user!.id, questions, answerKey, marksKey);
+    try {
+      await storeAptitudeSession(req.user!.id, questions, answerKey, marksKey);
+    } catch (persistErr) {
+      console.warn(
+        "[verification/aptitude/questions] Prisma session persist failed — using in-memory answer key for this instance",
+        persistErr,
+      );
+      storeMemoryAptitudeSession(req.user!.id, answerKey, marksKey);
+    }
     return res.json({
       questions,
       timeLimitMinutes: 30, // 30 minutes total
@@ -423,7 +467,7 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
       typeof parsed.data.answers === "object" &&
       !Array.isArray(parsed.data.answers)
     ) {
-      const session = await getAptitudeSession(req.user!.id);
+      const session = await resolveAptitudeSubmitSession(req.user!.id);
       const answerKey = session?.answerKey ?? null;
       const marksKey = session?.marksKey ?? null;
       if (!answerKey || typeof answerKey !== "object" || Object.keys(answerKey).length === 0) {

@@ -1,6 +1,6 @@
 # PRD: AI Expert Interview Round
 
-**Status:** **Pro Upgrade implemented in codebase** (Mar 2026). Deploy checklist: apply Prisma migration `20260316150000_ai_interview_pro_upgrade`, run `cd server && npm run seed:interview-bank` if using `QUESTION_BANK_SOURCE=db`, set server env `QUESTION_BANK_SOURCE` (`static` default).  
+**Status:** **Pro Upgrade implemented in codebase** (Mar 2026; doc sync Apr 2026). Deploy checklist: apply Prisma migration `20260316150000_ai_interview_pro_upgrade`, run `cd server && npm run seed:interview-bank` if using `QUESTION_BANK_SOURCE=db`, set server env `QUESTION_BANK_SOURCE` (`static` default).  
 **Scope:** Verification stage `expert_interview` (AI interview), not DSA or human expert interviews.  
 **Model:** Gemini 2.5 Flash via `@google/genai`  
 **Weight in final technical score:** 40% (see `server/src/services/verificationScoring.service.ts`)
@@ -505,7 +505,7 @@ Paths match **this repo** (PDF used `client/` — here `src/`).
 - **Evaluator:** `evaluateInterview()` in `server/src/services/ai.service.ts` — aggregate JSON, optional `per_question_scores` **not** in baseline.
 - **Aggregate score:** `computeScore()` in `interview.ts` — weighted blend of concept/reasoning/communication/confidence; badges at 90 / 75 / 60.
 - **Persistence:** `Interview`, `InterviewMessage`, `VerificationStage`, `CandidateSkillVerification`; proctoring events via existing hooks in `ExpertInterviewStage.tsx`.
-- **Final technical score:** `buildTechnicalScorecard()` — `aptitude*0.25 + dsa*0.35 + ai_interview*0.40`.
+- **Final technical score:** `buildTechnicalScorecard()` — `aptitude_score*0.25 + dsa_score*0.35 + ai_interview_score*0.40` (each input **0–100**). Aptitude arm is derived from latest `AptitudeTestResult` + heuristics, not from raw stage marks alone; see **`docs/PRD_VERIFICATION_SCORING.md`** for aptitude UI/storage (percent on stage, raw marks on result row).
 
 The **Pro Upgrade** sections above supersede Appendix A for each topic once shipped.
 
@@ -517,3 +517,4 @@ The **Pro Upgrade** sections above supersede Appendix A for each topic once ship
 |---------|--------|
 | 1.0 | Baseline-only PRD |
 | 2.0 | Merged **Pro Upgrade** spec (question bank, per-Q scoring, fallback, calibration, voice, proctoring bands, explainability, anti-gaming, 24-task checklist, dependencies) |
+| 2.1 | Appendix A: clarified scorecard inputs (0–100 aptitude via result row + scoring PRD link). |

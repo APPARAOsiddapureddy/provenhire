@@ -1,7 +1,7 @@
 # ProvenHire — Product Requirements Document (PRD)
 
-**Version:** 5.0  
-**Last Updated:** February 2026  
+**Version:** 6.0  
+**Last Updated:** April 2026  
 **Status:** Current
 
 ---
@@ -38,12 +38,12 @@ ProvenHire is India's first skill-certified hiring platform that connects verifi
 | Stage | Name | Description | Pass Criteria |
 |-------|------|-------------|---------------|
 | 1 | Profile Setup | Resume upload, AI analysis, profile completion | Profile saved |
-| 2 | Aptitude Test | Logical reasoning, CS fundamentals | Score recorded |
+| 2 | Aptitude Test | 20 MCQs (verbal + quant/logical), **30-minute** timed test; server enforces window from session start | **≥ 60%** of weighted marks to pass; UI shows **percentage** (e.g. 72%); raw marks stored in `AptitudeTestResult`, **0–100** in stage/skill rows — see `docs/PRD_VERIFICATION_SCORING.md` |
 | 3 | DSA Round | Coding challenges, problem-solving | Score recorded |
 | 4 | AI Expert Interview | Structured AI-led technical interview | Score recorded |
 | 5 | Human Expert Interview | Live video interview with expert interviewer | Pass ≥70% |
 
-**Shortlisting (Stage 4 → 5):** Combined score (Stage 2: 25%, Stage 3: 35%, Stage 4: 40%) ≥ 65% unlocks Stage 5.
+**Shortlisting (Stage 4 → 5):** Combined technical blend **Stage 2: 25%, Stage 3: 35%, Stage 4: 40%** (each arm is a **0–100** sub-score from the scorecard). **`final_score ≥ 65`** plus per-stage floors (aptitude ≥ 55, DSA ≥ 60, AI interview ≥ 60) unlocks Stage 5 — see `buildTechnicalScorecard()` / `docs/PRD_VERIFICATION_SCORING.md`.
 
 ### 3.2 Non-Technical Track (3 Stages)
 
@@ -194,6 +194,7 @@ HumanInterviewSession (userId, interviewerId, slotId, scheduledAt, meetingLink,
 VerificationStage (userId, stageName, status, score)
   stageName: profile_setup | aptitude_test | dsa_round | expert_interview | human_expert_interview
   status: locked | in_progress | completed | failed
+  score: For aptitude_test after submit, **0–100 (percent)**; for dsa_round and expert_interview, **0–100**; raw aptitude marks live on AptitudeTestResult
 
 JobSeekerProfile (verificationStatus, roleType)
   verificationStatus: pending | verified | expert_verified
@@ -286,7 +287,7 @@ Seed: `cd server && npm run seed:interviewer`
 
 ## 11. Non-Functional Requirements
 
-- **Security:** JWT auth, role-based access, protected routes
+- **Security:** JWT auth, role-based access, protected routes; auth rate limits; hardened CORS and headers on API (see deployment docs)
 - **Responsive:** Mobile-friendly UI
 - **Performance:** Lazy loading for heavy routes
 - **Accessibility:** Semantic HTML, ARIA where needed
@@ -302,4 +303,4 @@ Seed: `cd server && npm run seed:interviewer`
 
 ---
 
-*PRD v5.0 — February 2026*
+*PRD v6.0 — April 2026*

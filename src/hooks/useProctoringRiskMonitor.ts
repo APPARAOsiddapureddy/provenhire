@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { detectFaces, loadFaceDetectionModels } from "@/utils/faceDetection";
+import {
+  acquireTfProctoringModels,
+  releaseTfProctoringModels,
+  estimateBlazeFaces,
+  blazeFaceLookingAway,
+  detectCellPhoneInFrame,
+} from "@/utils/tfProctoringDetection";
 
 export type ProctoringEventCode =
   | "NO_FACE_DETECTED"
@@ -48,6 +54,8 @@ interface UseProctoringRiskMonitorOptions {
   fullscreenDetectionEnabled?: boolean;
   /** When false, face detection (no face, multiple faces, looking away) is disabled. */
   multipleFaceDetectionEnabled?: boolean;
+  /** When set, BlazeFace/COCO-SSD read frames from this element (same stream as proctoring UI). Otherwise a hidden video node is used. */
+  proctorVideoRef?: RefObject<HTMLVideoElement | null>;
   /** When false, microphone monitoring (speaking, noise, mute) is disabled. */
   microphoneMonitoringEnabled?: boolean;
   /** Max tab switches before test is stopped (default 3). Only applies when tabSwitchDetectionEnabled is true. */
@@ -58,9 +66,9 @@ interface UseProctoringRiskMonitorOptions {
 
 const EVENT_RISK_WEIGHTS: Record<ProctoringEventCode, number> = {
   NO_FACE_DETECTED: 10,
-  MULTIPLE_FACES_DETECTED: 25,
+  MULTIPLE_FACES_DETECTED: 20,
   LOOKING_AWAY_FROM_SCREEN: 5,
-  PHONE_DETECTED: 30,
+  PHONE_DETECTED: 25,
   TAB_SWITCH: 10,
   WINDOW_FOCUS_LOST: 5,
   WINDOW_MINIMIZED: 5,
@@ -74,8 +82,17 @@ const EVENT_RISK_WEIGHTS: Record<ProctoringEventCode, number> = {
   LOW_VISIBILITY: 8,
 };
 
+/** Shown when a violation is logged (same cadence as server alert — cooldown-limited, not every model tick). */
+const CHEATING_TOAST_MESSAGES: Partial<Record<ProctoringEventCode, string>> = {
+  MULTIPLE_FACES_DETECTED: "Multiple faces detected. This assessment must be completed alone.",
+  PHONE_DETECTED: "Mobile or handheld device detected. Remove it from view to continue fairly.",
+  NO_FACE_DETECTED: "Your face is not visible. Stay in view of the camera.",
+};
+
 const EVENT_COOLDOWN_MS: Partial<Record<ProctoringEventCode, number>> = {
   NO_FACE_DETECTED: 12000,
+  MULTIPLE_FACES_DETECTED: 8000,
+  PHONE_DETECTED: 10000,
   LOOKING_AWAY_FROM_SCREEN: 10000,
   LOW_VISIBILITY: 10000,
   SUSPICIOUS_BACKGROUND_NOISE: 8000,
@@ -112,6 +129,7 @@ export function useProctoringRiskMonitor({
   devtoolsDetectionEnabled = false,
   fullscreenDetectionEnabled = false,
   multipleFaceDetectionEnabled = false,
+  proctorVideoRef,
   microphoneMonitoringEnabled = false,
   maxTabSwitches = 3,
   onMaxTabSwitches,
@@ -146,6 +164,11 @@ export function useProctoringRiskMonitor({
     async (eventCode: ProctoringEventCode, details?: Record<string, unknown>) => {
       if (!candidateId || !testId || !enabled) return;
       if (shouldRateLimitEvent(eventCode)) return;
+
+      const cheatMsg = CHEATING_TOAST_MESSAGES[eventCode];
+      if (cheatMsg) {
+        toast.warning(cheatMsg, { duration: 6000 });
+      }
 
       const delta = EVENT_RISK_WEIGHTS[eventCode] ?? 0;
       const nextScore = riskScore + delta;
@@ -393,43 +416,81 @@ export function useProctoringRiskMonitor({
     };
   }, [enabled, logViolation, microphoneStream, microphoneMonitoringEnabled]);
 
-  // Face checks: no face, multiple faces, looking away, low visibility.
-  // Skip for ai_interview to avoid canvas/getImageData warnings and because speaking is expected.
+  // Face + phone checks (TensorFlow.js BlazeFace + COCO-SSD). ~3s interval; hidden canvas for brightness only.
+  // Skip for ai_interview (speaking expected; stage opts out).
   useEffect(() => {
     if (!enabled || !cameraStream || testType === "ai_interview" || !multipleFaceDetectionEnabled) return;
 
     let cancelled = false;
-    const video = document.createElement("video");
-    video.muted = true;
-    video.playsInline = true;
-    video.autoplay = true;
-    video.srcObject = cameraStream;
+    const useExternalVideo = Boolean(proctorVideoRef);
+    const internalVideo = document.createElement("video");
+    internalVideo.muted = true;
+    internalVideo.playsInline = true;
+    internalVideo.autoplay = true;
+    if (!useExternalVideo) {
+      internalVideo.srcObject = cameraStream;
+    }
 
     const canvas = document.createElement("canvas");
     canvas.width = 96;
     canvas.height = 72;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-    const getAvgPoint = (pts: Array<{ x: number; y: number }>) => ({
-      x: pts.reduce((sum, p) => sum + p.x, 0) / pts.length,
-      y: pts.reduce((sum, p) => sum + p.y, 0) / pts.length,
-    });
+    const getActiveVideo = (): HTMLVideoElement | null => {
+      if (useExternalVideo && proctorVideoRef) {
+        return proctorVideoRef.current;
+      }
+      return internalVideo;
+    };
+
+    const trackLive = () => {
+      const t = cameraStream.getVideoTracks()[0];
+      return t && t.readyState === "live";
+    };
+
+    let intervalId = 0;
+    let tfModelsAcquired = false;
 
     const run = async () => {
-      await loadFaceDetectionModels();
       try {
-        await video.play();
+        if (!useExternalVideo) {
+          await internalVideo.play();
+        }
       } catch {
         return;
       }
-      const interval = window.setInterval(async () => {
-        if (cancelled) return;
-        const detections = await detectFaces(video);
-        const now = Date.now();
 
-        if (detections.length === 0) {
+      try {
+        await acquireTfProctoringModels();
+        tfModelsAcquired = true;
+      } catch (e) {
+        console.warn("[proctoring] TF models failed to load", e);
+        return;
+      }
+
+      if (cancelled) {
+        releaseTfProctoringModels();
+        tfModelsAcquired = false;
+        return;
+      }
+
+      const tick = async () => {
+        if (cancelled || !trackLive()) return;
+        const video = getActiveVideo();
+        if (!video || video.readyState < 2 || video.videoWidth < 2) return;
+
+        const now = Date.now();
+        let faces: Awaited<ReturnType<typeof estimateBlazeFaces>> = [];
+        try {
+          faces = await estimateBlazeFaces(video);
+        } catch {
+          faces = [];
+        }
+        const n = faces.length;
+
+        if (n === 0) {
           if (!noFaceSinceRef.current) noFaceSinceRef.current = now;
-          if (now - noFaceSinceRef.current > 5000) {
+          if (now - (noFaceSinceRef.current ?? 0) > 5000) {
             void logViolation("NO_FACE_DETECTED");
             noFaceSinceRef.current = now;
           }
@@ -437,33 +498,34 @@ export function useProctoringRiskMonitor({
           noFaceSinceRef.current = null;
         }
 
-        if (detections.length > 1) {
-          void logViolation("MULTIPLE_FACES_DETECTED", { faceCount: detections.length });
+        if (n >= 2) {
+          void logViolation("MULTIPLE_FACES_DETECTED", { faceCount: n });
         }
 
-        if (detections.length === 1) {
-          const lm = detections[0].landmarks;
-          const leftEye = getAvgPoint(lm.getLeftEye());
-          const rightEye = getAvgPoint(lm.getRightEye());
-          const nose = lm.getNose()[3] ?? lm.getNose()[0];
-          const eyeCenter = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
-          const eyeDist = Math.max(1, Math.abs(rightEye.x - leftEye.x));
-          const yaw = Math.abs((nose.x - eyeCenter.x) / eyeDist);
-          const pitch = Math.abs((nose.y - eyeCenter.y) / eyeDist);
-          const lookingAway = yaw > 0.18 || pitch > 0.22;
-
+        if (n === 1) {
+          const lookingAway = blazeFaceLookingAway(faces);
           if (lookingAway) {
             if (!lookingAwaySinceRef.current) lookingAwaySinceRef.current = now;
-            if (now - lookingAwaySinceRef.current > 4000) {
-              void logViolation("LOOKING_AWAY_FROM_SCREEN", { yaw: Number(yaw.toFixed(2)), pitch: Number(pitch.toFixed(2)) });
+            if (now - (lookingAwaySinceRef.current ?? 0) > 4000) {
+              void logViolation("LOOKING_AWAY_FROM_SCREEN");
               lookingAwaySinceRef.current = now;
             }
           } else {
             lookingAwaySinceRef.current = null;
           }
+        } else {
+          lookingAwaySinceRef.current = null;
         }
 
-        // Low visibility / blocked camera
+        try {
+          const phone = await detectCellPhoneInFrame(video, 0.6);
+          if (phone.found) {
+            void logViolation("PHONE_DETECTED", { confidence: Number(phone.maxScore.toFixed(3)) });
+          }
+        } catch {
+          /* ignore */
+        }
+
         if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -476,25 +538,30 @@ export function useProctoringRiskMonitor({
             void logViolation("LOW_VISIBILITY", { brightness: Number(avgLum.toFixed(1)) });
           }
         }
-      }, 1500);
-
-      return () => {
-        window.clearInterval(interval);
       };
+
+      intervalId = window.setInterval(() => {
+        void tick();
+      }, 3000);
     };
 
-    let cleanupInner: (() => void) | undefined;
-    void run().then((cleanup) => {
-      cleanupInner = cleanup;
-    });
+    void run();
 
     return () => {
       cancelled = true;
-      cleanupInner?.();
-      video.pause();
-      video.srcObject = null;
+      if (intervalId) window.clearInterval(intervalId);
+      internalVideo.pause();
+      internalVideo.srcObject = null;
+      if (tfModelsAcquired) releaseTfProctoringModels();
     };
-  }, [cameraStream, enabled, logViolation, multipleFaceDetectionEnabled]);
+  }, [
+    cameraStream,
+    enabled,
+    logViolation,
+    multipleFaceDetectionEnabled,
+    proctorVideoRef,
+    testType,
+  ]);
 
   const recordEvent = useCallback(
     (eventCode: ProctoringEventCode, details?: Record<string, unknown>) => {

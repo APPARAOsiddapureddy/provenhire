@@ -1,7 +1,7 @@
 # PRD: DSA Questions Storage & APIs
 
-**Version:** 1.0  
-**Last updated:** 2026-03-20  
+**Version:** 1.1  
+**Last updated:** 2026-04-02  
 **Author:** ProvenHire Engineering
 
 ---
@@ -26,6 +26,7 @@ In scope:
 Out of scope:
 - Frontend UI rendering details (only API response shapes needed for frontend integration)
 - Judge0 configuration and overall verification flow (only what is required for DSA endpoints)
+- **Aptitude test** (static question bank, `AptitudeSession`, grading, and **0–100** stage semantics) — see **`docs/PRD_VERIFICATION_SCORING.md`**
 
 ---
 

@@ -299,6 +299,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
     multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    proctorVideoRef: proctorCameraVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
     onMaxTabSwitches: tabSwitchMode === "STRICT"

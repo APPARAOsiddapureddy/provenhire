@@ -1,6 +1,8 @@
 # PRD: Verification Scoring — Aptitude, DSA & AI Interview
 
-**Purpose:** Define how marks are distributed, calculated, stored, and displayed for the three technical verification stages so implementation and storage can be aligned and corrected if needed.
+**Version:** 2.0  
+**Last updated:** April 2026  
+**Purpose:** Define how marks are calculated, stored, and shown for the three technical verification stages. This revision matches the **current** frontend and backend (post–aptitude UI and API alignment).
 
 ---
 
@@ -10,34 +12,40 @@
 
 | Item | Specification |
 |------|----------------|
-| **Question set** | 20 questions per attempt, experience-based mix. |
+| **Question set** | 20 MCQs per attempt, experience-based mix (exactly 2 verbal, remainder quant/logical — see `server/src/data/aptitude-loader.ts`). |
 | **Difficulty mix** | Fresher (&lt; 1 yr): 15 easy, 5 medium. 1–3 yr: 10 easy, 5 medium, 5 hard. 5+ yr: 5 easy, 5 medium, 10 hard. |
 | **Marks per question** | Easy = 1, Medium = 2, Hard = 2. |
-| **Total marks** | Variable: 25 (fresher), 30 (1–3 yr), or 35 (5+ yr). |
-| **Pass threshold** | 60% of total marks (e.g. 15/25, 18/30, 21/35). |
-| **Time limit** | 30 minutes. |
+| **Total marks** | Variable: **25** (fresher), **30** (1–3 yr), or **35** (5+ yr). |
+| **Pass threshold** | **60%** of total marks (e.g. 15/25, 18/30, 21/35). |
+| **Time limit** | **30 minutes** from server-issued start; submit window enforced server-side using `AptitudeSession.testStartedAt` plus **120 seconds** grace (see `POST /api/verification/aptitude`). |
 
 ### 1.2 Calculation
 
-- For each question: compare user’s selected option to `answerKey[qId]`; if correct, add `marksKey[qId]` to earned marks.
-- **Score to store:** **Raw earned marks** (e.g. 18), not percentage.
-- Pass/fail: `earnedMarks >= passThreshold` (e.g. 18 ≥ 18).
+- For each question: compare the submit payload to `answerKey[qId]`; if correct, add `marksKey[qId]` to **earned marks**.
+- **Pass/fail:** `earnedMarks >= ceil(totalMarks * 0.6)` (same threshold the UI uses via `passThreshold` from `GET /api/verification/aptitude/questions`).
+- **`POST /api/verification/aptitude` response:** `score` = **raw earned marks** (e.g. 18). Optional `breakdown` includes `correct`, `incorrect`, `skipped`, `earnedMarks`, `totalMarks`.
 
-### 1.3 Storage (current)
+### 1.3 Storage (**current implementation** — dual representation)
 
-| Location | What is stored | Type |
-|----------|----------------|------|
-| `VerificationStage` (stageName = `aptitude_test`) | `score` = **raw earned marks** (e.g. 18) | Int? |
-| `AptitudeTestResult` | `score` = same raw earned marks; `answers` = { questions, correct, earnedMarks, totalMarks, timeTakenSeconds?, timeLimitSeconds? } | Int?, Json? |
-| `AptitudeSession` | `answerKey`, `marksKey` (for grading); cleared after submit | Json |
-| `CandidateSkillVerification` (APTITUDE) | `score` = same raw earned marks (rounded) | Int? |
+| Location | What is stored | Type / scale |
+|----------|----------------|--------------|
+| **`AptitudeTestResult.score`** | **Raw earned marks** (e.g. 18) | Int? |
+| **`AptitudeTestResult.answers`** | JSON: `questions`, `correct`, `incorrect`, `skipped`, **`earnedMarks`**, **`totalMarks`**, optional timing fields | Json? |
+| **`VerificationStage`** (`stageName = aptitude_test`) | **`score` = rounded percentage 0–100** — `Math.round((earnedMarks / totalMarks) * 100)` when `totalMarks > 0` | Int? |
+| **`CandidateSkillVerification`** (APTITUDE) | Same **0–100 percentage** as the stage row (via `upsertSkillVerification`) | Int? |
+| **`AptitudeSession`** (until submit or expiry) | `questions`, `answerKey`, `marksKey`, optional `draft`, **`testStartedAt`**, `expiresAt` | Json / DateTime |
 
-### 1.4 Consistency check
+**Why two scales:** `AptitudeTestResult` keeps **audit-grade raw marks** and totals. **`VerificationStage` and skill verification** use **0–100** so aptitude aligns with DSA and AI interview in dashboards, recruiter views, and hiring-readiness style rollups without showing “18” as if it were “18 out of 100.”
 
-- **Intent:** One canonical “score” for aptitude is **raw marks** (e.g. 18/25). Percentage (e.g. 72%) is derived as `(score / totalMarks) * 100` where `totalMarks` comes from the session (or from `answers.totalMarks` in AptitudeTestResult).
-- **Issue:** APIs that expose “aptitude_score” (e.g. candidate profile, scorecard) sometimes use `VerificationStage.score` directly. That is **raw marks**, whereas DSA and AI interview expose **0–100** scores. So:
-  - **Display:** If UI or recruiter view expects a “0–100” aptitude score, it is wrong to show raw marks (e.g. 18) as if it were out of 100.
-  - **Recommendation:** Either (a) store and expose **percentage** (0–100) in `VerificationStage.score` for aptitude as well, with raw marks kept in `AptitudeTestResult.answers`, or (b) keep raw marks in `VerificationStage` and always expose both `aptitude_score` (raw) and `aptitude_total_marks` (and optionally `aptitude_percentage`) so clients can show “18/25” or “72%” correctly.
+### 1.4 Frontend display
+
+- **`AptitudeTestStage.tsx`** shows the candidate **percentage** (e.g. “Your score: **72%**”) and compares pass using **raw** `score` vs **raw** `passThreshold` from the session API.
+- **`POST .../stages/update`** after submit sends **status only** (no duplicate score in payload); the canonical percent for the stage row is already written inside **`POST /api/verification/aptitude`**.
+
+### 1.5 APIs and profile normalization
+
+- **`GET /api/verification/aptitude/latest`** — Builds a display object from the latest result: when `answers.totalMarks` exists, returns earned marks, total marks, and **percentage**; legacy rows without marks may treat stored `score` as 0–100.
+- **`getAptitudeScoreZeroToHundred` / `getAptitudeScoresZeroToHundredBatch`** (`server/src/utils/aptitudeScore.ts`) — Used by **users** and **jobs** routes so **`aptitude_score` in candidate profile, search, and applicants** is consistently **0–100**, derived from `AptitudeTestResult.answers` when possible.
 
 ---
 
@@ -127,70 +135,54 @@ This `total` is stored and used for stage completion and shortlisting.
 
 ## 4. How scores are used together (technical scorecard & shortlisting)
 
-### 4.1 Source of truth for “display” scores
+### 4.1 Source of truth for scorecard (0–100 sub-scores)
 
-`buildTechnicalScorecard()` in `verificationScoring.service.ts` does **not** use `VerificationStage.score` directly for all three. It recomputes:
+`buildTechnicalScorecard()` in `verificationScoring.service.ts` recomputes:
 
-- **Aptitude:** From `AptitudeTestResult`: `accuracy = (earnedMarks / totalMarks) * 100`, then `aptitudeScore = accuracy*0.7 + speedPercentile*0.2 + consistency*0.1` (0–100). So the scorecard’s `aptitude_score` is **0–100**.
-- **DSA:** From `DsaRoundResult`: uses `score` (0–100) and/or per-question scores in `answers` to compute `dsaScore` (test cases, efficiency, code quality). Scorecard’s `dsa_score` is **0–100**.
-- **AI:** From `Interview`: uses `totalScore` and `scoreBreakdown`. Scorecard’s `ai_interview_score` is **0–100**.
+- **Aptitude:** From latest **`AptitudeTestResult`**: `accuracy = (earnedMarks / totalMarks) * 100` (with sensible fallbacks), then `aptitudeScore = accuracy*0.7 + speedPercentile*0.2 + consistency*0.1` → **0–100**.
+- **DSA:** From `DsaRoundResult` → **0–100**.
+- **AI:** From `Interview` → **0–100**.
 
-So for **shortlisting and scorecard API**, all three are on a **0–100** scale.
+So the **scorecard** always uses **0–100** aptitude math derived from the **result row**, not the raw stage integer alone.
 
 ### 4.2 Final score and gates
 
-- **Final score (0–100):**  
-  `finalScore = aptitude_score * 0.25 + dsa_score * 0.35 + ai_interview_score * 0.3 + integrity_score * 0.1`
+- **Final score (0–100)** — weighted blend of the three stage sub-scores only (integrity is tracked separately for risk / gates):  
+  `finalScore = aptitude_score * 0.25 + dsa_score * 0.35 + ai_interview_score * 0.40`  
+  (see `buildTechnicalScorecard()` in `verificationScoring.service.ts`.)
 - **Gate 1:** `aptitude_score >= 55 && dsa_score >= 60 && ai_interview_score >= 60`
-- **Gate 2:** `finalScore >= 70`
-- **Shortlisted:** Gate 1 and Gate 2 passed, and integrity not overridden (integrity_score ≥ 50).
+- **Gate 2:** `finalScore >= 65` (shortlist threshold aligned with PRD § Stage 4→5)
+- **Shortlisted:** Gate 1 and Gate 2 passed, no integrity override (e.g. integrity score &lt; 50), and interview not on integrity hold — exact rules in code.
 
-### 4.3 Where inconsistency can appear
+### 4.3 Profile, jobs, and recruiter views
 
-- **Candidate profile / job applications / recruiter views** often use `stageScore("aptitude_test")` from `VerificationStage`, which is **raw marks** (e.g. 18), not 0–100. So:
-  - `aptitude_score` in users/jobs APIs = 18 (raw).
-  - `dsa_score` = 0–100.
-  - `ai_interview_score` = 0–100.
-
-If the UI or recruiter dashboard expects all three to be “out of 100”, aptitude will look wrong (e.g. “18” instead of “72”).
+- **`VerificationStage.score`** for aptitude is **already 0–100** after submit.
+- **APIs** additionally run **`getAptitudeScoreZeroToHundred`** so lists and edge cases (legacy rows) still expose a **percentage** consistent with **`AptitudeTestResult.answers`** when available.
+- **No longer a product gap:** Showing “18” as the only aptitude number on par with DSA/AI was the old inconsistency; UI copy and stage/skill storage now emphasize **percent**, with raw marks retained in **`AptitudeTestResult`**.
 
 ---
 
-## 5. Recommended storage and API contract
+## 5. Historical note: API contract evolution
 
-### 5.1 Option A (recommended): Normalize aptitude to 0–100 in storage
+**Previous gap:** Some surfaces treated `VerificationStage.score` for aptitude as comparable to DSA (0–100) while it stored **raw marks**.
 
-- **On aptitude submit:** Keep computing raw `earnedMarks` and store in `AptitudeTestResult.score` and `answers.earnedMarks`, `answers.totalMarks`.
-- **In `VerificationStage` for `aptitude_test`:** Store **percentage** (0–100):  
-  `score = Math.round((earnedMarks / totalMarks) * 100)`  
-  so that `VerificationStage.score` is always 0–100 for every stage.
-- **CandidateSkillVerification (APTITUDE):** Store the same percentage (0–100).
-- **APIs** that return `aptitude_score` from `VerificationStage` or from a single “stage score” then consistently return 0–100 for all three stages.
+**Current approach (implemented):**
 
-**Pros:** One scale (0–100) everywhere; no client changes for display.  
-**Cons:** Percentage is derived; raw marks remain in `AptitudeTestResult.answers` for audit/debug.
+- Keep **raw earned marks** in **`AptitudeTestResult.score`** + **`answers.earnedMarks` / `answers.totalMarks`**.
+- Write **rounded percentage 0–100** into **`VerificationStage`** and **`CandidateSkillVerification`** on submit.
+- Normalize display in **users/jobs** via **`aptitudeScore.ts`**.
 
-### 5.2 Option B: Keep raw marks for aptitude; expose both
-
-- Leave `VerificationStage.score` for aptitude as **raw marks**.
-- In APIs that return candidate scores (e.g. GET candidate profile, applications), return:
-  - `aptitude_score`: raw marks (18),
-  - `aptitude_total_marks`: 25 (from latest AptitudeTestResult.answers or session),
-  - `aptitude_percentage`: 72 (derived),
-  and keep `dsa_score` and `ai_interview_score` as 0–100.
-
-**Pros:** No migration; full fidelity (raw + total).  
-**Cons:** Clients must handle two formats; more fields.
+**Alternative not used:** Expose separate fields `aptitude_score_raw` and `aptitude_total_marks` everywhere — unnecessary given the above.
 
 ---
 
-## 6. Summary table (intended vs current)
+## 6. Summary table (as implemented)
 
-| Stage | Intended scale | Stored in VerificationStage | Stored in result table | Exposed in profile/APIs |
-|-------|----------------|-----------------------------|------------------------|--------------------------|
-| **Aptitude** | Raw marks (e.g. 18/25); pass 60% | Raw marks (18) | AptitudeTestResult: raw + answers with totalMarks | Currently raw (18) → looks wrong if UI expects 0–100 |
-| **DSA** | 0–100 | 0–100 | DsaRoundResult: 0–100 + per-Q in answers | 0–100 ✓ |
-| **AI Interview** | 0–100 | 0–100 | Interview: totalScore 0–100 + scoreBreakdown | 0–100 ✓ |
+| Stage | Grading unit | `VerificationStage.score` | Result table | Candidate-facing UI / list APIs |
+|-------|----------------|---------------------------|--------------|----------------------------------|
+| **Aptitude** | Weighted marks → **60% to pass** | **0–100 %** (rounded) | `AptitudeTestResult`: **raw marks** + **`answers`** | **%** (toasts, results screen); APIs **0–100** via stage + helpers |
+| **DSA** | 0–100 | 0–100 | `DsaRoundResult`: 0–100 | 0–100 |
+| **AI Interview** | 0–100 | 0–100 | `Interview`: 0–100 | 0–100 |
 
 ---
 
@@ -201,4 +193,4 @@ If the UI or recruiter dashboard expects all three to be “out of 100”, aptit
 
 ---
 
-*This PRD should be used to align storage and APIs so that aptitude, DSA, and AI interview marks are distributed and stored correctly, and to fix any places that assume aptitude is already on a 0–100 scale.*
+*Use this PRD together with `docs/PRD.md` and `docs/VERIFICATION_IDEOLOGY.md`. Implementation references: `server/src/routes/verification.ts` (aptitude), `server/src/data/aptitude-loader.ts`, `server/src/data/aptitude-session-db.ts`, `server/src/utils/aptitudeScore.ts`, `src/pages/verification/stages/AptitudeTestStage.tsx`.*

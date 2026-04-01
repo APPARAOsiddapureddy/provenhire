@@ -263,12 +263,30 @@ export function getPracticeAptitudeQuestions(): AptitudeQuestionForClient[] {
   });
 }
 
-/** In-memory store: userId -> { answerKey, marksKey, expiresAt }. Cleared after submit or TTL. */
-const answerKeyStore = new Map<string, { answerKey: Record<string, string>; marksKey: Record<string, number>; expiresAt: number }>();
+/** In-memory store: userId -> keys + server clock start (when DB AptitudeSession is unavailable). */
+const answerKeyStore = new Map<
+  string,
+  {
+    answerKey: Record<string, string>;
+    marksKey: Record<string, number>;
+    expiresAt: number;
+    testStartedAtMs: number;
+  }
+>();
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 export function storeAnswerKey(userId: string, answerKey: Record<string, string>, marksKey: Record<string, number>): void {
-  answerKeyStore.set(userId, { answerKey, marksKey, expiresAt: Date.now() + TTL_MS });
+  const now = Date.now();
+  answerKeyStore.set(userId, { answerKey, marksKey, expiresAt: now + TTL_MS, testStartedAtMs: now });
+}
+
+/** Same as storeAnswerKey — explicit alias when falling back from failed Prisma upsert. */
+export function storeMemoryAptitudeSession(
+  userId: string,
+  answerKey: Record<string, string>,
+  marksKey: Record<string, number>
+): void {
+  storeAnswerKey(userId, answerKey, marksKey);
 }
 
 export function getAnswerKey(userId: string): Record<string, string> | null {
@@ -284,6 +302,25 @@ export function getMarksKey(userId: string): Record<string, number> | null {
   const ent = answerKeyStore.get(userId);
   if (!ent || Date.now() > ent.expiresAt) return null;
   return ent.marksKey;
+}
+
+/** Grading keys + timer start when session only exists in memory (DB error path). */
+export function getMemoryAptitudeSubmitContext(userId: string): {
+  answerKey: Record<string, string>;
+  marksKey: Record<string, number>;
+  testStartedAt: Date | null;
+} | null {
+  const ent = answerKeyStore.get(userId);
+  if (!ent || Date.now() > ent.expiresAt) {
+    answerKeyStore.delete(userId);
+    return null;
+  }
+  if (!ent.answerKey || Object.keys(ent.answerKey).length === 0) return null;
+  return {
+    answerKey: ent.answerKey,
+    marksKey: ent.marksKey,
+    testStartedAt: new Date(ent.testStartedAtMs),
+  };
 }
 
 export function clearAnswerKey(userId: string): void {

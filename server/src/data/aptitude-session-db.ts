@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "../config/prisma.js";
+import { clearAnswerKey } from "./aptitude-loader.js";
 
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
@@ -96,6 +97,11 @@ export async function updateAptitudeDraft(userId: string, draft: unknown): Promi
 }
 
 export async function clearAptitudeSession(userId: string): Promise<void> {
-  await ensureAptitudeSessionSchema();
-  await prisma.aptitudeSession.delete({ where: { userId } }).catch(() => {});
+  try {
+    await ensureAptitudeSessionSchema();
+    await prisma.aptitudeSession.delete({ where: { userId } }).catch(() => {});
+  } catch {
+    /* schema/table missing — still clear memory */
+  }
+  clearAnswerKey(userId);
 }
