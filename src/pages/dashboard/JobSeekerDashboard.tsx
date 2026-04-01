@@ -506,6 +506,7 @@ const JobSeekerDashboard = () => {
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{ name: shellDisplayName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
+        onSignOut={undefined}
       >
         {loadError && (
           <div className="dashboard-section-content">

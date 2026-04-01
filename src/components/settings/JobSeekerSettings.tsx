@@ -15,7 +15,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -24,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, Link2, FileText, LogOut } from "lucide-react";
+import { Mail, Link2, FileText, LogOut, UserPen } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PhoneInput } from "@/components/PhoneInput";
@@ -108,6 +107,7 @@ export function JobSeekerSettings() {
         setCurrentSalary(profile?.currentSalary ?? "");
         setExpectedSalary(profile?.expectedSalary ?? "");
         setEmploymentStatus("employed");
+      })
       .catch((err: unknown) => {
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
@@ -218,8 +218,13 @@ export function JobSeekerSettings() {
     );
   }
 
+  const scrollToProfile = () => {
+    document.getElementById("jobseeker-settings-profile")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div className="space-y-6">
+      <div id="jobseeker-settings-profile">
       <SettingsCard
         title="Profile Information"
         description="Visible to recruiters. Keep your profile up to date."
@@ -272,6 +277,7 @@ export function JobSeekerSettings() {
           </div>
         </div>
       </SettingsCard>
+      </div>
 
       <SettingsCard
         title="Professional profile"
@@ -436,85 +442,89 @@ export function JobSeekerSettings() {
 
       <SettingsCard
         title="Account & Security"
-        description="Notification and security preferences."
+        description="Notification preferences."
         onSave={saveProfile}
         saving={saving}
       >
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Email notifications</Label>
-              <p className="text-xs text-white/60">Receive emails about job matches and application updates</p>
-            </div>
-            <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>Email notifications</Label>
+            <p className="text-xs text-white/60">Receive emails about job matches and application updates</p>
           </div>
-          <div className="pt-4 border-t border-[var(--dash-navy-border)]">
-            <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="border-[var(--dash-navy-border)]">
-                  Reset password
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="border-[var(--dash-navy-border)] bg-[var(--dash-navy)]">
-                <DialogHeader>
-                <DialogTitle>Reset password</DialogTitle>
-                <DialogDescription>Enter your current password and choose a new one.</DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div>
-                    <Label>Current password</Label>
-                    <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="mt-1 bg-white/5" autoComplete="current-password" />
-                  </div>
-                  <div>
-                    <Label>New password</Label>
-                    <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="mt-1 bg-white/5" autoComplete="new-password" />
-                  </div>
-                  <div>
-                    <Label>Confirm new password</Label>
-                    <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="mt-1 bg-white/5" autoComplete="new-password" />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="ghost" onClick={() => setPasswordDialogOpen(false)}>Cancel</Button>
-                  <Button
-                    className="dashboard-btn-gold"
-                    onClick={async () => {
-                      if (newPassword !== confirmPassword) {
-                        toast.error("Passwords do not match");
-                        return;
-                      }
-                      if (newPassword.length < 8) {
-                        toast.error("Password must be at least 8 characters");
-                        return;
-                      }
-                      await changePassword(currentPassword, newPassword);
-                      setPasswordDialogOpen(false);
-                      setCurrentPassword("");
-                      setNewPassword("");
-                      setConfirmPassword("");
-                    }}
-                  >
-                    Update password
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <p className="text-xs text-white/60 mt-2">Use your current password to set a new one</p>
-          </div>
-          <div className="pt-4 border-t border-[var(--dash-navy-border)]">
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-red-400 hover:text-red-300 hover:bg-red-500/10 px-0 justify-start h-auto font-normal"
-              onClick={() => signOut()}
-            >
-              <LogOut className="h-4 w-4 mr-2 shrink-0" />
-              Sign out
-            </Button>
-            <p className="text-xs text-white/60 mt-2">End your session. You can sign in again anytime.</p>
-          </div>
+          <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
         </div>
       </SettingsCard>
+
+      <SettingsCard
+        title="Your account"
+        description="Profile edits, password, and sign-out — kept here so your dashboard stays focused on verification."
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <Button type="button" variant="outline" className="border-[var(--dash-navy-border)] justify-center sm:justify-start" onClick={scrollToProfile}>
+            <UserPen className="h-4 w-4 mr-2 shrink-0" />
+            Edit profile
+          </Button>
+          <Button type="button" variant="outline" className="border-[var(--dash-navy-border)] justify-center sm:justify-start" onClick={() => setPasswordDialogOpen(true)}>
+            Reset password
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-red-500/30 text-red-400 hover:text-red-300 hover:bg-red-500/10 justify-center sm:justify-start sm:ml-auto"
+            onClick={() => signOut()}
+          >
+            <LogOut className="h-4 w-4 mr-2 shrink-0" />
+            Sign out
+          </Button>
+        </div>
+        <p className="text-xs text-white/60 mt-3">Use Edit profile to jump to your details above, then Save Changes on each section.</p>
+      </SettingsCard>
+
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent className="border-[var(--dash-navy-border)] bg-[var(--dash-navy)]">
+          <DialogHeader>
+            <DialogTitle>Reset password</DialogTitle>
+            <DialogDescription>Enter your current password and choose a new one.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div>
+              <Label>Current password</Label>
+              <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="mt-1 bg-white/5" autoComplete="current-password" />
+            </div>
+            <div>
+              <Label>New password</Label>
+              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="mt-1 bg-white/5" autoComplete="new-password" />
+            </div>
+            <div>
+              <Label>Confirm new password</Label>
+              <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="mt-1 bg-white/5" autoComplete="new-password" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPasswordDialogOpen(false)}>Cancel</Button>
+            <Button
+              className="dashboard-btn-gold"
+              onClick={async () => {
+                if (newPassword !== confirmPassword) {
+                  toast.error("Passwords do not match");
+                  return;
+                }
+                if (newPassword.length < 8) {
+                  toast.error("Password must be at least 8 characters");
+                  return;
+                }
+                await changePassword(currentPassword, newPassword);
+                setPasswordDialogOpen(false);
+                setCurrentPassword("");
+                setNewPassword("");
+                setConfirmPassword("");
+              }}
+            >
+              Update password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
