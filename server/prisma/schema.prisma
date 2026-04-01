@@ -240,13 +240,13 @@ model AptitudeTestResult {
 model AptitudeSession {
   id        String   @id @default(uuid())
   userId    String   @unique
-  questions Json     // AptitudeQuestionForClient[] (persisted to allow resume with same question set)
+  questions Json     @default(dbgenerated("'[]'::jsonb")) // AptitudeQuestionForClient[] (persisted to allow resume with same question set)
   answerKey Json     // Record<string, string>
   marksKey  Json     // Record<string, number>
   draft     Json?    // { answers?: Record<string,string>, reviewed?: string[], visited?: string[], currentIndex?: number, secondsRemaining?: number }
   expiresAt DateTime
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
