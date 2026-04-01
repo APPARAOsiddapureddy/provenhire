@@ -35,6 +35,14 @@ export function optionalAuth(req: AuthedRequest, _res: Response, next: NextFunct
   next();
 }
 
+/** Job seeker verification flows (aptitude, DSA, stages) must not be callable as recruiter/admin. */
+export function requireJobSeeker(req: AuthedRequest, res: Response, next: NextFunction) {
+  if (req.user?.role !== "jobseeker") {
+    return res.status(403).json({ error: "Job seeker access required" });
+  }
+  return next();
+}
+
 export function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;

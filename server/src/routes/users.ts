@@ -9,7 +9,19 @@ export const usersRouter = Router();
 
 usersRouter.get("/me", requireAuth, async (req: AuthedRequest, res) => {
   const [user, certification] = await Promise.all([
-    prisma.user.findUnique({ where: { id: req.user!.id } }),
+    prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        emailVerified: true,
+        authProvider: true,
+        profileImage: true,
+        createdAt: true,
+      },
+    }),
     calculateCertificationLevel(req.user!.id),
   ]);
   res.json({
@@ -137,7 +149,6 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     location: z.string().optional(),
     college: z.string().optional(),
     graduationYear: z.string().optional(),
-    verificationStatus: z.string().optional(),
     skills: z.any().optional(),
     education: z.any().optional(),
     workExperience: z.any().optional(),
@@ -209,6 +220,7 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     delete data.email;
     delete data.employmentStatus;
     delete data.enforceRequiredFields;
+    delete data.verificationStatus;
     const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { email: true } });
     const profile = await prisma.jobSeekerProfile.upsert({
       where: { userId: req.user!.id },

@@ -15,7 +15,8 @@ const registerSchema = z.object({
   name: z.string().optional(),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(["jobseeker", "recruiter", "admin", "expert_interviewer"]).optional(),
+  /** Privileged roles must never be self-service; only jobseeker/recruiter via public signup. */
+  role: z.enum(["jobseeker", "recruiter"]).optional(),
   roleType: z.enum(["technical", "non_technical"]).optional(),
   verificationToken: z.string().optional(), // Optional for now; will add when scaling
 });
@@ -219,6 +220,7 @@ export async function register(req: Request, res: Response) {
       return res.status(400).json({ error: "Invalid registration payload" });
     }
     const { name, email, password, role, roleType } = parsed.data;
+    const effectiveRole = role === "recruiter" ? "recruiter" : "jobseeker";
     const normalizedEmail = email.trim().toLowerCase();
     if (isBlockedEmailListEnforced()) {
       const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
@@ -238,7 +240,7 @@ export async function register(req: Request, res: Response) {
         name: name || null,
         email: normalizedEmail,
         passwordHash,
-        role: role ?? "jobseeker",
+        role: effectiveRole,
         emailVerified: true,
       },
     });
@@ -287,9 +289,8 @@ export async function register(req: Request, res: Response) {
     if (code === "P2011") {
       return res.status(500).json({ error: "Invalid data. Please check your input." });
     }
-    // Return code in response for debugging (safe to expose)
     const body: { error: string; code?: string } = { error: "Registration failed. Please try again." };
-    if (code) body.code = code;
+    if (code && process.env.NODE_ENV !== "production") body.code = code;
     return res.status(500).json(body);
   }
 }
@@ -456,6 +457,15 @@ export async function googleSelectRole(req: Request, res: Response) {
   if (!updated) return res.status(404).json({ error: "User not found" });
   const session = await createSession(updated);
   return res.json({ ...session });
+}
+
+export async function logout(req: Request, res: Response) {
+  const userId = (req as { user?: { id: string } }).user?.id;
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  await prisma.refreshToken.deleteMany({ where: { userId } });
+  return res.json({ ok: true });
 }
 
 export async function refresh(req: Request, res: Response) {

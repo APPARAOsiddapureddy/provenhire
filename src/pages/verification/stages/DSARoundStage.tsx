@@ -305,8 +305,14 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       ? () => {
           if (questions.length > 0 && !submitting) {
             toast.error("Test terminated. Maximum 3 tab switches allowed.");
-            void api.post("/api/verification/dsa", { score: 0, answers: {} }).catch(() => {});
-            void api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed", score: 0 }).catch(() => {});
+            void (async () => {
+              try {
+                await api.post("/api/verification/dsa", { answers: {}, invalidated: true });
+                await api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed" });
+              } catch {
+                /* non-blocking — proctoring already ended the attempt */
+              }
+            })();
             setHasFailed(true);
             setLocalFinalScore(0);
           }
@@ -761,14 +767,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       return;
     }
 
-    const totalScore =
-      questions.length > 0
-        ? Math.round(
-            questions.reduce((sum, q) => sum + (officialByQuestion[q.id]?.score ?? scores[q.id] ?? 0), 0) /
-              questions.length
-          )
-        : 0;
-    const finalScore = Math.min(100, Math.max(0, totalScore || 0));
     setSubmitting(true);
     try {
       const answers: Record<string, { code: string; language: string; score: number }> = {};
@@ -780,15 +778,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           score: snap.score,
         };
       });
-      await api.post("/api/verification/dsa", {
-        score: finalScore,
-        answers,
-      });
+      const dsaRes = await api.post<{ score: number | null }>("/api/verification/dsa", { answers });
+      const finalScore = Math.min(100, Math.max(0, Math.round(Number(dsaRes.score ?? 0))));
       if (finalScore >= ELIGIBILITY_THRESHOLD) {
         await api.post("/api/verification/stages/update", {
           stageName: "dsa_round",
           status: "completed",
-          score: finalScore,
         });
         toast.success(`DSA round completed. Score: ${finalScore}/100.`);
         setJustPassed(true);
@@ -798,7 +793,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         await api.post("/api/verification/stages/update", {
           stageName: "dsa_round",
           status: "failed",
-          score: finalScore,
         });
         toast.error(`Score ${finalScore}/100. Minimum ${ELIGIBILITY_THRESHOLD} required to proceed. Use "Retry This Step" to try again.`);
       }
@@ -810,7 +804,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setSubmitting(false);
       setSubmitConfirmOpen(false);
     }
-  }, [questions, scores, officialByQuestion]);
+  }, [questions, officialByQuestion]);
 
   useEffect(() => {
     if (secondsRemaining === 0 && inTest && questions.length > 0 && !submitting && !timeUpSubmittedRef.current) {
@@ -885,11 +879,10 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     const handleNoDsaComplete = async () => {
       setNoDsaSubmitting(true);
       try {
-        await api.post("/api/verification/dsa", { score: 100, answers: {} });
+        await api.post("/api/verification/dsa", { answers: {} });
         await api.post("/api/verification/stages/update", {
           stageName: "dsa_round",
           status: "completed",
-          score: 100,
         });
         toast.success("DSA is not required for your role. You've automatically passed this step.");
         onComplete();

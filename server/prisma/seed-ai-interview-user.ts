@@ -68,30 +68,20 @@ async function main() {
   });
 
   // Mark profile_setup, aptitude_test, dsa_round as completed; expert_interview as in_progress
-  const stages = await prisma.verificationStage.findMany({
-    where: { userId: user.id },
-  });
-  const existingByStage = new Map(stages.map((s) => [s.stageName, s]));
   for (const stageName of technicalStages) {
     const status =
       stageName === "expert_interview" ? "in_progress" : "completed";
     const score = stageName === "expert_interview" ? undefined : 80;
-    const existing = existingByStage.get(stageName);
-    if (existing) {
-      await prisma.verificationStage.update({
-        where: { id: existing.id },
-        data: { status, score: score ?? undefined },
-      });
-    } else {
-      await prisma.verificationStage.create({
-        data: {
-          userId: user.id,
-          stageName,
-          status,
-          score: score ?? null,
-        },
-      });
-    }
+    await prisma.verificationStage.upsert({
+      where: { userId_stageName: { userId: user.id, stageName } },
+      create: {
+        userId: user.id,
+        stageName,
+        status,
+        score: score ?? null,
+      },
+      update: { status, score: score ?? undefined },
+    });
   }
 
   console.log("\n--- AI Interview Test User ---");

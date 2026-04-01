@@ -72,6 +72,16 @@ humanInterviewRouter.post("/payment/create-order", requireAuth, async (req: Auth
     });
     if (!attempt) return res.status(400).json({ error: "No payable attempt" });
 
+    if (attempt.razorpayOrderId) {
+      return res.json({
+        orderId: attempt.razorpayOrderId,
+        amount: HUMAN_INTERVIEW_PRICE_PAISE,
+        currency: "INR",
+        keyId: process.env.RAZORPAY_KEY_ID,
+        attemptId: attempt.id,
+      });
+    }
+
     const receipt = `hi_${attempt.id.replace(/-/g, "").slice(0, 28)}`;
     const order = await razorpayCreateOrder(HUMAN_INTERVIEW_PRICE_PAISE, receipt);
     await prisma.humanInterviewAttempt.update({
@@ -111,7 +121,7 @@ humanInterviewRouter.post("/payment/verify", requireAuth, async (req: AuthedRequ
       select: { email: true, name: true },
     });
     await prisma.humanInterviewAttempt.updateMany({
-      where: { razorpayOrderId: orderId, candidateId: req.user!.id },
+      where: { razorpayOrderId: orderId, candidateId: req.user!.id, paymentStatus: "pending" },
       data: { paymentStatus: "failed" },
     });
     if (user?.email) {
@@ -125,48 +135,47 @@ humanInterviewRouter.post("/payment/verify", requireAuth, async (req: AuthedRequ
       const att = await tx.humanInterviewAttempt.findFirst({
         where: { razorpayOrderId: orderId, candidateId: req.user!.id },
       });
-      if (!att || att.paymentStatus !== "pending") {
-        throw new Error("Invalid attempt state");
+      if (!att) {
+        throw new Error("Attempt not found");
+      }
+      if (att.paymentStatus === "paid") {
+        return;
+      }
+      if (att.paymentStatus !== "pending") {
+        throw new Error("Payment not pending");
       }
       await tx.humanInterviewAttempt.update({
         where: { id: att.id },
         data: { paymentStatus: "paid", razorpayPaymentId: paymentId },
       });
-      const existingHuman = await tx.verificationStage.findFirst({
-        where: { userId: req.user!.id, stageName: "human_expert_interview" },
+      await tx.verificationStage.upsert({
+        where: {
+          userId_stageName: { userId: req.user!.id, stageName: "human_expert_interview" },
+        },
+        create: {
+          userId: req.user!.id,
+          stageName: "human_expert_interview",
+          status: "in_progress",
+        },
+        update: { status: "in_progress" },
       });
-      if (existingHuman) {
-        await tx.verificationStage.update({
-          where: { id: existingHuman.id },
-          data: { status: "in_progress" },
-        });
-      } else {
-        await tx.verificationStage.create({
-          data: { userId: req.user!.id, stageName: "human_expert_interview", status: "in_progress" },
-        });
-      }
     });
     res.json({ ok: true });
   } catch (e) {
     console.error("[human-interview/payment/verify]", e);
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: { email: true, name: true },
-    });
-    await prisma.humanInterviewAttempt.updateMany({
-      where: { razorpayOrderId: orderId, candidateId: req.user!.id },
-      data: { paymentStatus: "failed" },
-    });
-    if (user?.email) {
-      void sendHumanInterviewPaymentFailedEmail(user.email, user.name).catch(() => {});
+    const msg = e instanceof Error ? e.message : "Verify failed";
+    if (msg === "Attempt not found") {
+      return res.status(404).json({ error: msg });
     }
-    res.status(400).json({ error: e instanceof Error ? e.message : "Verify failed" });
+    if (msg === "Payment not pending") {
+      return res.status(400).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 
-/** Local/dev bypass when Razorpay keys are missing */
-const MOCK_ALLOWED =
-  process.env.ALLOW_MOCK_HUMAN_INTERVIEW_PAYMENT === "true" || process.env.NODE_ENV !== "production";
+/** Explicit opt-in only — never enable in staging/production by default. */
+const MOCK_ALLOWED = process.env.ALLOW_MOCK_HUMAN_INTERVIEW_PAYMENT === "true";
 
 humanInterviewRouter.post("/payment/mock-success", requireAuth, async (req: AuthedRequest, res) => {
   if (!MOCK_ALLOWED) return res.status(403).json({ error: "Not allowed" });
@@ -178,26 +187,30 @@ humanInterviewRouter.post("/payment/mock-success", requireAuth, async (req: Auth
     }
     await prisma.$transaction(async (tx) => {
       const att = await tx.humanInterviewAttempt.findFirst({
-        where: { id: attemptId, candidateId: req.user!.id, paymentStatus: "pending" },
+        where: { id: attemptId, candidateId: req.user!.id },
       });
       if (!att) throw new Error("No attempt");
+      if (att.paymentStatus === "paid") {
+        return;
+      }
+      if (att.paymentStatus !== "pending") {
+        throw new Error("Payment not pending");
+      }
       await tx.humanInterviewAttempt.update({
         where: { id: att.id },
         data: { paymentStatus: "paid", razorpayPaymentId: "mock_pay" },
       });
-      const existingHuman = await tx.verificationStage.findFirst({
-        where: { userId: req.user!.id, stageName: "human_expert_interview" },
+      await tx.verificationStage.upsert({
+        where: {
+          userId_stageName: { userId: req.user!.id, stageName: "human_expert_interview" },
+        },
+        create: {
+          userId: req.user!.id,
+          stageName: "human_expert_interview",
+          status: "in_progress",
+        },
+        update: { status: "in_progress" },
       });
-      if (existingHuman) {
-        await tx.verificationStage.update({
-          where: { id: existingHuman.id },
-          data: { status: "in_progress" },
-        });
-      } else {
-        await tx.verificationStage.create({
-          data: { userId: req.user!.id, stageName: "human_expert_interview", status: "in_progress" },
-        });
-      }
     });
     res.json({ ok: true });
   } catch (e) {

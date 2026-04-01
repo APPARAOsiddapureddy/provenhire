@@ -3,6 +3,7 @@
  * Prefer: firebase-service-account.json in server dir, or GOOGLE_APPLICATION_CREDENTIALS, or FIREBASE_* env vars.
  */
 import admin from "firebase-admin";
+import type { ServiceAccount } from "firebase-admin/app";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -21,12 +22,17 @@ export function initFirebase(): void {
   const credsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   const jsonPath = credsPath && fs.existsSync(credsPath) ? credsPath : (fs.existsSync(serviceAccountPath) ? serviceAccountPath : null);
   if (jsonPath) {
-    const serviceAccount = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    firebaseInitialized = true;
-    return;
+    try {
+      const raw = fs.readFileSync(jsonPath, "utf8");
+      const serviceAccount = JSON.parse(raw) as ServiceAccount;
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+      firebaseInitialized = true;
+      return;
+    } catch (e) {
+      console.error("[firebase] Failed to read or parse credentials JSON at", jsonPath, e);
+    }
   }
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;

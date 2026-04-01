@@ -189,6 +189,8 @@ model VerificationStage {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, stageName])
 }
 
 enum SkillVerificationStatus {
@@ -244,6 +246,8 @@ model AptitudeSession {
   answerKey Json     // Record<string, string>
   marksKey  Json     // Record<string, number>
   draft     Json?    // { answers?: Record<string,string>, reviewed?: string[], visited?: string[], currentIndex?: number, secondsRemaining?: number }
+  /// Server time when this question set was issued (enforced on submit).
+  testStartedAt DateTime?
   expiresAt DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

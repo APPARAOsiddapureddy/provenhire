@@ -31,6 +31,9 @@ export const DSA_DEFAULT_MEMORY_LIMIT = 256000; // KB
 export const DSA_WALL_TIME_LIMIT = 10; // seconds
 
 export const DSA_QUESTIONS_COUNT = parseInt(process.env.DSA_QUESTIONS_COUNT ?? "3", 10);
+
+/** Minimum aggregate score (0–100) to pass the DSA round — keep aligned with `src/data/dsaRoundConfig.ts`. */
+export const DSA_PASS_THRESHOLD = 60;
 export const DSA_PRACTICE_COUNT = 2;
 
 export type ExpectedType = "exact" | "numeric" | "array" | "set";

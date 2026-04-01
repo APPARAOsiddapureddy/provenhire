@@ -91,24 +91,16 @@ async function main() {
     });
 
     for (const s of u.stages) {
-      const existing = await prisma.verificationStage.findFirst({
-        where: { userId: user.id, stageName: s.stageName },
+      await prisma.verificationStage.upsert({
+        where: { userId_stageName: { userId: user.id, stageName: s.stageName } },
+        create: {
+          userId: user.id,
+          stageName: s.stageName,
+          status: s.status,
+          score: s.score ?? null,
+        },
+        update: { status: s.status, score: s.score ?? undefined },
       });
-      if (existing) {
-        await prisma.verificationStage.update({
-          where: { id: existing.id },
-          data: { status: s.status, score: s.score ?? undefined },
-        });
-      } else {
-        await prisma.verificationStage.create({
-          data: {
-            userId: user.id,
-            stageName: s.stageName,
-            status: s.status,
-            score: s.score ?? null,
-          },
-        });
-      }
     }
 
     if ("aptitudeScore" in u && u.aptitudeScore != null) {

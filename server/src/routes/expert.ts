@@ -86,32 +86,40 @@ expertRouter.post("/schedule-interview", async (req: AuthedRequest, res) => {
   });
   if (existingSession) return res.status(400).json({ error: "Candidate already has a scheduled interview" });
 
-  const [session] = await prisma.$transaction([
-    prisma.humanInterviewSession.create({
-      data: {
-        userId: candidateUserId,
-        interviewerId: interviewer.id,
-        slotId: slot.id,
-        scheduledAt: slot.startsAt,
-        status: "scheduled",
-      },
-    }),
-    prisma.interviewerSlot.update({
-      where: { id: slot.id },
-      data: { status: "booked", bookedUserId: candidateUserId },
-    }),
-  ]);
-
-  const existing = await prisma.verificationStage.findFirst({
-    where: { userId: candidateUserId, stageName: "human_expert_interview" },
-  });
-  if (existing) {
-    await prisma.verificationStage.update({ where: { id: existing.id }, data: { status: "in_progress" } });
-  } else {
-    await prisma.verificationStage.create({
-      data: { userId: candidateUserId, stageName: "human_expert_interview", status: "in_progress" },
+  let session: Awaited<ReturnType<typeof prisma.humanInterviewSession.create>>;
+  try {
+    session = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.interviewerSlot.updateMany({
+        where: { id: slotId, interviewerId: interviewer.id, status: "available" },
+        data: { status: "booked", bookedUserId: candidateUserId },
+      });
+      if (claimed.count === 0) {
+        throw new Error("SLOT_TAKEN");
+      }
+      return tx.humanInterviewSession.create({
+        data: {
+          userId: candidateUserId,
+          interviewerId: interviewer.id,
+          slotId: slot.id,
+          scheduledAt: slot.startsAt,
+          status: "scheduled",
+        },
+      });
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "SLOT_TAKEN") {
+      return res.status(409).json({ error: "Slot is no longer available." });
+    }
+    throw e;
   }
+
+  await prisma.verificationStage.upsert({
+    where: {
+      userId_stageName: { userId: candidateUserId, stageName: "human_expert_interview" },
+    },
+    create: { userId: candidateUserId, stageName: "human_expert_interview", status: "in_progress" },
+    update: { status: "in_progress" },
+  });
 
   res.status(201).json({ session, message: "Interview scheduled" });
 });

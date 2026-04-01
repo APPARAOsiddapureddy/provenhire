@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { authRouter } from "./routes/auth.js";
@@ -34,8 +33,17 @@ export function createApp() {
     "http://localhost:5173",
     "http://localhost:8080",
   ];
+  const corsExtra = (process.env.CORS_EXTRA_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const allowAllVercelPreviews =
+    process.env.CORS_ALLOW_VERCEL_PREVIEWS === "true" || process.env.CORS_ALLOW_VERCEL_PREVIEWS === "1";
   const isAllowedOrigin = (o: string) =>
-    allowedOrigins.includes(o) || o.endsWith(".vercel.app") || o.startsWith("http://localhost:");
+    allowedOrigins.includes(o) ||
+    corsExtra.includes(o) ||
+    (allowAllVercelPreviews && o.endsWith(".vercel.app")) ||
+    o.startsWith("http://localhost:");
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     const allow = !origin || isAllowedOrigin(origin);
@@ -51,16 +59,14 @@ export function createApp() {
   });
 
   app.use(
-    cors({
-      origin: (o, cb) => cb(null, true),
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization"],
-      optionsSuccessStatus: 204,
-    })
-  );
-  app.use(
     helmet({
-      contentSecurityPolicy: false,
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          defaultSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
+      },
       crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     })
   );
@@ -80,7 +86,15 @@ export function createApp() {
     res.json({ status: "running", service: "provenhire-api" });
   });
 
-  app.get("/diagnostic", async (_req, res) => {
+  app.get("/diagnostic", async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      const secret = process.env.DIAGNOSTIC_SECRET;
+      const hdr = req.headers["x-diagnostic-secret"];
+      const token = typeof hdr === "string" ? hdr : Array.isArray(hdr) ? hdr[0] : "";
+      if (!secret || token !== secret) {
+        return res.status(404).end();
+      }
+    }
     const jwtOk = !!process.env.JWT_SECRET;
     const resendConfigured = !!process.env.RESEND_API_KEY;
     const gmailConfigured = !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
@@ -94,7 +108,7 @@ export function createApp() {
       await prisma.emailVerificationCode.findFirst({ take: 1 });
       emailVerificationTableOk = true;
     } catch (e) {
-      // ignore
+      console.warn("[diagnostic] database probe failed:", e instanceof Error ? e.message : e);
     }
     res.json({
       ok: jwtOk && dbOk,

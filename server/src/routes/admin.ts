@@ -1160,19 +1160,17 @@ adminRouter.post("/ai-interview-queue/:id/approve", async (req: AuthedRequest, r
       });
 
       if (firstAttempt) {
-        const existingHuman = await tx.verificationStage.findFirst({
-          where: { userId: queue.candidateId, stageName: "human_expert_interview" },
+        await tx.verificationStage.upsert({
+          where: {
+            userId_stageName: { userId: queue.candidateId, stageName: "human_expert_interview" },
+          },
+          create: {
+            userId: queue.candidateId,
+            stageName: "human_expert_interview",
+            status: "in_progress",
+          },
+          update: { status: "in_progress" },
         });
-        if (existingHuman) {
-          await tx.verificationStage.update({
-            where: { id: existingHuman.id },
-            data: { status: "in_progress" },
-          });
-        } else {
-          await tx.verificationStage.create({
-            data: { userId: queue.candidateId, stageName: "human_expert_interview", status: "in_progress" },
-          });
-        }
       } else {
         await tx.verificationStage.updateMany({
           where: { userId: queue.candidateId, stageName: "human_expert_interview" },

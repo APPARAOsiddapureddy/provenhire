@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireJobSeeker } from "../middleware/auth.js";
+import { codeExecuteLimiter } from "../middleware/executeRateLimit.js";
 
 const JUDGE0_CE_URL = process.env.JUDGE0_CE_URL || "https://ce.judge0.com";
 
@@ -105,7 +106,7 @@ async function executeWithJudge0(
   };
 }
 
-executeRouter.post("/", requireAuth, async (req: Request, res: Response) => {
+executeRouter.post("/", codeExecuteLimiter, requireAuth, requireJobSeeker, async (req: Request, res: Response) => {
   const parsed = executeSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });

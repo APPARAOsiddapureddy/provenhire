@@ -56,24 +56,18 @@ export async function recordAiInterviewSubmittedForAdminReview(params: {
       },
       update: { status: "pending" },
     });
-    const existing = await tx.verificationStage.findFirst({
-      where: { userId: params.userId, stageName: "expert_interview" },
+    await tx.verificationStage.upsert({
+      where: {
+        userId_stageName: { userId: params.userId, stageName: "expert_interview" },
+      },
+      create: {
+        userId: params.userId,
+        stageName: "expert_interview",
+        status: "pending_review",
+        score: params.score,
+      },
+      update: { status: "pending_review", score: params.score },
     });
-    if (existing) {
-      await tx.verificationStage.update({
-        where: { id: existing.id },
-        data: { status: "pending_review", score: params.score },
-      });
-    } else {
-      await tx.verificationStage.create({
-        data: {
-          userId: params.userId,
-          stageName: "expert_interview",
-          status: "pending_review",
-          score: params.score,
-        },
-      });
-    }
     await tx.verificationStage.updateMany({
       where: { userId: params.userId, stageName: "human_expert_interview" },
       data: { status: "locked" },

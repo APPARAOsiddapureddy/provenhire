@@ -361,8 +361,7 @@ const VerificationFlow = () => {
         await api.post("/api/verification/stages/update", { stageName: nextStage, status: "in_progress" });
       }
 
-      if (stageName === 'human_expert_interview') {
-        await api.post("/api/users/job-seeker-profile", { verificationStatus: "verified" });
+      if (stageName === "human_expert_interview") {
         setShowAllCompletePopup(true);
       }
 

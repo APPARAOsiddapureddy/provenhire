@@ -300,7 +300,9 @@ const JobSeekerDashboard = () => {
           setApplications(applicationsList);
           setSavedJobs(savedList);
           setStats(prev => ({ ...prev, applicationsSent: applicationsList.length }));
-        } catch (_) {}
+        } catch (e) {
+          console.warn("[JobSeekerDashboard] refetch applications/saved failed", e);
+        }
         finally {
           navigate(location.pathname, { replace: true, state: {} });
           setTimeout(() => { appliedAndRefetchedRef.current = false; }, 500);

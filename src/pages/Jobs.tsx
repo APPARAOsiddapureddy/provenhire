@@ -279,7 +279,9 @@ const Jobs = () => {
           const rt = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
           track = rt === "non_technical" ? "non_technical" : "tech";
           setRoleType(rt as "technical" | "non_technical");
-        } catch (_) {}
+        } catch (e) {
+          console.warn("[Jobs] job-seeker profile fetch failed; listing jobs without track filter", e);
+        }
       }
       const url = track ? `/api/jobs?track=${track}` : "/api/jobs";
       const { jobs: data } = await api.get<{ jobs: any[] }>(url);

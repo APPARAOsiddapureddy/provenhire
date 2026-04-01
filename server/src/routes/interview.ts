@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, AuthedRequest } from "../middleware/auth.js";
+import { Prisma } from "@prisma/client";
+import { requireAuth, requireJobSeeker, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import {
   evaluateInterview,
@@ -82,7 +83,7 @@ function normalizeKeyPoints(raw: unknown): string[] {
 const PENDING_REVIEW_MESSAGE =
   "Your interview responses have been recorded successfully. Our evaluation system encountered a technical issue — your interview has been flagged for manual review and you will receive your result within 24 hours. This does not affect your application status.";
 
-interviewRouter.post("/start", requireAuth, async (req: AuthedRequest, res) => {
+interviewRouter.post("/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
     // experienceLevel optional for backward compatibility (older/cached clients that only send jobRole).
     const schema = z.object({
@@ -133,7 +134,7 @@ interviewRouter.post("/start", requireAuth, async (req: AuthedRequest, res) => {
   }
 });
 
-interviewRouter.post("/respond", requireAuth, async (req: AuthedRequest, res) => {
+interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
     const schema = z.object({
       interviewId: z.string().min(1),
@@ -364,12 +365,17 @@ interviewRouter.post("/respond", requireAuth, async (req: AuthedRequest, res) =>
       isFollowup: false,
     });
   } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return res.status(409).json({
+        error: "This answer was already recorded. Continue from the current question.",
+      });
+    }
     console.error("[interview/respond]", e);
     return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to submit answer" });
   }
 });
 
-interviewRouter.post("/:id/request-review", requireAuth, async (req: AuthedRequest, res) => {
+interviewRouter.post("/:id/request-review", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   const schema = z.object({ reason: z.string().max(500) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
@@ -401,7 +407,7 @@ interviewRouter.post("/:id/request-review", requireAuth, async (req: AuthedReque
   res.json({ ok: true, message: "Your request has been submitted for admin review." });
 });
 
-interviewRouter.get("/latest", requireAuth, async (req: AuthedRequest, res) => {
+interviewRouter.get("/latest", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   const interview = await prisma.interview.findFirst({
     where: {
       userId: req.user!.id,
@@ -421,7 +427,7 @@ interviewRouter.get("/latest", requireAuth, async (req: AuthedRequest, res) => {
   });
 });
 
-interviewRouter.get("/:id/result", requireAuth, async (req: AuthedRequest, res) => {
+interviewRouter.get("/:id/result", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   const interview = await prisma.interview.findUnique({ where: { id: req.params.id } });
   if (!interview || interview.userId !== req.user!.id) {
     return res.status(404).json({ error: "Interview not found" });
