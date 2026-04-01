@@ -24,7 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, Link2, FileText } from "lucide-react";
+import { Mail, Link2, FileText, LogOut } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { PhoneInput } from "@/components/PhoneInput";
 import { jobSeekerInitialsFromFullName } from "@/utils/jobSeekerIdentity";
 
 const WORK_MODES = ["Remote", "Hybrid", "Onsite"] as const;
@@ -52,6 +55,13 @@ export function JobSeekerSettings() {
   const [preferredLocations, setPreferredLocations] = useState("");
   const [workModePreference, setWorkModePreference] = useState<string>("");
   const [emailNotifications, setEmailNotifications] = useState(true);
+  const [bio, setBio] = useState("");
+  const [employmentStatus, setEmploymentStatus] = useState<"employed" | "unemployed" | "student">("employed");
+  const [noticePeriod, setNoticePeriod] = useState("");
+  const [currentSalary, setCurrentSalary] = useState("");
+  const [expectedSalary, setExpectedSalary] = useState("");
+  const [skills, setSkills] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState("");
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -59,10 +69,13 @@ export function JobSeekerSettings() {
   const [serverUnavailable, setServerUnavailable] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
 
-  const loadSettings = () => {
-    setLoading(true);
-    setServerUnavailable(false);
-    setSessionExpired(false);
+  const loadSettings = (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      setLoading(true);
+      setServerUnavailable(false);
+      setSessionExpired(false);
+    }
     api
       .get<{ profile: any; user: any; preferences: any }>("/api/settings/job-seeker")
       .then(({ profile, user: u, preferences: p }) => {
@@ -82,7 +95,19 @@ export function JobSeekerSettings() {
         setPreferredLocations(Array.isArray(profile?.preferredLocations) ? profile.preferredLocations.join(", ") : "");
         setWorkModePreference(profile?.workModePreference ?? "");
         setEmailNotifications(p?.emailNotifications ?? true);
-      })
+        setBio(profile?.about ?? profile?.bio ?? "");
+        const rawSkills = profile?.skills;
+        setSkills(
+          Array.isArray(rawSkills)
+            ? rawSkills.map((s: unknown) => String(s))
+            : typeof rawSkills === "string" && rawSkills.trim()
+              ? [rawSkills]
+              : []
+        );
+        setNoticePeriod(profile?.noticePeriod ?? "");
+        setCurrentSalary(profile?.currentSalary ?? "");
+        setExpectedSalary(profile?.expectedSalary ?? "");
+        setEmploymentStatus("employed");
       .catch((err: unknown) => {
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : "";
@@ -98,7 +123,9 @@ export function JobSeekerSettings() {
           toast.error(msg || "Failed to load settings");
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
   };
 
   useEffect(() => {
@@ -113,6 +140,17 @@ export function JobSeekerSettings() {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
+
+  const addSkill = () => {
+    const next = skillInput.trim();
+    if (!next || skills.includes(next)) return;
+    setSkills((prev) => [...prev, next]);
+    setSkillInput("");
+  };
+
+  const removeSkill = (skill: string) => {
+    setSkills((prev) => prev.filter((s) => s !== skill));
+  };
 
   const saveProfile = async () => {
     setSaving(true);
@@ -132,7 +170,19 @@ export function JobSeekerSettings() {
         workModePreference: workModePreference || undefined,
         emailNotifications,
       });
+      const isEmployed = employmentStatus === "employed";
+      await api.post("/api/users/job-seeker-profile", {
+        about: bio.trim() || undefined,
+        location: location.trim() || undefined,
+        phone: phone.trim() || undefined,
+        skills: skills.length ? skills : undefined,
+        noticePeriod: isEmployed ? (noticePeriod.trim() || undefined) : null,
+        currentSalary: isEmployed ? (currentSalary.trim() || undefined) : null,
+        expectedSalary: expectedSalary.trim() || undefined,
+        employmentStatus,
+      });
       toast.success("Settings saved");
+      loadSettings({ silent: true });
     } catch {
       toast.error("Failed to save");
     } finally {
@@ -197,7 +247,12 @@ export function JobSeekerSettings() {
           </div>
           <div>
             <Label>Phone</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="+91 98765 43210" />
+            <PhoneInput
+              value={phone}
+              onChange={setPhone}
+              placeholder="98765 43210"
+              className="mt-1 bg-white/5 border-[var(--dash-navy-border)]"
+            />
           </div>
           <div>
             <Label>Location</Label>
@@ -214,6 +269,119 @@ export function JobSeekerSettings() {
               <Input value={linkedInUrl} onChange={(e) => setLinkedInUrl(e.target.value)} placeholder="LinkedIn URL" className="bg-white/5 border-[var(--dash-navy-border)]" />
               <Input value={portfolioUrl} onChange={(e) => setPortfolioUrl(e.target.value)} placeholder="Personal website" className="bg-white/5 border-[var(--dash-navy-border)]" />
             </div>
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Professional profile"
+        description="Bio, employment, and skills — used across verification and your recruiter-facing resume."
+        onSave={saveProfile}
+        saving={saving}
+      >
+        <div className="grid gap-4">
+          <div>
+            <Label>Bio</Label>
+            <Textarea
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="Tell recruiters about yourself..."
+              rows={3}
+              className="mt-1 resize-none bg-white/5 border-[var(--dash-navy-border)]"
+            />
+          </div>
+          <div>
+            <Label>Employment status</Label>
+            <div className="flex flex-wrap gap-3 mt-2">
+              {(["employed", "unemployed", "student"] as const).map((status) => (
+                <label key={status} className="flex items-center gap-2 cursor-pointer text-sm text-white/90">
+                  <input
+                    type="radio"
+                    name="employmentStatus"
+                    checked={employmentStatus === status}
+                    onChange={() => {
+                      setEmploymentStatus(status);
+                      if (status !== "employed") {
+                        setNoticePeriod("");
+                        setCurrentSalary("");
+                      }
+                    }}
+                    className="h-4 w-4"
+                  />
+                  <span className="capitalize">{status}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {employmentStatus === "employed" && (
+              <>
+                <div>
+                  <Label>Notice period</Label>
+                  <Input
+                    value={noticePeriod}
+                    onChange={(e) => setNoticePeriod(e.target.value)}
+                    className="mt-1 bg-white/5 border-[var(--dash-navy-border)]"
+                    placeholder="e.g. 15 days, Immediate"
+                  />
+                </div>
+                <div>
+                  <Label>Current salary</Label>
+                  <Input
+                    value={currentSalary}
+                    onChange={(e) => setCurrentSalary(e.target.value)}
+                    className="mt-1 bg-white/5 border-[var(--dash-navy-border)]"
+                    placeholder="e.g. 12 LPA"
+                  />
+                </div>
+              </>
+            )}
+            <div className={employmentStatus === "employed" ? "" : "sm:col-span-2"}>
+              <Label>Expected salary</Label>
+              <Input
+                value={expectedSalary}
+                onChange={(e) => setExpectedSalary(e.target.value)}
+                className="mt-1 bg-white/5 border-[var(--dash-navy-border)]"
+                placeholder="e.g. 18–22 LPA"
+              />
+            </div>
+          </div>
+          <div>
+            <Label>Skills</Label>
+            <div className="flex gap-2 mt-1">
+              <Input
+                value={skillInput}
+                onChange={(e) => setSkillInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addSkill();
+                  }
+                }}
+                placeholder="Add a skill"
+                className="bg-white/5 border-[var(--dash-navy-border)]"
+              />
+              <Button type="button" variant="outline" className="shrink-0 border-[var(--dash-navy-border)]" onClick={addSkill}>
+                Add
+              </Button>
+            </div>
+            {skills.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2 p-2 rounded-md border border-[var(--dash-navy-border)] bg-white/5 min-h-[44px]">
+                {skills.map((skill) => (
+                  <Badge key={skill} variant="secondary" className="text-xs">
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => removeSkill(skill)}
+                      className="ml-1.5 text-muted-foreground hover:text-foreground leading-none"
+                      aria-label={`Remove ${skill}`}
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </SettingsCard>
@@ -284,13 +452,13 @@ export function JobSeekerSettings() {
             <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" className="border-[var(--dash-navy-border)]">
-                  Change password
+                  Reset password
                 </Button>
               </DialogTrigger>
               <DialogContent className="border-[var(--dash-navy-border)] bg-[var(--dash-navy)]">
                 <DialogHeader>
-                  <DialogTitle>Change password</DialogTitle>
-                  <DialogDescription>Enter your current password and choose a new one.</DialogDescription>
+                <DialogTitle>Reset password</DialogTitle>
+                <DialogDescription>Enter your current password and choose a new one.</DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   <div>
@@ -332,6 +500,18 @@ export function JobSeekerSettings() {
               </DialogContent>
             </Dialog>
             <p className="text-xs text-white/60 mt-2">Use your current password to set a new one</p>
+          </div>
+          <div className="pt-4 border-t border-[var(--dash-navy-border)]">
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-red-400 hover:text-red-300 hover:bg-red-500/10 px-0 justify-start h-auto font-normal"
+              onClick={() => signOut()}
+            >
+              <LogOut className="h-4 w-4 mr-2 shrink-0" />
+              Sign out
+            </Button>
+            <p className="text-xs text-white/60 mt-2">End your session. You can sign in again anytime.</p>
           </div>
         </div>
       </SettingsCard>

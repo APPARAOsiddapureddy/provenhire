@@ -2,17 +2,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase, CheckCircle, Clock, LogOut, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks } from "lucide-react";
+import { Briefcase, CheckCircle, Clock, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { api, BACKEND_DOWN_MSG, hasAuthToken } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { PhoneInput } from "@/components/PhoneInput";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import SkillPassport from "@/components/SkillPassport";
 import CandidateProfileView, { type CandidateProfileViewProfile } from "@/components/CandidateProfileView";
 import { VerificationPipelineCard } from "@/components/VerificationPipelineCard";
@@ -57,7 +52,7 @@ const deriveCertificationFromStages = (
 };
 
 const JobSeekerDashboard = () => {
-  const { user, signOut, changePassword, completeGoogleSignUpRole, isInitializing } = useAuth();
+  const { user, completeGoogleSignUpRole, isInitializing } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [profile, setProfile] = useState<any>(null);
@@ -75,23 +70,7 @@ const JobSeekerDashboard = () => {
   });
   const [verificationProgress, setVerificationProgress] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [showProfileDialog, setShowProfileDialog] = useState(false);
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [showVerificationDialog, setShowVerificationDialog] = useState(false);
-  const [editingProfile, setEditingProfile] = useState({
-    bio: '',
-    location: '',
-    phone: '',
-    skills: [] as string[],
-    employmentStatus: 'employed' as 'employed' | 'unemployed' | 'student',
-    noticePeriod: '',
-    currentSalary: '',
-    expectedSalary: '',
-  });
-  const [skillInput, setSkillInput] = useState('');
   const [loadError, setLoadError] = useState(false);
   const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'resume' | 'applications'>('candidate');
   const appliedAndRefetchedRef = useRef(false);
@@ -214,30 +193,6 @@ const JobSeekerDashboard = () => {
         (profileChecklist.filter((item) => item.done).length / profileChecklist.length) * 100
       )
     : 0;
-  const handleChangePassword = async () => {
-    if (!currentPassword || !newPassword || !confirmNewPassword) {
-      toast.error("Please fill in all password fields");
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      toast.error("New passwords do not match");
-      return;
-    }
-    if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
-      return;
-    }
-    try {
-      await changePassword(currentPassword, newPassword);
-      setShowPasswordDialog(false);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmNewPassword("");
-    } catch {
-      // handled in context
-    }
-  };
-
   const handleRestrictedAction = () => {
     if (requiresVerification()) {
       setShowVerificationDialog(true);
@@ -366,17 +321,6 @@ const JobSeekerDashboard = () => {
 
       if (profile) {
         setProfile(profile);
-        const hasEmployedFields = !!(profile.noticePeriod || profile.currentSalary);
-        setEditingProfile({
-          bio: profile.about ?? profile.bio ?? '',
-          location: profile.location || '',
-          phone: profile.phone || '',
-          skills: profile.skills || [],
-          employmentStatus: hasEmployedFields ? 'employed' : 'employed',
-          noticePeriod: profile.noticePeriod || '',
-          currentSalary: profile.currentSalary || '',
-          expectedSalary: profile.expectedSalary || '',
-        });
       } else {
         setProfile(null);
       }
@@ -504,48 +448,6 @@ const JobSeekerDashboard = () => {
     }
   };
 
-  const handleUpdateProfile = async () => {
-    try {
-      const isEmployed = editingProfile.employmentStatus === 'employed';
-      await api.post("/api/users/job-seeker-profile", {
-        about: editingProfile.bio,
-        location: editingProfile.location,
-        phone: editingProfile.phone,
-        skills: editingProfile.skills,
-        noticePeriod: isEmployed ? (editingProfile.noticePeriod || undefined) : null,
-        currentSalary: isEmployed ? (editingProfile.currentSalary || undefined) : null,
-        expectedSalary: editingProfile.expectedSalary || undefined,
-      });
-
-      setProfile((prev: any) => ({
-        ...prev,
-        ...editingProfile
-      }));
-      setShowProfileDialog(false);
-      toast.success('Profile updated successfully!');
-    } catch (error: any) {
-      console.error('Error updating profile:', error);
-      toast.error('Failed to update profile');
-    }
-  };
-
-  const addSkill = () => {
-    if (skillInput.trim() && !editingProfile.skills.includes(skillInput.trim())) {
-      setEditingProfile(prev => ({
-        ...prev,
-        skills: [...prev.skills, skillInput.trim()]
-      }));
-      setSkillInput('');
-    }
-  };
-
-  const removeSkill = (skill: string) => {
-    setEditingProfile(prev => ({
-      ...prev,
-      skills: prev.skills.filter(s => s !== skill)
-    }));
-  };
-
   const getStatusBadge = (status: string) => {
     const statusColors: Record<string, string> = {
       'applied': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
@@ -604,16 +506,7 @@ const JobSeekerDashboard = () => {
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{ name: shellDisplayName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
-        onSignOut={signOut}
       >
-        {/* Top-right account actions — always visible for quick access */}
-        {!loading && (
-          <div className="flex items-center justify-end gap-2 px-4 py-3 border-b border-[var(--dash-navy-border)] bg-[var(--dash-navy)] shrink-0">
-            <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowProfileDialog(true)}>Edit Profile</Button>
-            <Button className="dashboard-btn-ghost" size="sm" onClick={() => setShowPasswordDialog(true)}>Reset Password</Button>
-            <Button className="dashboard-btn-ghost" size="sm" onClick={signOut}><LogOut className="h-4 w-4 mr-2" />Sign Out</Button>
-          </div>
-        )}
         {loadError && (
           <div className="dashboard-section-content">
             <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
@@ -1048,184 +941,6 @@ const JobSeekerDashboard = () => {
           </div>
         )}
       </DashboardShell>
-
-      {/* Profile Edit Dialog — fixed height so Submit is always visible */}
-      <Dialog open={showProfileDialog} onOpenChange={setShowProfileDialog}>
-        <DialogContent className="max-w-lg h-[85vh] max-h-[85vh] flex flex-col overflow-hidden p-6 gap-0">
-          <DialogHeader className="flex-shrink-0 pb-4">
-            <DialogTitle>Edit Profile</DialogTitle>
-            <DialogDescription>Update your job seeker profile information</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-4 pr-1">
-              <div className="space-y-2">
-                <Label>Bio</Label>
-                <Textarea
-                  placeholder="Tell us about yourself..."
-                  value={editingProfile.bio}
-                  onChange={(e) => setEditingProfile(prev => ({ ...prev, bio: e.target.value }))}
-                  rows={2}
-                  className="resize-none"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Location</Label>
-                  <Input
-                    placeholder="e.g. Bangalore or Gurugram"
-                    value={editingProfile.location}
-                    onChange={(e) => setEditingProfile(prev => ({ ...prev, location: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Phone</Label>
-                  <PhoneInput
-                    value={editingProfile.phone}
-                    onChange={(v) => setEditingProfile(prev => ({ ...prev, phone: v }))}
-                    placeholder="98765 43210"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Employment status</Label>
-                <div className="flex flex-wrap gap-3">
-                  {(['employed', 'unemployed', 'student'] as const).map((status) => (
-                    <label key={status} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="employmentStatus"
-                        checked={editingProfile.employmentStatus === status}
-                        onChange={() => setEditingProfile(prev => ({
-                          ...prev,
-                          employmentStatus: status,
-                          ...(status !== 'employed' ? { noticePeriod: '', currentSalary: '' } : {}),
-                        }))}
-                        className="h-4 w-4 text-primary border-border"
-                      />
-                      <span className="text-sm capitalize">{status}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {editingProfile.employmentStatus === 'employed' && (
-                  <>
-                    <div className="space-y-2">
-                      <Label>Notice period</Label>
-                      <Input
-                        placeholder="e.g. 15 days, 1 month, Immediate"
-                        value={editingProfile.noticePeriod}
-                        onChange={(e) => setEditingProfile(prev => ({ ...prev, noticePeriod: e.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Current salary</Label>
-                      <Input
-                        placeholder="e.g. 10 LPA, 15-20 L"
-                        value={editingProfile.currentSalary}
-                        onChange={(e) => setEditingProfile(prev => ({ ...prev, currentSalary: e.target.value }))}
-                      />
-                    </div>
-                  </>
-                )}
-                <div className={`space-y-2 ${editingProfile.employmentStatus !== 'employed' ? 'sm:col-span-2' : ''}`}>
-                  <Label>Expected salary</Label>
-                  <Input
-                    placeholder="e.g. 20 LPA, 25-30 L"
-                    value={editingProfile.expectedSalary}
-                    onChange={(e) => setEditingProfile(prev => ({ ...prev, expectedSalary: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Skills</Label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Add a skill"
-                    value={skillInput}
-                    onChange={(e) => setSkillInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
-                  />
-                  <Button type="button" onClick={addSkill} variant="outline">
-                    Add
-                  </Button>
-                </div>
-                {editingProfile.skills.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2 max-h-[100px] min-h-[44px] overflow-y-auto overflow-x-hidden rounded-md border border-border/50 bg-muted/30 p-2 content-start">
-                    {editingProfile.skills.map((skill) => (
-                      <Badge key={skill} variant="secondary" className="px-2.5 py-0.5 text-xs shrink-0">
-                        {skill}
-                        <button
-                          type="button"
-                          onClick={() => removeSkill(skill)}
-                          className="ml-1.5 text-muted-foreground hover:text-foreground leading-none"
-                        >
-                          ×
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-4 mt-4 flex-shrink-0 border-t border-border bg-background">
-              <Button variant="outline" onClick={() => setShowProfileDialog(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleUpdateProfile}>
-                Save Changes
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Change Password Dialog */}
-      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Reset Password</DialogTitle>
-            <DialogDescription>Enter your current password to set a new one.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Current Password</Label>
-              <Input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter current password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>New Password</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Confirm New Password</Label>
-              <Input
-                type="password"
-                value={confirmNewPassword}
-                onChange={(e) => setConfirmNewPassword(e.target.value)}
-                placeholder="Confirm new password"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleChangePassword}>
-                Update Password
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Verification Gate Dialog */}
       <VerificationGateDialog

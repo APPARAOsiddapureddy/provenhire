@@ -101,7 +101,7 @@ export default function SettingsPage() {
       <DashboardShell
         sidebarSections={sidebarSections}
         user={shellUser}
-        onSignOut={signOut}
+        onSignOut={userRole === "jobseeker" ? undefined : signOut}
       >
         <div className="p-6 max-w-3xl">
           <div className="mb-6">
