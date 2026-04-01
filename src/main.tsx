@@ -20,6 +20,22 @@ if (typeof window !== "undefined") {
   });
 }
 
+// If a stale service worker is controlling the site (from an older deployment),
+// it can break asset loads during domain/canonical changes. Force-unregister so
+// the app always boots cleanly on the canonical origin.
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  navigator.serviceWorker
+    .getRegistrations()
+    .then(async (regs) => {
+      await Promise.allSettled(regs.map((r) => r.unregister()));
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.allSettled(keys.map((k) => caches.delete(k)));
+      }
+    })
+    .catch(() => {});
+}
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

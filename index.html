@@ -2,7 +2,12 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <!-- Keep apex and www in sync: HTML canonical is provenhire.in; redirect www before SW/modules run. -->
+    <!--
+      1) Canonical host is provenhire.in (www must not serve the app long-term).
+      2) Stale Workbox/PWA service workers + apex→www asset redirects cause a deadlock: SW fetch() follows
+         redirects to www, hits CORS, app JS never loads, main.tsx never unregisters SW. Tear down SW here
+         (inline, before module graph) and reload once if needed.
+    -->
     <script>
       (function () {
         if (location.hostname === "www.provenhire.in") {
@@ -12,7 +17,32 @@
               location.search +
               location.hash
           );
+          return;
         }
+        if (!("serviceWorker" in navigator)) return;
+        var flag = "ph_sw_nuke_v2";
+        try {
+          if (sessionStorage.getItem(flag) === "1") return;
+        } catch (_) {}
+        navigator.serviceWorker
+          .getRegistrations()
+          .then(function (regs) {
+            var hadWorker = regs.length > 0;
+            var afterRegs = hadWorker
+              ? Promise.all(regs.map(function (r) { return r.unregister(); }))
+              : Promise.resolve();
+            return afterRegs.then(function () {
+              if (!("caches" in window)) return;
+              return caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+              });
+            }).then(function () {
+              if (!hadWorker) return;
+              try { sessionStorage.setItem(flag, "1"); } catch (_) {}
+              location.reload();
+            });
+          })
+          .catch(function () {});
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
