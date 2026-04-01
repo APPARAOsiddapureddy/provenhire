@@ -23,6 +23,7 @@ import { useVerificationGate } from "@/hooks/useVerificationGate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { preloadVerificationFlow } from "@/preloads";
 import DashboardShell from "@/components/DashboardShell";
+import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 
 const TECHNICAL_STAGE_ORDER = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'] as const;
 const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'] as const;
@@ -589,7 +590,7 @@ const JobSeekerDashboard = () => {
 
   const hasCompletedProfileSetup = Boolean((profile?.fullName ?? profile?.full_name)?.trim());
   const userName = (profile?.fullName ?? profile?.full_name) || user?.email?.split('@')[0] || 'Candidate';
-  const userInitials = (hasCompletedProfileSetup ? ((profile?.fullName ?? profile?.full_name) || user?.email || 'U') : 'W').split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
+  const { name: shellDisplayName, initials: userInitials } = jobSeekerShellUser(profile, user);
 
   return (
     <div className="min-h-screen">
@@ -602,7 +603,7 @@ const JobSeekerDashboard = () => {
       />
       <DashboardShell
         sidebarSections={sidebarSections}
-        user={{ name: hasCompletedProfileSetup ? userName : "Welcome", role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
+        user={{ name: shellDisplayName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
         onSignOut={signOut}
       >
         {/* Top-right account actions — always visible for quick access */}

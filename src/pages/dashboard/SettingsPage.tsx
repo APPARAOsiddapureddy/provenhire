@@ -1,6 +1,7 @@
 /**
  * Role-based Settings page. Renders only the relevant sections for the logged-in role.
  */
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Settings, ArrowLeft } from "lucide-react";
@@ -9,10 +10,40 @@ import { JobSeekerSettings } from "@/components/settings/JobSeekerSettings";
 import { RecruiterSettings } from "@/components/settings/RecruiterSettings";
 import { InterviewerSettings } from "@/components/settings/InterviewerSettings";
 import DashboardShell from "@/components/DashboardShell";
+import { api } from "@/lib/api";
+import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
+import { useVerificationGate } from "@/hooks/useVerificationGate";
 
 export default function SettingsPage() {
   const { user, userRole, signOut } = useAuth();
   const navigate = useNavigate();
+  const { isVerified } = useVerificationGate();
+  const [jobSeekerProfile, setJobSeekerProfile] = useState<{ fullName?: string; full_name?: string } | null>(null);
+  const [jobSeekerProfileLoading, setJobSeekerProfileLoading] = useState(userRole === "jobseeker");
+
+  useEffect(() => {
+    if (userRole !== "jobseeker") {
+      setJobSeekerProfile(null);
+      setJobSeekerProfileLoading(false);
+      return;
+    }
+    setJobSeekerProfileLoading(true);
+    let cancelled = false;
+    void api
+      .get<{ profile: { fullName?: string; full_name?: string } | null }>("/api/users/job-seeker-profile")
+      .then((r) => {
+        if (!cancelled) setJobSeekerProfile(r.profile ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setJobSeekerProfile(null);
+      })
+      .finally(() => {
+        if (!cancelled) setJobSeekerProfileLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userRole]);
 
   const dashboardPath =
     userRole === "recruiter"
@@ -31,14 +62,33 @@ export default function SettingsPage() {
     },
   ];
 
-  const userName = user?.name || user?.email?.split("@")[0] || "User";
-  const roleLabel =
-    userRole === "recruiter"
-      ? "Recruiter"
-      : userRole === "expert_interviewer"
-        ? "Interviewer"
-        : "Job Seeker";
-  const initials = userName.slice(0, 2).toUpperCase();
+  const shellUser = useMemo(() => {
+    if (userRole === "jobseeker") {
+      const authFallbackName = user?.name || user?.email?.split("@")[0] || "User";
+      const authFallbackInitials = authFallbackName.slice(0, 2).toUpperCase();
+      if (jobSeekerProfileLoading) {
+        return {
+          name: authFallbackName,
+          role: isVerified ? "Expert Verified ✦" : "Verification in progress",
+          initials: authFallbackInitials,
+        };
+      }
+      const { name, initials } = jobSeekerShellUser(jobSeekerProfile, user);
+      return {
+        name,
+        role: isVerified ? "Expert Verified ✦" : "Verification in progress",
+        initials,
+      };
+    }
+    const userName = user?.name || user?.email?.split("@")[0] || "User";
+    const roleLabel =
+      userRole === "recruiter"
+        ? "Recruiter"
+        : userRole === "expert_interviewer"
+          ? "Interviewer"
+          : "Job Seeker";
+    return { name: userName, role: roleLabel, initials: userName.slice(0, 2).toUpperCase() };
+  }, [userRole, jobSeekerProfile, jobSeekerProfileLoading, user, isVerified]);
 
   const renderContent = () => {
     if (userRole === "recruiter") return <RecruiterSettings />;
@@ -50,7 +100,7 @@ export default function SettingsPage() {
     <div className="min-h-screen">
       <DashboardShell
         sidebarSections={sidebarSections}
-        user={{ name: userName, role: roleLabel, initials }}
+        user={shellUser}
         onSignOut={signOut}
       >
         <div className="p-6 max-w-3xl">

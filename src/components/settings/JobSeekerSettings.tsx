@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Mail, Link2, FileText } from "lucide-react";
+import { jobSeekerInitialsFromFullName } from "@/utils/jobSeekerIdentity";
 
 const WORK_MODES = ["Remote", "Hybrid", "Onsite"] as const;
 const EXPERIENCE_LEVELS = ["Entry Level", "Mid Level", "Senior Level"] as const;
@@ -180,7 +181,7 @@ export function JobSeekerSettings() {
             <Avatar className="h-16 w-16">
               <AvatarImage src={userInfo?.profileImage} />
               <AvatarFallback className="bg-white/10 text-white">
-                {(fullName || user?.email || "U").slice(0, 2).toUpperCase()}
+                {jobSeekerInitialsFromFullName(fullName, userInfo?.email ?? user?.email ?? undefined)}
               </AvatarFallback>
             </Avatar>
             <div className="text-sm text-white/70">Profile photo from account</div>
