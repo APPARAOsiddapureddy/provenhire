@@ -4,7 +4,7 @@
  */
 import { useEffect } from "react";
 
-const SITE_URL = "https://www.provenhire.in";
+const SITE_URL = "https://provenhire.in";
 
 export interface SEOProps {
   title: string;

@@ -28,8 +28,8 @@ export function createApp() {
 
   // CORS: allow custom domain (www) first, then Vercel preview and localhost
   const allowedOrigins = [
-    "https://www.provenhire.in",
     "https://provenhire.in",
+    "https://www.provenhire.in",
     "https://provenhire-z18w.vercel.app",
     "http://localhost:5173",
     "http://localhost:8080",

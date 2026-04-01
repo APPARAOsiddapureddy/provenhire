@@ -2,8 +2,8 @@
   "redirects": [
     {
       "source": "/:path*",
-      "has": [{ "type": "host", "value": "provenhire.in" }],
-      "destination": "https://www.provenhire.in/:path*",
+      "has": [{ "type": "host", "value": "www.provenhire.in" }],
+      "destination": "https://provenhire.in/:path*",
       "permanent": true
     }
   ],
