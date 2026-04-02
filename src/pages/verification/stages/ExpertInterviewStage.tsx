@@ -17,7 +17,7 @@ import SoundDetectedAlert from "@/components/SoundDetectedAlert";
 import FullScreenMonitor from "@/components/FullScreenMonitor";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
@@ -114,7 +114,28 @@ const ExpertInterviewStage = ({
   const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
   const fullscreenRequired = isFlagEnabled("fullscreen_required");
   const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
-  const { riskLevel, riskScore } = useProctoringRiskMonitor({
+  const strikeTerminationMode = getFlagMode("proctoring_strike_termination") as StrikeTerminationMode;
+
+  const terminateInterviewForProctoring = useCallback((_reason: ProctoringEventCode) => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraActive(false);
+    setMicActive(false);
+    try {
+      recognitionRef.current?.stop?.();
+    } catch {
+      /* ignore */
+    }
+    setResult({
+      terminatedByProctoring: true,
+      badgeLevel: "Not Verified",
+      totalScore: 0,
+      candidateMessage:
+        "This interview was ended after repeated integrity alerts (for example tab switch or fullscreen). If this was a mistake, contact support.",
+    });
+  }, []);
+
+  const { violationSessionLevel, totalLoggedViolations } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
     testId: interviewId ?? fallbackTestIdRef.current,
@@ -128,6 +149,8 @@ const ExpertInterviewStage = ({
     multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: tabSwitchMode === "STRICT" ? 3 : 999,
+    strikeTerminationMode,
+    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateInterviewForProctoring : undefined,
   });
 
   useSoundDetection({ enabled: false });
@@ -550,19 +573,25 @@ const ExpertInterviewStage = ({
                       Question {questionIndex} of {totalQuestions}
                     </span>
                     <div className="flex items-center gap-2 px-3 py-1 rounded-md border bg-muted/40">
-                      <span className="text-xs text-muted-foreground">Risk</span>
+                      <span className="text-xs text-muted-foreground">Violations</span>
                       <span
                         className={`text-xs font-semibold uppercase tracking-wide ${
-                          riskLevel === "high_risk"
+                          violationSessionLevel === "high_attention"
                             ? "text-red-500"
-                            : riskLevel === "suspicious"
+                            : violationSessionLevel === "elevated"
                               ? "text-amber-500"
                               : "text-emerald-600"
                         }`}
                       >
-                        {riskLevel.replace("_", " ")}
+                        {violationSessionLevel === "high_attention"
+                          ? "High attention"
+                          : violationSessionLevel === "elevated"
+                            ? "Elevated"
+                            : "Baseline"}
                       </span>
-                      <span className="text-xs font-mono tabular-nums text-muted-foreground">({riskScore})</span>
+                      <span className="text-xs font-mono tabular-nums text-muted-foreground">
+                        ({totalLoggedViolations})
+                      </span>
                     </div>
                   </div>
                   <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5 font-medium text-lg">{question}</div>
@@ -673,7 +702,20 @@ const ExpertInterviewStage = ({
 
           {result && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
-              {result.pendingReview ? (
+              {result.terminatedByProctoring ? (
+                <>
+                  <h4 className="font-semibold text-destructive">Interview ended</h4>
+                  <p className="text-sm text-muted-foreground">
+                    {result.candidateMessage ||
+                      "This session was stopped after repeated integrity alerts. Use Return to Dashboard if you need to leave."}
+                  </p>
+                  {onReturnToDashboard && (
+                    <Button variant="outline" onClick={onReturnToDashboard}>
+                      Return to Dashboard
+                    </Button>
+                  )}
+                </>
+              ) : result.pendingReview ? (
                 <>
                   <h4 className="font-semibold">Under review</h4>
                   <span className="inline-block text-xs font-semibold uppercase tracking-wide bg-muted text-muted-foreground px-2 py-1 rounded">

@@ -201,6 +201,13 @@ JobSeekerProfile (verificationStatus, roleType)
   roleType: technical | non_technical
 ```
 
+### 6.4 Proctoring & integrity signals
+
+- **Violation counts (source of truth):** Each integrity signal type (tab switch, fullscreen exit, face issues, etc.) is tracked by **how many times** it was logged for the session (after server-side / client rate limits), not by a cumulative weighted “risk score.”
+- **Persistence:** `ProctoringEvent.riskScore` stores the **1-based violation index for that signal type** in that session at log time. Full snapshots can live in `details` / `violationDetails`.
+- **Interview row:** `Interview.riskScore` stores the **number of proctoring alert rows** for that AI interview session (for sorting/visibility). `integrityFlag` still captures review tiers; see `docs/PRD_AI_INTERVIEW_ROUND.md` §6.
+- **Learner UI:** Shows session labels driven by total logged violations and repeat counts (e.g. Baseline / Elevated / High attention), not a numeric risk score.
+
 ---
 
 ## 7. User Flows

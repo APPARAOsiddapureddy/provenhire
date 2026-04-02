@@ -9,6 +9,7 @@ import {
   type CertificationTrack,
 } from "../services/verificationLevel.service.js";
 import { getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
+import { integrityScoreFromViolationStats } from "../services/proctoringViolationCount.service.js";
 
 export const jobsRouter = Router();
 
@@ -285,11 +286,13 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
     if (!stageByUser.has(s.userId)) stageByUser.set(s.userId, []);
     stageByUser.get(s.userId)!.push(s);
   }
-  const maxRiskByUser = new Map<string, number>();
+  const maxViolationIdxByUser = new Map<string, number>();
+  const proctorEventCountByUser = new Map<string, number>();
   for (const ev of proctoringEvents) {
     if (!ev.userId) continue;
-    const prev = maxRiskByUser.get(ev.userId) ?? 0;
-    maxRiskByUser.set(ev.userId, Math.max(prev, ev.riskScore ?? 0));
+    const prev = maxViolationIdxByUser.get(ev.userId) ?? 0;
+    maxViolationIdxByUser.set(ev.userId, Math.max(prev, ev.riskScore ?? 0));
+    proctorEventCountByUser.set(ev.userId, (proctorEventCountByUser.get(ev.userId) ?? 0) + 1);
   }
   const skillByUser = new Map<string, { skillType: string; status: string; completedAt: Date | null; expiresAt: Date | null }[]>();
   for (const sv of skillVerifications) {
@@ -324,7 +327,10 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
       const stageScore = (name: string) =>
         userStages.find((s) => s.stageName === name && s.status === "completed")?.score ?? null;
       const cert = certByUser.get(a.jobSeekerId);
-      const integrityScore = Math.max(0, 100 - (maxRiskByUser.get(a.jobSeekerId) ?? 0));
+      const integrityScore = integrityScoreFromViolationStats(
+        maxViolationIdxByUser.get(a.jobSeekerId) ?? 0,
+        proctorEventCountByUser.get(a.jobSeekerId) ?? 0,
+      );
       const skills = Array.isArray(p.skills) ? p.skills : p.skills ? [String(p.skills)] : [];
 
       const aptitude = aptitudeScoresBatch.get(a.jobSeekerId) ?? stageScore("aptitude_test");

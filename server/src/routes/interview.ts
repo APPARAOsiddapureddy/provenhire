@@ -16,8 +16,11 @@ import {
 } from "../data/aiInterviewStaticQuestions.js";
 import { analyzeAnswerAntiGaming } from "../services/aiInterviewAntiGaming.service.js";
 import {
-  computeAiInterviewProctoringRisk,
-  integrityFlagFromRiskScore,
+  aggregateProctoringViolations,
+  integrityFlagFromAntiGamingPoints,
+  integrityFlagFromViolationAggregate,
+  interviewProctoringViolationTotal,
+  mergeIntegrityFlags,
 } from "../services/aiInterviewProctoringRisk.service.js";
 import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
 import { recordAiInterviewSubmittedForAdminReview } from "../services/humanInterviewGate.service.js";
@@ -219,9 +222,11 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
         where: { sessionId: interviewId, testType: "ai_interview" },
         select: { type: true },
       });
-      const proctorRisk = computeAiInterviewProctoringRisk(proctoringEvents);
-      const combinedRisk = Math.min(100, proctorRisk + antiGamingRisk);
-      const integrityFlag = integrityFlagFromRiskScore(combinedRisk);
+      const proctorAgg = aggregateProctoringViolations(proctoringEvents);
+      const proctorFlag = integrityFlagFromViolationAggregate(proctorAgg);
+      const antiGamingFlag = integrityFlagFromAntiGamingPoints(antiGamingRisk);
+      const integrityFlag = mergeIntegrityFlags(proctorFlag, antiGamingFlag);
+      const interviewProctoringTotal = interviewProctoringViolationTotal(proctorAgg);
 
       const transcriptText = transcript.map((m) => `${m.sender.toUpperCase()}: ${m.message}`).join("\n");
       const questionAnswerPairs: QuestionAnswerPair[] = userMessages.map((msg, i) => ({
@@ -253,7 +258,7 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
             completedAt: new Date(),
             reviewFlag: true,
             reviewReason: "gemini_evaluation_failed",
-            riskScore: combinedRisk,
+            riskScore: interviewProctoringTotal,
             integrityFlag,
           },
         });
@@ -283,7 +288,7 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
           scoreBreakdown: evaluation as object,
           status: "completed",
           completedAt: new Date(),
-          riskScore: combinedRisk,
+          riskScore: interviewProctoringTotal,
           integrityFlag,
         },
       });

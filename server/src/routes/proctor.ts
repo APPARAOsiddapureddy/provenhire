@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { analyzeFrame, saveScreenshot, type VisionAnalysis, type ProctorViolationType } from "../services/proctor.service.js";
+import { nextViolationIndexForSession } from "../services/proctoringViolationCount.service.js";
 
 export const proctorRouter = Router();
 
@@ -112,6 +113,7 @@ proctorRouter.post("/frame", requireAuth, async (req: AuthedRequest, res: Respon
 
   for (const v of violations) {
     const screenshotPath = saveScreenshot(sessionId, v.type, base64Frame);
+    const violationIndex = await nextViolationIndexForSession(sessionId, v.type);
     await prisma.proctoringEvent.create({
       data: {
         sessionId,
@@ -119,11 +121,11 @@ proctorRouter.post("/frame", requireAuth, async (req: AuthedRequest, res: Respon
         testType: testType ?? null,
         type: v.type,
         severity: "high",
-        riskScore: v.type === "PHONE_DETECTED" ? 30 : v.type === "MULTIPLE_PERSONS" ? 25 : 15,
+        riskScore: violationIndex,
         message: `${v.type} at ${new Date().toISOString()}`,
         screenshotPath,
         confidence: v.confidence,
-        details: JSON.parse(JSON.stringify({ analysis: effectiveAnalysis })) as object,
+        details: JSON.parse(JSON.stringify({ analysis: effectiveAnalysis, violationCountForType: violationIndex })) as object,
       },
     });
     emitProctorEvent(sessionId, v.type, {

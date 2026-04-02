@@ -147,7 +147,7 @@ So the **scorecard** always uses **0–100** aptitude math derived from the **re
 
 ### 4.2 Final score and gates
 
-- **Final score (0–100)** — weighted blend of the three stage sub-scores only (integrity is tracked separately for risk / gates):  
+- **Final score (0–100)** — weighted blend of the three stage sub-scores only (integrity is tracked separately from **proctoring violation counts** / scorecard deductions):  
   `finalScore = aptitude_score * 0.25 + dsa_score * 0.35 + ai_interview_score * 0.40`  
   (see `buildTechnicalScorecard()` in `verificationScoring.service.ts`.)
 - **Gate 1:** `aptitude_score >= 55 && dsa_score >= 60 && ai_interview_score >= 60`

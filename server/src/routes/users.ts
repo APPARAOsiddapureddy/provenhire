@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { integrityScoreFromViolationStats } from "../services/proctoringViolationCount.service.js";
 import { getAptitudeScoreZeroToHundred, getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
 
 export const usersRouter = Router();
@@ -66,8 +67,8 @@ usersRouter.get("/me/candidate-profile", requireAuth, async (req: AuthedRequest,
   const humanExpert = stageScore("human_expert_interview");
   const aptitudeStageScore = stageScore("aptitude_test");
   const aptitudeScore = await getAptitudeScoreZeroToHundred(profile.userId, aptitudeStageScore);
-  const maxRisk = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
-  const integrityScore = Math.max(0, 100 - maxRisk);
+  const maxViolationIndex = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
+  const integrityScore = integrityScoreFromViolationStats(maxViolationIndex, proctoringEvents.length);
 
   const skills = Array.isArray(profile.skills)
     ? profile.skills
@@ -350,11 +351,13 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
     stageByUser.get(s.userId)!.push(s);
   }
 
-  const maxRiskByUser = new Map<string, number>();
+  const maxViolationIdxByUser = new Map<string, number>();
+  const proctorEventCountByUser = new Map<string, number>();
   for (const ev of proctoringEvents) {
     if (!ev.userId) continue;
-    const prev = maxRiskByUser.get(ev.userId) ?? 0;
-    maxRiskByUser.set(ev.userId, Math.max(prev, ev.riskScore ?? 0));
+    const prev = maxViolationIdxByUser.get(ev.userId) ?? 0;
+    maxViolationIdxByUser.set(ev.userId, Math.max(prev, ev.riskScore ?? 0));
+    proctorEventCountByUser.set(ev.userId, (proctorEventCountByUser.get(ev.userId) ?? 0) + 1);
   }
 
   const certByUser = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
@@ -378,7 +381,10 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
       userStages.find((s) => s.stageName === stageName && s.status === "completed")?.score ?? null;
     const humanExpert = stageScore("human_expert_interview");
     const cert = certByUser.get(p.userId);
-    const integrityScore = Math.max(0, 100 - (maxRiskByUser.get(p.userId) ?? 0));
+    const integrityScore = integrityScoreFromViolationStats(
+      maxViolationIdxByUser.get(p.userId) ?? 0,
+      proctorEventCountByUser.get(p.userId) ?? 0,
+    );
 
     return {
       id: p.id,
@@ -444,8 +450,8 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
     stages.find((s) => s.stageName === name && s.status === "completed")?.score ?? null;
   const humanExpert = stageScore("human_expert_interview");
   const aptitudeScoreSingle = await getAptitudeScoreZeroToHundred(profile.userId, stageScore("aptitude_test"));
-  const maxRisk = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
-  const integrityScore = Math.max(0, 100 - maxRisk);
+  const maxViolationIndex = proctoringEvents.reduce((acc, e) => Math.max(acc, e.riskScore ?? 0), 0);
+  const integrityScore = integrityScoreFromViolationStats(maxViolationIndex, proctoringEvents.length);
 
   const skills = Array.isArray(profile.skills)
     ? profile.skills

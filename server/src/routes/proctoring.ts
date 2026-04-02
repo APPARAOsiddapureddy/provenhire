@@ -14,7 +14,9 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
     alertType: z.string(),
     severity: z.string(),
     message: z.string(),
+    /** Legacy name: stores per-type violation index (1-based) for this session. */
     riskScore: z.number().optional(),
+    violationCountForType: z.number().optional(),
     violationDetails: z.any().optional(),
   });
   const parsed = schema.safeParse(_req.body);
@@ -38,6 +40,16 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
       break;
     }
   }
+  const details = parsed.data.violationDetails as
+    | { violationCountForType?: number; riskScore?: number }
+    | undefined;
+  const violationIndex =
+    parsed.data.violationCountForType ??
+    parsed.data.riskScore ??
+    details?.violationCountForType ??
+    details?.riskScore ??
+    0;
+
   await prisma.proctoringEvent.create({
     data: {
       sessionId: parsed.data.testId,
@@ -45,9 +57,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
       testType: parsed.data.testType,
       type: parsed.data.alertType,
       severity: parsed.data.severity,
-      riskScore:
-        parsed.data.riskScore ??
-        ((parsed.data.violationDetails as { riskScore?: number } | undefined)?.riskScore ?? 0),
+      riskScore: Math.max(0, Math.floor(violationIndex)),
       message: parsed.data.message,
       details: parsed.data.violationDetails ?? null,
     },

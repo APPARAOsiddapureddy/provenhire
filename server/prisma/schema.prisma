@@ -327,6 +327,7 @@ model Interview {
   completedAt   DateTime?
   reviewFlag          Boolean   @default(false)
   reviewReason        String?
+  /// Count of proctoring alert rows for this interview session (not a 0–100 risk score).
   riskScore           Float?
   integrityFlag       String?
   reviewRequestedAt   DateTime?
@@ -628,6 +629,7 @@ model ProctoringEvent {
   testType       String?
   type           String   // PHONE_DETECTED, LOOKING_AWAY, MULTIPLE_PERSONS, FACE_MISSING, etc.
   severity       String?
+  /// Per-signal violation index for this session when logged (1-based); not a weighted risk score.
   riskScore      Int      @default(0)
   message        String?
   details        Json?

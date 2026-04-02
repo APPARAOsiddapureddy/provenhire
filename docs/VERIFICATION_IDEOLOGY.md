@@ -175,15 +175,11 @@ Before test start, candidate must:
   - Fullscreen required
   - No tab switching
 
-### Proctoring risk model
+### Proctoring violation model
 
-A unified monitor tracks suspicious behavior and increments risk score.
+A unified monitor tracks suspicious behavior by **counting how many times each signal type is logged** for the session (after cooldowns), not by accumulating a weighted numeric risk score.
 
-Risk buckets:
-
-- `0-19`: clean
-- `20-49`: suspicious
-- `50+`: high risk
+Session UX buckets (learner-facing) are driven by **total violations** and **repeat counts per signal**, for example baseline vs elevated vs high attention.
 
 Event examples:
 
@@ -201,7 +197,7 @@ Event examples:
 - `MULTIPLE_VOICES_DETECTED`
 - `MICROPHONE_MUTED_ATTEMPT`
 
-Events are logged with timestamp + risk context and shown in admin alert surfaces.
+Events are logged with timestamp + per-signal violation index and optional detail payloads, and shown in admin alert surfaces.
 
 ---
 
@@ -253,7 +249,7 @@ Stored event dimensions include:
 - session/test id
 - event type
 - severity
-- risk score
+- violation index (per signal at log time)
 - structured details
 - created timestamp
 

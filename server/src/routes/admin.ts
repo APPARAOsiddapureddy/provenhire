@@ -669,7 +669,7 @@ adminRouter.get("/export-proctoring-events", async (_req, res) => {
   });
   const rows: string[] = [];
   rows.push(
-    "Event ID,Session ID,User ID,Test Type,Event Type,Severity,Risk Score,Message,Created At (UTC)",
+    "Event ID,Session ID,User ID,Test Type,Event Type,Severity,Violation index (per signal),Message,Created At (UTC)",
   );
   for (const e of events) {
     rows.push(

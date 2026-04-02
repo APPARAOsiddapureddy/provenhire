@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +15,7 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 
@@ -88,6 +88,15 @@ const NonTechnicalAssignmentStage = ({
   const { getMode: getFlagMode } = useFeatureFlags();
   const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
   const tabSwitchMode = getFlagMode("tab_switch_detection");
+  const strikeTerminationMode = getFlagMode("proctoring_strike_termination") as StrikeTerminationMode;
+
+  const terminateAssignmentForProctoring = useCallback((_reason: ProctoringEventCode) => {
+    if (!submittingRef.current) {
+      void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
+      setAssignmentJustSubmitted(true);
+      setEvaluation({ score: 0, qualified: false, threshold: THRESHOLD });
+    }
+  }, []);
 
   const { tabSwitchCount } = useProctoringRiskMonitor({
     enabled: inTest,
@@ -103,14 +112,19 @@ const NonTechnicalAssignmentStage = ({
     multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: tabSwitchMode === "STRICT" ? MAX_TAB_SWITCHES : 999,
-    onMaxTabSwitches: tabSwitchMode === "STRICT" ? () => {
-      if (!submittingRef.current) {
-        toast.error("Assignment terminated due to tab switching. Maximum 3 switches allowed.");
-        void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
-        setAssignmentJustSubmitted(true);
-        setEvaluation({ score: 0, qualified: false, threshold: THRESHOLD });
-      }
-    } : undefined,
+    strikeTerminationMode,
+    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateAssignmentForProctoring : undefined,
+    onMaxTabSwitches:
+      strikeTerminationMode !== "STRICT" && tabSwitchMode === "STRICT"
+        ? () => {
+            if (!submittingRef.current) {
+              toast.error("Assignment terminated due to tab switching. Maximum 3 switches allowed.");
+              void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
+              setAssignmentJustSubmitted(true);
+              setEvaluation({ score: 0, qualified: false, threshold: THRESHOLD });
+            }
+          }
+        : undefined,
   });
 
   useSoundDetection({

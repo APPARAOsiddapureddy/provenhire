@@ -1,56 +1,73 @@
 /**
- * PRD §6 — AI interview session risk from ProctoringEvent rows (sessionId = interviewId, testType = ai_interview).
+ * AI interview session integrity from ProctoringEvent rows (sessionId = interviewId, testType = ai_interview).
+ * Uses per-signal violation counts — no weighted “risk score” accumulation.
  */
 
 export type ProctoringEventRow = { type: string };
 
-function tabSwitchPoints(count: number): number {
-  let pts = 0;
-  for (let i = 0; i < count; i++) {
-    if (i === 0) pts += 5;
-    else if (i === 1) pts += 10;
-    else pts += 20;
-  }
-  return pts;
+export interface ProctoringViolationAggregate {
+  byType: Record<string, number>;
+  total: number;
+  maxPerType: number;
 }
 
-function fullscreenExitPoints(count: number): number {
-  let pts = 0;
-  for (let i = 0; i < count; i++) {
-    if (i === 0) pts += 5;
-    else pts += 15;
+export function aggregateProctoringViolations(events: ProctoringEventRow[]): ProctoringViolationAggregate {
+  const byType: Record<string, number> = {};
+  for (const e of events) {
+    const t = e.type || "unknown";
+    byType[t] = (byType[t] ?? 0) + 1;
   }
-  return pts;
+  const counts = Object.values(byType);
+  const maxPerType = counts.length ? Math.max(...counts) : 0;
+  const total = events.length;
+  return { byType, total, maxPerType };
 }
 
-/** Map DB / client event types to PRD-style risk accumulation. */
-export function computeAiInterviewProctoringRisk(events: ProctoringEventRow[]): number {
-  const tabSwitches = events.filter((e) => e.type === "TAB_SWITCH").length;
-  const fullscreenExits = events.filter((e) => e.type === "FULLSCREEN_EXIT").length;
-  const copyPastes = events.filter((e) => e.type === "COPY_PASTE_ATTEMPT").length;
-  const devtools = events.filter((e) => e.type === "DEVTOOLS_OPENED").length;
-  const noFace = events.filter((e) => e.type === "NO_FACE_DETECTED" || e.type === "FACE_MISSING").length;
-  const multiFace = events.filter(
-    (e) => e.type === "MULTIPLE_FACES_DETECTED" || e.type === "MULTIPLE_PERSONS",
-  ).length;
+const FLAG_RANK: Record<string, number> = {
+  "": 0,
+  none: 0,
+  review_recommended: 1,
+  review_required: 2,
+  integrity_violation: 3,
+};
 
-  let score = 0;
-  score += tabSwitchPoints(tabSwitches);
-  score += fullscreenExitPoints(fullscreenExits);
-  if (copyPastes >= 3) score += 40;
-  else if (copyPastes >= 1) score += 15;
-  if (devtools > 0) score += 30;
-  if (noFace > 0) {
-    score += noFace === 1 ? 10 : 20;
-  }
-  if (multiFace > 0) score += 25;
-
-  return Math.min(100, Math.max(0, score));
+function maxFlag(a: string | null, b: string | null): string | null {
+  const ra = FLAG_RANK[a ?? ""] ?? 0;
+  const rb = FLAG_RANK[b ?? ""] ?? 0;
+  if (rb > ra) return b;
+  return a;
 }
 
-export function integrityFlagFromRiskScore(riskScore: number): string | null {
-  if (riskScore <= 20) return null;
-  if (riskScore <= 40) return "review_recommended";
-  if (riskScore <= 60) return "review_required";
+/** Tier from live proctoring violation counts only (raw event rows). */
+export function integrityFlagFromViolationAggregate(agg: ProctoringViolationAggregate): string | null {
+  const { total, maxPerType } = agg;
+  if (total === 0 && maxPerType === 0) return null;
+  if (maxPerType >= 10 || total >= 40) return "integrity_violation";
+  if (maxPerType >= 5 || total >= 18) return "review_required";
+  if (maxPerType >= 3 || total >= 8) return "review_recommended";
+  return null;
+}
+
+/**
+ * Map legacy 0–100 anti-gaming points to the same integrity flag scale (coarse).
+ */
+export function integrityFlagFromAntiGamingPoints(points: number): string | null {
+  const p = Math.min(100, Math.max(0, points));
+  if (p <= 15) return null;
+  if (p <= 35) return "review_recommended";
+  if (p <= 55) return "review_required";
   return "integrity_violation";
+}
+
+/** Combine proctoring counts + anti-gaming severity (takes stricter flag). */
+export function mergeIntegrityFlags(
+  fromProctoring: string | null,
+  fromAntiGaming: string | null,
+): string | null {
+  return maxFlag(fromProctoring, fromAntiGaming);
+}
+
+/** Stored on Interview.riskSortKey — total proctoring rows for this session (not a weighted score). */
+export function interviewProctoringViolationTotal(agg: ProctoringViolationAggregate): number {
+  return agg.total;
 }

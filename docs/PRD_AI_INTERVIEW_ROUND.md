@@ -333,33 +333,29 @@ After a voice segment finalizes:
 
 ## 6) Proctoring Thresholds
 
-### 6.1 Risk point table (interview completion)
+### 6.1 Violation counts (interview completion)
 
-Compute **`riskScore`** (0–100) from proctoring events **for this interview session**. Persist on `Interview`: `riskScore Float?`, `integrityFlag String?`.
+**Do not** compute or persist a weighted 0–100 proctoring “risk score.” Instead:
 
-| Event | Points |
-|-------|--------|
-| Tab switch 1st | +5 |
-| Tab switch 2nd | +10 |
-| Tab switch 3+ | +20 each |
-| Fullscreen exit 1st | +5 |
-| Fullscreen exit 2+ | +15 each |
-| Face not detected &gt; 10s | +10 |
-| Face not detected &gt; 30s | +20 |
-| Multiple faces | +25 |
-| Copy-paste 1 instance | +15 |
-| Copy-paste 3+ instances | +40 |
-| DevTools opened | +30 |
-| Answer length &gt; 2000 chars (anti-gaming) | +20 |
+1. **Per-signal counts:** For each proctoring event type, count how many times that signal was logged for the interview session (`sessionId = interviewId`, `testType = ai_interview`). Each stored `ProctoringEvent` row is one log; the integer field `riskScore` on that row is the **1-based violation index for that signal type** in the session at log time (legacy column name).
+2. **Persist on `Interview`:** `riskScore Float?` holds the **total number of proctoring alert rows** for that interview (for admin sorting — not a calibrated risk index). `integrityFlag String?` is derived from aggregated counts (and merged with anti-gaming severity — see below).
 
-### 6.2 Integrity bands
+### 6.2 Integrity bands (from counts + anti-gaming)
 
-| `riskScore` | Action |
-|-------------|--------|
-| **0–20** | Clean — normal flow |
-| **21–40** | `integrityFlag = review_recommended` — soft flag; yellow on admin; **shortlist not blocked** |
-| **41–60** | `integrityFlag = review_required` — **shortlist blocked** until admin clears |
-| **&gt; 60** | `integrityFlag = integrity_violation` — interview excluded from scorecard; `buildTechnicalScorecard()` uses **`ai_interview_score = 0`**; admin may override |
+**Proctoring-only tiering** (from raw event rows for the session):
+
+- **`review_recommended`:** e.g. `maxPerType ≥ 3` **or** `total rows ≥ 8`
+- **`review_required`:** e.g. `maxPerType ≥ 5` **or** `total rows ≥ 18`
+- **`integrity_violation`:** e.g. `maxPerType ≥ 10` **or** `total rows ≥ 40`
+
+**Anti-gaming** still produces a 0–100-style point roll-up from answer-quality signals; that maps to the **same** flag scale, and the **stricter** of (proctoring flag, anti-gaming flag) wins.
+
+| Outcome | Action |
+|---------|--------|
+| **No flag** | Normal flow |
+| **`review_recommended`** | Soft flag; yellow on admin; **shortlist not blocked** (unless other gates fail) |
+| **`review_required`** | **Shortlist blocked** until admin clears |
+| **`integrity_violation`** | Interview treated as integrity failure; `buildTechnicalScorecard()` may use **`ai_interview_score = 0`** per product rules; admin may override |
 
 ### 6.3 Admin override + audit log
 
@@ -367,7 +363,7 @@ New table **`ProctoringReviewLog`**:
 
 - `id`, `interviewId`, `adminId`, `action` (e.g. approve / reject), `note` (required), `createdAt`
 
-Admin UI shows: event timeline, counts, computed `riskScore`, current `integrityFlag`, **Override** with mandatory note — every action appends a log row.
+Admin UI shows: event timeline, **per-signal counts**, total rows, current `integrityFlag`, **Override** with mandatory note — every action appends a log row.
 
 ---
 
@@ -417,8 +413,8 @@ Rules:
 
 | Signal | Logic |
 |--------|--------|
-| Too long | `length > 2000` → flag + **+20** risk (§6) |
-| Too short | Technical Q, `length < 20` → **+5** risk |
+| Too long | `length > 2000` → flag + anti-gaming points (§6.2 merge) |
+| Too short | Technical Q, `length < 20` → anti-gaming points |
 | Repetition | Jaccard similarity between answer pairs; if **any pair &gt; 0.6** → flag repetitive |
 | Paste | Frontend `paste` listener → increment `pasteCount` on message / interview; align with existing proctoring copy-paste events |
 | Homogeneous structure | Evaluator notes identical patterns (e.g. every answer starts *Great question…*) → reflect in `authenticity_concern` |
@@ -446,7 +442,7 @@ Before `computeScore()` at finalization:
 
 1. Run `computeAntiGamingRisk(transcript, messages)` (new helper, e.g. `server/src/services/aiInterviewAntiGaming.service.ts` or `ai.service.ts`).
 2. Merge with evaluator `authenticity_concern`.
-3. Update `InterviewMessage.flagAntiGaming` / `flagReason` and increment `Interview.riskScore` per §6.
+3. Update `InterviewMessage.flagAntiGaming` / `flagReason` and set `Interview` violation totals / `integrityFlag` per §6.
 
 ---
 
@@ -459,7 +455,7 @@ Paths match **this repo** (PDF used `client/` — here `src/`).
 | 1 | Add `InterviewQuestionBank` model | `server/prisma/schema.prisma` |
 | 2 | Add `InterviewQuestionResult` model | `server/prisma/schema.prisma` |
 | 3 | Extend `InterviewMessage` (transcription + anti-gaming fields) | `server/prisma/schema.prisma` |
-| 4 | Extend `Interview` (experience, review, risk, integrity flags) | `server/prisma/schema.prisma` |
+| 4 | Extend `Interview` (experience, review, violation totals, integrity flags) | `server/prisma/schema.prisma` |
 | 5 | Add `ProctoringReviewLog` model | `server/prisma/schema.prisma` |
 | 6 | Run Prisma migrate | CLI / `server/prisma/migrations/` |
 | 7 | Implement `scripts/seedQuestions.ts` + wire in `server/package.json` | `scripts/seedQuestions.ts` |

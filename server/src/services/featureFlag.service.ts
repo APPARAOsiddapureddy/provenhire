@@ -19,6 +19,8 @@ export const PROCTORING_FEATURE_FLAGS = [
   "screen_recording_enabled",
   "microphone_monitoring",
   "ai_behavior_analysis",
+  /** OFF = warnings only; MONITOR = show strike counts, no auto-end; STRICT = end assessment after 3 strikes per signal class */
+  "proctoring_strike_termination",
 ] as const;
 
 export type ProctoringFeatureName = (typeof PROCTORING_FEATURE_FLAGS)[number];
@@ -33,6 +35,8 @@ const DEFAULT_DESCRIPTIONS: Record<ProctoringFeatureName, string> = {
   screen_recording_enabled: "Enable screen recording during assessment",
   microphone_monitoring: "Monitor microphone for unauthorized audio",
   ai_behavior_analysis: "AI-driven behavior analysis during assessment",
+  proctoring_strike_termination:
+    "Auto-end assessment after 3 repeated alerts (no face, faces, phone, tab, fullscreen, voice noise). Use OFF for labs.",
 };
 
 /** In-memory cache; invalidate on update */

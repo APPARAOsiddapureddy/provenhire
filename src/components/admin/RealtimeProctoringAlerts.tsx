@@ -32,6 +32,7 @@ interface ProctoringAlert {
   severity: string;
   message: string;
   details?: Record<string, unknown> | null;
+  /** Per-signal violation index for this session when the row was logged (DB column name: riskScore). */
   riskScore?: number;
   createdAt: string;
   screenshotPath?: string | null;
@@ -264,8 +265,8 @@ const RealtimeProctoringAlerts = () => {
                              alert.testType === 'dsa' ? 'DSA' : 
                              alert.testType === 'ai_interview' ? 'AI Interview' : (alert.testType || 'Assessment')}
                           </Badge>
-                          {typeof alert.riskScore === "number" && (
-                            <Badge variant="secondary">Risk {alert.riskScore}</Badge>
+                          {typeof alert.riskScore === "number" && alert.riskScore > 0 && (
+                            <Badge variant="secondary">Violations ×{alert.riskScore}</Badge>
                           )}
                           <span className="text-xs text-muted-foreground">
                             {formatTime(alert.createdAt)}

@@ -13,7 +13,7 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -100,7 +100,21 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
   const tabSwitchMode = getFlagMode("tab_switch_detection");
   const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
+  const strikeTerminationMode = getFlagMode("proctoring_strike_termination") as StrikeTerminationMode;
   const MAX_TAB_SWITCHES = tabSwitchMode === "STRICT" ? 3 : 999;
+
+  const terminateAptitudeForProctoring = useCallback(
+    (_reason: ProctoringEventCode) => {
+      if (questions.length > 0 && !submittingRef.current) {
+        void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
+        void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
+        setSubmitted(true);
+        setSubmittedScore(0);
+      }
+    },
+    [questions.length]
+  );
+
   const { tabSwitchCount } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
@@ -116,17 +130,20 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     proctorVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
-    onMaxTabSwitches: tabSwitchMode === "STRICT"
-      ? () => {
-          if (questions.length > 0 && !submittingRef.current) {
-            toast.error("Test terminated due to tab switching. Maximum 3 switches allowed.");
-            void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
-            void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
-            setSubmitted(true);
-            setSubmittedScore(0);
+    strikeTerminationMode,
+    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateAptitudeForProctoring : undefined,
+    onMaxTabSwitches:
+      strikeTerminationMode !== "STRICT" && tabSwitchMode === "STRICT"
+        ? () => {
+            if (questions.length > 0 && !submittingRef.current) {
+              toast.error("Test terminated due to tab switching. Maximum 3 switches allowed.");
+              void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
+              void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
+              setSubmitted(true);
+              setSubmittedScore(0);
+            }
           }
-        }
-      : undefined,
+        : undefined,
   });
 
   useSoundDetection({
@@ -513,10 +530,10 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                 <TooltipContent className="max-w-[320px] p-3">
                   <p className="font-semibold mb-1">Proctoring signals tracked</p>
                   <p className="text-xs text-muted-foreground">
-                    Voice detection, mobile phone detection, multiple/dual face detection, tab switching, and fullscreen exits.
+                    You may see warnings for: no face visible, multiple faces, phone in frame, tab switches, leaving fullscreen, and unusual background audio. Copy-paste is limited but does not use the same strike warnings.
                   </p>
                   <p className="text-xs mt-2">
-                    Each violation adds risk points. If cumulative risk reaches <span className="font-semibold">400</span>, the attempt may be disqualified.
+                    When your organization turns on strict mode, three repeated alerts for the same rule can end this attempt so you know to follow the rules next time.
                   </p>
                 </TooltipContent>
               </Tooltip>

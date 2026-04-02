@@ -8,7 +8,7 @@ import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { useProctoringRiskMonitor } from "@/hooks/useProctoringRiskMonitor";
+import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Badge } from "@/components/ui/badge";
@@ -286,7 +286,27 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
   const fullscreenRequired = isFlagEnabled("fullscreen_required");
   const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
+  const strikeTerminationMode = getFlagMode("proctoring_strike_termination") as StrikeTerminationMode;
   const MAX_TAB_SWITCHES = tabSwitchMode === "STRICT" ? 3 : 999;
+
+  const terminateDsaForProctoring = useCallback(
+    (_reason: ProctoringEventCode) => {
+      if (questions.length > 0 && !submitting) {
+        void (async () => {
+          try {
+            await api.post("/api/verification/dsa", { answers: {}, invalidated: true });
+            await api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed" });
+          } catch {
+            /* non-blocking */
+          }
+        })();
+        setHasFailed(true);
+        setLocalFinalScore(0);
+      }
+    },
+    [questions.length, submitting]
+  );
+
   useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
@@ -302,23 +322,26 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     proctorVideoRef: proctorCameraVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
-    onMaxTabSwitches: tabSwitchMode === "STRICT"
-      ? () => {
-          if (questions.length > 0 && !submitting) {
-            toast.error("Test terminated. Maximum 3 tab switches allowed.");
-            void (async () => {
-              try {
-                await api.post("/api/verification/dsa", { answers: {}, invalidated: true });
-                await api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed" });
-              } catch {
-                /* non-blocking — proctoring already ended the attempt */
-              }
-            })();
-            setHasFailed(true);
-            setLocalFinalScore(0);
+    strikeTerminationMode,
+    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateDsaForProctoring : undefined,
+    onMaxTabSwitches:
+      strikeTerminationMode !== "STRICT" && tabSwitchMode === "STRICT"
+        ? () => {
+            if (questions.length > 0 && !submitting) {
+              toast.error("Test terminated. Maximum 3 tab switches allowed.");
+              void (async () => {
+                try {
+                  await api.post("/api/verification/dsa", { answers: {}, invalidated: true });
+                  await api.post("/api/verification/stages/update", { stageName: "dsa_round", status: "failed" });
+                } catch {
+                  /* non-blocking */
+                }
+              })();
+              setHasFailed(true);
+              setLocalFinalScore(0);
+            }
           }
-        }
-      : undefined,
+        : undefined,
   });
 
   useSoundDetection({

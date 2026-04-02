@@ -26,16 +26,33 @@ export type ProctoringEventCode =
   | "COPY_PASTE_ATTEMPT"
   | "DEVTOOLS_OPENED";
 
-type RiskLevel = "clean" | "suspicious" | "high_risk";
+export type ViolationSessionLevel = "baseline" | "elevated" | "high_attention";
+
+/** Server + strike policy: these signals get clear toasts; copy-paste / devtools are logged without learner strike UX */
+export const STRIKE_TERMINATION_EVENTS = new Set<ProctoringEventCode>([
+  "NO_FACE_DETECTED",
+  "MULTIPLE_FACES_DETECTED",
+  "PHONE_DETECTED",
+  "TAB_SWITCH",
+  "FULLSCREEN_EXIT",
+  "MULTIPLE_VOICES_DETECTED",
+  "SUSPICIOUS_BACKGROUND_NOISE",
+]);
+
+export const MAX_PROCTORING_STRIKES = 3;
 
 export interface ProctoringEventLog {
   candidate_id: string;
   test_id: string;
   event: ProctoringEventCode;
   timestamp: string;
-  risk_score: number;
+  /** Times this signal has been logged this session (after rate-limit), including this event. */
+  violation_count_for_type: number;
+  violation_counts_by_type: Partial<Record<ProctoringEventCode, number>>;
   details?: Record<string, unknown>;
 }
+
+export type StrikeTerminationMode = "OFF" | "MONITOR" | "STRICT";
 
 interface UseProctoringRiskMonitorOptions {
   enabled: boolean;
@@ -44,49 +61,36 @@ interface UseProctoringRiskMonitorOptions {
   testType: "aptitude" | "dsa" | "ai_interview" | "non_tech_assignment";
   cameraStream?: MediaStream | null;
   microphoneStream?: MediaStream | null;
-  /** When false, tab switch / window focus detection is completely disabled. */
   tabSwitchDetectionEnabled?: boolean;
-  /** When false, copy-paste and context menu are not blocked. */
   copyPasteDetectionEnabled?: boolean;
-  /** When false, devtools detection (F12, etc.) is disabled. */
   devtoolsDetectionEnabled?: boolean;
-  /** When false, fullscreen exit detection is disabled. */
   fullscreenDetectionEnabled?: boolean;
-  /** When false, face detection (no face, multiple faces, looking away) is disabled. */
   multipleFaceDetectionEnabled?: boolean;
-  /** When set, BlazeFace/COCO-SSD read frames from this element (same stream as proctoring UI). Otherwise a hidden video node is used. */
   proctorVideoRef?: RefObject<HTMLVideoElement | null>;
-  /** When false, microphone monitoring (speaking, noise, mute) is disabled. */
   microphoneMonitoringEnabled?: boolean;
-  /** Max tab switches before test is stopped (default 3). Only applies when tabSwitchDetectionEnabled is true. */
   maxTabSwitches?: number;
-  /** Called when tab switch count reaches maxTabSwitches — use to stop/terminate the test */
+  /** Legacy: when strike termination is OFF and tab detection is STRICT, still end test after N tab switches */
   onMaxTabSwitches?: () => void;
+  /** OFF = learner toasts only; MONITOR = show strike counts, no auto-end; STRICT = end after 3 strikes per signal (tab uses physical switch count) */
+  strikeTerminationMode?: StrikeTerminationMode;
+  onProctoringTerminated?: (code: ProctoringEventCode) => void;
 }
 
-const EVENT_RISK_WEIGHTS: Record<ProctoringEventCode, number> = {
-  NO_FACE_DETECTED: 10,
-  MULTIPLE_FACES_DETECTED: 20,
-  LOOKING_AWAY_FROM_SCREEN: 5,
-  PHONE_DETECTED: 25,
-  TAB_SWITCH: 10,
-  WINDOW_FOCUS_LOST: 5,
-  WINDOW_MINIMIZED: 5,
-  FULLSCREEN_EXIT: 8,
-  COPY_PASTE_ATTEMPT: 10,
-  DEVTOOLS_OPENED: 20,
-  MULTIPLE_VOICES_DETECTED: 10,
-  CANDIDATE_SPEAKING_DURING_CODING: 10,
-  SUSPICIOUS_BACKGROUND_NOISE: 10,
-  MICROPHONE_MUTED_ATTEMPT: 15,
-  LOW_VISIBILITY: 8,
+const STRIKE_LEARNER_TOAST: Partial<Record<ProctoringEventCode, string>> = {
+  NO_FACE_DETECTED: "Your face is not visible. Stay centered in the camera.",
+  MULTIPLE_FACES_DETECTED: "Multiple faces detected. Only you may be on camera.",
+  PHONE_DETECTED: "A phone or handheld device was seen. Remove it from view.",
+  FULLSCREEN_EXIT: "Full screen was exited. Return to full screen for this assessment.",
+  MULTIPLE_VOICES_DETECTED: "Unusual audio pattern — others may be speaking nearby.",
+  SUSPICIOUS_BACKGROUND_NOISE: "Loud background audio detected. Reduce noise around you.",
 };
 
-/** Shown when a violation is logged (same cadence as server alert — cooldown-limited, not every model tick). */
-const CHEATING_TOAST_MESSAGES: Partial<Record<ProctoringEventCode, string>> = {
-  MULTIPLE_FACES_DETECTED: "Multiple faces detected. This assessment must be completed alone.",
-  PHONE_DETECTED: "Mobile or handheld device detected. Remove it from view to continue fairly.",
-  NO_FACE_DETECTED: "Your face is not visible. Stay in view of the camera.",
+const CHEATING_TOASTS_OTHER: Partial<Record<ProctoringEventCode, string>> = {
+  LOOKING_AWAY_FROM_SCREEN: "Try to keep your eyes toward the screen.",
+  LOW_VISIBILITY: "Lighting is very low — improve lighting so your face stays visible.",
+  MICROPHONE_MUTED_ATTEMPT: "Microphone was muted. Keep it on for this session.",
+  WINDOW_FOCUS_LOST: "Keep this window focused during the assessment.",
+  WINDOW_MINIMIZED: "This window appears minimized — restore it.",
 };
 
 const EVENT_COOLDOWN_MS: Partial<Record<ProctoringEventCode, number>> = {
@@ -105,15 +109,18 @@ const EVENT_COOLDOWN_MS: Partial<Record<ProctoringEventCode, number>> = {
   DEVTOOLS_OPENED: 5000,
 };
 
-function getRiskLevel(score: number): RiskLevel {
-  if (score >= 50) return "high_risk";
-  if (score >= 20) return "suspicious";
-  return "clean";
+function sessionLevelFromCounts(
+  maxPerType: number,
+  totalLogged: number,
+): ViolationSessionLevel {
+  if (maxPerType >= 6 || totalLogged >= 22) return "high_attention";
+  if (maxPerType >= 3 || totalLogged >= 9) return "elevated";
+  return "baseline";
 }
 
-function getSeverityFromScore(score: number): "low" | "medium" | "high" {
-  if (score >= 50) return "high";
-  if (score >= 20) return "medium";
+function getSeverityFromRepeatCount(countForType: number): "low" | "medium" | "high" {
+  if (countForType >= 4) return "high";
+  if (countForType >= 2) return "medium";
   return "low";
 }
 
@@ -133,8 +140,12 @@ export function useProctoringRiskMonitor({
   microphoneMonitoringEnabled = false,
   maxTabSwitches = 3,
   onMaxTabSwitches,
+  strikeTerminationMode = "OFF",
+  onProctoringTerminated,
 }: UseProctoringRiskMonitorOptions) {
-  const [riskScore, setRiskScore] = useState(0);
+  const [violationCountsByType, setViolationCountsByType] = useState<
+    Partial<Record<ProctoringEventCode, number>>
+  >({});
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [events, setEvents] = useState<ProctoringEventLog[]>([]);
   const warningCountsRef = useRef<Record<string, number>>({});
@@ -143,8 +154,25 @@ export function useProctoringRiskMonitor({
   const lookingAwaySinceRef = useRef<number | null>(null);
   const speakingSinceRef = useRef<number | null>(null);
   const devtoolsWarnedRef = useRef(false);
+  const violationCountsRef = useRef<Partial<Record<ProctoringEventCode, number>>>({});
+  const terminatedRef = useRef(false);
+  const onMaxTabSwitchesRef = useRef(onMaxTabSwitches);
+  const onProctoringTerminatedRef = useRef(onProctoringTerminated);
+  onMaxTabSwitchesRef.current = onMaxTabSwitches;
+  onProctoringTerminatedRef.current = onProctoringTerminated;
 
-  const riskLevel = useMemo(() => getRiskLevel(riskScore), [riskScore]);
+  const totalLoggedViolations = useMemo(
+    () => Object.values(violationCountsByType).reduce((a, b) => a + (b ?? 0), 0),
+    [violationCountsByType],
+  );
+  const maxViolationsForOneSignal = useMemo(() => {
+    const vals = Object.values(violationCountsByType).filter((n) => typeof n === "number");
+    return vals.length ? Math.max(...vals) : 0;
+  }, [violationCountsByType]);
+  const violationSessionLevel = useMemo(
+    () => sessionLevelFromCounts(maxViolationsForOneSignal, totalLoggedViolations),
+    [maxViolationsForOneSignal, totalLoggedViolations],
+  );
 
   const bumpWarningCounter = useCallback((key: string) => {
     warningCountsRef.current[key] = (warningCountsRef.current[key] ?? 0) + 1;
@@ -160,30 +188,74 @@ export function useProctoringRiskMonitor({
     return false;
   }, []);
 
+  const maybeHardTerminate = useCallback((code: ProctoringEventCode, strikeCount: number) => {
+    if (strikeTerminationMode !== "STRICT" || terminatedRef.current) return;
+    if (strikeCount < MAX_PROCTORING_STRIKES) return;
+    terminatedRef.current = true;
+    toast.error("This assessment has ended due to repeated integrity alerts.", { duration: 8000 });
+    onProctoringTerminatedRef.current?.(code);
+  }, [strikeTerminationMode]);
+
   const logViolation = useCallback(
-    async (eventCode: ProctoringEventCode, details?: Record<string, unknown>) => {
+    async (
+      eventCode: ProctoringEventCode,
+      details?: Record<string, unknown>,
+      opts?: { silentClientFeedback?: boolean }
+    ) => {
       if (!candidateId || !testId || !enabled) return;
       if (shouldRateLimitEvent(eventCode)) return;
 
-      const cheatMsg = CHEATING_TOAST_MESSAGES[eventCode];
-      if (cheatMsg) {
-        toast.warning(cheatMsg, { duration: 6000 });
-      }
-
-      const delta = EVENT_RISK_WEIGHTS[eventCode] ?? 0;
-      const nextScore = riskScore + delta;
+      const silentClient = opts?.silentClientFeedback === true;
+      const nextForType = (violationCountsRef.current[eventCode] ?? 0) + 1;
+      violationCountsRef.current[eventCode] = nextForType;
+      const violation_counts_by_type = { ...violationCountsRef.current } as Partial<
+        Record<ProctoringEventCode, number>
+      >;
+      setViolationCountsByType(violation_counts_by_type);
       const timestamp = new Date().toISOString();
+
+      const isStrikeClass =
+        STRIKE_TERMINATION_EVENTS.has(eventCode) && eventCode !== "TAB_SWITCH" && !silentClient;
+
+      if (!silentClient) {
+        if (isStrikeClass) {
+          const baseMsg = STRIKE_LEARNER_TOAST[eventCode];
+          if (strikeTerminationMode === "OFF") {
+            if (baseMsg) toast.warning(baseMsg, { duration: 6000 });
+          } else {
+            const n = nextForType;
+            const suffix =
+              strikeTerminationMode === "MONITOR"
+                ? ` Strike ${n}/${MAX_PROCTORING_STRIKES} (logged; fix the issue to stay in good standing).`
+                : ` Strike ${n}/${MAX_PROCTORING_STRIKES}${
+                    n >= MAX_PROCTORING_STRIKES ? " — maximum reached." : " — test will end if this reaches 3."
+                  }`;
+            if (baseMsg) toast.warning(baseMsg + suffix, { duration: 7500 });
+            maybeHardTerminate(eventCode, n);
+          }
+        } else if (
+          !["COPY_PASTE_ATTEMPT", "DEVTOOLS_OPENED"].includes(eventCode) &&
+          CHEATING_TOASTS_OTHER[eventCode]
+        ) {
+          toast.warning(CHEATING_TOASTS_OTHER[eventCode]!, { duration: 5000 });
+        }
+      }
 
       const eventLog: ProctoringEventLog = {
         candidate_id: candidateId,
         test_id: testId,
         event: eventCode,
         timestamp,
-        risk_score: nextScore,
-        details,
+        violation_count_for_type: nextForType,
+        violation_counts_by_type,
+        details: {
+          ...details,
+          ...(isStrikeClass
+            ? { learnerStrikes: nextForType, strikeMode: strikeTerminationMode }
+            : {}),
+        },
       };
 
-      setRiskScore(nextScore);
       setEvents((prev) => [...prev, eventLog]);
 
       try {
@@ -192,21 +264,25 @@ export function useProctoringRiskMonitor({
           testId,
           testType,
           alertType: eventCode,
-          severity: getSeverityFromScore(nextScore),
+          severity: getSeverityFromRepeatCount(nextForType),
           message: eventCode,
+          violationCountForType: nextForType,
+          riskScore: nextForType,
           violationDetails: {
             ...details,
             timestamp,
             eventCode,
-            riskScore: nextScore,
-            riskLevel: getRiskLevel(nextScore),
+            violationCountForType: nextForType,
+            violationCountsByType: violation_counts_by_type,
+            strikeTerminationMode,
+            strikesForEvent: isStrikeClass ? nextForType : undefined,
           },
         });
       } catch {
         // Do not interrupt the test if alert logging fails.
       }
     },
-    [candidateId, enabled, riskScore, shouldRateLimitEvent, testId, testType]
+    [candidateId, enabled, maybeHardTerminate, shouldRateLimitEvent, strikeTerminationMode, testId, testType]
   );
 
   const warnFirstThenLog = useCallback(
@@ -221,7 +297,6 @@ export function useProctoringRiskMonitor({
     [bumpWarningCounter, logViolation]
   );
 
-  // Browser tab/window/fullscreen/devtools/copy-paste checks
   useEffect(() => {
     if (!enabled) return;
 
@@ -230,7 +305,6 @@ export function useProctoringRiskMonitor({
     const devtoolsEnabled = devtoolsDetectionEnabled;
     const fullscreenEnabled = fullscreenDetectionEnabled;
 
-    // Where supported, flag multiple connected displays.
     const checkMultipleScreens = async () => {
       const maybeWindow = window as Window & {
         getScreenDetails?: () => Promise<{ screens?: Array<unknown> }>;
@@ -250,18 +324,28 @@ export function useProctoringRiskMonitor({
 
     const onVisibility = () => {
       if (!tabAndFocusEnabled) return;
-      if (document.hidden) {
-        setTabSwitchCount((prev) => {
-          const next = prev + 1;
-          if (maxTabSwitches > 0 && next >= maxTabSwitches) {
-            toast.error(`Tab switch limit reached (${next}/${maxTabSwitches}). Test will be terminated.`);
-            onMaxTabSwitches?.();
-          } else {
-            warnFirstThenLog("TAB_SWITCH", "TAB_SWITCH", `Warning: tab switch detected (${next}/${maxTabSwitches}).`);
+      if (!document.hidden) return;
+      setTabSwitchCount((prev) => {
+        const next = prev + 1;
+        const base = "You left this assessment tab. Return immediately.";
+
+        if (strikeTerminationMode === "MONITOR" || strikeTerminationMode === "STRICT") {
+          toast.warning(`${base} Strike ${next}/${MAX_PROCTORING_STRIKES}.`, { duration: 6000 });
+          if (strikeTerminationMode === "STRICT" && next >= MAX_PROCTORING_STRIKES && !terminatedRef.current) {
+            maybeHardTerminate("TAB_SWITCH", next);
           }
-          return next;
-        });
-      }
+        } else {
+          toast.warning(base, { duration: 4500 });
+        }
+
+        if (strikeTerminationMode !== "STRICT" && maxTabSwitches > 0 && next >= maxTabSwitches) {
+          toast.error(`Tab switch limit reached (${next}/${maxTabSwitches}).`);
+          onMaxTabSwitchesRef.current?.();
+        }
+
+        void logViolation("TAB_SWITCH", { switchNumber: next }, { silentClientFeedback: true });
+        return next;
+      });
     };
 
     const onBlur = () => {
@@ -343,14 +427,14 @@ export function useProctoringRiskMonitor({
     logViolation,
     warnFirstThenLog,
     maxTabSwitches,
-    onMaxTabSwitches,
+    maybeHardTerminate,
+    strikeTerminationMode,
     tabSwitchDetectionEnabled,
     copyPasteDetectionEnabled,
     devtoolsDetectionEnabled,
     fullscreenDetectionEnabled,
   ]);
 
-  // Audio checks: speaking duration, suspicious noise, multiple voices, mute attempts.
   useEffect(() => {
     if (!enabled || !microphoneStream || !microphoneMonitoringEnabled) return;
 
@@ -383,7 +467,6 @@ export function useProctoringRiskMonitor({
       }
       const rms = Math.sqrt(sum / time.length);
 
-      // Heuristic: sustained speech-like loudness for 5+ seconds.
       const isSpeaking = rms > 23;
       if (isSpeaking) {
         if (!speakingSinceRef.current) speakingSinceRef.current = Date.now();
@@ -399,7 +482,6 @@ export function useProctoringRiskMonitor({
         void logViolation("SUSPICIOUS_BACKGROUND_NOISE", { rms: Number(rms.toFixed(2)) });
       }
 
-      // Crude multiple-voices heuristic: too many strong peaks in speech bands.
       let speechPeaks = 0;
       for (let i = 2; i < 60; i++) {
         if (freq[i] > 120) speechPeaks += 1;
@@ -416,8 +498,6 @@ export function useProctoringRiskMonitor({
     };
   }, [enabled, logViolation, microphoneStream, microphoneMonitoringEnabled]);
 
-  // Face + phone checks (TensorFlow.js BlazeFace + COCO-SSD). ~3s interval; hidden canvas for brightness only.
-  // Skip for ai_interview (speaking expected; stage opts out).
   useEffect(() => {
     if (!enabled || !cameraStream || testType === "ai_interview" || !multipleFaceDetectionEnabled) return;
 
@@ -571,10 +651,12 @@ export function useProctoringRiskMonitor({
   );
 
   const resetRisk = useCallback(() => {
-    setRiskScore(0);
+    violationCountsRef.current = {};
+    setViolationCountsByType({});
     setEvents([]);
     warningCountsRef.current = {};
     lastEventTsRef.current = {};
+    terminatedRef.current = false;
     noFaceSinceRef.current = null;
     lookingAwaySinceRef.current = null;
     speakingSinceRef.current = null;
@@ -582,8 +664,9 @@ export function useProctoringRiskMonitor({
   }, []);
 
   return {
-    riskScore,
-    riskLevel,
+    violationCountsByType,
+    totalLoggedViolations,
+    violationSessionLevel,
     tabSwitchCount,
     events,
     recordEvent,
