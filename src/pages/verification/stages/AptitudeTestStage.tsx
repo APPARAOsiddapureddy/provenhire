@@ -13,7 +13,6 @@ import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
-import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -224,7 +223,9 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    multipleFaceDetectionEnabled: false,
+    // Enables BlazeFace + COCO-SSD in useProctoringRiskMonitor: multi-face, phone, no-face, low visibility, looking away.
+    multipleFaceDetectionEnabled:
+      isFlagEnabled("multiple_face_detection") || isFlagEnabled("camera_required"),
     proctorVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
@@ -257,17 +258,6 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     sessionId: testIdRef.current,
     testType: "aptitude",
     cameraStream: proctoringState?.cameraStream ?? null,
-  });
-
-  useFaceAndPhoneDetection({
-    videoRef: proctorVideoRef,
-    sessionId: testIdRef.current,
-    testType: "aptitude",
-    userId: user?.id,
-    enabled: inTest && Boolean(proctoringState?.cameraStream),
-    onServerAction: (action, evt) => {
-      if (action === "STOP_TEST") terminateAptitudeForProctoring(evt as ProctoringEventCode);
-    },
   });
 
   useEffect(() => {
@@ -596,15 +586,19 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             <p className="text-sm text-muted-foreground">
               Your score: {scorePctDisplay}%. Minimum {passThresholdPct}% required to proceed to the DSA round.
             </p>
-            {onRetry ? (
-              <Button onClick={onRetry} className="mt-2">
-                Retry Test
+            <div className="flex flex-wrap gap-3 justify-center pt-2">
+              {onRetry ? (
+                <Button onClick={onRetry}>Retry test</Button>
+              ) : null}
+              <Button variant="outline" onClick={() => navigate("/dashboard/jobseeker")}>
+                Return to dashboard
               </Button>
-            ) : (
+            </div>
+            {!onRetry ? (
               <p className="text-sm text-muted-foreground">
-                Return to the dashboard and come back when you&apos;re ready to retry.
+                You can retry this step from your dashboard when it becomes available.
               </p>
-            )}
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -660,7 +654,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                     You may see warnings for: no face visible, multiple faces, phone in frame, tab switches, leaving fullscreen, and unusual background audio. Copy-paste is limited but does not use the same strike warnings.
                   </p>
                   <p className="text-xs mt-2">
-                    When your organization turns on strict mode, three repeated alerts for the same rule can end this attempt so you know to follow the rules next time.
+                    Three repeated alerts for the same rule (for example tab switches or phone in frame) end this attempt when integrity monitoring is not OFF. Tab switching may also end the test after three leaves when tab detection is strict.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -683,13 +677,17 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             <p className="text-sm text-muted-foreground">
               Your score: {scorePctDisplay}%. Minimum {passThresholdPct}% required to proceed to the DSA round.
             </p>
-            {onRetry ? (
-              <Button onClick={onRetry} className="mt-2">
-                Retry Test
+            <div className="flex flex-wrap gap-3 justify-center pt-2">
+              {onRetry ? <Button onClick={onRetry}>Retry test</Button> : null}
+              <Button variant="outline" onClick={() => navigate("/dashboard/jobseeker")}>
+                Return to dashboard
               </Button>
-            ) : (
-              <p className="text-sm text-muted-foreground">Return to the dashboard and come back when you&apos;re ready to retry.</p>
-            )}
+            </div>
+            {!onRetry ? (
+              <p className="text-sm text-muted-foreground">
+                You can retry this step from your dashboard when it becomes available.
+              </p>
+            ) : null}
           </div>
         ) : justPassed ? (
           <div className="p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-5">

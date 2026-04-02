@@ -65,6 +65,7 @@ interface UseProctoringRiskMonitorOptions {
   copyPasteDetectionEnabled?: boolean;
   devtoolsDetectionEnabled?: boolean;
   fullscreenDetectionEnabled?: boolean;
+  /** When true, runs TensorFlow.js camera AI: face count (none / multi), phone (COCO-SSD), low brightness, looking-away. */
   multipleFaceDetectionEnabled?: boolean;
   proctorVideoRef?: RefObject<HTMLVideoElement | null>;
   microphoneMonitoringEnabled?: boolean;
@@ -201,8 +202,10 @@ export function useProctoringRiskMonitor({
     return false;
   }, []);
 
+  /** Ends the attempt after MAX_PROCTORING_STRIKES of the same signal (or tab leaves). OFF = never auto-end here. */
   const maybeHardTerminate = useCallback((code: ProctoringEventCode, strikeCount: number) => {
-    if (strikeTerminationMode !== "STRICT" || terminatedRef.current) return;
+    if (terminatedRef.current) return;
+    if (strikeTerminationMode === "OFF") return;
     if (strikeCount < MAX_PROCTORING_STRIKES) return;
     terminatedRef.current = true;
     toast.error("This assessment has ended due to repeated integrity alerts.", { duration: 8000 });
@@ -239,7 +242,9 @@ export function useProctoringRiskMonitor({
             const n = nextForType;
             const suffix =
               strikeTerminationMode === "MONITOR"
-                ? ` Strike ${n}/${MAX_PROCTORING_STRIKES} (logged; fix the issue to stay in good standing).`
+                ? ` Strike ${n}/${MAX_PROCTORING_STRIKES}${
+                    n >= MAX_PROCTORING_STRIKES ? " — maximum reached; this attempt ends." : "."
+                  }`
                 : ` Strike ${n}/${MAX_PROCTORING_STRIKES}${
                     n >= MAX_PROCTORING_STRIKES ? " — maximum reached." : " — test will end if this reaches 3."
                   }`;
@@ -368,14 +373,15 @@ export function useProctoringRiskMonitor({
 
         if (strikeTerminationMode === "MONITOR" || strikeTerminationMode === "STRICT") {
           toast.warning(`${base} Strike ${next}/${MAX_PROCTORING_STRIKES}.`, { duration: 6000 });
-          if (strikeTerminationMode === "STRICT" && next >= MAX_PROCTORING_STRIKES && !terminatedRef.current) {
+          if (strikeTerminationMode !== "OFF" && next >= MAX_PROCTORING_STRIKES && !terminatedRef.current) {
             maybeHardTerminate("TAB_SWITCH", next);
           }
         } else {
           toast.warning(base, { duration: 4500 });
         }
 
-        if (strikeTerminationMode !== "STRICT" && maxTabSwitches > 0 && next >= maxTabSwitches) {
+        // When strike auto-end is OFF, tab-switch STRICT still ends the test via physical switch count only.
+        if (strikeTerminationMode === "OFF" && maxTabSwitches > 0 && next >= maxTabSwitches) {
           toast.error(`Tab switch limit reached (${next}/${maxTabSwitches}).`);
           onMaxTabSwitchesRef.current?.();
         }
@@ -536,6 +542,7 @@ export function useProctoringRiskMonitor({
   }, [enabled, logViolation, microphoneStream, microphoneMonitoringEnabled]);
 
   useEffect(() => {
+    // ai_interview uses a separate video pipeline (ExpertInterviewStage); skip this effect there.
     if (!enabled || !cameraStream || testType === "ai_interview" || !multipleFaceDetectionEnabled) return;
 
     let cancelled = false;
@@ -635,7 +642,7 @@ export function useProctoringRiskMonitor({
         }
 
         try {
-          const phone = await detectCellPhoneInFrame(video, 0.6);
+          const phone = await detectCellPhoneInFrame(video, 0.5);
           if (phone.found) {
             void logViolation("PHONE_DETECTED", { confidence: Number(phone.maxScore.toFixed(3)) });
           }

@@ -25,7 +25,7 @@ const FEATURE_LABELS: Record<string, string> = {
   copy_paste_detection: "Copy Paste Detection",
   fullscreen_required: "Fullscreen Required",
   camera_required: "Camera Required",
-  multiple_face_detection: "Face / phone / no-face (camera AI)",
+  multiple_face_detection: "Camera AI: multi-face, phone, no-face, low light",
   screen_recording_enabled: "Screen Recording Enabled",
   microphone_monitoring: "Microphone Monitoring (background voice, etc.)",
   ai_behavior_analysis: "AI Behavior Analysis",

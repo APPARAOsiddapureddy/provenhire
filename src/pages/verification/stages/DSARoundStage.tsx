@@ -9,7 +9,6 @@ import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
-import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Badge } from "@/components/ui/badge";
@@ -412,7 +411,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    multipleFaceDetectionEnabled: false,
+    // Enables BlazeFace + COCO-SSD in useProctoringRiskMonitor: multi-face, phone, no-face, low visibility, looking away.
+    multipleFaceDetectionEnabled:
+      isFlagEnabled("multiple_face_detection") || isFlagEnabled("camera_required"),
     proctorVideoRef: proctorCameraVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
@@ -458,17 +459,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     sessionId: testIdRef.current,
     testType: "dsa",
     cameraStream: proctoringState?.cameraStream ?? null,
-  });
-
-  useFaceAndPhoneDetection({
-    videoRef: proctorCameraVideoRef,
-    sessionId: testIdRef.current,
-    testType: "dsa",
-    userId: user?.id,
-    enabled: inTest && Boolean(proctoringState?.cameraStream),
-    onServerAction: (action, evt) => {
-      if (action === "STOP_TEST") terminateDsaForProctoring(evt as ProctoringEventCode);
-    },
   });
 
   useEffect(() => {
@@ -1079,15 +1069,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             <p className="text-sm text-muted-foreground">
               Your last score: {stageScore ?? 0}/100. Minimum {ELIGIBILITY_THRESHOLD} required to proceed.
             </p>
-            {onRetry ? (
-              <Button onClick={onRetry} className="mt-2">
-                Retry Test
+            <div className="flex flex-wrap gap-3 justify-center pt-2">
+              {onRetry ? <Button onClick={onRetry}>Retry test</Button> : null}
+              <Button variant="outline" onClick={() => navigate("/dashboard/jobseeker")}>
+                Return to dashboard
               </Button>
-            ) : (
+            </div>
+            {!onRetry ? (
               <p className="text-sm text-muted-foreground">
-                Return to the dashboard and come back when you&apos;re ready to retry.
+                You can retry this step from your dashboard when it becomes available.
               </p>
-            )}
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -1274,9 +1266,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             <p className="text-sm text-muted-foreground">
               Your score: {localFinalScore ?? stageScore ?? 0}/100. Minimum {ELIGIBILITY_THRESHOLD} required to proceed.
             </p>
-            {onRetry && (
-              <Button onClick={onRetry} className="mt-2">Retry Test</Button>
-            )}
+            <div className="flex flex-wrap gap-3 justify-center pt-2">
+              {onRetry ? <Button onClick={onRetry}>Retry test</Button> : null}
+              <Button variant="outline" onClick={() => navigate("/dashboard/jobseeker")}>
+                Return to dashboard
+              </Button>
+            </div>
+            {!onRetry ? (
+              <p className="text-sm text-muted-foreground">
+                You can retry this step from your dashboard when it becomes available.
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -1305,7 +1305,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                     Voice detection, mobile phone detection, multiple/dual face detection, tab switching, and fullscreen exits.
                   </p>
                   <p className="text-xs mt-2">
-                    Each violation adds risk points. If cumulative risk reaches <span className="font-semibold">400</span>, the attempt may be disqualified.
+                    Three repeated alerts for the same rule end this attempt when integrity monitoring is not OFF. Tab switching may also end the test after three leaves when tab detection is strict.
                   </p>
                 </TooltipContent>
               </Tooltip>

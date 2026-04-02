@@ -14,7 +14,7 @@ const DEFAULT_DESCRIPTIONS: Record<string, string> = {
   devtools_detection: "Detect when developer tools are opened during assessment",
   fullscreen_required: "Require fullscreen mode during assessment",
   camera_required: "Require webcam to be on during assessment",
-  multiple_face_detection: "Detect multiple faces in camera view",
+  multiple_face_detection: "Camera AI: multiple faces, phone, no-face, low light",
   screen_recording_enabled: "Enable screen recording during assessment",
   microphone_monitoring: "Monitor microphone for unauthorized audio",
   ai_behavior_analysis: "AI-driven behavior analysis during assessment",
@@ -22,11 +22,12 @@ const DEFAULT_DESCRIPTIONS: Record<string, string> = {
 
 async function main() {
   for (const name of PROCTORING_FEATURE_FLAGS) {
+    const defaultMode = name === "multiple_face_detection" ? "MONITOR" : "OFF";
     await prisma.platformFeatureFlag.upsert({
       where: { featureName: name },
       create: {
         featureName: name,
-        mode: "OFF",
+        mode: defaultMode,
         description: DEFAULT_DESCRIPTIONS[name] ?? null,
       },
       update: {},
