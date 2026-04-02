@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireAuth, requireJobSeeker, optionalAuth, AuthedRequest } from "../middleware/auth.js";
@@ -16,6 +16,12 @@ import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 import { upsertSkillVerification, getSkillVerifications } from "../services/skillVerification.service.js";
+import { buildAptitudeLatestResult } from "../utils/aptitudeScoring.js";
+import {
+  applyAptitudeLockoutIfNeeded,
+  cooldownPayloadFromLockout,
+  getAptitudeLockoutStatus,
+} from "../services/aptitudeLockout.service.js";
 import {
   DSA_API_LANGUAGES,
   DSA_PASS_THRESHOLD,
@@ -31,6 +37,18 @@ import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
 export const verificationRouter = Router();
+
+async function sendIfAptitudeLocked(userId: string, res: Response): Promise<boolean> {
+  const s = await getAptitudeLockoutStatus(userId);
+  if (!s.locked) return false;
+  res.status(403).json({
+    code: "APTITUDE_LOCKOUT",
+    error:
+      "You have reached the maximum number of failed Cognitive Assessment attempts. Per policy, you can try again after the date below.",
+    lockedUntil: s.lockedUntil.toISOString(),
+  });
+  return true;
+}
 
 /** DB session row or in-memory fallback (same process) so aptitude works when Prisma session table errors. */
 async function resolveAptitudeSubmitSession(userId: string): Promise<{
@@ -326,6 +344,7 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   const currentIndex = stageOrder.indexOf(parsed.data.stageName);
   if (currentIndex < 0) return res.status(400).json({ error: "Invalid stage for this path" });
   if (parsed.data.stageName === "aptitude_test") {
+    if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     await clearAptitudeSession(req.user!.id);
   }
   if (parsed.data.stageName === "dsa_round") {
@@ -348,6 +367,7 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
 /** GET cognitive assessment questions. */
 verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
+    if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     let experienceYears = 0;
     try {
       const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
@@ -423,6 +443,7 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
 
 verificationRouter.post("/aptitude/draft", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
+    if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     const schema = z.object({
       answers: z.record(z.string(), z.string()).optional(),
       reviewed: z.array(z.string()).optional(),
@@ -453,6 +474,7 @@ verificationRouter.get("/aptitude/practice", async (_req, res) => {
 
 verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
+    if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     const schema = z.object({
       score: z.number().optional(),
       answers: z.record(z.string(), z.string()).optional(), // { questionId: selectedOption }
@@ -544,6 +566,7 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
         invalidated: Boolean(parsed.data.invalidated),
       },
     });
+    await applyAptitudeLockoutIfNeeded(req.user!.id);
     // Store 0–100 percentage in VerificationStage and CandidateSkillVerification for consistent display with DSA/AI
     const totalMarksForPct = answersToStore && typeof (answersToStore as { totalMarks?: number }).totalMarks === "number"
       ? (answersToStore as { totalMarks: number }).totalMarks
@@ -592,50 +615,6 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
 
 function normalizeAnswer(s: string): string {
   return (s || "").toString().trim().toLowerCase();
-}
-
-type AptitudeAnswersJson = {
-  totalMarks?: number;
-  earnedMarks?: number;
-  correct?: number;
-  questions?: number;
-};
-
-/**
- * AptitudeTestResult.score is normally **raw earned marks**; answers.totalMarks / earnedMarks come from POST /aptitude.
- * Legacy rows (e.g. test seed) stored **0–100 percent** in score with empty answers — do not divide that by 25.
- */
-function buildAptitudeLatestResult(row: { score: number | null; answers: unknown }): {
-  total_score: number;
-  total_marks: number;
-  percentage: number;
-  score: number;
-} {
-  const answers = (row.answers ?? null) as AptitudeAnswersJson | null;
-  const totalFromAnswers =
-    typeof answers?.totalMarks === "number" && answers.totalMarks > 0 ? answers.totalMarks : null;
-  const earnedFromAnswers = typeof answers?.earnedMarks === "number" ? answers.earnedMarks : null;
-  const stored = row.score ?? 0;
-
-  if (totalFromAnswers != null) {
-    const earned = earnedFromAnswers != null ? earnedFromAnswers : stored;
-    const percentage = Math.min(100, Math.max(0, Math.round((earned / totalFromAnswers) * 100)));
-    return {
-      total_score: earned,
-      total_marks: totalFromAnswers,
-      percentage,
-      score: earned,
-    };
-  }
-
-  // No totalMarks on record: treat stored score as 0–100 (synthetic / legacy percent rows)
-  const percentage = Math.min(100, Math.max(0, Math.round(stored)));
-  return {
-    total_score: percentage,
-    total_marks: 100,
-    percentage,
-    score: percentage,
-  };
 }
 
 verificationRouter.get("/aptitude/latest", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
@@ -1277,8 +1256,14 @@ verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSe
   });
 });
 
-verificationRouter.get("/cooldowns", optionalAuth, async (_req, res) => {
-  res.json({ aptitude: { inCooldown: false }, dsa: { inCooldown: false } });
+verificationRouter.get("/cooldowns", optionalAuth, async (req: AuthedRequest, res) => {
+  const idle = { inCooldown: false as const };
+  if (!req.user?.id) {
+    return res.json({ aptitude: idle, dsa: idle });
+  }
+  const aptitudeLock = await getAptitudeLockoutStatus(req.user.id);
+  const aptitude = aptitudeLock.locked ? cooldownPayloadFromLockout(aptitudeLock.lockedUntil) : idle;
+  res.json({ aptitude, dsa: idle });
 });
 
 verificationRouter.get("/invalidated", optionalAuth, async (_req, res) => {

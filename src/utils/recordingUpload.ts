@@ -71,10 +71,30 @@ export const invalidateTest = async (
 export const checkCooldownStatus = async (
   _userId: string,
   testType: "aptitude" | "dsa"
-): Promise<{ inCooldown: boolean; cooldownEndsAt?: Date; hoursRemaining?: number }> => {
+): Promise<{
+  inCooldown: boolean;
+  cooldownEndsAt?: Date;
+  hoursRemaining?: number;
+  daysRemaining?: number;
+}> => {
   try {
-    const { aptitude, dsa } = await api.get<{ aptitude: any; dsa: any }>("/api/verification/cooldowns");
-    return testType === "aptitude" ? aptitude : dsa;
+    const { aptitude, dsa } = await api.get<{
+      aptitude: {
+        inCooldown?: boolean;
+        cooldownEndsAt?: string;
+        hoursRemaining?: number;
+        daysRemaining?: number;
+      };
+      dsa: { inCooldown?: boolean; cooldownEndsAt?: string; hoursRemaining?: number; daysRemaining?: number };
+    }>("/api/verification/cooldowns");
+    const raw = testType === "aptitude" ? aptitude : dsa;
+    const endsRaw = raw?.cooldownEndsAt;
+    return {
+      inCooldown: Boolean(raw?.inCooldown),
+      cooldownEndsAt: typeof endsRaw === "string" && endsRaw ? new Date(endsRaw) : undefined,
+      hoursRemaining: typeof raw?.hoursRemaining === "number" ? raw.hoursRemaining : undefined,
+      daysRemaining: typeof raw?.daysRemaining === "number" ? raw.daysRemaining : undefined,
+    };
   } catch {
     return { inCooldown: false };
   }

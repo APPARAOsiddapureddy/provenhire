@@ -25,8 +25,6 @@ export type ProctorViolationType =
   | "MOUTH_OPEN"
   | "SPOOF_DETECTED";
 
-const LOOKING_AWAY_DIRECTIONS = ["LEFT", "RIGHT", "UP", "AWAY"];
-
 function stripBase64Prefix(s: string): string {
   return s.replace(/^data:image\/\w+;base64,/, "");
 }

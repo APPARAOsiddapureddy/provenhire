@@ -47,9 +47,19 @@ interface AptitudeTestStageProps {
   onSessionExpired?: () => void;
   onRetry?: () => void;
   isRetry?: boolean;
+  /** Refresh parent cooldown state after any official aptitude row is written (pass, fail, or invalidated). */
+  onAfterAptitudeSubmit?: () => void;
 }
 
-const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpired, onRetry, isRetry = false }: AptitudeTestStageProps) => {
+const AptitudeTestStage = ({
+  stageStatus,
+  stageScore,
+  onComplete,
+  onSessionExpired,
+  onRetry,
+  isRetry = false,
+  onAfterAptitudeSubmit,
+}: AptitudeTestStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const testIdRef = useRef<string>(`APTITUDE_${Date.now()}`);
@@ -70,6 +80,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [checkingBackend, setCheckingBackend] = useState(false);
+  const [aptitudeLockout, setAptitudeLockout] = useState<{ lockedUntil: string } | null>(null);
   const submittingRef = useRef(false);
   const proctorVideoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -203,13 +214,18 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const terminateAptitudeForProctoring = useCallback(
     (_reason: ProctoringEventCode) => {
       if (questions.length > 0 && !submittingRef.current) {
-        void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
+        void api
+          .post("/api/verification/aptitude", { answers: {}, invalidated: true })
+          .then(() => {
+            onAfterAptitudeSubmit?.();
+          })
+          .catch(() => {});
         void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
         setSubmitted(true);
         setSubmittedScore(0);
       }
     },
-    [questions.length]
+    [questions.length, onAfterAptitudeSubmit]
   );
 
   const { tabSwitchCount } = useProctoringRiskMonitor({
@@ -223,7 +239,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    // Enables BlazeFace + COCO-SSD in useProctoringRiskMonitor: multi-face, phone, no-face, low visibility, looking away.
+    // Enables BlazeFace + COCO-SSD in useProctoringRiskMonitor: multi-face, phone, no-face, low visibility.
     multipleFaceDetectionEnabled:
       isFlagEnabled("multiple_face_detection") || isFlagEnabled("camera_required"),
     proctorVideoRef,
@@ -236,7 +252,12 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         ? () => {
             if (questions.length > 0 && !submittingRef.current) {
               toast.error("Test terminated due to tab switching. Maximum 3 switches allowed.");
-              void api.post("/api/verification/aptitude", { answers: {}, invalidated: true }).catch(() => {});
+              void api
+                .post("/api/verification/aptitude", { answers: {}, invalidated: true })
+                .then(() => {
+                  onAfterAptitudeSubmit?.();
+                })
+                .catch(() => {});
               void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
               setSubmitted(true);
               setSubmittedScore(0);
@@ -321,10 +342,17 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         setTotalMarks(res.totalMarks ?? 20);
         setPassThreshold(res.passThreshold ?? 12);
       } catch (e: unknown) {
-        const err = e as Error & { response?: { data?: { error?: string } }; status?: number };
+        const err = e as Error & {
+          response?: { data?: { error?: string; code?: string; lockedUntil?: string } };
+          status?: number;
+        };
         const msg = err.response?.data?.error ?? err.message;
         const code = err.response?.data?.code;
         const status = err.status;
+        if (status === 403 && code === "APTITUDE_LOCKOUT") {
+          setAptitudeLockout({ lockedUntil: err.response?.data?.lockedUntil ?? "" });
+          return;
+        }
         if (status === 503 || (typeof msg === "string" && (msg.includes("Backend not running") || msg.includes("temporarily unavailable")))) {
           setBackendUnavailable(true);
         }
@@ -458,11 +486,13 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         await api.post("/api/verification/stages/update", stagePayload);
         toast.success(`Boom! Level 1 unlocked. Cognitive Assessment score: ${scorePct}%.`);
         setJustPassed(true);
+        onAfterAptitudeSubmit?.();
       } else {
         await api.post("/api/verification/stages/update", stagePayload);
         setSubmittedScore(score);
         setSubmitted(true);
         toast.error(`Score ${scorePct}%. Minimum ${totalMarks > 0 ? Math.round((passThreshold / totalMarks) * 100) : passThreshold}% required to proceed. You can retry when ready.`);
+        onAfterAptitudeSubmit?.();
       }
     } catch (error: unknown) {
       const status = (error as { status?: number })?.status;
@@ -541,6 +571,26 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
         <CardContent className="py-12 flex flex-col items-center justify-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">Loading assessment questions...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (aptitudeLockout) {
+    const until =
+      aptitudeLockout.lockedUntil && !Number.isNaN(Date.parse(aptitudeLockout.lockedUntil))
+        ? new Date(aptitudeLockout.lockedUntil)
+        : null;
+    return (
+      <Card>
+        <CardContent className="py-8 space-y-4 text-center max-w-lg mx-auto">
+          <p className="font-semibold text-lg">Cognitive Assessment unavailable</p>
+          <p className="text-sm text-muted-foreground">
+            You have reached the maximum number of failed attempts. You cannot start another Cognitive Assessment until the lockout period
+            ends.
+          </p>
+          {until ? <p className="text-sm text-muted-foreground">Eligible again after {until.toLocaleString()}.</p> : null}
+          <Button onClick={() => navigate("/dashboard/jobseeker")}>Return to dashboard</Button>
         </CardContent>
       </Card>
     );

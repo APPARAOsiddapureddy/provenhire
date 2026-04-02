@@ -1,6 +1,6 @@
 """
 ProvenHire AI Proctoring Service
-Vision-based monitoring: face detection, phone detection, person count, eye/gaze estimation.
+Vision-based monitoring: face detection, phone detection, person count.
 """
 from contextlib import asynccontextmanager
 import base64
@@ -82,30 +82,6 @@ def detect_phone_yolo(img: np.ndarray) -> tuple[bool, float]:
         return False, 0.0
     except Exception:
         return False, 0.0
-
-
-def estimate_gaze_from_face_region(img: np.ndarray, x: int, y: int, w: int, h: int) -> str:
-    """
-    Simple heuristic: use face region and eyes region to guess looking direction.
-    CENTER = looking at screen, LEFT/RIGHT/UP/AWAY = looking away.
-    """
-    h_img, w_img = img.shape[:2]
-    cx = x + w // 2
-    cy = y + h // 2
-
-    # Face in center third = likely at screen
-    center_band = w_img // 3
-    if center_band <= cx <= 2 * center_band:
-        # Check vertical - if face too high/low, might be looking up/down
-        if cy < h_img * 0.35:
-            return "UP"
-        if cy > h_img * 0.75:
-            return "UP"  # chin up
-        return "CENTER"
-
-    if cx < center_band:
-        return "LEFT"
-    return "RIGHT"
 
 
 def detect_mouth_open(img: np.ndarray, face_rect) -> bool:
@@ -205,13 +181,9 @@ async def analyze_frame(req: FrameRequest):
     # 3. Phone detection (every 3rd frame can be skipped by caller for perf)
     phone_detected, phone_conf = detect_phone_yolo(img)
 
-    # 4. Looking direction
-    if face_detected and face_rects:
-        rect = face_rects[0]
-        x, y, w, h = rect
-        looking_direction = estimate_gaze_from_face_region(img, x, y, w, h)
-    else:
-        looking_direction = "AWAY"
+    # 4. Looking direction — disabled for candidate UX (heuristic was noisy; caused repeated alerts).
+    # Kept as CENTER/AWAY for API shape only; server does not emit LOOKING_AWAY violations.
+    looking_direction = "CENTER" if face_detected else "AWAY"
 
     # 5. Mouth open (only if face present)
     mouth_open = False

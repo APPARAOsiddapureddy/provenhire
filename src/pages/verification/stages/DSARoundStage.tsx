@@ -411,7 +411,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    // Enables BlazeFace + COCO-SSD in useProctoringRiskMonitor: multi-face, phone, no-face, low visibility, looking away.
+    // Enables BlazeFace + COCO-SSD in useProctoringRiskMonitor: multi-face, phone, no-face, low visibility.
     multipleFaceDetectionEnabled:
       isFlagEnabled("multiple_face_detection") || isFlagEnabled("camera_required"),
     proctorVideoRef: proctorCameraVideoRef,

@@ -7,10 +7,7 @@ import { nextViolationIndexForSession } from "../services/proctoringViolationCou
 
 export const proctorRouter = Router();
 
-// Store for look-away duration per session
-const lookAwaySince: Record<string, number> = {};
 const MOUTH_OPEN_COOLDOWN: Record<string, number> = {};
-const LOOK_AWAY_THRESHOLD_MS = 5000;
 const VIOLATION_COOLDOWN_MS = 8000;
 
 function getOrCreateIo() {
@@ -53,16 +50,8 @@ function checkViolations(
     violations.push({ type: "SPOOF_DETECTED", confidence: analysis.confidence });
   }
 
-  const lookingAway = ["LEFT", "RIGHT", "UP", "AWAY"].includes(analysis.looking_direction);
-  if (lookingAway) {
-    const now = Date.now();
-    if (!lookAwaySince[sessionId]) lookAwaySince[sessionId] = now;
-    if (now - lookAwaySince[sessionId] >= LOOK_AWAY_THRESHOLD_MS) {
-      violations.push({ type: "LOOKING_AWAY", confidence: analysis.confidence });
-    }
-  } else {
-    delete lookAwaySince[sessionId];
-  }
+  // Gaze / "looking away" from coarse face position is too noisy for UX (false alerts while reading).
+  // Face presence is still covered by FACE_MISSING; optional TF.js path uses other signals.
 
   if (analysis.mouth_open) {
     const key = sessionId;

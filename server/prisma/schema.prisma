@@ -81,6 +81,8 @@ model JobSeekerProfile {
   experienceLevel      String?  // Entry Level | Mid Level | Senior Level
   preferredLocations   Json?    // string[]
   workModePreference   String?  // Remote | Hybrid | Onsite
+  /// Set when the user fails 3 consecutive aptitude attempts; cleared implicitly once date passes (checked at request time).
+  aptitudeLockedUntil  DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useEffect } from "react";
+import { Suspense, lazy, useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -22,7 +22,7 @@ const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"))
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
-import { checkInvalidatedTests, checkCooldownStatus, RETAKE_COOLDOWN_HOURS } from "@/utils/recordingUpload";
+import { checkInvalidatedTests, checkCooldownStatus } from "@/utils/recordingUpload";
 
 type StageStatus = 'locked' | 'in_progress' | 'completed' | 'failed' | 'pending_review';
 
@@ -33,8 +33,8 @@ interface VerificationStage {
 }
 
 interface CooldownInfo {
-  aptitude: { inCooldown: boolean; hoursRemaining?: number; cooldownEndsAt?: Date };
-  dsa: { inCooldown: boolean; hoursRemaining?: number; cooldownEndsAt?: Date };
+  aptitude: { inCooldown: boolean; hoursRemaining?: number; daysRemaining?: number; cooldownEndsAt?: Date };
+  dsa: { inCooldown: boolean; hoursRemaining?: number; daysRemaining?: number; cooldownEndsAt?: Date };
 }
 
 const VerificationFlow = () => {
@@ -83,6 +83,18 @@ const VerificationFlow = () => {
       (name) => data.find((s) => s.stage_name === name) ?? { stage_name: name, status: 'locked' as StageStatus }
     );
 
+  const checkCooldowns = useCallback(async () => {
+    if (!user) return;
+    const [aptitudeCooldown, dsaCooldown] = await Promise.all([
+      checkCooldownStatus(user.id, "aptitude"),
+      checkCooldownStatus(user.id, "dsa"),
+    ]);
+    setCooldownInfo({
+      aptitude: aptitudeCooldown,
+      dsa: dsaCooldown,
+    });
+  }, [user]);
+
   useEffect(() => {
     if (!user) {
       navigate('/auth');
@@ -90,20 +102,8 @@ const VerificationFlow = () => {
     }
     loadVerificationStages();
     checkForInvalidatedTests();
-    checkCooldowns();
-  }, [user]);
-
-  const checkCooldowns = async () => {
-    if (!user) return;
-    const [aptitudeCooldown, dsaCooldown] = await Promise.all([
-      checkCooldownStatus(user.id, 'aptitude'),
-      checkCooldownStatus(user.id, 'dsa'),
-    ]);
-    setCooldownInfo({
-      aptitude: aptitudeCooldown,
-      dsa: dsaCooldown,
-    });
-  };
+    void checkCooldowns();
+  }, [user, checkCooldowns]);
 
   const checkForInvalidatedTests = async () => {
     if (!user) return;
@@ -428,13 +428,32 @@ const VerificationFlow = () => {
               <Alert className="border-amber-500/50 bg-amber-500/10">
                 <Timer className="h-4 w-4 text-amber-500" />
                 <AlertTitle className="text-amber-600 dark:text-amber-400 flex items-center gap-2">
-                  Cooldown Period Active
+                  Retake unavailable
                 </AlertTitle>
-                <AlertDescription className="text-amber-700 dark:text-amber-300">
-                  You must wait <strong>{cooldownInfo.aptitude.hoursRemaining} hours</strong> before you can retake this test.
-                  The cooldown period ends at approximately {cooldownInfo.aptitude.cooldownEndsAt?.toLocaleString()}.
-                  <br /><br />
-                  <span className="text-sm">This cooldown helps ensure fair assessment for all candidates.</span>
+                <AlertDescription className="text-amber-700 dark:text-amber-300 space-y-3">
+                  <p>
+                    {cooldownInfo.aptitude.daysRemaining != null && cooldownInfo.aptitude.daysRemaining >= 1 ? (
+                      <>
+                        After three unsuccessful Cognitive Assessment attempts, the next attempt is available in{" "}
+                        <strong>
+                          {cooldownInfo.aptitude.daysRemaining} day
+                          {cooldownInfo.aptitude.daysRemaining === 1 ? "" : "s"}
+                        </strong>
+                        .
+                      </>
+                    ) : (
+                      <>
+                        You must wait <strong>{cooldownInfo.aptitude.hoursRemaining ?? 0} hours</strong> before you can
+                        retake this test.
+                      </>
+                    )}{" "}
+                    {cooldownInfo.aptitude.cooldownEndsAt ? (
+                      <>Eligible again after approximately {cooldownInfo.aptitude.cooldownEndsAt.toLocaleString()}.</>
+                    ) : null}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/jobseeker")}>
+                    Return to dashboard
+                  </Button>
                 </AlertDescription>
               </Alert>
             )}
@@ -452,7 +471,7 @@ const VerificationFlow = () => {
                 </AlertDescription>
               </Alert>
             )}
-            {/* Next-step landing: Start Test or Go Home */}
+            {/* Next-step landing: Start Test or Go Home (hidden while aptitude lockout active) */}
             {!cooldownInfo.aptitude.inCooldown && !testStageStarted.aptitude_test ? (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="pt-6">
@@ -483,7 +502,7 @@ const VerificationFlow = () => {
                   />
                 </CardContent>
               </Card>
-            ) : !cooldownInfo.aptitude.inCooldown && (
+            ) : !cooldownInfo.aptitude.inCooldown ? (
               <AptitudeTestStage
                 key={retryingStage === 'aptitude_test' ? 'aptitude-retry' : 'aptitude-first'}
                 stageStatus={getStageStatus('aptitude_test')}
@@ -493,10 +512,13 @@ const VerificationFlow = () => {
                   completeAndAdvanceStage('aptitude_test');
                 }}
                 onSessionExpired={() => setTestStageStarted((p) => ({ ...p, aptitude_test: false }))}
-                onRetry={!cooldownInfo.aptitude.inCooldown ? retryAptitudeAndRestart : undefined}
+                onRetry={retryAptitudeAndRestart}
                 isRetry={retryingStage === 'aptitude_test'}
+                onAfterAptitudeSubmit={() => {
+                  void checkCooldowns();
+                }}
               />
-            )}
+            ) : null}
           </div>
         );
       case 'dsa_round':

@@ -5,7 +5,6 @@ import {
   acquireTfProctoringModels,
   releaseTfProctoringModels,
   estimateBlazeFaces,
-  blazeFaceLookingAway,
   detectCellPhoneInFrame,
 } from "@/utils/tfProctoringDetection";
 
@@ -65,7 +64,7 @@ interface UseProctoringRiskMonitorOptions {
   copyPasteDetectionEnabled?: boolean;
   devtoolsDetectionEnabled?: boolean;
   fullscreenDetectionEnabled?: boolean;
-  /** When true, runs TensorFlow.js camera AI: face count (none / multi), phone (COCO-SSD), low brightness, looking-away. */
+  /** When true, runs TensorFlow.js camera AI: face count (none / multi), phone (COCO-SSD), low brightness. */
   multipleFaceDetectionEnabled?: boolean;
   proctorVideoRef?: RefObject<HTMLVideoElement | null>;
   microphoneMonitoringEnabled?: boolean;
@@ -99,7 +98,6 @@ const STRIKE_LEARNER_TOAST: Partial<Record<ProctoringEventCode, string>> = {
 };
 
 const CHEATING_TOASTS_OTHER: Partial<Record<ProctoringEventCode, string>> = {
-  LOOKING_AWAY_FROM_SCREEN: "Try to keep your eyes toward the screen.",
   LOW_VISIBILITY: "Lighting is very low — improve lighting so your face stays visible.",
   MICROPHONE_MUTED_ATTEMPT: "Microphone was muted. Keep it on for this session.",
   WINDOW_FOCUS_LOST: "Keep this window focused during the assessment.",
@@ -110,7 +108,6 @@ const EVENT_COOLDOWN_MS: Partial<Record<ProctoringEventCode, number>> = {
   NO_FACE_DETECTED: 12000,
   MULTIPLE_FACES_DETECTED: 8000,
   PHONE_DETECTED: 10000,
-  LOOKING_AWAY_FROM_SCREEN: 10000,
   LOW_VISIBILITY: 10000,
   SUSPICIOUS_BACKGROUND_NOISE: 8000,
   MULTIPLE_VOICES_DETECTED: 8000,
@@ -165,7 +162,6 @@ export function useProctoringRiskMonitor({
   const warningCountsRef = useRef<Record<string, number>>({});
   const lastEventTsRef = useRef<Partial<Record<ProctoringEventCode, number>>>({});
   const noFaceSinceRef = useRef<number | null>(null);
-  const lookingAwaySinceRef = useRef<number | null>(null);
   const speakingSinceRef = useRef<number | null>(null);
   const devtoolsWarnedRef = useRef(false);
   const violationCountsRef = useRef<Partial<Record<ProctoringEventCode, number>>>({});
@@ -626,21 +622,6 @@ export function useProctoringRiskMonitor({
           void logViolation("MULTIPLE_FACES_DETECTED", { faceCount: n });
         }
 
-        if (n === 1) {
-          const lookingAway = blazeFaceLookingAway(faces);
-          if (lookingAway) {
-            if (!lookingAwaySinceRef.current) lookingAwaySinceRef.current = now;
-            if (now - (lookingAwaySinceRef.current ?? 0) > 4000) {
-              void logViolation("LOOKING_AWAY_FROM_SCREEN");
-              lookingAwaySinceRef.current = now;
-            }
-          } else {
-            lookingAwaySinceRef.current = null;
-          }
-        } else {
-          lookingAwaySinceRef.current = null;
-        }
-
         try {
           const phone = await detectCellPhoneInFrame(video, 0.5);
           if (phone.found) {
@@ -702,7 +683,6 @@ export function useProctoringRiskMonitor({
     lastEventTsRef.current = {};
     terminatedRef.current = false;
     noFaceSinceRef.current = null;
-    lookingAwaySinceRef.current = null;
     speakingSinceRef.current = null;
     devtoolsWarnedRef.current = false;
   }, []);
