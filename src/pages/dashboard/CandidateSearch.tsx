@@ -419,7 +419,7 @@ const CandidateSearch = () => {
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      {candidate.aptitude_score != null && <Badge variant="outline">Aptitude: {candidate.aptitude_score}%</Badge>}
+                      {candidate.aptitude_score != null && <Badge variant="outline">Cognitive: {candidate.aptitude_score}%</Badge>}
                       {candidate.dsa_score != null && <Badge variant="outline">DSA: {candidate.dsa_score}%</Badge>}
                       {candidate.ai_interview_score != null && <Badge variant="outline">AI Interview: {candidate.ai_interview_score}%</Badge>}
                       {candidate.human_expert_interview_score != null && <Badge variant="outline">Expert: {candidate.human_expert_interview_score}%</Badge>}

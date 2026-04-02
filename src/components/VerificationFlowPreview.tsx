@@ -12,7 +12,7 @@ const VerificationFlowPreview = () => {
       icon: Brain, 
       label: "Skill Check", 
       time: "30 min",
-      description: "Aptitude + CS fundamentals"
+      description: "Cognitive Assessment + CS fundamentals"
     },
     { 
       icon: Video, 

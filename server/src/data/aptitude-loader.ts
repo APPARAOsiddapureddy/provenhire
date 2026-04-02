@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { experienceTierFromYears, questionSetForTier } from "../utils/experienceTier.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -125,96 +126,39 @@ function isVerbal(q: McqQuestionRaw): boolean {
   return false;
 }
 
-/**
- * Select 20 questions with experience-based difficulty. Marks: easy=1, medium=2, hard=2.
- * - Fresher (< 1 year): 15 easy, 5 medium (25 marks, pass 15)
- * - 1–3 years: 10 easy, 5 medium, 5 hard (30 marks, pass 18)
- * - 5+ years: 5 easy, 5 medium, 10 hard (35 marks, pass 21)
- */
-export function createAptitudeSession(experienceYears: number): AptitudeSession {
-  const all = loadQuestions();
-  const verbalPool = all.filter(isVerbal);
-  const quantLogicalPool = all.filter((q) => !isVerbal(q));
-  const byDifficulty = (pool: McqQuestionRaw[]) => ({
-    easy: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "easy"),
-    medium: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium"),
-    hard: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard"),
-  });
-  const verbalByDiff = byDifficulty(verbalPool);
-  const quantByDiff = byDifficulty(quantLogicalPool);
+export type AptitudeQuestionSetId =
+  | "aptitude_mixed"
+  | "cs_fundamentals_medium"
+  | "cs_fundamentals_advanced";
 
-  let needEasy: number;
-  let needMedium: number;
-  let needHard: number;
+let cachedCsQuestions: McqQuestionRaw[] | null = null;
 
-  if (experienceYears < 1) {
-    needEasy = 15;
-    needMedium = 5;
-    needHard = 0;
-  } else if (experienceYears <= 3) {
-    needEasy = 10;
-    needMedium = 5;
-    needHard = 5;
-  } else {
-    needEasy = 5;
-    needMedium = 5;
-    needHard = 10;
+function resolveCsQuestionsPath(): string {
+  const name = "cs-fundamentals-questions.json";
+  const candidates = [
+    join(__dirname, name),
+    join(process.cwd(), "dist", "src", "data", name),
+    join(process.cwd(), "src", "data", name),
+    join(process.cwd(), "server", "src", "data", name),
+    join(process.cwd(), "server", "dist", "src", "data", name),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
   }
+  throw new Error(`cs-fundamentals-questions.json not found (tried: ${candidates.join("; ")})`);
+}
 
-  const pick = (pool: McqQuestionRaw[], n: number, exclude = new Set<McqQuestionRaw>()): McqQuestionRaw[] => {
-    const available = pool.filter((q) => !exclude.has(q));
-    const shuffled = shuffleArray(available);
-    return shuffled.slice(0, Math.min(n, shuffled.length));
-  };
+function loadCsQuestions(): McqQuestionRaw[] {
+  if (cachedCsQuestions) return cachedCsQuestions;
+  const p = resolveCsQuestionsPath();
+  const raw = readFileSync(p, "utf-8");
+  const parsed = JSON.parse(raw) as McqQuestionRaw[];
+  cachedCsQuestions = parsed.filter(isValidMcqQuestionRaw);
+  return cachedCsQuestions;
+}
 
-  const used = new Set<McqQuestionRaw>();
-  // Enforce fixed distribution: total 20 questions, exactly 2 verbal, remaining quant/logical.
-  // Prefer easier verbal for freshers; scale slightly with experience.
-  let needVerbalEasy = 2;
-  let needVerbalMedium = 0;
-  let needVerbalHard = 0;
-  if (experienceYears >= 1 && experienceYears <= 3) {
-    needVerbalEasy = 1;
-    needVerbalMedium = 1;
-  } else if (experienceYears > 3) {
-    needVerbalEasy = 0;
-    needVerbalMedium = 1;
-    needVerbalHard = 1;
-  }
-  const verbalEasy = pick(verbalByDiff.easy, needVerbalEasy, used);
-  verbalEasy.forEach((q) => used.add(q));
-  const verbalMedium = pick(verbalByDiff.medium, needVerbalMedium, used);
-  verbalMedium.forEach((q) => used.add(q));
-  const verbalHard = pick(verbalByDiff.hard, needVerbalHard, used);
-  verbalHard.forEach((q) => used.add(q));
-  const selectedVerbal: McqQuestionRaw[] = [...verbalEasy, ...verbalMedium, ...verbalHard];
-  const verbalNeeded = 2 - selectedVerbal.length;
-  if (verbalNeeded > 0) {
-    const fallbackVerbal = verbalPool.filter((q) => !used.has(q));
-    const more = pick(fallbackVerbal, verbalNeeded, used);
-    more.forEach((q) => used.add(q));
-    selectedVerbal.push(...more);
-  }
-
-  const needQuantEasy = Math.max(0, needEasy - verbalEasy.length);
-  const needQuantMedium = Math.max(0, needMedium - verbalMedium.length);
-  const needQuantHard = Math.max(0, needHard - verbalHard.length);
-
-  const easy = pick(quantByDiff.easy, needQuantEasy, used);
-  easy.forEach((q) => used.add(q));
-  const medium = pick(quantByDiff.medium, needQuantMedium, used);
-  medium.forEach((q) => used.add(q));
-  const hard = pick(quantByDiff.hard, needQuantHard, used);
-  hard.forEach((q) => used.add(q));
-
-  let selected: McqQuestionRaw[] = [...selectedVerbal, ...easy, ...medium, ...hard];
-  const targetTotal = APTITUDE_QUESTION_COUNT;
-  const needed = targetTotal - selected.length;
-  if (needed > 0) {
-    const fallback = quantLogicalPool.filter((q) => !used.has(q));
-    selected = [...selected, ...pick(fallback, needed)];
-  }
-  selected = shuffleArray(selected);
+function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSession {
+  const selected = shuffleArray(selectedMcq);
   const answerKey: Record<string, string> = {};
   const marksKey: Record<string, number> = {};
   const questions: AptitudeQuestionForClient[] = selected.map((q) => {
@@ -238,9 +182,170 @@ export function createAptitudeSession(experienceYears: number): AptitudeSession 
     };
   });
 
-  const totalMarks = questions.reduce((sum, q) => sum + (marksKey[q.id] ?? 1), 0);
-  const passThreshold = Math.ceil(totalMarks * 0.6); // 60% to pass
+  let totalMarks = questions.reduce((sum, q) => sum + (marksKey[q.id] ?? 1), 0);
+  const TARGET = 25;
+  if (totalMarks > 0 && totalMarks !== TARGET) {
+    const ids = questions.map((q) => q.id);
+    for (const id of ids) {
+      marksKey[id] = Math.max(1, Math.round(((marksKey[id] ?? 1) / totalMarks) * TARGET));
+    }
+    totalMarks = ids.reduce((s, id) => s + (marksKey[id] ?? 1), 0);
+    let d = TARGET - totalMarks;
+    let i = 0;
+    while (d !== 0 && i < ids.length * 4) {
+      const id = ids[i % ids.length]!;
+      if (d > 0) {
+        marksKey[id] = (marksKey[id] ?? 1) + 1;
+        d -= 1;
+      } else if ((marksKey[id] ?? 1) > 1) {
+        marksKey[id] = (marksKey[id] ?? 1) - 1;
+        d += 1;
+      }
+      i++;
+    }
+    totalMarks = ids.reduce((s, id) => s + (marksKey[id] ?? 1), 0);
+  }
+
+  const passThreshold = Math.ceil(totalMarks * 0.6);
   return { questions, answerKey, marksKey, totalMarks, passThreshold };
+}
+
+function selectMainBankMcqs(experienceYears: number, targetTotal: number): McqQuestionRaw[] {
+  const all = loadQuestions();
+  const verbalPool = all.filter(isVerbal);
+  const quantLogicalPool = all.filter((q) => !isVerbal(q));
+  const byDifficulty = (pool: McqQuestionRaw[]) => ({
+    easy: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "easy"),
+    medium: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium"),
+    hard: pool.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard"),
+  });
+  const verbalByDiff = byDifficulty(verbalPool);
+  const quantByDiff = byDifficulty(quantLogicalPool);
+
+  const scale = targetTotal / APTITUDE_QUESTION_COUNT;
+  let needEasy: number;
+  let needMedium: number;
+  let needHard: number;
+
+  if (experienceYears < 1) {
+    needEasy = Math.max(1, Math.round(15 * scale));
+    needMedium = Math.max(1, Math.round(5 * scale));
+    needHard = 0;
+  } else if (experienceYears <= 3) {
+    needEasy = Math.max(1, Math.round(10 * scale));
+    needMedium = Math.max(1, Math.round(5 * scale));
+    needHard = Math.max(0, Math.round(5 * scale));
+  } else {
+    needEasy = Math.max(1, Math.round(5 * scale));
+    needMedium = Math.max(1, Math.round(5 * scale));
+    needHard = Math.max(1, Math.round(10 * scale));
+  }
+
+  const pick = (pool: McqQuestionRaw[], n: number, exclude = new Set<McqQuestionRaw>()): McqQuestionRaw[] => {
+    const available = pool.filter((q) => !exclude.has(q));
+    const shuffled = shuffleArray(available);
+    return shuffled.slice(0, Math.min(n, shuffled.length));
+  };
+
+  const used = new Set<McqQuestionRaw>();
+  let needVerbalEasy = 2;
+  let needVerbalMedium = 0;
+  let needVerbalHard = 0;
+  if (experienceYears >= 1 && experienceYears <= 3) {
+    needVerbalEasy = 1;
+    needVerbalMedium = 1;
+  } else if (experienceYears > 3) {
+    needVerbalEasy = 0;
+    needVerbalMedium = 1;
+    needVerbalHard = 1;
+  }
+  if (targetTotal < 12) {
+    needVerbalEasy = Math.min(needVerbalEasy, 1);
+    needVerbalMedium = 0;
+    needVerbalHard = 0;
+  }
+  const verbalEasy = pick(verbalByDiff.easy, needVerbalEasy, used);
+  verbalEasy.forEach((q) => used.add(q));
+  const verbalMedium = pick(verbalByDiff.medium, needVerbalMedium, used);
+  verbalMedium.forEach((q) => used.add(q));
+  const verbalHard = pick(verbalByDiff.hard, needVerbalHard, used);
+  verbalHard.forEach((q) => used.add(q));
+  const selectedVerbal: McqQuestionRaw[] = [...verbalEasy, ...verbalMedium, ...verbalHard];
+  const verbalTarget = Math.min(2, Math.max(1, Math.round(2 * scale)));
+  const verbalNeeded = verbalTarget - selectedVerbal.length;
+  if (verbalNeeded > 0) {
+    const fallbackVerbal = verbalPool.filter((q) => !used.has(q));
+    const more = pick(fallbackVerbal, verbalNeeded, used);
+    more.forEach((q) => used.add(q));
+    selectedVerbal.push(...more);
+  }
+
+  const needQuantEasy = Math.max(0, needEasy - verbalEasy.length);
+  const needQuantMedium = Math.max(0, needMedium - verbalMedium.length);
+  const needQuantHard = Math.max(0, needHard - verbalHard.length);
+
+  const easy = pick(quantByDiff.easy, needQuantEasy, used);
+  easy.forEach((q) => used.add(q));
+  const medium = pick(quantByDiff.medium, needQuantMedium, used);
+  medium.forEach((q) => used.add(q));
+  const hard = pick(quantByDiff.hard, needQuantHard, used);
+  hard.forEach((q) => used.add(q));
+
+  let selected: McqQuestionRaw[] = [...selectedVerbal, ...easy, ...medium, ...hard];
+  const needed = targetTotal - selected.length;
+  if (needed > 0) {
+    const fallback = quantLogicalPool.filter((q) => !used.has(q));
+    selected = [...selected, ...pick(fallback, needed)];
+  }
+  if (selected.length > targetTotal) {
+    selected = shuffleArray(selected).slice(0, targetTotal);
+  }
+  return selected;
+}
+
+/**
+ * Experience-based cognitive session: fresher = aptitude+CS easy mix; mid/senior = CS fundamentals banks.
+ * Marks normalized toward 25 total; pass 60%.
+ */
+export function createAptitudeSessionByQuestionSet(
+  questionSet: AptitudeQuestionSetId,
+  experienceYears: number
+): AptitudeSession {
+  if (questionSet === "aptitude_mixed") {
+    const main = selectMainBankMcqs(experienceYears, 15);
+    const csAll = loadCsQuestions();
+    const csEasy = csAll.filter((q) => (q.difficultyLevel || "").toLowerCase() === "easy");
+    const csPick = shuffleArray(csEasy.length ? csEasy : csAll).slice(0, 5);
+    return buildAptitudeSessionFromMcqs([...main, ...csPick]);
+  }
+  const cs = loadCsQuestions();
+  if (questionSet === "cs_fundamentals_medium") {
+    const med = cs.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium");
+    const hard = cs.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard");
+    let pMed = shuffleArray(med).slice(0, 15);
+    let pHard = shuffleArray(hard).slice(0, 5);
+    if (pMed.length < 15) {
+      const rest = cs.filter((q) => !pMed.includes(q));
+      pMed = [...pMed, ...shuffleArray(rest).slice(0, 15 - pMed.length)];
+    }
+    if (pHard.length < 5) {
+      const rest = shuffleArray(cs.filter((q) => !pHard.includes(q) && !pMed.includes(q)));
+      pHard = [...pHard, ...rest.slice(0, 5 - pHard.length)];
+    }
+    return buildAptitudeSessionFromMcqs([...pMed, ...pHard].slice(0, 20));
+  }
+  const hard = cs.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard");
+  const medium = cs.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium");
+  const hardPick = shuffleArray(hard.length >= 10 ? hard : cs).slice(0, 15);
+  const medPick = shuffleArray(medium.filter((q) => !hardPick.includes(q))).slice(0, 5);
+  const rest = shuffleArray(cs.filter((q) => !hardPick.includes(q) && !medPick.includes(q)));
+  const fill = rest.slice(0, Math.max(0, 20 - hardPick.length - medPick.length));
+  return buildAptitudeSessionFromMcqs([...hardPick, ...medPick, ...fill].slice(0, 20));
+}
+
+/** Backward-compatible entry: routes should pass explicit question set when stored on session. */
+export function createAptitudeSession(experienceYears: number): AptitudeSession {
+  return createAptitudeSessionByQuestionSet(questionSetForTier(experienceTierFromYears(experienceYears)), experienceYears);
 }
 
 /**

@@ -35,7 +35,8 @@ export async function storeAptitudeSession(
   userId: string,
   questions: unknown,
   answerKey: Record<string, string>,
-  marksKey: Record<string, number>
+  marksKey: Record<string, number>,
+  questionSet?: string | null
 ): Promise<void> {
   await ensureAptitudeSessionSchema();
   const expiresAt = new Date(Date.now() + TTL_MS);
@@ -49,6 +50,7 @@ export async function storeAptitudeSession(
       marksKey,
       expiresAt,
       testStartedAt: now,
+      questionSet: questionSet ?? null,
     },
     update: {
       questions: questions as object,
@@ -56,6 +58,7 @@ export async function storeAptitudeSession(
       marksKey,
       expiresAt,
       testStartedAt: now,
+      questionSet: questionSet ?? undefined,
     },
   });
 }
@@ -66,6 +69,7 @@ export async function getAptitudeSession(userId: string): Promise<{
   marksKey: Record<string, number>;
   draft: unknown;
   testStartedAt: Date | null;
+  questionSet: string | null;
 } | null> {
   await ensureAptitudeSessionSchema();
   const row = await prisma.aptitudeSession.findUnique({
@@ -81,6 +85,7 @@ export async function getAptitudeSession(userId: string): Promise<{
     marksKey: row.marksKey as Record<string, number>,
     draft: row.draft,
     testStartedAt: row.testStartedAt ?? null,
+    questionSet: row.questionSet ?? null,
   };
 }
 

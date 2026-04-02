@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
+import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp, Lock, Camera, Shield, Volume2 } from "lucide-react";
+import { Play, Send, Loader2, CheckCircle2, XCircle, ChevronLeft, ChevronRight, CircleHelp, Lock, Shield, Volume2 } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import {
   supportedLanguages,
@@ -229,9 +230,8 @@ int main() {
 function getStarterForQuestion(q: ApiDSAQuestion, lang: ProgrammingLanguage): string {
   const fromApi = q.starterCode?.[lang];
   if (typeof fromApi === "string" && fromApi.trim().length > 0) return fromApi;
-  // Do not fall back to Python for C++/Java — it confuses candidates. Use a language-appropriate boilerplate.
   const pythonFallback = q.starterCode?.python;
-  if (lang === "python" && typeof pythonFallback === "string" && pythonFallback.trim().length > 0) return pythonFallback;
+  if (typeof pythonFallback === "string" && pythonFallback.trim().length > 0) return pythonFallback;
   return defaultStarter(lang);
 }
 
@@ -270,6 +270,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [hasEvaluatedQuestions, setHasEvaluatedQuestions] = useState(false);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [questionsReloadKey, setQuestionsReloadKey] = useState(0);
+  const [dsaPassThreshold, setDsaPassThreshold] = useState(DSA_PASS_THRESHOLD);
+  const [dsaTotalMinutes, setDsaTotalMinutes] = useState(DSA_TOTAL_MINUTES);
   const [noDsaSubmitting, setNoDsaSubmitting] = useState(false);
   const [questionSecondsRemaining, setQuestionSecondsRemaining] = useState<number>(DSA_MINUTES_PER_QUESTION * 60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -277,6 +279,98 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const timeUpSubmittedRef = useRef(false);
   const proctorCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const didInitialScrollRef = useRef(false);
+
+  const CAMERA_WIDGET_W = 180;
+  const CAMERA_WIDGET_EST_H = 160;
+  const [cameraWidgetPos, setCameraWidgetPos] = useState({ x: 0, y: 0 });
+  const [cameraWidgetDragging, setCameraWidgetDragging] = useState(false);
+  const cameraWidgetDragRef = useRef(false);
+  const cameraWidgetOffsetRef = useRef({ x: 0, y: 0 });
+
+  const clampCameraWidgetPos = useCallback((x: number, y: number) => {
+    const maxX = Math.max(0, window.innerWidth - CAMERA_WIDGET_W);
+    const maxY = Math.max(0, window.innerHeight - CAMERA_WIDGET_EST_H);
+    return { x: Math.max(0, Math.min(x, maxX)), y: Math.max(0, Math.min(y, maxY)) };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const margin = 20;
+    setCameraWidgetPos(
+      clampCameraWidgetPos(
+        window.innerWidth - CAMERA_WIDGET_W - margin,
+        window.innerHeight - CAMERA_WIDGET_EST_H - margin
+      )
+    );
+  }, [clampCameraWidgetPos]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setCameraWidgetPos((prev) => clampCameraWidgetPos(prev.x, prev.y));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampCameraWidgetPos]);
+
+  useEffect(() => {
+    const onMoveMouse = (e: MouseEvent) => {
+      if (!cameraWidgetDragRef.current) return;
+      setCameraWidgetPos(
+        clampCameraWidgetPos(
+          e.clientX - cameraWidgetOffsetRef.current.x,
+          e.clientY - cameraWidgetOffsetRef.current.y
+        )
+      );
+    };
+    const onMoveTouch = (e: TouchEvent) => {
+      if (!cameraWidgetDragRef.current || !e.touches[0]) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      setCameraWidgetPos(
+        clampCameraWidgetPos(
+          t.clientX - cameraWidgetOffsetRef.current.x,
+          t.clientY - cameraWidgetOffsetRef.current.y
+        )
+      );
+    };
+    const endDrag = () => {
+      cameraWidgetDragRef.current = false;
+      setCameraWidgetDragging(false);
+    };
+    window.addEventListener("mousemove", onMoveMouse);
+    window.addEventListener("mouseup", endDrag);
+    window.addEventListener("touchmove", onMoveTouch, { passive: false });
+    window.addEventListener("touchend", endDrag);
+    window.addEventListener("touchcancel", endDrag);
+    return () => {
+      window.removeEventListener("mousemove", onMoveMouse);
+      window.removeEventListener("mouseup", endDrag);
+      window.removeEventListener("touchmove", onMoveTouch);
+      window.removeEventListener("touchend", endDrag);
+      window.removeEventListener("touchcancel", endDrag);
+    };
+  }, [clampCameraWidgetPos]);
+
+  const onCameraWidgetMouseDown = (e: React.MouseEvent) => {
+    cameraWidgetDragRef.current = true;
+    setCameraWidgetDragging(true);
+    cameraWidgetOffsetRef.current = {
+      x: e.clientX - cameraWidgetPos.x,
+      y: e.clientY - cameraWidgetPos.y,
+    };
+    e.preventDefault();
+  };
+
+  const onCameraWidgetTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    cameraWidgetDragRef.current = true;
+    setCameraWidgetDragging(true);
+    cameraWidgetOffsetRef.current = {
+      x: t.clientX - cameraWidgetPos.x,
+      y: t.clientY - cameraWidgetPos.y,
+    };
+  };
 
   const inTest = proctoringReady && !justPassed && !hasFailed && questions.length > 0;
   const isFullScreen = useFullScreenState(inTest);
@@ -318,12 +412,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    multipleFaceDetectionEnabled: false,
     proctorVideoRef: proctorCameraVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
     strikeTerminationMode,
-    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateDsaForProctoring : undefined,
+    onProctoringTerminated: terminateDsaForProctoring,
     onMaxTabSwitches:
       strikeTerminationMode !== "STRICT" && tabSwitchMode === "STRICT"
         ? () => {
@@ -366,6 +460,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     cameraStream: proctoringState?.cameraStream ?? null,
   });
 
+  useFaceAndPhoneDetection({
+    videoRef: proctorCameraVideoRef,
+    sessionId: testIdRef.current,
+    testType: "dsa",
+    userId: user?.id,
+    enabled: inTest && Boolean(proctoringState?.cameraStream),
+    onServerAction: (action, evt) => {
+      if (action === "STOP_TEST") terminateDsaForProctoring(evt as ProctoringEventCode);
+    },
+  });
+
   useEffect(() => {
     const stream = proctoringState?.cameraStream ?? null;
     if (!proctorCameraVideoRef.current) return;
@@ -400,9 +505,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setHasFailed(false);
       setLocalFinalScore(null);
 
-      const fetchQuestionsWithRecovery = async (): Promise<ApiDSAQuestion[]> => {
+      type DsaQuestionsPayload = {
+        questions: ApiDSAQuestion[];
+        timeLimitMinutes?: number;
+        passThresholdPercent?: number;
+        dsaQuestionCount?: number;
+        dsaWaiver?: boolean;
+      };
+
+      const fetchQuestionsWithRecovery = async (): Promise<DsaQuestionsPayload> => {
         try {
-          return await api.get<ApiDSAQuestion[]>("/api/verification/dsa/questions");
+          return await api.get<DsaQuestionsPayload>("/api/verification/dsa/questions");
         } catch (err: unknown) {
           const status = (err as { status?: number })?.status;
           const msg = err instanceof Error ? err.message : "";
@@ -410,20 +523,26 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             status === 403 && /dsa round is not active/i.test(msg);
           if (!looksInactiveDsa) throw err;
 
-          // Recovery path: activate stage and retry once.
           await api.post("/api/verification/stages/update", {
             stageName: "dsa_round",
             status: "in_progress",
           });
-          return await api.get<ApiDSAQuestion[]>("/api/verification/dsa/questions");
+          return await api.get<DsaQuestionsPayload>("/api/verification/dsa/questions");
         }
       };
 
       try {
-        const q = await fetchQuestionsWithRecovery();
+        const payload = await fetchQuestionsWithRecovery();
         if (cancelled) return;
 
-        const questionsFromApi = Array.isArray(q) ? q : [];
+        if (typeof payload.passThresholdPercent === "number") {
+          setDsaPassThreshold(payload.passThresholdPercent);
+        }
+        if (typeof payload.timeLimitMinutes === "number") {
+          setDsaTotalMinutes(payload.timeLimitMinutes);
+        }
+
+        const questionsFromApi = Array.isArray(payload.questions) ? payload.questions : [];
         setQuestions(questionsFromApi);
 
         if (questionsFromApi.length > 0) {
@@ -524,9 +643,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   useEffect(() => {
     if (proctoringReady && questions.length > 0 && secondsRemaining === null) {
-      setSecondsRemaining(DSA_TOTAL_MINUTES * 60);
+      setSecondsRemaining(dsaTotalMinutes * 60);
     }
-  }, [proctoringReady, questions.length, secondsRemaining]);
+  }, [proctoringReady, questions.length, secondsRemaining, dsaTotalMinutes]);
 
   useEffect(() => {
     if (!inTest || secondsRemaining == null || secondsRemaining <= 0) return;
@@ -759,7 +878,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     }
   };
 
-  const ELIGIBILITY_THRESHOLD = DSA_PASS_THRESHOLD;
+  const ELIGIBILITY_THRESHOLD = dsaPassThreshold;
   // Include local hasFailed so the failed UI shows immediately after a zero-score submission
   // without needing the parent to reload stage status from the server
   const isFailed = stageStatus === "failed" || hasFailed;
@@ -802,9 +921,16 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           score: snap.score,
         };
       });
-      const dsaRes = await api.post<{ score: number | null }>("/api/verification/dsa", { answers });
+      const dsaRes = await api.post<{
+        score: number | null;
+        passThresholdPercent?: number;
+        passed?: boolean;
+      }>("/api/verification/dsa", { answers });
       const finalScore = Math.min(100, Math.max(0, Math.round(Number(dsaRes.score ?? 0))));
-      if (finalScore >= ELIGIBILITY_THRESHOLD) {
+      const threshold =
+        typeof dsaRes.passThresholdPercent === "number" ? dsaRes.passThresholdPercent : ELIGIBILITY_THRESHOLD;
+      const ok = dsaRes.passed === true || (dsaRes.passed !== false && finalScore >= threshold);
+      if (ok) {
         await api.post("/api/verification/stages/update", {
           stageName: "dsa_round",
           status: "completed",
@@ -818,7 +944,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           stageName: "dsa_round",
           status: "failed",
         });
-        toast.error(`Score ${finalScore}/100. Minimum ${ELIGIBILITY_THRESHOLD} required to proceed. Use "Retry This Step" to try again.`);
+        toast.error(`Score ${finalScore}/100. Minimum ${threshold} required to proceed. Use "Retry This Step" to try again.`);
       }
     } catch (error: unknown) {
       const err = error as Error & { response?: { data?: { error?: string; code?: string } } };
@@ -828,7 +954,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setSubmitting(false);
       setSubmitConfirmOpen(false);
     }
-  }, [questions, officialByQuestion]);
+  }, [questions, officialByQuestion, ELIGIBILITY_THRESHOLD]);
 
   useEffect(() => {
     if (secondsRemaining === 0 && inTest && questions.length > 0 && !submitting && !timeUpSubmittedRef.current) {
@@ -1032,63 +1158,114 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           </div>
         )}
 
-        {/* Right proctoring panel (video + sound detection) */}
-        <div className="fixed top-20 right-4 z-30 w-[260px] rounded-lg border border-border bg-background/95 backdrop-blur shadow-lg overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
-            <Shield className="h-4 w-4 text-primary" />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-foreground truncate">Proctoring</div>
-              <div className="text-[10px] text-muted-foreground truncate">
-                {soundAlertOpen ? "Sound detected" : "Listening"}
-              </div>
-            </div>
-            <Badge variant="outline" className="text-[10px] px-2 py-0.5 shrink-0">
-              LIVE
-            </Badge>
-          </div>
-
-          <div className="p-3 space-y-3">
-            <div className="rounded-md border bg-muted/30 overflow-hidden">
-              <div className="flex items-center gap-2 px-2 py-1.5 bg-muted/20 border-b border-border">
-                <Camera className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-medium text-foreground">Camera</span>
-              </div>
-              <div className="relative aspect-video bg-muted">
-                {proctoringState?.cameraStream ? (
-                  <video
-                    ref={proctorCameraVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center p-2 text-center text-xs text-muted-foreground">
-                    Camera unavailable
+        {inTest && (
+          <>
+            {/* Right proctoring panel (sound detection); camera is draggable */}
+            <div className="fixed top-20 right-4 z-30 w-[260px] rounded-lg border border-border bg-background/95 backdrop-blur shadow-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
+                <Shield className="h-4 w-4 text-primary" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-foreground truncate">Proctoring</div>
+                  <div className="text-[10px] text-muted-foreground truncate">
+                    {soundAlertOpen ? "Sound detected" : "Listening"}
                   </div>
-                )}
-                <div className="absolute bottom-1 right-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-white bg-black/50">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                  LIVE
                 </div>
+                <Badge variant="outline" className="text-[10px] px-2 py-0.5 shrink-0">
+                  LIVE
+                </Badge>
+              </div>
+
+              <div className="p-3 space-y-3">
+                <div
+                  className={`rounded-md border p-2 flex items-start gap-2 ${
+                    soundAlertOpen ? "border-amber-500/30 bg-amber-500/10" : "bg-muted/20"
+                  }`}
+                >
+                  <Volume2 className={`h-4 w-4 ${soundAlertOpen ? "text-amber-700" : "text-muted-foreground"}`} />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground">Sound detection</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {soundAlertOpen ? "Unusual sound detected" : "Monitoring microphone"}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Camera preview is draggable — use the handle on the video widget.</p>
               </div>
             </div>
 
+            {/* Draggable camera (proctoring hooks use the same video ref) */}
             <div
-              className={`rounded-md border p-2 flex items-start gap-2 ${
-                soundAlertOpen ? "border-amber-500/30 bg-amber-500/10" : "bg-muted/20"
-              }`}
+              role="presentation"
+              onMouseDown={onCameraWidgetMouseDown}
+              onTouchStart={onCameraWidgetTouchStart}
+              style={{
+                position: "fixed",
+                left: cameraWidgetPos.x,
+                top: cameraWidgetPos.y,
+                width: CAMERA_WIDGET_W,
+                zIndex: 1000,
+                cursor: cameraWidgetDragging ? "grabbing" : "grab",
+                borderRadius: 8,
+                overflow: "hidden",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                border: "2px solid #C9A84C",
+                userSelect: "none",
+                touchAction: "none",
+              }}
             >
-              <Volume2 className={`h-4 w-4 ${soundAlertOpen ? "text-amber-700" : "text-muted-foreground"}`} />
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-foreground">Sound detection</div>
-                <div className="text-[10px] text-muted-foreground">
-                  {soundAlertOpen ? "Unusual sound detected" : "Monitoring microphone"}
+              <div
+                style={{
+                  background: "#1A1A2E",
+                  color: "#C9A84C",
+                  fontSize: 11,
+                  padding: "4px 8px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                ⠿ Camera — drag to move
+              </div>
+              {proctoringState?.cameraStream ? (
+                <video
+                  ref={proctorCameraVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ width: "100%", display: "block", background: "#000", aspectRatio: "16/9", objectFit: "cover" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: "100%",
+                    aspectRatio: "16/9",
+                    background: "#111",
+                    color: "#888",
+                    fontSize: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 8,
+                    textAlign: "center",
+                  }}
+                >
+                  Camera unavailable
                 </div>
+              )}
+              <div
+                style={{
+                  background: "#1A1A2E",
+                  color: "#4CAF50",
+                  fontSize: 10,
+                  padding: "2px 8px",
+                  textAlign: "center",
+                }}
+              >
+                ● Proctored
               </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
 
         {/* Failed state — shown immediately after a low-score submission (no need to reload page) */}
         {isFailed && (

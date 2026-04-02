@@ -627,7 +627,7 @@ const Auth = () => {
   }
 
   const TICKER_SIGNIN = ["Skill-Certified Hiring", "Not Resume-Approved", "5-Stage Verification", "Expert Interviews", "Skill Passport", "India's First"];
-  const TICKER_SIGNUP = ["Get Verified Free", "Aptitude Test", "DSA Round", "AI Interview", "Human Expert Interview", "Earn Skill Passport"];
+  const TICKER_SIGNUP = ["Get Verified Free", "Cognitive Assessment", "DSA Round", "AI Interview", "Human Expert Interview", "Earn Skill Passport"];
 
   const SignInBenefits = () => (
     <div className="auth-panel-benefits">
@@ -687,7 +687,7 @@ const Auth = () => {
           <span className="block">won't get you hired.</span>
           <span className="block dd">Your skills will.</span>
         </h2>
-        <p className="auth-benefits-desc">Prove them. Once. Forever. Stage 1 → 5: Profile → Aptitude → DSA → AI Interview → Human Expert Interview.</p>
+        <p className="auth-benefits-desc">Prove them. Once. Forever. Stage 1 → 5: Profile → Cognitive Assessment → DSA → AI Interview → Human Expert Interview.</p>
         <div className="auth-stat-row">
           <div className="auth-stat-cell">
             <div className="auth-stat-num">5</div>

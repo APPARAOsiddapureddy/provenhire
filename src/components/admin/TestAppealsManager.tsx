@@ -246,7 +246,7 @@ const TestAppealsManager = () => {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">
-                        {appeal.test_type === 'aptitude' ? 'Aptitude' : 'DSA'}
+                        {appeal.test_type === 'aptitude' ? 'Cognitive Assessment' : 'DSA'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm">
@@ -315,7 +315,7 @@ const TestAppealsManager = () => {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Test Type</Label>
-                  <p>{selectedAppeal.test_type === 'aptitude' ? 'Aptitude Test' : 'DSA Round'}</p>
+                  <p>{selectedAppeal.test_type === 'aptitude' ? 'Cognitive Assessment' : 'DSA Round'}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Submitted</Label>

@@ -41,7 +41,7 @@ const About = () => {
                       </div>
                     </div>
                     <div>
-                      <h3 className="text-xl font-semibold mb-2">Aptitude & CS Fundamentals</h3>
+                      <h3 className="text-xl font-semibold mb-2">Cognitive Assessment & CS Fundamentals</h3>
                       <p className="text-muted-foreground">
                         Candidates take a comprehensive test covering logical reasoning, problem-solving, 
                         and computer science fundamentals. This filters for critical thinking and 

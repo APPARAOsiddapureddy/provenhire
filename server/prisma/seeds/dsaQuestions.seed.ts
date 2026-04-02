@@ -6,6 +6,7 @@
  *
  * Rules:
  * - Each question must include at least one example in source data (bank uses first 1–2 test cases as examples).
+ * - At least 6 test cases per question: first 2 are public (isHidden=false), remaining are hidden.
  * - Each question is validated with Zod before upsert.
  */
 import { PrismaClient } from "@prisma/client";
@@ -36,14 +37,14 @@ const QuestionSchema = z.object({
   examples: z.array(z.any()).min(1, "Examples must be explicitly provided"),
   constraints: z.array(z.string()).default([]),
   starterCode: z.record(z.string()),
-  testCases: z.array(TestCaseSchema).min(1),
+  testCases: z.array(TestCaseSchema).min(6, "Each question must have at least 6 test cases (2 public + 4 hidden)"),
 });
 
 type SeedQuestion = z.infer<typeof QuestionSchema>;
 
-function computeIsHidden(index: number, total: number): boolean {
-  if (total <= 1) return false;
-  return index !== 0;
+/** First two test cases are visible; all others are hidden. */
+function computeIsHidden(index: number): boolean {
+  return index >= 2;
 }
 
 async function loadSourceQuestions(): Promise<SeedQuestion[]> {
@@ -153,7 +154,7 @@ async function main() {
         questionId: q.id,
         input: tc.input,
         expected,
-        isHidden: computeIsHidden(i, tcs.length),
+        isHidden: computeIsHidden(i),
         expectedType: tc.expectedType ?? "exact",
         timeoutMs: tc.timeoutMs ?? null,
       });

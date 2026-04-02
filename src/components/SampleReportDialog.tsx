@@ -170,7 +170,7 @@ const SampleReportDialog = ({ trigger }: SampleReportDialogProps) => {
                 <div className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center">
                   ✓
                 </div>
-                <span className="text-sm">Aptitude Test</span>
+                <span className="text-sm">Cognitive Assessment</span>
                 <span className="text-sm text-muted-foreground ml-auto">Score: 85%</span>
               </div>
               <div className="flex items-center gap-3">

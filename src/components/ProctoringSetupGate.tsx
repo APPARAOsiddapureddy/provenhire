@@ -19,7 +19,7 @@ export interface ProctoringState {
 }
 
 interface ProctoringSetupGateProps {
-  /** Test name for display (e.g. "Aptitude Test", "DSA Round") */
+  /** Test name for display (e.g. "Cognitive Assessment", "DSA Round") */
   testName: string;
   onReady: (state: ProctoringState) => void;
   /** When false, skip screen-share/screen-capture permission completely */

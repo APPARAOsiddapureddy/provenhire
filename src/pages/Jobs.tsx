@@ -47,6 +47,12 @@ interface Job {
   assignment?: string | null;
   minimumCertificationLevel?: number;
   minimum_certification_level?: number;
+  /** Server-side apply eligibility (post–DSA unlock path) */
+  jobAccessLevel?: "locked" | "unlocked";
+  job_access_level?: "locked" | "unlocked";
+  lockReason?: "complete_dsa" | "complete_ai_interview" | "complete_expert_interview" | null;
+  lock_reason?: "complete_dsa" | "complete_ai_interview" | "complete_expert_interview" | null;
+  salaryLPA?: number | null;
   /** Recruiter verification: logo and verified badge */
   companyLogo?: string | null;
   recruiterVerified?: boolean;
@@ -77,6 +83,8 @@ const Jobs = () => {
   const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
   const [candidateCertificationLevel, setCandidateCertificationLevel] = useState(0);
   const [candidateCertificationLabel, setCandidateCertificationLabel] = useState("Level 0 - Not Yet Certified");
+  const [listingsGate, setListingsGate] = useState<"anonymous" | "open" | "dsa_incomplete">("open");
+  const [listingsMessage, setListingsMessage] = useState<string | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
 
@@ -140,9 +148,29 @@ const Jobs = () => {
       if (level === 1) return "This job requires Level 1 Skill Assignment Verified. Complete Profile Setup and Assignment.";
       return "This job requires Level 2 Expert Verified Candidate. Complete Human Expert Interview to unlock.";
     }
-    if (level === 1) return "This job requires Level 1 Cognitive Verified. Complete Profile Setup and Aptitude Test.";
+    if (level === 1) return "This job requires Level 1 Cognitive Verified. Complete Profile Setup and Cognitive Assessment.";
     if (level === 2) return "This job requires Level 2 Skill Passport. Complete DSA and AI Interview to unlock.";
     return "This job requires Level 3 Elite Verified. Complete Human Expert Interview to unlock.";
+  };
+
+  const isJobApplyLocked = (job: Job): boolean => {
+    const access = job.jobAccessLevel ?? job.job_access_level;
+    if (access === "unlocked") return false;
+    if (access === "locked") return true;
+    return isApplyLocked(job);
+  };
+
+  const getJobListingLockMessage = (job: Job): string => {
+    const access = job.jobAccessLevel ?? job.job_access_level;
+    if (access !== "locked") return getLockedJobMessage(job);
+    const reason = job.lockReason ?? job.lock_reason;
+    if (reason === "complete_expert_interview") {
+      return "Complete your Human Expert Interview to apply to this listing (and unlock higher-salary roles for your band).";
+    }
+    if (reason === "complete_ai_interview") {
+      return "Complete your AI Expert Interview to apply to this role.";
+    }
+    return getLockedJobMessage(job);
   };
 
   // Search States
@@ -284,8 +312,19 @@ const Jobs = () => {
         }
       }
       const url = track ? `/api/jobs?track=${track}` : "/api/jobs";
-      const { jobs: data } = await api.get<{ jobs: any[] }>(url);
-      const jobsData = (data || []) as unknown as (Job & { job_track?: string; jobTrack?: string; verification_required?: string })[];
+      const res = await api.get<{
+        jobs: any[];
+        listingsGate?: string;
+        listingsMessage?: string | null;
+      }>(url);
+      const gate = res.listingsGate;
+      if (gate === "anonymous" || gate === "dsa_incomplete") {
+        setListingsGate(gate);
+      } else {
+        setListingsGate("open");
+      }
+      setListingsMessage(res.listingsMessage ?? null);
+      const jobsData = (res.jobs || []) as unknown as (Job & { job_track?: string; jobTrack?: string; verification_required?: string })[];
       const normalizedJobs = jobsData.map(job => {
         const jt = job.job_track ?? job.jobTrack;
         return {
@@ -296,6 +335,8 @@ const Jobs = () => {
             job.minimum_certification_level ??
             job.minimumCertificationLevel ??
             1,
+          jobAccessLevel: job.jobAccessLevel ?? job.job_access_level,
+          lockReason: job.lockReason ?? job.lock_reason ?? null,
         };
       });
       setJobs(normalizedJobs);
@@ -441,7 +482,7 @@ const Jobs = () => {
 
   const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
   const displayedJobs = filteredJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const lockedJobsCount = filteredJobs.filter(job => isApplyLocked(job)).length;
+  const lockedJobsCount = filteredJobs.filter((job) => isJobApplyLocked(job)).length;
 
   // Reset to page 1 when filters change
   const filterKey = `${keyword}|${location}|${skill}|${selectedSalary}|${Object.keys(jobTypes).filter((k) => jobTypes[k as keyof typeof jobTypes]).join(",")}|${Object.keys(experience).filter((k) => experience[k as keyof typeof experience]).join(",")}`;
@@ -884,11 +925,24 @@ const Jobs = () => {
                             Sign In
                           </Button>
                         </>
+                      ) : userRole === "jobseeker" && listingsGate === "dsa_incomplete" ? (
+                        <>
+                          <h3 className="text-xl font-semibold mb-2">Complete verification to browse jobs</h3>
+                          <p className="text-sm text-muted-foreground mb-6">
+                            {listingsMessage ||
+                              (roleType === "non_technical"
+                                ? "Finish your assignment stage, then return here to browse roles."
+                                : "Finish your DSA Round, then return here to browse roles matched to your Skill Passport.")}
+                          </p>
+                          <Button onClick={() => navigate("/verification")} className="bg-gradient-hero hover:opacity-90">
+                            Continue verification
+                          </Button>
+                        </>
                       ) : userRole === 'jobseeker' && candidateCertificationLevel === 0 ? (
                         <>
                           <h3 className="text-xl font-semibold mb-2">Unlock the jobs board</h3>
                           <p className="text-sm text-muted-foreground mb-6">
-                            Complete the Aptitude Test to reach Level 1 and see roles open to you. Level 2 (DSA + AI Interview) and Level 3 (Expert Interview) unlock more opportunities as recruiters post new roles.
+                            Complete the Cognitive Assessment to reach Level 1 and see roles open to you. Level 2 (DSA + AI Interview) and Level 3 (Expert Interview) unlock more opportunities as recruiters post new roles.
                           </p>
                           <Button onClick={() => navigate('/verification')} className="bg-gradient-hero hover:opacity-90">
                             Start Verification
@@ -925,10 +979,10 @@ const Jobs = () => {
               <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {displayedJobs.map((job) => {
-                  const isPremiumLocked = isApplyLocked(job);
+                  const applyLocked = isJobApplyLocked(job);
                   const minLevel = getJobMinimumLevel(job);
                   return (
-                  <div key={job.id} className={`job-card bg-card rounded-xl p-4 sm:p-6 shadow-sm border transition-all ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${isPremiumLocked ? 'opacity-70' : ''}`}>
+                  <div key={job.id} className={`job-card bg-card rounded-xl p-4 sm:p-6 shadow-sm border transition-all ${compareJobs.has(job.id) ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:shadow-lg hover:border-primary/30'} ${applyLocked ? 'opacity-70' : ''}`}>
                     {/* Badges + Compare — top row, no overlap */}
                     <div className="flex items-center justify-between gap-2 mb-3">
                       <div className="flex flex-wrap gap-1.5 min-w-0">
@@ -944,7 +998,16 @@ const Jobs = () => {
                           )
                         )}
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted border border-border text-xs font-semibold">
-                          {minLevel === 3 ? "Elite Gate: Level 3" : "Open to All"}
+                          {applyLocked ? (
+                            <>
+                              <Lock className="h-3 w-3" />
+                              Apply locked
+                            </>
+                          ) : minLevel === 3 ? (
+                            "Elite Gate: Level 3"
+                          ) : (
+                            "Open to apply"
+                          )}
                         </span>
                       </div>
                       <button
@@ -1036,7 +1099,7 @@ const Jobs = () => {
                       <Button
                         className="flex-1 bg-gradient-hero hover:opacity-90"
                         onClick={() => handleApplyNow(job.id)}
-                        disabled={appliedJobs.has(job.id) || isPremiumLocked}
+                        disabled={appliedJobs.has(job.id) || applyLocked}
                       >
                         {appliedJobs.has(job.id) ? 'Applied' : 'Apply Now'}
                       </Button>
@@ -1053,9 +1116,13 @@ const Jobs = () => {
                         )}
                       </Button>
                     </div>
-                    {isPremiumLocked && (
+                    {applyLocked && (
                       <div className="mt-3 bg-secondary/70 border border-border rounded-lg p-3 text-sm text-muted-foreground flex items-center justify-between gap-3">
-                        <span>Requires Level {minLevel}. {getLockedJobMessage(job)}</span>
+                        <span>
+                          {(job.jobAccessLevel ?? job.job_access_level) === "locked"
+                            ? getJobListingLockMessage(job)
+                            : `Requires Level ${minLevel}. ${getLockedJobMessage(job)}`}
+                        </span>
                         <Button size="sm" onClick={() => navigate(user ? '/verification' : '/auth')}>
                           Get Verified
                         </Button>

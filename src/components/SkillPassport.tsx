@@ -120,7 +120,7 @@ const SkillPassport = ({
     if (isFullyVerified) return "";
     if (roleType === "technical") {
       if (!effectiveStage || effectiveStage === "profile")
-        return "Complete Aptitude Test to unlock scores";
+        return "Complete Cognitive Assessment to unlock scores";
       if (effectiveStage === "aptitude") return "Complete DSA Round to unlock more";
       if (effectiveStage === "dsa") return "Complete AI Interview to unlock Skill Passport";
       if (effectiveStage === "ai_interview")
@@ -215,9 +215,9 @@ const SkillPassport = ({
                 <p className="text-sm text-primary/90">
                   {roleType === "technical"
                     ? effectiveStage === "profile"
-                      ? "Profile complete · Next: Aptitude"
+                      ? "Profile complete · Next: Cognitive Assessment"
                       : effectiveStage === "aptitude"
-                        ? "Aptitude complete · Next: DSA"
+                        ? "Cognitive Assessment complete · Next: DSA"
                         : effectiveStage === "dsa"
                           ? "DSA complete · Next: AI Interview"
                           : effectiveStage === "ai_interview"

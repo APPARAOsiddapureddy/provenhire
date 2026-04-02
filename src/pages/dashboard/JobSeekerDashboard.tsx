@@ -24,7 +24,7 @@ const TECHNICAL_STAGE_ORDER = ['profile_setup', 'aptitude_test', 'dsa_round', 'e
 const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'] as const;
 const STAGE_LABELS: Record<string, string> = {
   profile_setup: 'Profile Setup',
-  aptitude_test: 'Aptitude Test',
+  aptitude_test: 'Cognitive Assessment',
   dsa_round: 'DSA Round',
   non_tech_assignment: 'Assignment',
   expert_interview: 'AI Expert Interview',
@@ -63,6 +63,8 @@ const JobSeekerDashboard = () => {
   const [certificationLabel, setCertificationLabel] = useState<string>("Level 0 - Not Yet Certified");
   const [testResults, setTestResults] = useState<{ aptitude: any; dsa: any }>({ aptitude: null, dsa: null });
   const [certificationLevel, setCertificationLevel] = useState<"A" | "B" | "C" | null>(null);
+  const [provenhireCertCode, setProvenhireCertCode] = useState<"L1" | "L2" | "L3" | null>(null);
+  const [provenhireCertSubtitle, setProvenhireCertSubtitle] = useState<string | null>(null);
   const [stats, setStats] = useState({
     applicationsSent: 0,
     interviews: 0,
@@ -284,7 +286,13 @@ const JobSeekerDashboard = () => {
       // Phase 2 (secondary): load applications/saved/results in background.
       const [profileRes, stagesRes] = await Promise.allSettled([
         api.get<{ profile: any }>("/api/users/job-seeker-profile"),
-        api.get<{ stages: any[]; certification_level?: number; certification_label?: string }>("/api/verification/stages"),
+        api.get<{
+          stages: any[];
+          certification_level?: number;
+          certification_label?: string;
+          certificationLevel?: "L1" | "L2" | "L3" | null;
+          certificationLabelShort?: string | null;
+        }>("/api/verification/stages"),
       ]);
 
       if (stale()) return;
@@ -303,6 +311,11 @@ const JobSeekerDashboard = () => {
           : (stagesData?.certification_label ?? derivedCertification.label);
       setCertificationLevelNumber(effectiveLevel);
       setCertificationLabel(effectiveLabel);
+      const code = stagesData?.certificationLevel ?? null;
+      setProvenhireCertCode(code === "L1" || code === "L2" || code === "L3" ? code : null);
+      setProvenhireCertSubtitle(
+        typeof stagesData?.certificationLabelShort === "string" ? stagesData.certificationLabelShort : null,
+      );
 
       const criticalError = profileRes.status === "rejected" || stagesRes.status === "rejected";
       setLoadError(criticalError);
@@ -743,6 +756,48 @@ const JobSeekerDashboard = () => {
               </div>
             </div>
             <div className="dashboard-section-content">
+              <div
+                className={`grid gap-3 mb-6 ${roleType === "technical" ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}
+              >
+                {(roleType === "technical" ? (["L1", "L2", "L3"] as const) : (["L1", "L2"] as const)).map((code, idx) => {
+                  const step = idx + 1;
+                  const activeByNumber = certificationLevelNumber >= step;
+                  const activeByCode = provenhireCertCode === code;
+                  const highlight = activeByCode || (provenhireCertCode == null && activeByNumber);
+                  const titles: Record<string, string> =
+                    roleType === "technical"
+                      ? { L1: "Cognitive Verified", L2: "Skill Passport", L3: "Elite Verified" }
+                      : { L1: "Assignment Verified", L2: "Expert Verified" };
+                  return (
+                    <div
+                      key={code}
+                      className={`rounded-xl border p-4 transition-colors ${
+                        highlight
+                          ? "border-emerald-400/50 bg-emerald-500/10"
+                          : "border-[var(--dash-navy-border)] opacity-80"
+                      }`}
+                    >
+                      <div className="text-xs font-semibold text-emerald-300/90">{code}</div>
+                      <div className="text-sm font-medium text-white mt-1">{titles[code]}</div>
+                      {highlight && provenhireCertSubtitle ? (
+                        <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">{provenhireCertSubtitle}</p>
+                      ) : (
+                        <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">
+                          {roleType === "technical"
+                            ? code === "L1"
+                              ? "Profile + Cognitive Assessment"
+                              : code === "L2"
+                                ? "DSA + AI Interview"
+                                : "Human Expert Interview"
+                            : code === "L1"
+                              ? "Profile + Assignment"
+                              : "Human Expert Interview"}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
               <div className="dashboard-stage-header-card">
                 <div className="flex justify-between items-start flex-wrap gap-4 mb-7">
                   <div>
@@ -807,7 +862,8 @@ const JobSeekerDashboard = () => {
                   const dsaPct = testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : null;
                   const stageDesc: Record<string, string> = {
                     profile_setup: 'AI-assisted profile creation with resume parsing and consistency checks.',
-                    aptitude_test: 'Proctored 60-minute test covering logical reasoning, quantitative aptitude, and verbal ability.',
+                    aptitude_test:
+                      'Proctored Cognitive Assessment: reasoning, quantitative, and verbal items; CS fundamentals for mid/senior bands.',
                     dsa_round: 'Proctored coding round with 2–4 algorithmic problems of increasing difficulty.',
                     non_tech_assignment: 'Role-based written assignment tailored to your target job title.',
                     expert_interview: 'Adaptive AI video interview. Questions generated from your resume, role, and experience level.',

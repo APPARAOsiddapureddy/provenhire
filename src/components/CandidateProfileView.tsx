@@ -195,7 +195,7 @@ export default function CandidateProfileView({
                 <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Verification Scores</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
-                    { label: "Aptitude", val: profile.aptitude_score },
+                    { label: "Cognitive", val: profile.aptitude_score },
                     { label: "Live Coding", val: profile.dsa_score },
                     { label: "AI Interview", val: profile.ai_interview_score },
                     ...(profile.human_expert_interview_score != null ? [{ label: "Expert Interview", val: profile.human_expert_interview_score }] : []),
@@ -213,7 +213,7 @@ export default function CandidateProfileView({
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Freshness</p>
                     {profile.skill_freshness.aptitude && (
                       <p className="text-xs text-muted-foreground">
-                        Aptitude: {profile.skill_freshness.aptitude.status === "EXPIRED" ? "Expired" : `Last verified ${profile.skill_freshness.aptitude.last_verified_days_ago ?? 0} days ago`}
+                        Cognitive: {profile.skill_freshness.aptitude.status === "EXPIRED" ? "Expired" : `Last verified ${profile.skill_freshness.aptitude.last_verified_days_ago ?? 0} days ago`}
                       </p>
                     )}
                     {profile.skill_freshness.live_coding && (
@@ -316,7 +316,7 @@ export default function CandidateProfileView({
           {profile.aptitude_score != null && (
             <Card className="border-[var(--dash-navy-border)] bg-[var(--dash-navy-mid)]">
               <CardContent className="pt-6">
-                <p className="text-xs font-bold text-primary uppercase tracking-wider mb-4">Aptitude Test</p>
+                <p className="text-xs font-bold text-primary uppercase tracking-wider mb-4">Cognitive Assessment</p>
                 <div className="flex items-center gap-6">
                   <div className="text-center">
                     <p className="text-4xl font-bold text-primary">{profile.aptitude_score != null ? `${profile.aptitude_score}%` : "—"}</p>

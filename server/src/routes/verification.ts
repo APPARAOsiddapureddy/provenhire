@@ -4,11 +4,12 @@ import { Prisma } from "@prisma/client";
 import { requireAuth, requireJobSeeker, optionalAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import {
-  createAptitudeSession,
+  createAptitudeSessionByQuestionSet,
   getPracticeAptitudeQuestions,
   storeMemoryAptitudeSession,
   getMemoryAptitudeSubmitContext,
 } from "../data/aptitude-loader.js";
+import { experienceTierFromYears, questionSetForTier, dsaTierConfig } from "../utils/experienceTier.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
@@ -147,6 +148,8 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
       roleType,
       certification_level: certification.level,
       certification_label: certification.label,
+      certificationLevel: certification.certificationLevel ?? null,
+      certificationLabelShort: certification.certificationLabel ?? null,
     });
   } catch (e) {
     console.error("[verification/stages]", e);
@@ -221,7 +224,7 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     const built = buildAptitudeLatestResult(row);
     const passed = built.percentage >= 60;
     if (status === "completed" && !passed) {
-      return res.status(400).json({ error: "Aptitude pass is required to mark this step complete." });
+      return res.status(400).json({ error: "Cognitive Assessment pass is required to mark this step complete." });
     }
     if (status === "failed" && passed) {
       return res.status(400).json({ error: "Your latest attempt passed; you cannot mark this step as failed." });
@@ -342,10 +345,9 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   res.json({ ok: true });
 });
 
-/** GET aptitude questions (100 marks total, 20 min). easy=1, medium=2, hard=2. Pass: 60/100. */
+/** GET cognitive assessment questions. */
 verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
-    // Allow retry anytime — no expiry block. Users can re-attempt whenever they want.
     let experienceYears = 0;
     try {
       const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
@@ -353,6 +355,8 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
     } catch (profileErr) {
       console.warn("[verification/aptitude/questions] profile read failed; using default experience band", profileErr);
     }
+    const tier = experienceTierFromYears(experienceYears);
+    const desiredQuestionSet = questionSetForTier(tier);
     let existing: Awaited<ReturnType<typeof getAptitudeSession>> = null;
     try {
       existing = await getAptitudeSession(req.user!.id);
@@ -372,12 +376,17 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
         totalMarks,
         passThreshold,
         draft: existing.draft ?? null,
+        questionSet: existing.questionSet ?? desiredQuestionSet,
+        experienceTier: tier,
       });
     }
 
-    const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSession(experienceYears);
+    const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSessionByQuestionSet(
+      desiredQuestionSet,
+      experienceYears,
+    );
     try {
-      await storeAptitudeSession(req.user!.id, questions, answerKey, marksKey);
+      await storeAptitudeSession(req.user!.id, questions, answerKey, marksKey, desiredQuestionSet);
     } catch (persistErr) {
       console.warn(
         "[verification/aptitude/questions] Prisma session persist failed — using in-memory answer key for this instance",
@@ -387,10 +396,12 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
     }
     return res.json({
       questions,
-      timeLimitMinutes: 30, // 30 minutes total
+      timeLimitMinutes: 30,
       totalMarks,
       passThreshold,
       draft: null,
+      questionSet: desiredQuestionSet,
+      experienceTier: tier,
     });
   } catch (e) {
     console.error("[verification/aptitude/questions]", e);
@@ -404,7 +415,7 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
     }
     const msg = e instanceof Error ? e.message : String(e);
     if (/aptitude-questions\.json|ENOENT/i.test(msg)) {
-      return res.status(500).json({ error: "Aptitude question bank is missing on the server. Please contact support." });
+      return res.status(500).json({ error: "Cognitive question bank is missing on the server. Please contact support." });
     }
     return res.status(500).json({ error: "Failed to load aptitude questions" });
   }
@@ -472,7 +483,7 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
       const marksKey = session?.marksKey ?? null;
       if (!answerKey || typeof answerKey !== "object" || Object.keys(answerKey).length === 0) {
         return res.status(400).json({
-          error: "Your test session has expired. Please click 'Retry This Step' above, then 'Start Aptitude Test' to begin a fresh attempt.",
+          error: "Your test session has expired. Please click 'Retry This Step' above, then 'Start Cognitive Assessment' to begin a fresh attempt.",
         });
       }
       const APTITUDE_LIMIT_SEC = 30 * 60;
@@ -575,7 +586,7 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
         error: `Database temporarily unavailable. Please try again in a moment.${hint}`,
       });
     }
-    return res.status(500).json({ error: "Failed to submit aptitude test. Please try again." });
+    return res.status(500).json({ error: "Failed to submit Cognitive Assessment. Please try again." });
   }
 });
 
@@ -722,6 +733,28 @@ async function computeOfficialDsaRoundScoreFromDb(userId: string): Promise<numbe
   return Math.round(sum / byQ.size);
 }
 
+function shuffleDsaPool<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
+function pickDsaOfficialSet<T extends { id: string; difficulty: string }>(
+  pool: T[],
+  tier: ReturnType<typeof experienceTierFromYears>,
+): T[] {
+  const cfg = dsaTierConfig(tier);
+  const allowed = new Set(cfg.difficulties);
+  let candidates = pool.filter((q) => allowed.has(q.difficulty as "Easy" | "Medium" | "Hard"));
+  if (candidates.length < cfg.questionCount) {
+    candidates = [...pool];
+  }
+  return shuffleDsaPool(candidates).slice(0, cfg.questionCount);
+}
+
 verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   const schema = z.object({
     score: z.number().optional(),
@@ -769,19 +802,30 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
       dsaScore = 100;
       answersPayload = { waiver: true, reason: "analytics_role" };
     } else {
+      const tier = experienceTierFromYears(profile?.experienceYears);
+      const cfg = dsaTierConfig(tier);
       const computed = await computeOfficialDsaRoundScoreFromDb(userId);
       if (computed == null) {
         return res.status(400).json({ error: "No official submissions found. Submit every problem before finishing the round." });
       }
       const distinct = new Set(official.map((o) => o.questionId));
-      if (distinct.size < DSA_QUESTIONS_COUNT) {
+      if (distinct.size < cfg.questionCount) {
         return res.status(400).json({
-          error: `Submit official solutions for all ${DSA_QUESTIONS_COUNT} problems before finishing the round.`,
+          error: `Submit official solutions for all ${cfg.questionCount} problems before finishing the round.`,
         });
       }
       dsaScore = computed;
     }
   }
+
+  const tierSubmit = experienceTierFromYears(profile?.experienceYears);
+  const cfgSubmit = dsaTierConfig(tierSubmit);
+  const isWaiverPayload =
+    Boolean(answersPayload && typeof answersPayload === "object" && (answersPayload as { waiver?: boolean }).waiver);
+  let passed = false;
+  if (parsed.data.invalidated) passed = false;
+  else if (isWaiverPayload) passed = true;
+  else if (dsaScore != null) passed = dsaScore >= cfgSubmit.passThresholdPercent;
 
   const result = await prisma.dsaRoundResult.create({
     data: {
@@ -813,7 +857,12 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
     await upsertSkillVerification(userId, "LIVE_CODING", Math.round(dsaScore), new Date());
   }
 
-  res.json({ result, score: dsaScore });
+  res.json({
+    result,
+    score: dsaScore,
+    passThresholdPercent: cfgSubmit.passThresholdPercent,
+    passed,
+  });
 });
 
 verificationRouter.get("/dsa/latest", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
@@ -821,8 +870,13 @@ verificationRouter.get("/dsa/latest", requireAuth, requireJobSeeker, async (req:
     where: { userId: req.user!.id },
     orderBy: { completedAt: "desc" },
   });
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: req.user!.id },
+    select: { experienceYears: true },
+  });
+  const tier = experienceTierFromYears(profile?.experienceYears);
   const score = row?.score ?? 0;
-  const totalProblems = DSA_QUESTIONS_COUNT;
+  const totalProblems = dsaTierConfig(tier).questionCount;
   const result = row
     ? {
         total_score: score,
@@ -917,7 +971,7 @@ verificationRouter.get("/dsa/questions", requireAuth, requireJobSeeker, async (r
   if (!ok) {
     return res.status(403).json({
       error:
-        "DSA round is not active yet. Finish the aptitude test, then open the DSA step from verification (or refresh the page).",
+        "DSA round is not active yet. Finish the Cognitive Assessment, then open the DSA step from verification (or refresh the page).",
     });
   }
 
@@ -928,6 +982,8 @@ verificationRouter.get("/dsa/questions", requireAuth, requireJobSeeker, async (r
 
   const targetJobTitle = profile?.targetJobTitle ?? null;
   const experienceYears = profile?.experienceYears ?? 0;
+  const tier = experienceTierFromYears(experienceYears);
+  const cfg = dsaTierConfig(tier);
 
   const pool = await prisma.dsaQuestion.findMany({
     select: {
@@ -941,19 +997,16 @@ verificationRouter.get("/dsa/questions", requireAuth, requireJobSeeker, async (r
     },
   });
 
-  const selected = generateDSATestByRoleAndExperience(
-    targetJobTitle,
-    experienceYears,
-    pool as any,
-    DSA_QUESTIONS_COUNT,
-  ) as typeof pool;
+  const dist = getCombinedDistribution(targetJobTitle, experienceYears);
+  const selected =
+    dist === null ? ([] as typeof pool) : (pickDsaOfficialSet(pool as { id: string; difficulty: string }[], tier) as typeof pool);
 
   type PoolItem = (typeof pool)[number];
 
   const sampleById = await dsaFirstPublicSampleByQuestionId(selected.map((q) => q.id));
 
-  return res.json(
-    selected.map((q: PoolItem) => ({
+  return res.json({
+    questions: selected.map((q: PoolItem) => ({
       id: q.id,
       title: q.title,
       description: q.description,
@@ -961,8 +1014,13 @@ verificationRouter.get("/dsa/questions", requireAuth, requireJobSeeker, async (r
       examples: dsaMergeExamplesWithSample(q.examples, sampleById.get(q.id)),
       constraints: q.constraints,
       starterCode: q.starterCode,
-    }))
-  );
+    })),
+    timeLimitMinutes: cfg.timeLimitMinutes,
+    passThresholdPercent: cfg.passThresholdPercent,
+    dsaQuestionCount: cfg.questionCount,
+    experienceTier: tier,
+    dsaWaiver: dist === null,
+  });
 });
 
 // Practice dialog before the DSA round is started (no "in_progress" stage required).

@@ -248,6 +248,8 @@ model AptitudeSession {
   draft     Json?    // { answers?: Record<string,string>, reviewed?: string[], visited?: string[], currentIndex?: number, secondsRemaining?: number }
   /// Server time when this question set was issued (enforced on submit).
   testStartedAt DateTime?
+  /// aptitude_mixed | cs_fundamentals_medium | cs_fundamentals_advanced
+  questionSet String?
   expiresAt DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -329,6 +331,8 @@ model Interview {
   reviewReason        String?
   /// Count of proctoring alert rows for this interview session (not a 0–100 risk score).
   riskScore           Float?
+  /// Total proctoring alert rows (denormalized; optional).
+  proctoringEventCount Int?
   integrityFlag       String?
   reviewRequestedAt   DateTime?
   reviewRequestReason String?   @db.VarChar(500)
@@ -636,6 +640,23 @@ model ProctoringEvent {
   screenshotPath String?
   confidence     Float?
   createdAt      DateTime @default(now())
+}
+
+/// Per-session rolling counts per signal (warn/stop thresholds).
+model ProctoringEventCount {
+  id             String   @id @default(cuid())
+  userId         String
+  sessionId      String
+  testType       String
+  eventType      String
+  count          Int      @default(0)
+  lastOccurredAt DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([sessionId, eventType])
+  @@index([sessionId])
+  @@index([userId])
 }
 
 /// Cross-role settings: notifications, email alerts, etc.

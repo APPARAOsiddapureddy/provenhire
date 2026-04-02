@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { getFeatureMode } from "../services/featureFlag.service.js";
+import { incrementEventCount, toClientAction } from "../services/proctoringCount.service.js";
 
 export const proctoringRouter = Router();
 
@@ -36,7 +37,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
   for (const [flagName, types] of flagChecks) {
     if (types.includes(alertType)) {
       const mode = await getFeatureMode(flagName);
-      if (mode === "OFF") return res.json({ ok: true });
+      if (mode === "OFF") return res.json({ ok: true, action: "CONTINUE" as const });
       break;
     }
   }
@@ -62,7 +63,25 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
       details: parsed.data.violationDetails ?? null,
     },
   });
-  res.json({ ok: true });
+
+  const inc = await incrementEventCount({
+    userId: parsed.data.userId,
+    sessionId: parsed.data.testId,
+    testType: parsed.data.testType,
+    eventType: parsed.data.alertType,
+  });
+
+  if (parsed.data.testType === "ai_interview") {
+    await prisma.interview
+      .updateMany({
+        where: { id: parsed.data.testId, userId: parsed.data.userId },
+        data: { proctoringEventCount: { increment: 1 } },
+      })
+      .catch(() => {});
+  }
+
+  const action = toClientAction(inc);
+  res.json({ ok: true, eventCount: inc.newCount, action });
 });
 
 proctoringRouter.get("/alerts", requireAuth, async (_req: AuthedRequest, res) => {

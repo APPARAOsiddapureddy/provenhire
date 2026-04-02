@@ -624,7 +624,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
             <DialogHeader>
               <DialogTitle>Switch to Non-Technical track?</DialogTitle>
               <DialogDescription>
-                Your resume suggests roles in Business, Operations, Marketing, or similar (non-engineering). Would you like to switch to the <strong>Non-Technical</strong> verification path? Your dashboard and verification steps will update to match — Assignment and Human Expert Interview instead of Aptitude, DSA, and AI Interview.
+                Your resume suggests roles in Business, Operations, Marketing, or similar (non-engineering). Would you like to switch to the <strong>Non-Technical</strong> verification path? Your dashboard and verification steps will update to match — Assignment and Human Expert Interview instead of Cognitive Assessment, DSA, and AI Interview.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-0">
@@ -660,7 +660,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                   });
                 }}
               >
-                Continue to {roleType === "non_technical" ? "Assignment" : "Aptitude Test"}
+                Continue to {roleType === "non_technical" ? "Assignment" : "Cognitive Assessment"}
               </Button>
             </div>
           </div>

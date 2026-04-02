@@ -15,7 +15,7 @@ const TECHNICAL_PIPELINE_STAGES = [
 ] as const;
 
 const PIPELINE_LABELS: Record<string, string> = {
-  aptitude_test: "Aptitude Verification",
+  aptitude_test: "Cognitive Assessment",
   dsa_round: "Live Coding Verification",
   expert_interview: "AI Interview",
   human_expert_interview: "Human Interview",
@@ -23,7 +23,7 @@ const PIPELINE_LABELS: Record<string, string> = {
 
 const LOCKED_STATUS_TEXT: Record<string, string> = {
   aptitude_test: "Complete profile to start",
-  dsa_round: "Unlocks after aptitude",
+  dsa_round: "Unlocks after Cognitive Assessment",
   expert_interview: "Unlocks after coding",
   human_expert_interview: "Unlocks at L2",
 };
@@ -158,7 +158,7 @@ export function VerificationPipelineCard({
           <div className={`vpc-lvl ${certificationLevelNumber >= 1 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber >= 1 ? "L1 · Now" : "L1"}</div>
             <div className="vpc-lvl-name">Cognitive Verified</div>
-            <div className="vpc-lvl-reqs">Profile + Aptitude ✓</div>
+            <div className="vpc-lvl-reqs">Profile + Cognitive ✓</div>
           </div>
           <div className={`vpc-lvl ${certificationLevelNumber === 2 ? "vpc-lvl--current" : certificationLevelNumber > 2 ? "vpc-lvl--past" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber === 2 ? "L2 · Now" : "L2"}</div>

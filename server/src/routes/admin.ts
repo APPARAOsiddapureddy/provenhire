@@ -9,6 +9,10 @@ import { adminNotificationsRouter } from "./admin-notifications.js";
 import { sendInterviewerAcceptanceEmail } from "../services/resend.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 import {
+  getSessionEventCounts,
+  getProctoringCountThresholdsForEvent,
+} from "../services/proctoringCount.service.js";
+import {
   getAllFeatureFlags,
   updateFeatureFlag,
   ensureDefaultFlags,
@@ -690,6 +694,28 @@ adminRouter.get("/export-proctoring-events", async (_req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="provenhire-proctoring-events.csv"');
   res.send("\uFEFF" + csv);
+});
+
+/** Per-session rolling proctoring counts (warn/stop thresholds) for review UI */
+adminRouter.get("/proctoring/session-counts/:sessionId", async (req, res) => {
+  const sessionId = decodeURIComponent(String(req.params.sessionId ?? "").trim());
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+  try {
+    const rows = await getSessionEventCounts(sessionId);
+    const breakdown = rows.map((r) => ({
+      eventType: r.eventType,
+      count: r.count,
+      testType: r.testType,
+      lastOccurredAt: r.lastOccurredAt.toISOString(),
+      thresholds: getProctoringCountThresholdsForEvent(r.eventType),
+    }));
+    return res.json({ sessionId, breakdown });
+  } catch (e) {
+    console.error("[admin/proctoring/session-counts]", e);
+    return res.status(500).json({ error: "Failed to load session counts" });
+  }
 });
 
 /** Feature flags snapshot (integrity settings) */

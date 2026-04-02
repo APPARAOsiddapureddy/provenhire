@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,13 +7,13 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import TestProctoringBar from "@/components/TestProctoringBar";
 import ProctoringSetupGate from "@/components/ProctoringSetupGate";
-import LiveProctoringPreview from "@/components/LiveProctoringPreview";
 import SoundDetectedAlert from "@/components/SoundDetectedAlert";
 import FullScreenMonitor from "@/components/FullScreenMonitor";
 import type { ProctoringState } from "@/components/ProctoringSetupGate";
 import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
+import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,6 +21,12 @@ import { Loader2, ChevronLeft, ChevronRight, RotateCcw, Bookmark, BookmarkCheck,
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const APTITUDE_TIME_MINUTES = 30; // 30 minutes total
+
+const COGNITIVE_SET_COPY: Record<string, string> = {
+  aptitude_mixed: "Mixed cognitive items: reasoning, quantitative, and verbal.",
+  cs_fundamentals_medium: "CS fundamentals emphasis — medium difficulty.",
+  cs_fundamentals_advanced: "CS fundamentals emphasis — advanced difficulty.",
+};
 
 interface AptitudeQuestion {
   id: string;
@@ -67,6 +73,98 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   const [checkingBackend, setCheckingBackend] = useState(false);
   const submittingRef = useRef(false);
   const proctorVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const CAMERA_WIDGET_W = 180;
+  const CAMERA_WIDGET_EST_H = 160;
+  const [cameraWidgetPos, setCameraWidgetPos] = useState({ x: 0, y: 0 });
+  const [cameraWidgetDragging, setCameraWidgetDragging] = useState(false);
+  const cameraWidgetDragRef = useRef(false);
+  const cameraWidgetOffsetRef = useRef({ x: 0, y: 0 });
+
+  const clampCameraWidgetPos = useCallback((x: number, y: number) => {
+    const maxX = Math.max(0, window.innerWidth - CAMERA_WIDGET_W);
+    const maxY = Math.max(0, window.innerHeight - CAMERA_WIDGET_EST_H);
+    return { x: Math.max(0, Math.min(x, maxX)), y: Math.max(0, Math.min(y, maxY)) };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const margin = 20;
+    setCameraWidgetPos(
+      clampCameraWidgetPos(
+        window.innerWidth - CAMERA_WIDGET_W - margin,
+        window.innerHeight - CAMERA_WIDGET_EST_H - margin
+      )
+    );
+  }, [clampCameraWidgetPos]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setCameraWidgetPos((prev) => clampCameraWidgetPos(prev.x, prev.y));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampCameraWidgetPos]);
+
+  useEffect(() => {
+    const onMoveMouse = (e: MouseEvent) => {
+      if (!cameraWidgetDragRef.current) return;
+      setCameraWidgetPos(
+        clampCameraWidgetPos(
+          e.clientX - cameraWidgetOffsetRef.current.x,
+          e.clientY - cameraWidgetOffsetRef.current.y
+        )
+      );
+    };
+    const onMoveTouch = (e: TouchEvent) => {
+      if (!cameraWidgetDragRef.current || !e.touches[0]) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      setCameraWidgetPos(
+        clampCameraWidgetPos(
+          t.clientX - cameraWidgetOffsetRef.current.x,
+          t.clientY - cameraWidgetOffsetRef.current.y
+        )
+      );
+    };
+    const endDrag = () => {
+      cameraWidgetDragRef.current = false;
+      setCameraWidgetDragging(false);
+    };
+    window.addEventListener("mousemove", onMoveMouse);
+    window.addEventListener("mouseup", endDrag);
+    window.addEventListener("touchmove", onMoveTouch, { passive: false });
+    window.addEventListener("touchend", endDrag);
+    window.addEventListener("touchcancel", endDrag);
+    return () => {
+      window.removeEventListener("mousemove", onMoveMouse);
+      window.removeEventListener("mouseup", endDrag);
+      window.removeEventListener("touchmove", onMoveTouch);
+      window.removeEventListener("touchend", endDrag);
+      window.removeEventListener("touchcancel", endDrag);
+    };
+  }, [clampCameraWidgetPos]);
+
+  const onCameraWidgetMouseDown = (e: React.MouseEvent) => {
+    cameraWidgetDragRef.current = true;
+    setCameraWidgetDragging(true);
+    cameraWidgetOffsetRef.current = {
+      x: e.clientX - cameraWidgetPos.x,
+      y: e.clientY - cameraWidgetPos.y,
+    };
+    e.preventDefault();
+  };
+
+  const onCameraWidgetTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    cameraWidgetDragRef.current = true;
+    setCameraWidgetDragging(true);
+    cameraWidgetOffsetRef.current = {
+      x: t.clientX - cameraWidgetPos.x,
+      y: t.clientY - cameraWidgetPos.y,
+    };
+  };
 
   const checkBackend = useCallback(async () => {
     setCheckingBackend(true);
@@ -126,12 +224,12 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    multipleFaceDetectionEnabled: false,
     proctorVideoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: MAX_TAB_SWITCHES,
     strikeTerminationMode,
-    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateAptitudeForProctoring : undefined,
+    onProctoringTerminated: terminateAptitudeForProctoring,
     onMaxTabSwitches:
       strikeTerminationMode !== "STRICT" && tabSwitchMode === "STRICT"
         ? () => {
@@ -161,7 +259,25 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
     cameraStream: proctoringState?.cameraStream ?? null,
   });
 
+  useFaceAndPhoneDetection({
+    videoRef: proctorVideoRef,
+    sessionId: testIdRef.current,
+    testType: "aptitude",
+    userId: user?.id,
+    enabled: inTest && Boolean(proctoringState?.cameraStream),
+    onServerAction: (action, evt) => {
+      if (action === "STOP_TEST") terminateAptitudeForProctoring(evt as ProctoringEventCode);
+    },
+  });
+
+  useEffect(() => {
+    const stream = proctoringState?.cameraStream ?? null;
+    if (!proctorVideoRef.current) return;
+    proctorVideoRef.current.srcObject = stream;
+  }, [proctoringState?.cameraStream]);
+
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(APTITUDE_TIME_MINUTES);
+  const [cognitiveSetCopy, setCognitiveSetCopy] = useState<string | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
   const [totalMarks, setTotalMarks] = useState(20);
   const [passThreshold, setPassThreshold] = useState(12);
@@ -175,6 +291,8 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           timeLimitMinutes?: number;
           totalMarks?: number;
           passThreshold?: number;
+          questionSet?: string;
+          experienceTier?: string;
           draft?: {
             answers?: Record<string, string>;
             reviewed?: string[];
@@ -184,6 +302,12 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           } | null;
         }>("/api/verification/aptitude/questions");
         setQuestions(res.questions ?? []);
+        const qs = res.questionSet;
+        if (typeof qs === "string" && COGNITIVE_SET_COPY[qs]) {
+          setCognitiveSetCopy(COGNITIVE_SET_COPY[qs]);
+        } else {
+          setCognitiveSetCopy(null);
+        }
         const mins = res.timeLimitMinutes ?? APTITUDE_TIME_MINUTES;
         setTimeLimitMinutes(mins);
         const draft = res.draft ?? null;
@@ -219,7 +343,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
             ? msg
             : typeof msg === "string" && msg.length > 0 && msg !== "Request failed"
               ? msg
-              : "Failed to load aptitude questions. Please refresh.";
+              : "Failed to load assessment questions. Please refresh.";
         toast.error(userMsg);
       } finally {
         setLoadingQuestions(false);
@@ -342,7 +466,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       if (score >= passThreshold) {
         setSubmittedScore(score); // keep for "Your current score: X%" in success block
         await api.post("/api/verification/stages/update", stagePayload);
-        toast.success(`Boom! Level 1 unlocked. Aptitude score: ${scorePct}%.`);
+        toast.success(`Boom! Level 1 unlocked. Cognitive Assessment score: ${scorePct}%.`);
         setJustPassed(true);
       } else {
         await api.post("/api/verification/stages/update", stagePayload);
@@ -352,7 +476,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       }
     } catch (error: unknown) {
       const status = (error as { status?: number })?.status;
-      const msg = error instanceof Error ? error.message : "Failed to submit aptitude test.";
+      const msg = error instanceof Error ? error.message : "Failed to submit Cognitive Assessment.";
       const isDatabaseUnavailable = status === 503 && (msg.includes("Database temporarily") || msg.includes("database"));
       const isBackendDown =
         status === 503 &&
@@ -377,7 +501,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       } else if (status === 400) {
         toast.error(msg);
         if (msg.toLowerCase().includes("session") && msg.toLowerCase().includes("expired")) {
-          toast.info("Go back, click 'Retry This Step', then 'Start Aptitude Test' to get a fresh test.");
+          toast.info("Go back, click 'Retry This Step', then 'Start Cognitive Assessment' to get a fresh test.");
           onSessionExpired?.();
         }
       } else {
@@ -426,7 +550,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       <Card>
         <CardContent className="py-12 flex flex-col items-center justify-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading aptitude questions...</p>
+          <p className="text-sm text-muted-foreground">Loading assessment questions...</p>
         </CardContent>
       </Card>
     );
@@ -446,7 +570,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
               </Button>
             </div>
           )}
-          <p className="text-muted-foreground">No aptitude questions available. Please try again later.</p>
+          <p className="text-muted-foreground">No questions available. Please try again later.</p>
         </CardContent>
       </Card>
     );
@@ -490,7 +614,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
   if (!proctoringReady) {
     return (
       <ProctoringSetupGate
-        testName="Aptitude Test"
+        testName="Cognitive Assessment"
         enableScreenShare={false}
         isRetry={isRetry}
         skipSetup={!isFlagEnabled("camera_required") && !isFlagEnabled("screen_recording_enabled") && !isFlagEnabled("microphone_monitoring")}
@@ -507,11 +631,14 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
       <CardHeader className="py-4 pb-2 shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <CardTitle className="text-lg sm:text-xl">Aptitude Test</CardTitle>
-            <CardDescription className="text-sm">
-              {!isFailed && !justPassed
-                ? `Question ${currentIndex + 1} of ${questions.length}. You need at least ${passThresholdPct}% to pass.`
-                : `You need at least ${passThresholdPct}% to pass.`}
+            <CardTitle className="text-lg sm:text-xl">Cognitive Assessment</CardTitle>
+            <CardDescription className="text-sm space-y-1">
+              {cognitiveSetCopy ? <span className="block text-muted-foreground">{cognitiveSetCopy}</span> : null}
+              <span>
+                {!isFailed && !justPassed
+                  ? `Question ${currentIndex + 1} of ${questions.length}. You need at least ${passThresholdPct}% to pass.`
+                  : `You need at least ${passThresholdPct}% to pass.`}
+              </span>
             </CardDescription>
           </div>
           {inTest && (
@@ -574,7 +701,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
               Level 1 Certification Earned! <span className="inline-block">🏆</span>
             </h3>
             <p className="text-sm text-muted-foreground">
-              Strong start. You cleared Aptitude and unlocked <span className="font-semibold text-foreground">L1: Cognitive Verified</span>.
+              Strong start. You cleared the Cognitive Assessment and unlocked <span className="font-semibold text-foreground">L1: Cognitive Verified</span>.
               Now keep your momentum and complete DSA + AI Interview + Human Expert Interview to reach <span className="font-semibold text-foreground">Level 3 (Elite Verified)</span>.
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -583,7 +710,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                   <Trophy className="h-4 w-4" />
                   L1 Unlocked
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">Profile + Aptitude completed</p>
+                <p className="mt-1 text-xs text-muted-foreground">Profile + Cognitive Assessment completed</p>
               </div>
               <div className="rounded-lg border bg-background/80 p-3">
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary">
@@ -798,13 +925,85 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
                   {currentIndex + 1} / {questions.length}
                 </span>
               </div>
-              <LiveProctoringPreview
-                ref={proctorVideoRef}
-                cameraStream={proctoringState?.cameraStream ?? null}
-                brandName="ProvenHire"
-                position="bottom-inside"
-              />
             </div>
+            {inTest && (
+              <div
+                role="presentation"
+                onMouseDown={onCameraWidgetMouseDown}
+                onTouchStart={onCameraWidgetTouchStart}
+                style={{
+                  position: "fixed",
+                  left: cameraWidgetPos.x,
+                  top: cameraWidgetPos.y,
+                  width: CAMERA_WIDGET_W,
+                  zIndex: 1000,
+                  cursor: cameraWidgetDragging ? "grabbing" : "grab",
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  border: "2px solid #C9A84C",
+                  userSelect: "none",
+                  touchAction: "none",
+                }}
+              >
+                <div
+                  style={{
+                    background: "#1A1A2E",
+                    color: "#C9A84C",
+                    fontSize: 11,
+                    padding: "4px 8px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  ⠿ Camera — drag to move
+                </div>
+                {proctoringState?.cameraStream ? (
+                  <video
+                    ref={proctorVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{
+                      width: "100%",
+                      display: "block",
+                      background: "#000",
+                      aspectRatio: "16/9",
+                      objectFit: "cover",
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      aspectRatio: "16/9",
+                      background: "#111",
+                      color: "#888",
+                      fontSize: 11,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 8,
+                      textAlign: "center",
+                    }}
+                  >
+                    Camera unavailable
+                  </div>
+                )}
+                <div
+                  style={{
+                    background: "#1A1A2E",
+                    color: "#4CAF50",
+                    fontSize: 10,
+                    padding: "2px 8px",
+                    textAlign: "center",
+                  }}
+                >
+                  ● Proctored
+                </div>
+              </div>
+            )}
           </>
         )}
       </CardContent>
@@ -813,7 +1012,7 @@ const AptitudeTestStage = ({ stageStatus, stageScore, onComplete, onSessionExpir
           <DialogHeader>
             <DialogTitle>Confirm submission</DialogTitle>
             <DialogDescription>
-              You are about to submit your aptitude round. Review your progress below.
+              You are about to submit your Cognitive Assessment. Review your progress below.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 text-sm">

@@ -19,6 +19,7 @@ import { useSoundDetection } from "@/hooks/useSoundDetection";
 import { useFullScreenState } from "@/hooks/useFullScreenState";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
+import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
 import {
@@ -160,6 +161,17 @@ const ExpertInterviewStage = ({
     sessionId: interviewId ?? fallbackTestIdRef.current,
     testType: "ai_interview",
     cameraStream: cameraActive ? streamRef.current : null,
+  });
+
+  useFaceAndPhoneDetection({
+    videoRef,
+    sessionId: interviewId ?? fallbackTestIdRef.current,
+    testType: "ai_interview",
+    userId: user?.id,
+    enabled: inTest && cameraActive,
+    onServerAction: (action, evt) => {
+      if (action === "STOP_TEST") terminateInterviewForProctoring(evt as ProctoringEventCode);
+    },
   });
 
   useEffect(() => {

@@ -17,7 +17,7 @@ export const STAGE_TO_SKILL_TYPE: Record<string, SkillType> = {
 } as const;
 
 export const SKILL_DISPLAY_NAMES: Record<string, string> = {
-  APTITUDE: "Aptitude Verification",
+  APTITUDE: "Cognitive Assessment",
   LIVE_CODING: "Live Coding Verification",
   INTERVIEW: "AI Interview Verification",
 } as const;

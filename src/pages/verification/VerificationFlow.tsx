@@ -70,7 +70,7 @@ const VerificationFlow = () => {
 
   const STAGE_LABELS: Record<string, string> = {
     profile_setup: 'Profile & Resume',
-    aptitude_test: 'Aptitude Test',
+    aptitude_test: 'Cognitive Assessment',
     dsa_round: 'DSA Round',
     expert_interview: 'AI Expert Interview',
     human_expert_interview: 'Human Expert Interview (5+ years experienced)',
@@ -326,7 +326,7 @@ const VerificationFlow = () => {
       await loadVerificationStages();
       setCurrentStage("aptitude_test");
       setTestStageStarted((p) => ({ ...p, aptitude_test: true }));
-      toast({ title: "Retry enabled", description: "Starting fresh aptitude test." });
+      toast({ title: "Retry enabled", description: "Starting fresh Cognitive Assessment." });
     } catch (error: any) {
       toast({ title: "Unable to retry", description: error.message, variant: "destructive" });
     }
@@ -447,7 +447,7 @@ const VerificationFlow = () => {
                   Test Invalidated - Retake Required
                 </AlertTitle>
                 <AlertDescription>
-                  Your previous aptitude test was invalidated due to proctoring violations. 
+                  Your previous Cognitive Assessment was invalidated due to proctoring violations. 
                   Please retake the test following all guidelines carefully.
                 </AlertDescription>
               </Alert>
@@ -456,9 +456,9 @@ const VerificationFlow = () => {
             {!cooldownInfo.aptitude.inCooldown && !testStageStarted.aptitude_test ? (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="pt-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Aptitude Test</h3>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Cognitive Assessment</h3>
                   <p className="text-muted-foreground mb-4">
-                    Your profile is ready. Start the aptitude test when you're ready, or return to the homepage and come back later.
+                    Your profile is ready. Start the Cognitive Assessment when you&apos;re ready, or return to the homepage and come back later.
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" onClick={() => navigate("/")}>
@@ -472,14 +472,14 @@ const VerificationFlow = () => {
                       Practice
                     </Button>
                     <Button onClick={() => setTestStageStarted((p) => ({ ...p, aptitude_test: true }))}>
-                      Start Aptitude Test
+                      Start Cognitive Assessment
                     </Button>
                   </div>
                   <PracticeStageDialog
                     open={practiceDialog === "aptitude"}
                     onOpenChange={(o) => !o && setPracticeDialog(null)}
                     type="aptitude"
-                    testName="Aptitude Test"
+                    testName="Cognitive Assessment"
                   />
                 </CardContent>
               </Card>

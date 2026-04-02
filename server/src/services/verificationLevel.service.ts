@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { computeProvenhireCertification, type ProvenhireCertificationCode } from "./verificationScoring.service.js";
 
 export type CertificationTrack = "technical" | "non_technical";
 
@@ -6,6 +7,9 @@ export interface CertificationLevelResult {
   level: number;
   label: string;
   roleType: CertificationTrack;
+  /** PRD L1 / L2 / L3 codes; null if not yet at L1. */
+  certificationLevel?: ProvenhireCertificationCode;
+  certificationLabel?: string | null;
 }
 
 const TECH_LABELS: Record<number, string> = {
@@ -45,26 +49,35 @@ export function calculateCertificationLevelFromCompletedStages(
   return 0;
 }
 
+function codeToNumericLevel(code: ProvenhireCertificationCode): number {
+  if (code === "L3") return 3;
+  if (code === "L2") return 2;
+  if (code === "L1") return 1;
+  return 0;
+}
+
 export async function calculateCertificationLevel(userId: string): Promise<CertificationLevelResult> {
-  const [profile, completedStages] = await Promise.all([
+  const [profile, cert] = await Promise.all([
     prisma.jobSeekerProfile.findUnique({
       where: { userId },
       select: { roleType: true },
     }),
-    prisma.verificationStage.findMany({
-      where: { userId, status: "completed" },
-      select: { stageName: true },
-    }),
+    computeProvenhireCertification(userId),
   ]);
 
   const roleType = (profile?.roleType === "non_technical" ? "non_technical" : "technical") as CertificationTrack;
-  const completedSet = new Set(completedStages.map((s) => s.stageName));
-  const level = calculateCertificationLevelFromCompletedStages(roleType, completedSet);
+  const level = codeToNumericLevel(cert.certificationLevel);
+  const label =
+    cert.certificationLevel && cert.certificationLabel
+      ? `${cert.certificationLevel} — ${cert.certificationLabel}`
+      : getCertificationLabel(roleType, level);
 
   return {
     level,
-    label: getCertificationLabel(roleType, level),
+    label,
     roleType,
+    certificationLevel: cert.certificationLevel,
+    certificationLabel: cert.certificationLabel,
   };
 }
 
@@ -75,7 +88,7 @@ export function minimumLevelHint(roleType: CertificationTrack, level: number): s
     return "Complete verification stages to unlock this role.";
   }
 
-  if (level <= 1) return "Complete Profile Setup and Aptitude Test to unlock this role.";
+  if (level <= 1) return "Complete Profile Setup and Cognitive Assessment to unlock this role.";
   if (level === 2) return "Complete DSA Round and AI Interview to unlock this role.";
   if (level >= 3) return "Complete Human Expert Interview to unlock this role.";
   return "Complete verification stages to unlock this role.";

@@ -89,7 +89,7 @@ const AppealForm = ({ testId, testType, onSuccess }: AppealFormProps) => {
           Submit an Appeal
         </CardTitle>
         <CardDescription>
-          Contest your {testType === 'aptitude' ? 'Aptitude Test' : 'DSA Round'} invalidation
+          Contest your {testType === 'aptitude' ? 'Cognitive Assessment' : 'DSA Round'} invalidation
         </CardDescription>
       </CardHeader>
       <CardContent>

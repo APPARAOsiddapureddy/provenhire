@@ -29,7 +29,7 @@ const VerificationGateDialog = ({
     if (!stage) return "Profile Setup";
     const names: Record<string, string> = {
       profile_setup: "Profile Setup",
-      aptitude_test: "Aptitude Test",
+      aptitude_test: "Cognitive Assessment",
       dsa_round: "DSA Round",
       expert_interview: "Expert Interview",
       completed: "Verification Complete",

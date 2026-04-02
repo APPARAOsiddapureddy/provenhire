@@ -1,5 +1,5 @@
 /**
- * Skill Verification Panel - shows status for Aptitude, Live Coding, AI Interview, Human Interview.
+ * Skill Verification Panel — Cognitive Assessment, Live Coding, AI Interview, Human Interview.
  * All rows are driven by verificationStages so status updates as the user completes each step.
  */
 import { useNavigate } from "react-router-dom";
@@ -15,7 +15,7 @@ const TECHNICAL_VERIFICATION_STAGE_ORDER = [
   "human_expert_interview",
 ] as const;
 const STAGE_TO_LABEL: Record<string, string> = {
-  aptitude_test: "Aptitude Verification",
+  aptitude_test: "Cognitive Assessment",
   dsa_round: "Live Coding Verification",
   expert_interview: "AI Interview Verification",
   human_expert_interview: "Human Interview Verification",

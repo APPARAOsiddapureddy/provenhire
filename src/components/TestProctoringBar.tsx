@@ -9,7 +9,7 @@ interface TestProctoringBarProps {
   showTabSwitch?: boolean;
 }
 
-/** Persistent proctoring bar during aptitude/DSA tests — makes users feel monitored to deter cheating. */
+/** Persistent proctoring bar during Cognitive Assessment / DSA — makes users feel monitored to deter cheating. */
 const TestProctoringBar = ({ tabSwitchCount = 0, maxTabSwitches = 3, showTabSwitch = true }: TestProctoringBarProps) => (
   <div className="sticky top-0 z-40 -mx-6 -mt-2 px-6 py-2 mb-3 rounded-lg border-2 border-primary/40 bg-primary/10 flex flex-wrap items-center gap-2 sm:gap-4 shrink-0">
     <div className="flex items-center gap-2">

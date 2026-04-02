@@ -75,7 +75,7 @@ export default function VerificationStagesCard() {
             </div>
           </div>
           <div className="vs-track">
-            {["Profile", "Aptitude", "DSA", "AI Round", "Expert"].map((label) => (
+            {["Profile", "Cognitive", "DSA", "AI Round", "Expert"].map((label) => (
               <div key={label} className="vs-tn">
                 <div className="vs-tdot vs-dot-red">—</div>
                 <div className="vs-tlabel">{label}</div>
@@ -133,7 +133,7 @@ export default function VerificationStagesCard() {
             </div>
           </div>
           <div className="vs-track">
-            {["Profile", "Aptitude", "DSA", "AI Round", "Expert"].map((label) => (
+            {["Profile", "Cognitive", "DSA", "AI Round", "Expert"].map((label) => (
               <div key={label} className="vs-tn vs-conn-gold">
                 <div className="vs-tdot vs-dot-gold">
                   <Check className="w-2.5 h-2.5" strokeWidth={3} />
@@ -200,7 +200,7 @@ export default function VerificationStagesCard() {
             <div className="vs-hb-chip">Hired ✓</div>
           </div>
           <div className="vs-track">
-            {["Profile", "Aptitude", "DSA", "AI Round", "Expert"].map((label) => (
+            {["Profile", "Cognitive", "DSA", "AI Round", "Expert"].map((label) => (
               <div key={label} className="vs-tn vs-conn-green">
                 <div className="vs-tdot vs-dot-green">
                   <Check className="w-2.5 h-2.5" strokeWidth={3} />

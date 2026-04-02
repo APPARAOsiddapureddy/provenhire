@@ -220,7 +220,7 @@ const Index = () => {
               Live Coding Verification
             </h2>
             <p className="text-muted-foreground leading-relaxed">
-              Our verified hiring platform includes live coding and role-specific assessments. Candidates complete timed tests in a proctored environment, so you see real problem-solving ability—not memorised answers. This coding verification step filters out the majority of unqualified applicants before they ever reach an interview. For technical roles, ProvenHire&apos;s AI hiring platform combines aptitude tests, DSA rounds, and expert interviews to produce a clear skill level (A, B, or C). Recruiters get a <strong className="text-foreground">skill verification hiring</strong> pipeline that cuts time-to-hire and improves quality.
+              Our verified hiring platform includes live coding and role-specific assessments. Candidates complete timed tests in a proctored environment, so you see real problem-solving ability—not memorised answers. This coding verification step filters out the majority of unqualified applicants before they ever reach an interview. For technical roles, ProvenHire&apos;s AI hiring platform combines cognitive assessments, DSA rounds, and expert interviews to produce a clear skill level (A, B, or C). Recruiters get a <strong className="text-foreground">skill verification hiring</strong> pipeline that cuts time-to-hire and improves quality.
             </p>
 
             <h2 className="font-bebas text-2xl sm:text-3xl tracking-[2px] text-foreground">
@@ -255,7 +255,7 @@ const Index = () => {
                 <Clock className="h-4 w-4" /> ~30 min
               </div>
               <div className="verify-icon"><Target className="h-8 w-8" /></div>
-              <h3 className="text-lg font-bold">Aptitude + CS Fundamentals</h3>
+              <h3 className="text-lg font-bold">Cognitive Assessment + CS Fundamentals</h3>
               <p className="mb-3 text-base font-medium">Hard aptitude, logical reasoning, OS, DBMS, OOPS, CN, basic DSA</p>
               <div className="text-base font-medium text-muted-foreground bg-muted/50 p-2.5 rounded">
                 <span className="font-semibold text-destructive">~70% eliminated</span> • Anti-cheat enabled

@@ -261,7 +261,7 @@ const RealtimeProctoringAlerts = () => {
                             {alert.severity.toUpperCase()}
                           </Badge>
                           <Badge variant="outline">
-                            {alert.testType === 'aptitude' ? 'Aptitude' : 
+                            {alert.testType === 'aptitude' ? 'Cognitive Assessment' : 
                              alert.testType === 'dsa' ? 'DSA' : 
                              alert.testType === 'ai_interview' ? 'AI Interview' : (alert.testType || 'Assessment')}
                           </Badge>

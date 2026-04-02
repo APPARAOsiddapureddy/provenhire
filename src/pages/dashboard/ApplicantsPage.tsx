@@ -68,7 +68,7 @@ const VERIFICATION_STAGE_META: Record<
   { label: string; depth: number; badgeClass: string }
 > = {
   profile_only: { label: "Profile Only", depth: 0, badgeClass: "bg-slate-500/10 border-slate-500/30 text-slate-300" },
-  aptitude_complete: { label: "Aptitude Complete", depth: 1, badgeClass: "bg-amber-500/10 border-amber-500/30 text-amber-300" },
+  aptitude_complete: { label: "Cognitive Complete", depth: 1, badgeClass: "bg-amber-500/10 border-amber-500/30 text-amber-300" },
   dsa_complete: { label: "DSA Complete", depth: 2, badgeClass: "bg-sky-500/10 border-sky-500/30 text-sky-300" },
   ai_interviewed: { label: "AI Interviewed", depth: 3, badgeClass: "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" },
   expert_verified: { label: "Expert Verified", depth: 4, badgeClass: "bg-violet-500/10 border-violet-500/30 text-violet-300" },
@@ -320,7 +320,7 @@ const ApplicantsPage = () => {
               [
                 { key: "all" as const, label: "All" },
                 { key: "profile_only" as const, label: "Profile Only" },
-                { key: "aptitude_complete" as const, label: "Aptitude Complete" },
+                { key: "aptitude_complete" as const, label: "Cognitive Complete" },
                 { key: "dsa_complete" as const, label: "DSA Complete" },
                 { key: "ai_interviewed" as const, label: "AI Interviewed" },
                 { key: "expert_verified" as const, label: "Expert Verified" },
@@ -424,7 +424,7 @@ const ApplicantsPage = () => {
 
                   <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 border-b border-white/5">
                     {[
-                      { label: "Aptitude", val: a.aptitude_score },
+                      { label: "Cognitive", val: a.aptitude_score },
                       { label: "DSA", val: a.dsa_score },
                       { label: "AI Interview", val: a.ai_interview_score },
                       ...(a.human_expert_interview_score != null ? [{ label: "Expert", val: a.human_expert_interview_score }] : []),
@@ -445,7 +445,7 @@ const ApplicantsPage = () => {
                     <div className="px-4 py-2 border-b border-white/5 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
                       {a.skill_freshness.aptitude && (
                         <span>
-                          Aptitude: {a.skill_freshness.aptitude.status === "EXPIRED"
+                          Cognitive: {a.skill_freshness.aptitude.status === "EXPIRED"
                             ? "Expired"
                             : `${a.skill_freshness.aptitude.last_verified_days_ago ?? 0} days ago`}
                         </span>

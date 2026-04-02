@@ -10,6 +10,8 @@ import {
 } from "../services/verificationLevel.service.js";
 import { getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
 import { integrityScoreFromViolationStats } from "../services/proctoringViolationCount.service.js";
+import { computeProvenhireCertification } from "../services/verificationScoring.service.js";
+import { experienceTierFromYears, salaryCapLpaForTier } from "../utils/experienceTier.js";
 
 export const jobsRouter = Router();
 
@@ -52,7 +54,7 @@ jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
   } else if (track === "non_technical") {
     where.jobTrack = "non_technical";
   }
-  let jobs = await prisma.job.findMany({
+  const jobs = await prisma.job.findMany({
     where: Object.keys(where).length ? where : undefined,
     orderBy: { createdAt: "desc" },
     include: {
@@ -62,39 +64,111 @@ jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
     },
   });
 
-  // Filter by candidate certification level when authenticated job seeker
   const authed = req.user;
-  if (authed?.id) {
-    const { calculateCertificationLevel } = await import("../services/verificationLevel.service.js");
-    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: authed.id } });
-    if (profile) {
-      const cert = await calculateCertificationLevel(authed.id);
-      // Level 0 (no aptitude): show no jobs. Level 1+: show jobs where job.minLevel <= cert.level
-      if (cert.level === 0) {
-        jobs = [];
-      } else {
-        jobs = jobs.filter((j) => {
-          const minLevel = j.minimumCertificationLevel ?? 1;
-          const effectiveMin = minLevel === 0 ? 1 : minLevel;
-          return effectiveMin <= cert.level;
-        });
-      }
+  if (!authed?.id) {
+    return res.json({
+      jobs: [],
+      listingsGate: "anonymous",
+      listingsMessage: null,
+    });
+  }
+
+  const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: authed.id } });
+  if (!profile) {
+    const jobsForClient = jobs.map((j) => {
+      const { postedBy, ...job } = j;
+      return {
+        ...job,
+        status: normalizeJobStatus(job.status),
+        companyLogo: postedBy?.companyLogo ?? null,
+        recruiterVerified: postedBy?.verificationStatus === "verified",
+        salaryLPA: parseSalaryMaxLpa(job.salaryRange),
+        jobAccessLevel: "locked" as const,
+        lockReason: "complete_dsa" as const,
+      };
+    });
+    return res.json({ jobs: jobsForClient, listingsGate: "open", listingsMessage: null });
+  }
+
+  const roleType = (profile.roleType ?? "technical") === "non_technical" ? "non_technical" : "technical";
+
+  if (roleType === "technical") {
+    const dsaDone = await prisma.verificationStage.findFirst({
+      where: { userId: authed.id, stageName: "dsa_round", status: "completed" },
+    });
+    if (!dsaDone) {
+      return res.json({
+        jobs: [],
+        listingsGate: "dsa_incomplete",
+        listingsMessage: "Complete your DSA Round to start browsing jobs.",
+      });
     }
   } else {
-    // Anonymous: no jobs (must sign in and complete aptitude to see jobs)
-    jobs = [];
+    const assignDone = await prisma.verificationStage.findFirst({
+      where: { userId: authed.id, stageName: "non_tech_assignment", status: "completed" },
+    });
+    if (!assignDone) {
+      return res.json({
+        jobs: [],
+        listingsGate: "dsa_incomplete",
+        listingsMessage: "Complete your assignment to start browsing jobs.",
+      });
+    }
   }
+
+  const cert = await computeProvenhireCertification(authed.id);
+  const tier = experienceTierFromYears(profile.experienceYears);
+  const salaryCap = salaryCapLpaForTier(tier);
 
   const jobsForClient = jobs.map((j) => {
     const { postedBy, ...job } = j;
+    const maxLpa = parseSalaryMaxLpa(job.salaryRange);
+    let jobAccessLevel: "locked" | "unlocked" = "locked";
+    let lockReason: "complete_dsa" | "complete_ai_interview" | "complete_expert_interview" | null =
+      "complete_ai_interview";
+
+    if (roleType === "non_technical") {
+      if (cert.certificationLevel === "L3") {
+        jobAccessLevel = "unlocked";
+        lockReason = null;
+      } else {
+        jobAccessLevel = "locked";
+        lockReason = cert.certificationLevel === "L1" ? "complete_expert_interview" : "complete_ai_interview";
+      }
+    } else {
+      if (cert.certificationLevel === "L3") {
+        jobAccessLevel = "unlocked";
+        lockReason = null;
+      } else if (cert.certificationLevel === "L2") {
+        if (maxLpa != null && maxLpa > salaryCap) {
+          jobAccessLevel = "locked";
+          lockReason = "complete_expert_interview";
+        } else {
+          jobAccessLevel = "unlocked";
+          lockReason = null;
+        }
+      } else {
+        jobAccessLevel = "locked";
+        lockReason = "complete_ai_interview";
+      }
+    }
+
     return {
       ...job,
       status: normalizeJobStatus(job.status),
       companyLogo: postedBy?.companyLogo ?? null,
       recruiterVerified: postedBy?.verificationStatus === "verified",
+      salaryLPA: maxLpa,
+      jobAccessLevel,
+      lockReason,
     };
   });
-  res.json({ jobs: jobsForClient });
+
+  res.json({
+    jobs: jobsForClient,
+    listingsGate: "open",
+    listingsMessage: null,
+  });
 });
 
 jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {

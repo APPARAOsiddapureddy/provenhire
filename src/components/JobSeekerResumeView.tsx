@@ -198,7 +198,7 @@ export default function JobSeekerResumeView({
                     <>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
                         <p className="text-lg font-bold text-primary">{aptitudeScore != null ? `${aptitudeScore}%` : "—"}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase">Aptitude</p>
+                        <p className="text-[10px] text-muted-foreground uppercase">Cognitive</p>
                       </div>
                       <div className="rounded-lg border bg-muted/30 p-2 text-center">
                         <p className="text-lg font-bold text-primary">{dsaScore != null ? `${dsaScore}%` : "—"}</p>
@@ -268,7 +268,7 @@ export default function JobSeekerResumeView({
                   {aptitudeScore != null && (
                     <div className="text-center p-3 rounded-lg border border-border">
                       <p className="text-2xl font-bold text-primary">{aptitudeScore}%</p>
-                      <p className="text-xs text-muted-foreground">Aptitude</p>
+                      <p className="text-xs text-muted-foreground">Cognitive</p>
                     </div>
                   )}
                   {dsaScore != null && (

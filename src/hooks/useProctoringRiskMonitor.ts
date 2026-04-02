@@ -74,7 +74,19 @@ interface UseProctoringRiskMonitorOptions {
   /** OFF = learner toasts only; MONITOR = show strike counts, no auto-end; STRICT = end after 3 strikes per signal (tab uses physical switch count) */
   strikeTerminationMode?: StrikeTerminationMode;
   onProctoringTerminated?: (code: ProctoringEventCode) => void;
+  /** When true, honor server STOP_TEST / SHOW_WARNING from /api/proctoring/alerts (per-signal counts). */
+  applyServerThresholdActions?: boolean;
 }
+
+const SERVER_WARN_ON_COUNT_MESSAGES: Partial<Record<ProctoringEventCode, string>> = {
+  MULTIPLE_FACES_DETECTED: "Only you should be visible on camera during the assessment.",
+  PHONE_DETECTED: "External devices are not permitted during the assessment.",
+  TAB_SWITCH: "Please do not switch tabs during the assessment.",
+  FULLSCREEN_EXIT: "Please stay in fullscreen mode during the assessment.",
+  NO_FACE_DETECTED: "Please ensure your face is clearly visible on camera.",
+  COPY_PASTE_ATTEMPT: "Copy-paste is not permitted during this assessment.",
+  DEVTOOLS_OPENED: "Developer tools are not permitted during the assessment.",
+};
 
 const STRIKE_LEARNER_TOAST: Partial<Record<ProctoringEventCode, string>> = {
   NO_FACE_DETECTED: "Your face is not visible. Stay centered in the camera.",
@@ -142,6 +154,7 @@ export function useProctoringRiskMonitor({
   onMaxTabSwitches,
   strikeTerminationMode = "OFF",
   onProctoringTerminated,
+  applyServerThresholdActions = true,
 }: UseProctoringRiskMonitorOptions) {
   const [violationCountsByType, setViolationCountsByType] = useState<
     Partial<Record<ProctoringEventCode, number>>
@@ -259,7 +272,10 @@ export function useProctoringRiskMonitor({
       setEvents((prev) => [...prev, eventLog]);
 
       try {
-        await api.post("/api/proctoring/alerts", {
+        const alertRes = await api.post<{
+          ok?: boolean;
+          action?: "CONTINUE" | "SHOW_WARNING" | "STOP_TEST";
+        }>("/api/proctoring/alerts", {
           userId: candidateId,
           testId,
           testType,
@@ -278,11 +294,32 @@ export function useProctoringRiskMonitor({
             strikesForEvent: isStrikeClass ? nextForType : undefined,
           },
         });
+        if (applyServerThresholdActions && alertRes?.action === "SHOW_WARNING") {
+          const w = SERVER_WARN_ON_COUNT_MESSAGES[eventCode];
+          if (w) toast.warning(w, { duration: 6500 });
+        }
+        if (applyServerThresholdActions && alertRes?.action === "STOP_TEST" && !terminatedRef.current) {
+          terminatedRef.current = true;
+          toast.error(
+            "Your assessment has been terminated due to repeated integrity violations. This attempt has been recorded.",
+            { duration: 10000 },
+          );
+          onProctoringTerminatedRef.current?.(eventCode);
+        }
       } catch {
         // Do not interrupt the test if alert logging fails.
       }
     },
-    [candidateId, enabled, maybeHardTerminate, shouldRateLimitEvent, strikeTerminationMode, testId, testType]
+    [
+      applyServerThresholdActions,
+      candidateId,
+      enabled,
+      maybeHardTerminate,
+      shouldRateLimitEvent,
+      strikeTerminationMode,
+      testId,
+      testType,
+    ]
   );
 
   const warnFirstThenLog = useCallback(

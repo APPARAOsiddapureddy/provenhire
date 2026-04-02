@@ -314,3 +314,66 @@ export async function buildTechnicalScorecard(userId: string): Promise<Technical
     },
   };
 }
+
+export type ProvenhireCertificationCode = "L1" | "L2" | "L3" | null;
+
+export async function computeProvenhireCertification(userId: string): Promise<{
+  certificationLevel: ProvenhireCertificationCode;
+  certificationLabel: string | null;
+}> {
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { roleType: true },
+  });
+  const roleType = profile?.roleType === "non_technical" ? "non_technical" : "technical";
+
+  if (roleType === "non_technical") {
+    const stages = await prisma.verificationStage.findMany({
+      where: { userId },
+      select: { stageName: true, status: true },
+    });
+    const done = (n: string) => stages.some((s) => s.stageName === n && s.status === "completed");
+    if (done("human_expert_interview")) {
+      const ok = await prisma.humanInterviewSession.findFirst({
+        where: { userId, evaluationPass: true },
+        select: { id: true },
+      });
+      if (ok) return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
+    }
+    if (done("profile_setup") && done("non_tech_assignment")) {
+      return { certificationLevel: "L1", certificationLabel: "Cognitive Verified" };
+    }
+    return { certificationLevel: null, certificationLabel: null };
+  }
+
+  const stages = await prisma.verificationStage.findMany({
+    where: { userId },
+    select: { stageName: true, status: true },
+  });
+  const done = (n: string) => stages.some((s) => s.stageName === n && s.status === "completed");
+
+  if (done("human_expert_interview")) {
+    const ok = await prisma.humanInterviewSession.findFirst({
+      where: { userId, evaluationPass: true },
+      select: { id: true },
+    });
+    if (ok) return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
+  }
+
+  if (done("expert_interview")) {
+    try {
+      const card = await buildTechnicalScorecard(userId);
+      if (card.shortlisted) {
+        return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (done("profile_setup") && done("aptitude_test") && done("dsa_round")) {
+    return { certificationLevel: "L1", certificationLabel: "Cognitive Verified" };
+  }
+
+  return { certificationLevel: null, certificationLabel: null };
+}

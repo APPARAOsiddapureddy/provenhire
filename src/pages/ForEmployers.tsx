@@ -75,7 +75,7 @@ const ForEmployers = () => {
                 </div>
                 <h3 className="text-xl font-semibold mb-3">100% Verified Candidates</h3>
                 <p className="text-muted-foreground">
-                  Every candidate has passed rigorous aptitude tests, DSA challenges, 
+                  Every candidate has passed rigorous cognitive assessments, DSA challenges, 
                   and expert interviews. No more wasting time on unqualified applicants.
                 </p>
               </CardContent>
@@ -200,7 +200,7 @@ const ForEmployers = () => {
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
-                      <span>Aptitude test results included</span>
+                      <span>Cognitive Assessment results included</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
