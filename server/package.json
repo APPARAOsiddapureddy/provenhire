@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "tsx watch server.ts",
@@ -20,6 +23,7 @@
     "seed:feature-flags": "tsx prisma/seed-feature-flags.ts",
     "seed:skill-verifications": "tsx prisma/seed-skill-verifications.ts",
     "seed:dsa": "tsx prisma/seeds/dsaQuestions.seed.ts",
+    "seed:all": "npm run seed:dsa && npm run seed:interviewer && npm run seed:skill-verifications",
     "dsa:judge0-smoke": "tsx scripts/dsa-starter-judge0-smoke.ts",
     "audit:create-users": "tsx scripts/createTestUsers.ts",
     "audit:flow": "tsx scripts/auditFlow.ts",

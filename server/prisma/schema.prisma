@@ -83,6 +83,11 @@ model JobSeekerProfile {
   workModePreference   String?  // Remote | Hybrid | Onsite
   /// Set when the user fails 3 consecutive aptitude attempts; cleared implicitly once date passes (checked at request time).
   aptitudeLockedUntil  DateTime?
+  /// Latest non-technical verification assignment (prompt + submission); used by GET /assignment/current.
+  nonTechAssignmentPrompt   String?   @db.Text
+  nonTechAssignmentResponse   String?   @db.Text
+  /// Window for assignment freshness (e.g. set to submittedAt + 36h on each submit).
+  nonTechAssignmentExpiresAt  DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

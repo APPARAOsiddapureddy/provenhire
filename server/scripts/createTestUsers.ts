@@ -1,23 +1,21 @@
 /**
  * Create flow-audit test accounts via HTTP only (no UI).
- * Run from server root: npx tsx scripts/createTestUsers.ts
+ * Run: npx tsx scripts/createTestUsers.ts (tsx only; register uses roleType not track; native fetch).
  */
-import { config } from "dotenv";
+import "./auditEnv.js";
 import { writeFileSync } from "fs";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 
-config({ path: resolve(fileURLToPath(new URL(".", import.meta.url)), "../.env") });
-
 const BASE = process.env.AUDIT_API_BASE ?? "http://127.0.0.1:10000";
 
-type Track = "technical" | "non_technical";
+type RoleType = "technical" | "non_technical";
 
 const users: Array<{
   name: string;
   email: string;
   password: string;
-  roleType: Track;
+  roleType: RoleType;
   experienceYears: number;
   targetJobTitle: string;
   label: string;
@@ -84,7 +82,7 @@ const results: Array<{
   userId?: string;
   token?: string;
   status: string;
-  roleType?: Track;
+  roleType?: RoleType;
   experienceYears?: number;
   error?: unknown;
 }> = [];
@@ -173,7 +171,7 @@ async function saveProfile(
   token: string,
   u: {
     name: string;
-    roleType: Track;
+    roleType: RoleType;
     experienceYears: number;
     targetJobTitle: string;
   },

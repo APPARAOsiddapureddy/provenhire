@@ -1293,6 +1293,16 @@ verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSe
     }
   }
 
+  const nonTechExpiresAt = new Date(Date.now() + 36 * 60 * 60 * 1000);
+  await prisma.jobSeekerProfile.updateMany({
+    where: { userId: req.user!.id },
+    data: {
+      nonTechAssignmentPrompt: parsed.data.prompt,
+      nonTechAssignmentResponse: parsed.data.response,
+      nonTechAssignmentExpiresAt: nonTechExpiresAt,
+    },
+  });
+
   return res.json({
     score: evalResult.score,
     qualified: evalResult.qualified,
@@ -1300,7 +1310,56 @@ verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSe
     summary: evalResult.summary,
     strengths: evalResult.strengths,
     gaps: evalResult.gaps,
+    expiresAt: nonTechExpiresAt.toISOString(),
   });
+});
+
+/** Latest saved non-technical assignment (after submit). */
+verificationRouter.get("/assignment/current", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: {
+        roleType: true,
+        nonTechAssignmentPrompt: true,
+        nonTechAssignmentResponse: true,
+        nonTechAssignmentExpiresAt: true,
+      },
+    });
+    if ((profile?.roleType ?? "technical") === "technical") {
+      return res.status(404).json({ error: "No assignment on the technical verification path." });
+    }
+    return res.json({
+      brief: profile?.nonTechAssignmentPrompt ?? null,
+      response: profile?.nonTechAssignmentResponse ?? null,
+      expiresAt: profile?.nonTechAssignmentExpiresAt?.toISOString() ?? null,
+    });
+  } catch (e) {
+    console.error("[verification/assignment/current]", e);
+    return res.status(500).json({ error: "Failed to load assignment" });
+  }
+});
+
+verificationRouter.get("/assignment/time-remaining", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { roleType: true, nonTechAssignmentExpiresAt: true },
+    });
+    if ((profile?.roleType ?? "technical") === "technical") {
+      return res.json({ hoursRemaining: null as number | null, expiresAt: null as string | null });
+    }
+    const exp = profile?.nonTechAssignmentExpiresAt;
+    if (!exp) {
+      return res.json({ hoursRemaining: null as number | null, expiresAt: null as string | null });
+    }
+    const ms = exp.getTime() - Date.now();
+    const hoursRemaining = Math.round((Math.max(0, ms) / (1000 * 60 * 60)) * 10) / 10;
+    return res.json({ hoursRemaining, expiresAt: exp.toISOString() });
+  } catch (e) {
+    console.error("[verification/assignment/time-remaining]", e);
+    return res.status(500).json({ error: "Failed to compute time remaining" });
+  }
 });
 
 verificationRouter.get("/cooldowns", optionalAuth, async (req: AuthedRequest, res) => {
