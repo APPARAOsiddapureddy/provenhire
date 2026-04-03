@@ -24,6 +24,11 @@ server/firebase-service-account.json
 # Uploads (user-generated)
 server/uploads/
 
+# Local flow-audit artifacts (may contain JWTs)
+server/test-users.json
+server/audit-results.json
+server/audit-bugs.json
+
 # AI proctor (Python)
 ai-proctor/__pycache__/
 ai-proctor/.venv/
