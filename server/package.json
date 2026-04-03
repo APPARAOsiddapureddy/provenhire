@@ -20,6 +20,7 @@
     "seed:feature-flags": "tsx prisma/seed-feature-flags.ts",
     "seed:skill-verifications": "tsx prisma/seed-skill-verifications.ts",
     "seed:dsa": "tsx prisma/seeds/dsaQuestions.seed.ts",
+    "dsa:judge0-smoke": "tsx scripts/dsa-starter-judge0-smoke.ts",
     "seed:interview-bank": "tsx prisma/seeds/interviewQuestionBank.seed.ts",
     "clear-test-users": "tsx prisma/clear-test-users.ts"
   },

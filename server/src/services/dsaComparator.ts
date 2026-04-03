@@ -1,12 +1,13 @@
 import { ExpectedType, JUDGE0_STATUS, TestResultStatus } from "../constants/dsa.js";
 
-/** Normalize exact string output (line endings, trim, collapse horizontal whitespace). */
+/** Normalize exact string output (line endings, trim, collapse horizontal whitespace/newlines). */
 export function normalizeExact(raw: string): string {
   return (raw || "")
     .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
     .trim()
     .replace(/[ \t]+/g, " ")
-    .replace(/\n{2,}/g, "\n");
+    .replace(/\n+/g, "\n");
 }
 
 function isNumericToken(t: string): boolean {
@@ -77,8 +78,8 @@ export function compareOutput(actual: string, expected: string, type: ExpectedTy
     case "exact":
       return compareExactRelaxed(actual, expected);
     case "numeric": {
-      const a = parseFloat(String(actual).trim());
-      const e = parseFloat(String(expected).trim());
+      const a = parseFloat(normalizeExact(String(actual)));
+      const e = parseFloat(normalizeExact(String(expected)));
       if (Number.isNaN(a) || Number.isNaN(e)) return false;
       return Math.abs(a - e) < 1e-5;
     }

@@ -4,6 +4,9 @@
  * Run:
  *   cd server && npm run seed:dsa
  *
+ * Boilerplate for all five Judge0 languages lives in the frontend module
+ * `src/data/dsaMultiLangStarters.ts` (per-question builders). This seed only validates and persists DB rows.
+ *
  * Rules:
  * - Each question must include at least one example in source data (bank uses first 1–2 test cases as examples).
  * - At least 6 test cases per question: first 2 are public (isHidden=false), remaining are hidden.

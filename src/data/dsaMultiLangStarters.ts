@@ -25,7 +25,7 @@ function emptyFallback(qn: number): LangStarters {
   const c = `# Question ${qn}: implement stdin/stdout solution.`;
   return {
     javascript: `// Question ${qn}\nconst fs = require("fs");\nconst input = fs.readFileSync(0, "utf8");\n// Write your solution here\n`,
-    python: `# Question ${qn}\nimport sys\n\ndef main():\n    # Write your solution here\n    pass\n\nif __name__ == "__main__":\n    main()\n`,
+    python: `# Question ${qn}\nfrom __future__ import annotations\n\nimport sys\n\ndef main():\n    # Write your solution here\n    pass\n\nif __name__ == "__main__":\n    main()\n`,
     java: `// Question ${qn}\nimport java.util.*;\nimport java.io.*;\n\npublic class Main {\n    public static void main(String[] args) throws Exception {\n        // Write your solution here\n    }\n}\n`,
     cpp: `// Question ${qn}\n#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    ios::sync_with_stdio(false);\n    cin.tie(nullptr);\n    // Write your solution here\n    return 0;\n}\n`,
     c: `/* Question ${qn} */\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main(void) {\n    /* Write your solution here */\n    return 0;\n}\n`,
@@ -36,7 +36,9 @@ type Builder = { js: () => string; py: () => string; java: () => string; cpp: ()
 
 const BUILDERS: Record<number, Builder> = {
   1: {
-    py: () => `def findWordsInMatrix(s: str, searchWords: list[str], R: int, C: int) -> str:
+    py: () => `from __future__ import annotations
+
+def findWordsInMatrix(s: str, searchWords: list[str], R: int, C: int) -> str:
     # Write your solution here
     return ""
 
@@ -104,12 +106,21 @@ int main() {
     return 0;
 }
 `,
-    c: () => `/* Custom Vertical Fill Matrix */
+    c: () => `/* Custom Vertical Fill Matrix — stdin matches Python/JS */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* Write your solution in helpers; print final answer only */
+/* Implement: build matrix, find words; return answer string in buf (space-separated hits) */
+void find_words_in_matrix(const char *s, char **search_words, int word_count, int R, int C, char *out, size_t out_sz) {
+    (void)s;
+    (void)search_words;
+    (void)word_count;
+    (void)R;
+    (void)C;
+    (void)out_sz;
+    out[0] = '\\0';
+}
 
 int main(void) {
     char s[4096], line[8192];
@@ -119,14 +130,27 @@ int main(void) {
     line[strcspn(line, "\\n")] = 0;
     int R, C;
     if (scanf("%d %d", &R, &C) != 2) return 0;
-    /* Write your solution here */
+
+    char *words[256];
+    int wc = 0;
+    char *tok = strtok(line, " \\t");
+    while (tok && wc < 256) {
+        words[wc++] = tok;
+        tok = strtok(NULL, " \\t");
+    }
+
+    char out[8192];
+    find_words_in_matrix(s, words, wc, R, C, out, sizeof out);
+    printf("%s\\n", out);
     return 0;
 }
 `,
   },
 
   2: {
-    py: () => `def solve_tree(n: int, vals: list[int], edges: list[tuple[int, int]]) -> list[int]:
+    py: () => `from __future__ import annotations
+
+def solve_tree(n: int, vals: list[int], edges: list[tuple[int, int]]) -> list[int]:
     # Write your solution here — return counts for nodes 1..n
     return [0] * n
 
@@ -218,21 +242,47 @@ int main() {
     return 0;
 }
 `,
-    c: () => `/* GCD Territories */
+    c: () => `/* GCD Territories — stdin: n, n values, n-1 edges u v */
 #include <stdio.h>
 #include <stdlib.h>
 
+static void solve_tree(int n, const int *vals, const int *u, const int *v, int *out) {
+    (void)vals;
+    (void)u;
+    (void)v;
+    for (int i = 0; i < n; i++) out[i] = 0;
+}
+
 int main(void) {
     int n;
-    if (scanf("%d", &n) != 1) return 0;
-    /* Read vals, edges — Write your solution here */
+    if (scanf("%d", &n) != 1 || n < 1 || n > 2000) return 0;
+    int *vals = (int *)calloc((size_t)n, sizeof(int));
+    int *u = (int *)calloc((size_t)(n > 1 ? n - 1 : 1), sizeof(int));
+    int *v = (int *)calloc((size_t)(n > 1 ? n - 1 : 1), sizeof(int));
+    if (!vals || !u || !v) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &vals[i]);
+    for (int e = 0; e < n - 1; e++) scanf("%d %d", &u[e], &v[e]);
+    int *out = (int *)calloc((size_t)n, sizeof(int));
+    if (!out) return 0;
+    solve_tree(n, vals, u, v, out);
+    for (int i = 0; i < n; i++) {
+        if (i) printf(" ");
+        printf("%d", out[i]);
+    }
+    printf("\\n");
+    free(vals);
+    free(u);
+    free(v);
+    free(out);
     return 0;
 }
 `,
   },
 
   3: {
-    py: () => `MOD = 10**9 + 7
+    py: () => `from __future__ import annotations
+
+MOD = 10**9 + 7
 
 def peacock_ways(n: int) -> int:
     # Write your solution here
@@ -306,7 +356,9 @@ int main(void) {
   },
 
   4: {
-    py: () => `def can_reach_target(n: int, arr: list[int], target: int) -> bool:
+    py: () => `from __future__ import annotations
+
+def can_reach_target(n: int, arr: list[int], target: int) -> bool:
     # Write your solution here
     return False
 
@@ -391,7 +443,9 @@ int main(void) {
   },
 
   5: {
-    py: () => `def nearest_larger_neg(N: int, A: list[int], x: int) -> int:
+    py: () => `from __future__ import annotations
+
+def nearest_larger_neg(N: int, A: list[int], x: int) -> int:
     # Write your solution here
     return -1
 
@@ -475,7 +529,9 @@ int main(void) {
   },
 
   6: {
-    py: () => `def roman_bst_search(n: int, level: list[str], target: str) -> str:
+    py: () => `from __future__ import annotations
+
+def roman_bst_search(n: int, level: list[str], target: str) -> str:
     # Write your solution here — return "Found" or "Not Found"
     return "Not Found"
 
@@ -539,19 +595,36 @@ int main() {
     c: () => `#include <stdio.h>
 #include <string.h>
 
-/* Write your solution here */
+static void roman_bst_search(int n, char level[][32], const char *target, char *result, size_t rsz) {
+    (void)n;
+    (void)level;
+    (void)target;
+    (void)rsz;
+    strncpy(result, "Not Found", rsz - 1);
+    result[rsz - 1] = '\\0';
+}
 
 int main(void) {
     int n;
-    scanf("%d", &n);
-    /* read level order tokens and target */
+    if (scanf("%d", &n) != 1 || n < 1 || n > 64) return 0;
+    static char level[64][32];
+    for (int i = 0; i < n; i++) {
+        if (scanf("%31s", level[i]) != 1) return 0;
+    }
+    char target[32];
+    if (scanf("%31s", target) != 1) return 0;
+    char out[64];
+    roman_bst_search(n, level, target, out, sizeof out);
+    printf("%s\\n", out);
     return 0;
 }
 `,
   },
 
   7: {
-    py: () => `def solve_queries(n: int, arr: list[int], queries: list[tuple[int, int]]) -> list[str]:
+    py: () => `from __future__ import annotations
+
+def solve_queries(n: int, arr: list[int], queries: list[tuple[int, int]]) -> list[str]:
     # Write your solution here — "YES" / "NO" per query
     return ["NO"] * len(queries)
 
@@ -634,19 +707,49 @@ int main() {
     return 0;
 }
 `,
-    c: () => `#include <stdio.h>
+    c: () => `#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-/* Absolute walk — read n q, array, q lines i j */
+static void solve_queries(int n, const int *arr, int q, int *qi, int *qj, char **out_lines) {
+    (void)arr;
+    for (int i = 0; i < q; i++) {
+        (void)qi[i];
+        (void)qj[i];
+        out_lines[i] = strdup("NO");
+    }
+}
 
 int main(void) {
-    /* Write your solution here */
+    int n, q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    int *arr = (int *)malloc((size_t)n * sizeof(int));
+    if (!arr) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &arr[i]);
+    int *qi = (int *)malloc((size_t)q * sizeof(int));
+    int *qj = (int *)malloc((size_t)q * sizeof(int));
+    char **out = (char **)malloc((size_t)q * sizeof(char *));
+    if (!qi || !qj || !out) return 0;
+    for (int i = 0; i < q; i++) scanf("%d %d", &qi[i], &qj[i]);
+    solve_queries(n, arr, q, qi, qj, out);
+    for (int i = 0; i < q; i++) {
+        printf("%s\\n", out[i]);
+        free(out[i]);
+    }
+    free(arr);
+    free(qi);
+    free(qj);
+    free(out);
     return 0;
 }
 `,
   },
 
   8: {
-    py: () => `def find_divisors(a: int, b: int) -> tuple[int, int] | None:
+    py: () => `from __future__ import annotations
+
+def find_divisors(a: int, b: int) -> tuple[int, int] | None:
     # Write your solution here — return (x,y) or None
     return None
 
@@ -706,18 +809,30 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdbool.h>
+
+static bool find_divisors(int a, int b, int *x, int *y) {
+    (void)a;
+    (void)b;
+    *x = *y = 0;
+    return false;
+}
 
 int main(void) {
     int a, b;
     if (scanf("%d %d", &a, &b) != 2) return 0;
-    /* Write your solution here */
+    int x = 0, y = 0;
+    if (!find_divisors(a, b, &x, &y)) printf("-1\\n");
+    else printf("%d %d\\n", x, y);
     return 0;
 }
 `,
   },
 
   9: {
-    py: () => `def max_gcd_after_two_removal(n: int, arr: list[int]) -> int:
+    py: () => `from __future__ import annotations
+
+def max_gcd_after_two_removal(n: int, arr: list[int]) -> int:
     # Write your solution here
     return 0
 
@@ -776,18 +891,31 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+
+static int max_gcd_after_two_removal(int n, const int *arr) {
+    (void)n;
+    (void)arr;
+    return 0;
+}
 
 int main(void) {
     int n;
-    scanf("%d", &n);
-    /* read array — Write your solution here */
+    if (scanf("%d", &n) != 1 || n < 1) return 0;
+    int *p = (int *)calloc((size_t)n, sizeof(int));
+    if (!p) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &p[i]);
+    printf("%d\\n", max_gcd_after_two_removal(n, p));
+    free(p);
     return 0;
 }
 `,
   },
 
   10: {
-    py: () => `def bottom_up_remove(n: int, level: list[int]) -> list[int]:
+    py: () => `from __future__ import annotations
+
+def bottom_up_remove(n: int, level: list[int]) -> list[int]:
     # Write your solution here
     return level[:]
 
@@ -857,18 +985,38 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+
+static void bottom_up_remove(int n, const int *level, int *out, int *out_len) {
+    for (int i = 0; i < n; i++) out[i] = level[i];
+    *out_len = n;
+}
 
 int main(void) {
     int n;
-    scanf("%d", &n);
-    /* level-order array — Write your solution here */
+    if (scanf("%d", &n) != 1 || n < 1) return 0;
+    int *level = (int *)calloc((size_t)n, sizeof(int));
+    int *out = (int *)calloc((size_t)n, sizeof(int));
+    if (!level || !out) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &level[i]);
+    int out_len = 0;
+    bottom_up_remove(n, level, out, &out_len);
+    for (int i = 0; i < out_len; i++) {
+        if (i) printf(" ");
+        printf("%d", out[i]);
+    }
+    printf("\\n");
+    free(level);
+    free(out);
     return 0;
 }
 `,
   },
 
   11: {
-    py: () => `MOD = 10**9 + 7
+    py: () => `from __future__ import annotations
+
+MOD = 10**9 + 7
 
 def count_partitions(n: int, k: int, arr: list[int]) -> int:
     # Write your solution here
@@ -937,19 +1085,33 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
 #define MOD 1000000007
+
+static int count_partitions(int n, int k, const int *arr) {
+    (void)n;
+    (void)k;
+    (void)arr;
+    return 0;
+}
 
 int main(void) {
     int n, k;
     if (scanf("%d %d", &n, &k) != 2) return 0;
-    /* read arr — Write your solution here */
+    int *arr = (int *)calloc((size_t)n, sizeof(int));
+    if (!arr) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &arr[i]);
+    printf("%d\\n", count_partitions(n, k, arr) % MOD);
+    free(arr);
     return 0;
 }
 `,
   },
 
   12: {
-    py: () => `def forward_backward(len_nodes: int, start: int, values: list[int]) -> list[int]:
+    py: () => `from __future__ import annotations
+
+def forward_backward(len_nodes: int, start: int, values: list[int]) -> list[int]:
     # Write your solution here
     return []
 
@@ -1022,17 +1184,40 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+
+static void forward_backward(int len_nodes, int start, const int *values, int *out, int *out_len) {
+    (void)start;
+    *out_len = len_nodes;
+    for (int i = 0; i < len_nodes; i++) out[i] = values[i];
+}
 
 int main(void) {
-    /* len, start, values[] */
-    /* Write your solution here */
+    int len_nodes, start;
+    if (scanf("%d", &len_nodes) != 1) return 0;
+    if (scanf("%d", &start) != 1) return 0;
+    int *values = (int *)calloc((size_t)len_nodes, sizeof(int));
+    int *out = (int *)calloc((size_t)len_nodes, sizeof(int));
+    if (!values || !out) return 0;
+    for (int i = 0; i < len_nodes; i++) scanf("%d", &values[i]);
+    int out_len = 0;
+    forward_backward(len_nodes, start, values, out, &out_len);
+    for (int i = 0; i < out_len; i++) {
+        if (i) printf(" ");
+        printf("%d", out[i]);
+    }
+    printf("\\n");
+    free(values);
+    free(out);
     return 0;
 }
 `,
   },
 
   13: {
-    py: () => `def chocolate_time(N: int, C: int, eat: int) -> int:
+    py: () => `from __future__ import annotations
+
+def chocolate_time(N: int, C: int, eat: int) -> int:
     # Write your solution here
     return 0
 
@@ -1086,17 +1271,26 @@ int main() {
 `,
     c: () => `#include <stdio.h>
 
+static int chocolate_time(int N, int C, int eat) {
+    (void)N;
+    (void)C;
+    (void)eat;
+    return 0;
+}
+
 int main(void) {
     int N, C, eat;
     if (scanf("%d %d %d", &N, &C, &eat) != 3) return 0;
-    /* Write your solution here */
+    printf("%d\\n", chocolate_time(N, C, eat));
     return 0;
 }
 `,
   },
 
   14: {
-    py: () => `def dual_link_traversal(n: int, desc: str, m: int, ops: str) -> list[int]:
+    py: () => `from __future__ import annotations
+
+def dual_link_traversal(n: int, desc: str, m: int, ops: str) -> list[int]:
     # Write your solution here
     return []
 
@@ -1176,17 +1370,54 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+static void dual_link_traversal(int n, const char *desc, int m, const char *ops, int *out, int *out_len) {
+    (void)desc;
+    (void)ops;
+    *out_len = 0;
+    (void)n;
+    (void)m;
+}
+
 int main(void) {
-    /* n, description line, m, ops line — Write your solution here */
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    int ch;
+    do {
+        ch = getchar();
+    } while (ch == ' ' || ch == '\\t');
+    if (ch != '\\n' && ch != EOF) ungetc(ch, stdin);
+    char desc[4096];
+    if (!fgets(desc, sizeof desc, stdin)) return 0;
+    desc[strcspn(desc, "\\n")] = 0;
+    int m;
+    if (scanf("%d", &m) != 1) return 0;
+    do {
+        ch = getchar();
+    } while (ch == ' ' || ch == '\\t');
+    if (ch != '\\n' && ch != EOF) ungetc(ch, stdin);
+    char ops[4096];
+    if (!fgets(ops, sizeof ops, stdin)) return 0;
+    ops[strcspn(ops, "\\n")] = 0;
+    int out[1024];
+    int out_len = 0;
+    dual_link_traversal(n, desc, m, ops, out, &out_len);
+    for (int i = 0; i < out_len; i++) {
+        if (i) printf(" ");
+        printf("%d", out[i]);
+    }
+    printf("\\n");
     return 0;
 }
 `,
   },
 
   15: {
-    py: () => `def amusement_ride(n: int, k: int, names: list[str], t: int, confirm: list[int]) -> tuple[str, str]:
+    py: () => `from __future__ import annotations
+
+def amusement_ride(n: int, k: int, names: list[str], t: int, confirm: list[int]) -> tuple[str, str]:
     # Write your solution here — ("seated line", "queue line")
     return "", ""
 
@@ -1264,16 +1495,50 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static void amusement_ride(
+    int n, int k, char **names, int t, const int *confirm, char *line1, char *line2, size_t cap) {
+    (void)n;
+    (void)k;
+    (void)names;
+    (void)t;
+    (void)confirm;
+    line1[0] = line2[0] = '\\0';
+    (void)cap;
+}
 
 int main(void) {
-    /* n k names t confirm bits — Write your solution here */
+    int n, k;
+    if (scanf("%d %d", &n, &k) != 2) return 0;
+    char **names = (char **)calloc((size_t)n, sizeof(char *));
+    if (!names) return 0;
+    for (int i = 0; i < n; i++) {
+        char buf[256];
+        if (scanf("%255s", buf) != 1) return 0;
+        names[i] = strdup(buf);
+    }
+    int t;
+    if (scanf("%d", &t) != 1) return 0;
+    int *confirm = (int *)calloc((size_t)t, sizeof(int));
+    if (!confirm) return 0;
+    for (int i = 0; i < t; i++) scanf("%d", &confirm[i]);
+    char l1[8192], l2[8192];
+    amusement_ride(n, k, names, t, confirm, l1, l2, sizeof l1);
+    printf("%s\\n%s\\n", l1, l2);
+    for (int i = 0; i < n; i++) free(names[i]);
+    free(names);
+    free(confirm);
     return 0;
 }
 `,
   },
 
   16: {
-    py: () => `def department_report(lines: list[str]) -> None:
+    py: () => `from __future__ import annotations
+
+def department_report(lines: list[str]) -> None:
     # Write your solution here — print all lines to stdout
     pass
 
@@ -1329,19 +1594,44 @@ int main() {
     return 0;
 }
 `,
-    c: () => `#include <stdio.h>
+    c: () => `#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static void department_report(char **lines, int t) {
+    (void)lines;
+    (void)t;
+}
 
 int main(void) {
     int t;
-    scanf("%d", &t);
-    /* read t lines — Write your solution here */
+    if (scanf("%d", &t) != 1 || t < 0) return 0;
+    int ch = getchar();
+    while (ch == ' ' || ch == '\\t') ch = getchar();
+    if (ch != '\\n' && ch != EOF) ungetc(ch, stdin);
+    char **lines = (char **)calloc((size_t)t, sizeof(char *));
+    if (!lines) return 0;
+    for (int i = 0; i < t; i++) {
+        char buf[8192];
+        if (!fgets(buf, sizeof buf, stdin)) {
+            lines[i] = strdup("");
+        } else {
+            lines[i] = strdup(buf);
+        }
+    }
+    department_report(lines, t);
+    for (int i = 0; i < t; i++) free(lines[i]);
+    free(lines);
     return 0;
 }
 `,
   },
 
   17: {
-    py: () => `def mex_ops(n: int, k: int, a: list[int]) -> int:
+    py: () => `from __future__ import annotations
+
+def mex_ops(n: int, k: int, a: list[int]) -> int:
     # Write your solution here
     return -1
 
@@ -1415,18 +1705,32 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+
+static int mex_ops(int n, int k, const int *a) {
+    (void)n;
+    (void)k;
+    (void)a;
+    return -1;
+}
 
 int main(void) {
     int n, k;
     if (scanf("%d %d", &n, &k) != 2) return 0;
-    /* read n integers — Write your solution here */
+    int *a = (int *)calloc((size_t)n, sizeof(int));
+    if (!a) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &a[i]);
+    printf("%d\\n", mex_ops(n, k, a));
+    free(a);
     return 0;
 }
 `,
   },
 
   18: {
-    py: () => `def rearrange_books(n: int, A: list[int]) -> int:
+    py: () => `from __future__ import annotations
+
+def rearrange_books(n: int, A: list[int]) -> int:
     # Write your solution here
     return -1
 
@@ -1485,18 +1789,31 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+
+static int rearrange_books(int n, const int *A) {
+    (void)n;
+    (void)A;
+    return -1;
+}
 
 int main(void) {
     int n;
-    scanf("%d", &n);
-    /* read n heights — Write your solution here */
+    if (scanf("%d", &n) != 1) return 0;
+    int *A = (int *)calloc((size_t)n, sizeof(int));
+    if (!A) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &A[i]);
+    printf("%d\\n", rearrange_books(n, A));
+    free(A);
     return 0;
 }
 `,
   },
 
   19: {
-    py: () => `def min_skip_effort(n: int, effort: list[int], k: int) -> int:
+    py: () => `from __future__ import annotations
+
+def min_skip_effort(n: int, effort: list[int], k: int) -> int:
     # Write your solution here
     return 0
 
@@ -1560,18 +1877,33 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+
+static int min_skip_effort(int n, const int *effort, int k) {
+    (void)effort;
+    (void)k;
+    return 0;
+}
 
 int main(void) {
     int n;
-    scanf("%d", &n);
-    /* effort[], then k — Write your solution here */
+    if (scanf("%d", &n) != 1) return 0;
+    int *effort = (int *)calloc((size_t)n, sizeof(int));
+    if (!effort) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &effort[i]);
+    int k;
+    if (scanf("%d", &k) != 1) return 0;
+    printf("%d\\n", min_skip_effort(n, effort, k));
+    free(effort);
     return 0;
 }
 `,
   },
 
   20: {
-    py: () => `def last_box(s: str) -> str:
+    py: () => `from __future__ import annotations
+
+def last_box(s: str) -> str:
     # Write your solution here
     return ""
 
@@ -1623,17 +1955,27 @@ int main() {
     c: () => `#include <stdio.h>
 #include <string.h>
 
+static void last_box(const char *s, char *out, size_t out_sz) {
+    (void)s;
+    out[0] = '\\0';
+    (void)out_sz;
+}
+
 int main(void) {
     char s[200005];
-    if (scanf("%s", s) != 1) return 0;
-    /* Write your solution here */
+    if (scanf("%199999s", s) != 1) return 0;
+    char out[200005];
+    last_box(s, out, sizeof out);
+    printf("%s", out);
     return 0;
 }
 `,
   },
 
   21: {
-    py: () => `def min_buckets(n: int, c: int, arr: list[int]) -> int:
+    py: () => `from __future__ import annotations
+
+def min_buckets(n: int, c: int, arr: list[int]) -> int:
     # Write your solution here
     return -1
 
@@ -1695,18 +2037,31 @@ int main() {
 }
 `,
     c: () => `#include <stdio.h>
+#include <stdlib.h>
+
+static int min_buckets(int n, int c, const int *arr) {
+    (void)c;
+    (void)arr;
+    return -1;
+}
 
 int main(void) {
     int n, c;
     if (scanf("%d %d", &n, &c) != 2) return 0;
-    /* read n capacities — Write your solution here */
+    int *arr = (int *)calloc((size_t)n, sizeof(int));
+    if (!arr) return 0;
+    for (int i = 0; i < n; i++) scanf("%d", &arr[i]);
+    printf("%d\\n", min_buckets(n, c, arr));
+    free(arr);
     return 0;
 }
 `,
   },
 
   22: {
-    py: () => `def matrix_gravity(n: int, m: int, rows: list[str], queries: str) -> str:
+    py: () => `from __future__ import annotations
+
+def matrix_gravity(n: int, m: int, rows: list[str], queries: str) -> str:
     # Write your solution here
     return ""
 
@@ -1773,12 +2128,36 @@ int main() {
     return 0;
 }
 `,
-    c: () => `#include <stdio.h>
+    c: () => `#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static void matrix_gravity(int n, int m, char **rows, const char *queries, char *out, size_t out_sz) {
+    (void)n;
+    (void)m;
+    (void)rows;
+    (void)queries;
+    out[0] = '\\0';
+    (void)out_sz;
+}
 
 int main(void) {
     int n, m;
     if (scanf("%d %d", &n, &m) != 2) return 0;
-    /* read n row strings, then query string — Write your solution here */
+    char **rows = (char **)calloc((size_t)n, sizeof(char *));
+    if (!rows) return 0;
+    char buf[4096];
+    for (int i = 0; i < n; i++) {
+        if (scanf("%4095s", buf) != 1) return 0;
+        rows[i] = strdup(buf);
+    }
+    if (scanf("%4095s", buf) != 1) return 0;
+    char out[8192];
+    matrix_gravity(n, m, rows, buf, out, sizeof out);
+    printf("%s\\n", out);
+    for (int i = 0; i < n; i++) free(rows[i]);
+    free(rows);
     return 0;
 }
 `,

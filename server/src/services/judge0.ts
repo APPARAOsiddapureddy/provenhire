@@ -104,7 +104,11 @@ async function pollBatch(JUDGE0_URL: string, tokens: string[]): Promise<Judge0Re
   throw new Error("Judge0 batch execution timed out after max poll attempts");
 }
 
-/** Compile-only check with empty stdin; returns stderr if compilation fails. */
+/**
+ * Best-effort compile check via Judge0 with empty stdin.
+ * Many starters parse stdin at module load; empty stdin causes runtime errors even when the code compiles.
+ * We only fail preflight on Judge0 compilation errors, not runtime/Wrong Answer with empty input.
+ */
 export async function preflightCompile(
   code: string,
   language: DsaApiLanguage,
@@ -120,9 +124,11 @@ export async function preflightCompile(
       stderr: r.compile_output ?? r.stderr ?? "Compilation failed",
     };
   }
-  if (sid !== JUDGE0_STATUS.ACCEPTED) {
-    const detail = extractActualOutput(r) || r.status?.description || "Preflight run failed";
-    return { ok: false, stderr: detail };
+  if (sid === JUDGE0_STATUS.INTERNAL_ERROR) {
+    return {
+      ok: false,
+      stderr: extractActualOutput(r) || r.status?.description || "Judge0 internal error",
+    };
   }
   return { ok: true, stderr: null };
 }

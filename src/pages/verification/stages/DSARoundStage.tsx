@@ -659,7 +659,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     (newLang: ProgrammingLanguage) => {
       if (!selectedQuestion || newLang === language) return;
       const starter = getStarterForQuestion(selectedQuestion, language);
-      const cur = codeByLang[selectedQuestion.id]?.[language] ?? "";
+      const cur =
+        codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language);
       if (cur.trim() !== starter.trim()) {
         setPendingLanguage(newLang);
         setLangSwitchOpen(true);
@@ -671,7 +672,20 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   );
 
   const confirmLanguageSwitch = () => {
-    if (pendingLanguage) setLanguage(pendingLanguage);
+    if (pendingLanguage && selectedQuestion) {
+      const next = pendingLanguage;
+      const starterNext = getStarterForQuestion(selectedQuestion, next);
+      setCodeByLang((prev) => {
+        const qid = selectedQuestion.id;
+        const have = prev[qid]?.[next];
+        if (typeof have === "string" && have.trim().length > 0) return prev;
+        return {
+          ...prev,
+          [qid]: { ...(prev[qid] ?? {}), [next]: starterNext },
+        };
+      });
+      setLanguage(next);
+    }
     setPendingLanguage(null);
     setLangSwitchOpen(false);
   };
@@ -1406,6 +1420,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
             {/* Code editor */}
             <CodeEditor
+              key={`${selectedQuestion.id}-${language}`}
               value={
                 codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language)
               }
