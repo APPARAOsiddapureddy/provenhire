@@ -63,9 +63,6 @@ const VerificationFlow = () => {
   const technicalStageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
   const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'];
   const stageOrder = roleType === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
-  const STAGE_NAMES_FOR_INSERT = roleType === "non_technical"
-    ? ['profile_setup', 'non_tech_assignment', 'human_expert_interview']
-    : ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
   const LOAD_TIMEOUT_MS = 30000;
 
   const STAGE_LABELS: Record<string, string> = {
@@ -134,8 +131,7 @@ const VerificationFlow = () => {
               : s
           );
         }
-        const order = rt === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
-        const insertNames = rt === "non_technical" ? nonTechnicalStageOrder : ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview'];
+        let orderEff = rt === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
         // Fetch job-title context and experience in background so stage pipeline can render immediately.
         void api
           .get<{ profile: { targetJobTitle?: string; experienceYears?: number } }>("/api/users/job-seeker-profile")
@@ -152,45 +148,34 @@ const VerificationFlow = () => {
           return;
         }
 
-        // Ensure new stages added in later releases exist for this user (e.g., PRD v3 Stage 5)
+        // Backend GET backfills missing pipeline rows; refetch once if this client still sees gaps (e.g. stale first response).
         const existingStageNames = new Set(data.map((s) => s.stage_name));
-        const missingStages = order.filter((s) => !existingStageNames.has(s));
+        const missingStages = orderEff.filter((s) => !existingStageNames.has(s));
         if (missingStages.length > 0) {
-          const missingRows = missingStages
-            .filter((stage) => insertNames.includes(stage))
-            .map((stage) => ({
-              user_id: user?.id,
-              stage_name: stage,
-              status: 'locked' as StageStatus,
-            }));
-          if (missingRows.length > 0) {
-            await api.post("/api/verification/stages/bulk", { stages: missingRows });
+          const resRefresh = await api.get<{
+            stages: VerificationStage[];
+            roleType?: string;
+            certification_level?: number;
+            certification_label?: string;
+          }>("/api/verification/stages");
+          data = resRefresh.stages ?? [];
+          setCertificationLevel(resRefresh.certification_level ?? 0);
+          setCertificationLabel(resRefresh.certification_label ?? "Level 0 - Not Yet Certified");
+          if (resRefresh.roleType) {
+            setRoleType(resRefresh.roleType as "technical" | "non_technical");
           }
-          const combined = [
-            ...(data as VerificationStage[]),
-            ...missingRows.map((r) => ({ stage_name: r.stage_name, status: r.status } as VerificationStage)),
-          ];
-          const stagesList = mergeStagesWithOrder(combined, order);
-          setStages(stagesList);
-          const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
-          const firstFailed = stagesList.find((s) => s.status === 'failed');
-          const firstPendingReview = stagesList.find((s) => s.status === 'pending_review');
-          const firstLocked = stagesList.find((s) => s.status === 'locked');
-          if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
-          else if (firstFailed) setCurrentStage(firstFailed.stage_name);
-          else if (firstPendingReview) setCurrentStage(firstPendingReview.stage_name);
-          else if (firstLocked) setCurrentStage(firstLocked.stage_name);
-          else {
-            const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
-            if (lastCompleted) {
-              const nextIndex = order.indexOf(lastCompleted.stage_name) + 1;
-              if (nextIndex < order.length) setCurrentStage(order[nextIndex]);
-            }
+          const rtEff = (resRefresh.roleType as "technical" | "non_technical") || rt;
+          if (rtEff === "non_technical" && data.length) {
+            data = data.map((s: VerificationStage) =>
+              s.stage_name === "expert_interview"
+                ? { ...s, stage_name: "human_expert_interview" as const }
+                : s
+            );
           }
-          return;
+          orderEff = rtEff === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
         }
 
-        let stagesList = mergeStagesWithOrder(data as VerificationStage[], order);
+        const stagesList = mergeStagesWithOrder(data as VerificationStage[], orderEff);
         setStages(stagesList);
         const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
         const firstFailed = stagesList.find((s) => s.status === 'failed');
@@ -229,19 +214,27 @@ const VerificationFlow = () => {
 
   const initializeStages = async (rt?: "technical" | "non_technical") => {
     try {
-      const r = rt ?? roleType;
-      const names = r === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder.filter((s) => s !== 'human_expert_interview');
-      const initialStages = names.map((stage, index) => ({
-        stageName: stage,
-        status: (index === 0 ? 'in_progress' : 'locked') as StageStatus,
-      }));
-      await api.post("/api/verification/stages/bulk", { stages: initialStages });
-      const asStages: VerificationStage[] = initialStages.map(({ stageName, status }) => ({
-        stage_name: stageName,
-        status,
-      }));
-      setStages(mergeStagesWithOrder(asStages));
-      setCurrentStage('profile_setup');
+      const res = await api.get<{
+        stages: VerificationStage[];
+        roleType?: string;
+        certification_level?: number;
+        certification_label?: string;
+      }>("/api/verification/stages");
+      let data = res.stages ?? [];
+      const rtEff = (res.roleType as "technical" | "non_technical") || rt || roleType;
+      if (rtEff === "non_technical" && data.length) {
+        data = data.map((s: VerificationStage) =>
+          s.stage_name === "expert_interview"
+            ? { ...s, stage_name: "human_expert_interview" as const }
+            : s
+        );
+      }
+      setRoleType(rtEff);
+      setCertificationLevel(res.certification_level ?? 0);
+      setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
+      const orderEff = rtEff === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+      setStages(mergeStagesWithOrder(data, orderEff));
+      setCurrentStage("profile_setup");
     } catch (error: any) {
       toast({
         title: "Error initializing verification",

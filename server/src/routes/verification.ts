@@ -137,19 +137,37 @@ async function ensureDsaRoundActiveForOfficialApis(userId: string): Promise<bool
   return false;
 }
 
+function verificationStagesNeededForRole(roleType: string): string[] {
+  if (roleType === "non_technical") return [...nonTechnicalStages];
+  return [...technicalStages, "human_expert_interview"];
+}
+
 verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const roleType = (profile?.roleType as string) || "technical";
-    const stagesForPath = roleType === "non_technical" ? nonTechnicalStages : technicalStages;
+    const neededStages = verificationStagesNeededForRole(roleType);
 
-    const existing = await prisma.verificationStage.findMany({ where: { userId: req.user!.id } });
+    let existing = await prisma.verificationStage.findMany({ where: { userId: req.user!.id } });
     if (existing.length === 0) {
       await prisma.verificationStage.createMany({
-        data: stagesForPath.map((stage, index) => ({
+        data: neededStages.map((stage, index) => ({
           userId: req.user!.id,
           stageName: stage,
           status: index === 0 ? "in_progress" : "locked",
+        })),
+        skipDuplicates: true,
+      });
+      existing = await prisma.verificationStage.findMany({ where: { userId: req.user!.id } });
+    }
+    const have = new Set(existing.map((r) => r.stageName));
+    const missing = neededStages.filter((s) => !have.has(s));
+    if (missing.length > 0) {
+      await prisma.verificationStage.createMany({
+        data: missing.map((stage) => ({
+          userId: req.user!.id,
+          stageName: stage,
+          status: "locked",
         })),
         skipDuplicates: true,
       });
@@ -310,18 +328,47 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
   res.json({ updated: updated.count });
 });
 
+const bulkAdditiveRowSchema = z.object({
+  stageName: z.string().optional(),
+  stage_name: z.string().optional(),
+  status: z.string(),
+});
+
 verificationRouter.post("/stages/bulk", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
-    const existingCount = await prisma.verificationStage.count({ where: { userId: req.user!.id } });
-    if (existingCount > 0) {
-      return res.status(400).json({ error: "Verification stages already exist. Use GET /api/verification/stages." });
-    }
-    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
+    const userId = req.user!.id;
+    const existingCount = await prisma.verificationStage.count({ where: { userId } });
+    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
     const roleType = (profile?.roleType as string) || "technical";
-    const stagesForPath = roleType === "non_technical" ? nonTechnicalStages : technicalStages;
+    const allowed = allowedVerificationStageNames(roleType);
+
+    if (existingCount > 0) {
+      const rowsSchema = z.object({ stages: z.array(bulkAdditiveRowSchema).min(1) });
+      const parsed = rowsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Verification stages already exist. Send { stages: [{ stage_name, status }] } to add missing rows only.",
+        });
+      }
+      const data = parsed.data.stages
+        .map((row) => {
+          const stageName = row.stageName ?? row.stage_name;
+          if (!stageName) return null;
+          return { userId, stageName, status: row.status };
+        })
+        .filter((r): r is { userId: string; stageName: string; status: string } => r !== null)
+        .filter((r) => allowed.has(r.stageName));
+      if (data.length === 0) {
+        return res.status(400).json({ error: "No valid stage names to insert for this verification path." });
+      }
+      await prisma.verificationStage.createMany({ data, skipDuplicates: true });
+      return res.json({ ok: true });
+    }
+
+    const stagesForPath = verificationStagesNeededForRole(roleType);
     await prisma.verificationStage.createMany({
       data: stagesForPath.map((stage, index) => ({
-        userId: req.user!.id,
+        userId,
         stageName: stage,
         status: index === 0 ? "in_progress" : "locked",
       })),
