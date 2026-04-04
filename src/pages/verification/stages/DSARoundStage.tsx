@@ -239,6 +239,10 @@ function dsaQuestionNumberFromId(id: string): number | null {
   return null;
 }
 
+function isDsaApi403(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "status" in err && (err as { status?: number }).status === 403;
+}
+
 function getStarterForQuestion(q: ApiDSAQuestion, lang: ProgrammingLanguage): string {
   const fromApi = q.starterCode?.[lang];
   if (typeof fromApi === "string" && fromApi.trim().length >= STARTER_MIN_LEN) {
@@ -298,6 +302,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [noDsaSubmitting, setNoDsaSubmitting] = useState(false);
   /** True only when API says this role skips DSA (analytics-style waiver). Do not infer from empty question list alone. */
   const [dsaWaiverEligible, setDsaWaiverEligible] = useState(false);
+  /** Any DSA endpoint returned 403 — show unified recovery UX (backend unchanged). */
+  const [dsaSession403Recovery, setDsaSession403Recovery] = useState(false);
+  const [dsa403RetryLoading, setDsa403RetryLoading] = useState(false);
   const [questionSecondsRemaining, setQuestionSecondsRemaining] = useState<number>(DSA_MINUTES_PER_QUESTION * 60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -552,6 +559,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         const payload = await fetchQuestionsWithRecovery();
         if (cancelled) return;
 
+        setDsaSession403Recovery(false);
+
         if (typeof payload.passThresholdPercent === "number") {
           setDsaPassThreshold(payload.passThresholdPercent);
         }
@@ -622,8 +631,15 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         setCompileErrorPanel(null);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Failed to load DSA questions";
-        if (!cancelled) setQuestionsError(msg);
-        toast.error(msg);
+        if (!cancelled) {
+          if (isDsaApi403(err)) {
+            setDsaSession403Recovery(true);
+            setQuestionsError(null);
+          } else {
+            setQuestionsError(msg);
+            toast.error(msg);
+          }
+        }
       } finally {
         if (!cancelled) setHasEvaluatedQuestions(true);
       }
@@ -689,6 +705,25 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   }, [inTest]);
 
   const selectedQuestion = questions[currentIndex];
+
+  const retryDsaAfter403 = useCallback(async () => {
+    setDsa403RetryLoading(true);
+    try {
+      await api.post("/api/verification/stages/reset", { stageName: "dsa_round" });
+      setDsaSession403Recovery(false);
+      setQuestionsError(null);
+      setRunning(false);
+      setSubmitting(false);
+      setSubmittingQuestion(false);
+      setResults(null);
+      setCompileErrorPanel(null);
+      setQuestionsReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reset the DSA round.");
+    } finally {
+      setDsa403RetryLoading(false);
+    }
+  }, []);
 
   const trySetLanguage = useCallback(
     (newLang: ProgrammingLanguage) => {
@@ -809,20 +844,24 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setScores((prev) => ({ ...prev, [selectedQuestion.id]: score }));
       toast.success(`${passedCount}/${total} tests passed`);
     } catch (err: unknown) {
-      const ax = err as Error & { status?: number; response?: { data?: { error?: string; retryAfter?: number } } };
-      if (ax.status === 429) {
-        const n = ax.response?.data?.retryAfter;
-        toast.error(
-          typeof n === "number"
-            ? `You're running tests too frequently. Please wait ${n} seconds.`
-            : "You're running tests too frequently. Please slow down."
-        );
+      if (isDsaApi403(err)) {
+        setDsaSession403Recovery(true);
       } else {
-        const msg = err instanceof Error ? err.message : "Execution failed";
-        toast.error(msg);
-        setResults([{ passed: false, status: "internal_error", actual: msg }]);
-        setConsoleText(msg);
-        setOutputTab("console");
+        const ax = err as Error & { status?: number; response?: { data?: { error?: string; retryAfter?: number } } };
+        if (ax.status === 429) {
+          const n = ax.response?.data?.retryAfter;
+          toast.error(
+            typeof n === "number"
+              ? `You're running tests too frequently. Please wait ${n} seconds.`
+              : "You're running tests too frequently. Please slow down."
+          );
+        } else {
+          const msg = err instanceof Error ? err.message : "Execution failed";
+          toast.error(msg);
+          setResults([{ passed: false, status: "internal_error", actual: msg }]);
+          setConsoleText(msg);
+          setOutputTab("console");
+        }
       }
     } finally {
       setRunning(false);
@@ -905,12 +944,16 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       toast.success(`Submitted! Score for this question: ${score}/100`);
       setSubmitQuestionConfirmOpen(false);
     } catch (err: unknown) {
-      const ax = err as Error & { status?: number; response?: { data?: { error?: string } } };
-      if (ax.status === 409) {
-        toast.error(ax.response?.data?.error ?? "You've already submitted this question.");
+      if (isDsaApi403(err)) {
+        setDsaSession403Recovery(true);
       } else {
-        const msg = err instanceof Error ? err.message : "Submit failed";
-        toast.error(msg);
+        const ax = err as Error & { status?: number; response?: { data?: { error?: string } } };
+        if (ax.status === 409) {
+          toast.error(ax.response?.data?.error ?? "You've already submitted this question.");
+        } else {
+          const msg = err instanceof Error ? err.message : "Submit failed";
+          toast.error(msg);
+        }
       }
     } finally {
       setSubmittingQuestion(false);
@@ -986,9 +1029,13 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         toast.error(`Score ${finalScore}/100. Minimum ${threshold} required to proceed. Use "Retry This Step" to try again.`);
       }
     } catch (error: unknown) {
-      const err = error as Error & { response?: { data?: { error?: string; code?: string } } };
-      const msg = err.response?.data?.error ?? (error instanceof Error ? error.message : "Failed to submit DSA round.");
-      toast.error(msg);
+      if (isDsaApi403(error)) {
+        setDsaSession403Recovery(true);
+      } else {
+        const err = error as Error & { response?: { data?: { error?: string; code?: string } } };
+        const msg = err.response?.data?.error ?? (error instanceof Error ? error.message : "Failed to submit DSA round.");
+        toast.error(msg);
+      }
     } finally {
       setSubmitting(false);
       setSubmitConfirmOpen(false);
@@ -1039,6 +1086,26 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             <Loader2 className="h-5 w-5 animate-spin" />
             Please wait
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (dsaSession403Recovery && questions.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>DSA Round</CardTitle>
+          <CardDescription>Session needs restart</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Your DSA session has expired or needs to be restarted. Please click Retry to begin again.
+          </p>
+          <Button onClick={() => void retryDsaAfter403()} disabled={dsa403RetryLoading}>
+            {dsa403RetryLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
@@ -1099,7 +1166,11 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         toast.success("DSA is not required for your role. You've automatically passed this step.");
         onComplete();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to complete DSA step.");
+        if (isDsaApi403(e)) {
+          setDsaSession403Recovery(true);
+        } else {
+          toast.error(e instanceof Error ? e.message : "Failed to complete DSA step.");
+        }
       } finally {
         setNoDsaSubmitting(false);
       }
@@ -1205,6 +1276,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {dsaSession403Recovery && questions.length > 0 ? (
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Your DSA session has expired or needs to be restarted. Please click Retry to begin again.
+            </p>
+            <Button variant="default" onClick={() => void retryDsaAfter403()} disabled={dsa403RetryLoading}>
+              {dsa403RetryLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Retry
+            </Button>
+          </div>
+        ) : null}
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs sm:text-sm text-muted-foreground">
           <p className="font-medium text-foreground mb-1">How this compiler is evaluated</p>
           <p>

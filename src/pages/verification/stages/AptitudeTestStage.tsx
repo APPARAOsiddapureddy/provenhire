@@ -16,7 +16,20 @@ import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminat
 import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, ChevronLeft, ChevronRight, RotateCcw, Bookmark, BookmarkCheck, CircleHelp, Sparkles, Trophy, Target } from "lucide-react";
+import {
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Bookmark,
+  BookmarkCheck,
+  CircleHelp,
+  Sparkles,
+  Trophy,
+  Target,
+  Shield,
+  Volume2,
+} from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const APTITUDE_TIME_MINUTES = 30; // 30 minutes total
@@ -84,8 +97,8 @@ const AptitudeTestStage = ({
   const submittingRef = useRef(false);
   const proctorVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  const CAMERA_WIDGET_W = 180;
-  const CAMERA_WIDGET_EST_H = 160;
+  const CAMERA_WIDGET_W = 228;
+  const CAMERA_WIDGET_EST_H = 268;
   const [cameraWidgetPos, setCameraWidgetPos] = useState({ x: 0, y: 0 });
   const [cameraWidgetDragging, setCameraWidgetDragging] = useState(false);
   const cameraWidgetDragRef = useRef(false);
@@ -992,20 +1005,37 @@ const AptitudeTestStage = ({
                   border: "2px solid #C9A84C",
                   userSelect: "none",
                   touchAction: "none",
+                  background: "#0f0f14",
                 }}
               >
                 <div
                   style={{
                     background: "#1A1A2E",
                     color: "#C9A84C",
-                    fontSize: 11,
-                    padding: "4px 8px",
+                    fontSize: 10,
+                    padding: "6px 8px",
                     display: "flex",
-                    alignItems: "center",
-                    gap: 4,
+                    alignItems: "flex-start",
+                    gap: 6,
+                    borderBottom: "1px solid rgba(201,168,76,0.25)",
                   }}
                 >
-                  ⠿ Camera — drag to move
+                  <Shield className="h-3.5 w-3.5 text-[#C9A84C] shrink-0 mt-0.5" aria-hidden />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-semibold text-foreground text-[11px]">Proctoring</span>
+                      <span
+                        className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded border border-[#C9A84C]/50 text-[#C9A84C]"
+                        title="Live monitoring"
+                      >
+                        Live
+                      </span>
+                    </div>
+                    <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">
+                      {soundAlertOpen ? "Sound detected · reviewing" : "Mic · listening"}
+                    </div>
+                    <div className="text-[9px] text-[#888] mt-1 italic">Drag this panel to move</div>
+                  </div>
                 </div>
                 {proctoringState?.cameraStream ? (
                   <video
@@ -1013,13 +1043,7 @@ const AptitudeTestStage = ({
                     autoPlay
                     playsInline
                     muted
-                    style={{
-                      width: "100%",
-                      display: "block",
-                      background: "#000",
-                      aspectRatio: "16/9",
-                      objectFit: "cover",
-                    }}
+                    style={{ width: "100%", display: "block", background: "#000", aspectRatio: "16/9", objectFit: "cover" }}
                   />
                 ) : (
                   <div
@@ -1040,11 +1064,31 @@ const AptitudeTestStage = ({
                   </div>
                 )}
                 <div
+                  className={soundAlertOpen ? "bg-amber-500/15 border-t border-amber-500/25" : "bg-muted/10 border-t border-border/40"}
+                  style={{
+                    padding: "6px 8px",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                  }}
+                >
+                  <Volume2
+                    className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${soundAlertOpen ? "text-amber-600" : "text-muted-foreground"}`}
+                    aria-hidden
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold text-foreground">Sound detection</div>
+                    <div className="text-[9px] text-muted-foreground leading-snug">
+                      {soundAlertOpen ? "Unusual sound flagged — stay focused." : "Monitoring microphone during this round."}
+                    </div>
+                  </div>
+                </div>
+                <div
                   style={{
                     background: "#1A1A2E",
                     color: "#4CAF50",
                     fontSize: 10,
-                    padding: "2px 8px",
+                    padding: "4px 8px",
                     textAlign: "center",
                   }}
                 >
