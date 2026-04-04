@@ -54,11 +54,46 @@ async function speakText(text: string, signal?: AbortSignal): Promise<void> {
       body: JSON.stringify({ text }),
       signal,
     });
-    if (!res.ok || !res.body) throw new Error("TTS failed");
+    if (!res.ok) {
+      await fallbackSpeak(text, signal);
+      return;
+    }
+
+    const ct = res.headers.get("Content-Type") ?? "";
+    if (ct.includes("application/json")) {
+      const data = (await res.json()) as { fallback?: boolean };
+      if (data.fallback) {
+        await fallbackSpeak(text, signal);
+        return;
+      }
+      await fallbackSpeak(text, signal);
+      return;
+    }
+
+    if (!res.body) {
+      await fallbackSpeak(text, signal);
+      return;
+    }
+
     const blob = await res.blob();
+    if (blob.size < 64) {
+      try {
+        const parsed = JSON.parse(await blob.text()) as { fallback?: boolean };
+        if (parsed.fallback) {
+          await fallbackSpeak(text, signal);
+          return;
+        }
+      } catch {
+        /* not JSON */
+      }
+    }
+
     const url = URL.createObjectURL(blob);
     await new Promise<void>((resolve) => {
-      const audio = new Audio(url);
+      const audio = new Audio();
+      audio.preload = "auto";
+      audio.setAttribute("playsinline", "");
+      audio.src = url;
       const cleanup = () => {
         URL.revokeObjectURL(url);
         resolve();
@@ -76,7 +111,7 @@ async function speakText(text: string, signal?: AbortSignal): Promise<void> {
         signal?.removeEventListener("abort", onAbort);
         cleanup();
       };
-      audio.play().catch(() => {
+      void audio.play().catch(() => {
         signal?.removeEventListener("abort", onAbort);
         void fallbackSpeak(text, signal).finally(cleanup);
       });
@@ -512,6 +547,16 @@ export default function ExpertInterviewStage({
                           ? "AI speaking"
                           : "Idle"}
                   </span>
+                  {deepgramSession.sttMode === "browser" && (
+                    <span className="text-[10px] font-normal normal-case opacity-80 border-l pl-2 ml-0.5 border-current/30">
+                      Browser mic
+                    </span>
+                  )}
+                  {deepgramSession.sttMode === "deepgram" && (
+                    <span className="text-[10px] font-normal normal-case opacity-80 border-l pl-2 ml-0.5 border-current/30">
+                      Cloud STT
+                    </span>
+                  )}
                 </div>
                 {weakness?.severity === "high" && (
                   <span className="text-xs px-2 py-1 rounded-full bg-red-500/10 text-red-600 border border-red-500/20 animate-pulse">

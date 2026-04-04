@@ -36,9 +36,10 @@ const FILLERS = ["Hmm, interesting.", "Got it.", "I see.", "That makes sense.", 
 
 // ── V2 adversarial voice interview + media helpers (register before /:id routes) ──
 
+/** Returns API key when DEEPGRAM_API_KEY is set; otherwise token: null so the client uses browser STT (no 503). */
 interviewRouter.get("/deepgram-token", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res) => {
-  const key = process.env.DEEPGRAM_API_KEY;
-  if (!key) return res.status(503).json({ error: "Deepgram not configured" });
+  const key = process.env.DEEPGRAM_API_KEY?.trim();
+  if (!key) return res.json({ token: null });
   return res.json({ token: key });
 });
 
@@ -50,7 +51,7 @@ interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRe
   const voiceId = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
 
   if (!elevenKey) {
-    return res.status(503).json({ error: "TTS not configured" });
+    return res.status(200).json({ fallback: true, reason: "elevenlabs_not_configured" });
   }
 
   try {
