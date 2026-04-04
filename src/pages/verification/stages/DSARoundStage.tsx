@@ -35,6 +35,7 @@ import {
   DSA_MINUTES_PER_QUESTION,
   DSA_PASS_THRESHOLD,
 } from "@/data/dsaRoundConfig";
+import { startersForQuestionNumber } from "@/data/dsaMultiLangStarters";
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -226,11 +227,34 @@ int main() {
   }
 }
 
+/** Ignore trivial API placeholders; full Judge0 starters are always longer. */
+const STARTER_MIN_LEN = 24;
+
+/** Bump when starter resolution changes so old localStorage cannot reapply bad placeholders. */
+const DSA_AUTOSAVE_VERSION = 2;
+
+function dsaQuestionNumberFromId(id: string): number | null {
+  const m = /^DSA_NEW_(\d+)$/i.exec(id.trim());
+  if (m) return parseInt(m[1]!, 10);
+  return null;
+}
+
 function getStarterForQuestion(q: ApiDSAQuestion, lang: ProgrammingLanguage): string {
   const fromApi = q.starterCode?.[lang];
-  if (typeof fromApi === "string" && fromApi.trim().length > 0) return fromApi;
-  const pythonFallback = q.starterCode?.python;
-  if (typeof pythonFallback === "string" && pythonFallback.trim().length > 0) return pythonFallback;
+  if (typeof fromApi === "string" && fromApi.trim().length >= STARTER_MIN_LEN) {
+    return fromApi.trim();
+  }
+
+  const qn = dsaQuestionNumberFromId(q.id);
+  if (qn != null) {
+    try {
+      const bank = startersForQuestionNumber(qn)[lang];
+      if (typeof bank === "string" && bank.trim().length > 0) return bank.trim();
+    } catch {
+      // ignore
+    }
+  }
+
   return defaultStarter(lang);
 }
 
@@ -279,8 +303,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const proctorCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const didInitialScrollRef = useRef(false);
 
-  const CAMERA_WIDGET_W = 180;
-  const CAMERA_WIDGET_EST_H = 160;
+  const CAMERA_WIDGET_W = 228;
+  const CAMERA_WIDGET_EST_H = 268;
   const [cameraWidgetPos, setCameraWidgetPos] = useState({ x: 0, y: 0 });
   const [cameraWidgetDragging, setCameraWidgetDragging] = useState(false);
   const cameraWidgetDragRef = useRef(false);
@@ -555,7 +579,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                 const idsNow = questionsFromApi.map((qq) => qq.id);
                 const sameSet =
                   savedIds.length === idsNow.length && savedIds.every((id, idx) => id === idsNow[idx]);
-                if (sameSet && saved?.codeByLang && typeof saved.codeByLang === "object") {
+                if (
+                  sameSet &&
+                  saved?.dsaAutosaveVersion === DSA_AUTOSAVE_VERSION &&
+                  saved?.codeByLang &&
+                  typeof saved.codeByLang === "object"
+                ) {
                   const merged: typeof initial = { ...initial };
                   for (const qid of idsNow) {
                     const perQ = (saved.codeByLang?.[qid] ?? null) as any;
@@ -614,6 +643,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         localStorage.setItem(
           `ph:dsaProgress:${user.id}`,
           JSON.stringify({
+            dsaAutosaveVersion: DSA_AUTOSAVE_VERSION,
             questionIds: questions.map((q) => q.id),
             codeByLang,
             language,
@@ -1166,40 +1196,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
         {inTest && (
           <>
-            {/* Right proctoring panel (sound detection); camera is draggable */}
-            <div className="fixed top-20 right-4 z-30 w-[260px] rounded-lg border border-border bg-background/95 backdrop-blur shadow-lg overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
-                <Shield className="h-4 w-4 text-primary" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-foreground truncate">Proctoring</div>
-                  <div className="text-[10px] text-muted-foreground truncate">
-                    {soundAlertOpen ? "Sound detected" : "Listening"}
-                  </div>
-                </div>
-                <Badge variant="outline" className="text-[10px] px-2 py-0.5 shrink-0">
-                  LIVE
-                </Badge>
-              </div>
-
-              <div className="p-3 space-y-3">
-                <div
-                  className={`rounded-md border p-2 flex items-start gap-2 ${
-                    soundAlertOpen ? "border-amber-500/30 bg-amber-500/10" : "bg-muted/20"
-                  }`}
-                >
-                  <Volume2 className={`h-4 w-4 ${soundAlertOpen ? "text-amber-700" : "text-muted-foreground"}`} />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-foreground">Sound detection</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {soundAlertOpen ? "Unusual sound detected" : "Monitoring microphone"}
-                    </div>
-                  </div>
-                </div>
-                <p className="text-[10px] text-muted-foreground">Camera preview is draggable — use the handle on the video widget.</p>
-              </div>
-            </div>
-
-            {/* Draggable camera (proctoring hooks use the same video ref) */}
+            {/* Proctoring + camera + sound in one draggable widget */}
             <div
               role="presentation"
               onMouseDown={onCameraWidgetMouseDown}
@@ -1217,20 +1214,37 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                 border: "2px solid #C9A84C",
                 userSelect: "none",
                 touchAction: "none",
+                background: "#0f0f14",
               }}
             >
               <div
                 style={{
                   background: "#1A1A2E",
                   color: "#C9A84C",
-                  fontSize: 11,
-                  padding: "4px 8px",
+                  fontSize: 10,
+                  padding: "6px 8px",
                   display: "flex",
-                  alignItems: "center",
-                  gap: 4,
+                  alignItems: "flex-start",
+                  gap: 6,
+                  borderBottom: "1px solid rgba(201,168,76,0.25)",
                 }}
               >
-                ⠿ Camera — drag to move
+                <Shield className="h-3.5 w-3.5 text-[#C9A84C] shrink-0 mt-0.5" aria-hidden />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-foreground text-[11px]">Proctoring</span>
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded border border-[#C9A84C]/50 text-[#C9A84C]"
+                      title="Live monitoring"
+                    >
+                      Live
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">
+                    {soundAlertOpen ? "Sound detected · reviewing" : "Mic · listening"}
+                  </div>
+                  <div className="text-[9px] text-[#888] mt-1 italic">Drag this panel to move</div>
+                </div>
               </div>
               {proctoringState?.cameraStream ? (
                 <video
@@ -1259,11 +1273,31 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                 </div>
               )}
               <div
+                className={soundAlertOpen ? "bg-amber-500/15 border-t border-amber-500/25" : "bg-muted/10 border-t border-border/40"}
+                style={{
+                  padding: "6px 8px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                }}
+              >
+                <Volume2
+                  className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${soundAlertOpen ? "text-amber-600" : "text-muted-foreground"}`}
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold text-foreground">Sound detection</div>
+                  <div className="text-[9px] text-muted-foreground leading-snug">
+                    {soundAlertOpen ? "Unusual sound flagged — stay focused." : "Monitoring microphone during this round."}
+                  </div>
+                </div>
+              </div>
+              <div
                 style={{
                   background: "#1A1A2E",
                   color: "#4CAF50",
                   fontSize: 10,
-                  padding: "2px 8px",
+                  padding: "4px 8px",
                   textAlign: "center",
                 }}
               >
