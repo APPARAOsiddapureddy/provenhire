@@ -40,10 +40,10 @@ async function fetchVerificationGateState(): Promise<Omit<VerificationStatus, "i
       : "Level 0 - Not Yet Certified";
 
   const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
+  /** True L3 (tech) / L2 (non-tech) or DB expert_verified — not plain `verified`, which includes L1 after sync. */
   const isExpertVerified =
     certificationLevel >= (roleType === "technical" ? 3 : 2) ||
-    profile?.verificationStatus === "expert_verified" ||
-    profile?.verificationStatus === "verified";
+    profile?.verificationStatus === "expert_verified";
   const isNonTechVerified = roleType === "non_technical" && certificationLevel >= 1;
   const isVerified = certificationLevel >= 1 || isExpertVerified || isNonTechVerified;
 

@@ -497,7 +497,7 @@ const AptitudeTestStage = ({
       if (score >= passThreshold) {
         setSubmittedScore(score); // keep for "Your current score: X%" in success block
         await api.post("/api/verification/stages/update", stagePayload);
-        toast.success(`Boom! Level 1 unlocked. Cognitive Assessment score: ${scorePct}%.`);
+        toast.success(`Cognitive Assessment passed! Score: ${scorePct}%. Complete Live Coding (DSA) to earn Level 1 — Cognitive Verified.`);
         setJustPassed(true);
         onAfterAptitudeSubmit?.();
       } else {
@@ -759,33 +759,35 @@ const AptitudeTestStage = ({
               <span className="text-xs font-semibold tracking-[0.18em] uppercase">Boom Moment</span>
             </div>
             <h3 className="text-xl font-bold text-foreground">
-              Level 1 Certification Earned! <span className="inline-block">🏆</span>
+              Cognitive Assessment cleared! <span className="inline-block">🏆</span>
             </h3>
             <p className="text-sm text-muted-foreground">
-              Strong start. You cleared the Cognitive Assessment and unlocked <span className="font-semibold text-foreground">L1: Cognitive Verified</span>.
-              Now keep your momentum and complete DSA + AI Interview + Human Expert Interview to reach <span className="font-semibold text-foreground">Level 3 (Elite Verified)</span>.
+              Strong start. You finished the Cognitive Assessment — the next step is{" "}
+              <span className="font-semibold text-foreground">Live Coding (DSA)</span>. After you pass DSA (and with profile + cognitive complete), you earn{" "}
+              <span className="font-semibold text-foreground">Level 1 — Cognitive Verified</span>. Then continue with AI Interview and Human Expert Interview toward{" "}
+              <span className="font-semibold text-foreground">Level 3 — Elite Verified</span>.
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border bg-background/80 p-3">
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                   <Trophy className="h-4 w-4" />
-                  L1 Unlocked
+                  Milestone
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">Profile + Cognitive Assessment completed</p>
+                <p className="mt-1 text-xs text-muted-foreground">Profile + Cognitive Assessment done</p>
               </div>
               <div className="rounded-lg border bg-background/80 p-3">
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                   <Target className="h-4 w-4" />
-                  Next Goal
+                  Next: Level 1
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">Finish DSA and AI Interview for L2 signal</p>
+                <p className="mt-1 text-xs text-muted-foreground">Complete and pass the DSA round</p>
               </div>
               <div className="rounded-lg border bg-background/80 p-3">
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                   <Sparkles className="h-4 w-4" />
-                  Final Push
+                  After L1
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">Crack Human Expert Interview for L3</p>
+                <p className="mt-1 text-xs text-muted-foreground">AI Interview → L2 · Human Expert → L3</p>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">

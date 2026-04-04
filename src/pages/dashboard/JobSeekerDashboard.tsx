@@ -799,7 +799,7 @@ const JobSeekerDashboard = () => {
                         <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">
                           {roleType === "technical"
                             ? code === "L1"
-                              ? "Profile + Cognitive Assessment"
+                              ? "Profile + Cognitive + DSA"
                               : code === "L2"
                                 ? "DSA + AI Interview"
                                 : "Human Expert Interview"

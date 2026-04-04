@@ -742,7 +742,7 @@ const VerificationFlow = () => {
                 </p>
                 {roleType === "technical" && certificationLevel === 1 && (
                   <p className="text-xs font-medium text-primary mt-2">
-                    Great momentum! You have earned Level 1. Complete DSA + AI Interview + Human Expert Interview to reach Level 3 and maximize recruiter trust.
+                    You have earned Level 1 (Cognitive Verified). Next: complete the AI Interview for Level 2, then the Human Expert Interview for Level 3.
                   </p>
                 )}
               </div>

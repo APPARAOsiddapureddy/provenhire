@@ -110,7 +110,13 @@ const Jobs = () => {
     }
     if (completed.has("human_expert_interview")) return { level: 3, label: "Level 3 - Elite ProvenHire Candidate" };
     if (completed.has("dsa_round") && completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
-    if (completed.has("profile_setup") && completed.has("aptitude_test")) return { level: 1, label: "Level 1 - Cognitive Verified" };
+    if (
+      completed.has("profile_setup") &&
+      completed.has("aptitude_test") &&
+      completed.has("dsa_round")
+    ) {
+      return { level: 1, label: "Level 1 - Cognitive Verified" };
+    }
     return { level: 0, label: "Level 0 - Not Yet Certified" };
   };
 
@@ -942,7 +948,7 @@ const Jobs = () => {
                         <>
                           <h3 className="text-xl font-semibold mb-2">Unlock the jobs board</h3>
                           <p className="text-sm text-muted-foreground mb-6">
-                            Complete the Cognitive Assessment to reach Level 1 and see roles open to you. Level 2 (DSA + AI Interview) and Level 3 (Expert Interview) unlock more opportunities as recruiters post new roles.
+                            Complete verification through Live Coding (DSA) to earn Level 1 — Cognitive Verified — and see roles open to you. Level 2 (AI Interview) and Level 3 (Human Expert Interview) unlock more opportunities as recruiters post new roles.
                           </p>
                           <Button onClick={() => navigate('/verification')} className="bg-gradient-hero hover:opacity-90">
                             Start Verification
