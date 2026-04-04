@@ -1,18 +1,35 @@
-# PRD: AI Expert Interview Round
+# PRD: AI Expert Interview Round — Complete Specification
 
-**Status:** **Pro Upgrade partially implemented** — see **`docs/PRD.md` §3.4** for the canonical “what ships vs what is open” matrix for the AI interview (v2 adversarial flow, voice, proctoring, scoring). This document remains the deep spec for question bank, per-question scoring, `pending_review`, and the 24-task checklist. Deploy checklist: apply Prisma migration `20260316150000_ai_interview_pro_upgrade`, run `cd server && npm run seed:interview-bank` if using `QUESTION_BANK_SOURCE=db`, set server env `QUESTION_BANK_SOURCE` (`static` default).  
-**Scope:** Verification stage `expert_interview` (AI interview), not DSA or human expert interviews.  
-**Model:** Gemini 2.5 Flash via `@google/genai`  
-**Weight in final technical score:** 40% (see `server/src/services/verificationScoring.service.ts`)
+**Version:** 3.0  
+**Date:** April 2026  
+**Status:** Final (product); repository sync — **§16**  
+**Author:** ProvenHire Product Team  
+**Scope:** Verification stage `expert_interview` — adversarial voice interview engine  
+**Model:** Gemini 2.5 Flash (agents) + Gemini 2.5 Pro (final evaluation); see **`server/src/services/interview/agents.ts`** for tier mapping.  
+**TTS (target):** Cartesia (primary) → ElevenLabs (fallback) → browser `speechSynthesis` (final).  
+**STT (target):** Deepgram **nova-3** (browser WebSocket); see §12.1 and §16 for current repo default.  
+**Weight in final technical score:** 40% (`server/src/services/verificationScoring.service.ts`)
 
-This document has two layers:
+> **Implementation:** This file is the **product specification**. **`docs/PRD.md` §3.4** summarizes verification flow; **§16 below** maps this spec to **what is implemented in this Git repository** vs still open.
 
-1. **Appendix A — Current implementation** (what runs in production today).
-2. **Sections 1–10 — Pro Upgrade** (governance, scoring, fallbacks, calibration, voice, proctoring, explainability, anti-gaming, checklist, dependencies). Aligned with *ProvenHire AI Interview Pro Upgrade Context*.
+### Document structure
+
+| Section | Topic |
+|---------|--------|
+| 1–10 | Pro Upgrade (question bank, scoring, fallback, calibration, voice quality, proctoring, explainability, anti-gaming, checklist, dependencies) |
+| 11 | Adversarial Interview Engine (sprints, agents, follow-up logic) |
+| 12 | Voice Architecture (Deepgram, Floor Manager, Cartesia / ElevenLabs TTS) |
+| 13 | v2 API routes (adversarial + media) |
+| 14 | Evaluation changes (adversarial format) |
+| 15 | Route migration (v1 fallback → v2 primary) |
+| 16 | **Repository implementation status** (codebase alignment) |
+| Appendix A | Baseline / legacy |
+
+**Deploy (unchanged):** Prisma migration `20260316150000_ai_interview_pro_upgrade` when using pro-upgrade schema; `cd server && npm run seed:interview-bank` if `QUESTION_BANK_SOURCE=db`; default `QUESTION_BANK_SOURCE=static`.
 
 ---
 
-# Pro Upgrade (target specification)
+# Sections 1–10 — Pro Upgrade specification
 
 ## 1) Question Bank Governance
 
@@ -483,27 +500,246 @@ Paths match **this repo** (PDF used `client/` — here `src/`).
 
 | Dependency | Notes |
 |------------|--------|
-| Prisma | New models + fields; single migration |
-| Gemini | Prompt/output contract only; same SDK |
-| `QUESTION_BANK_SOURCE` | Server env: `static` default, `db` after seed verified |
-| Admin auth | Existing `requireAdmin` on new admin routes |
-| Email | For `pending_review` resolution + review request outcomes (use existing mail integration) |
-| **New npm packages** | **None required** — Express + Prisma + React + current Gemini client |
+| Prisma | New models + fields; migrations as deployed |
+| Gemini | `@google/genai`; model tiers per §14.5 |
+| Deepgram | **nova-3** target; STT over browser WebSocket; short-lived JWT from `/v1/auth/grant` (see §13.4 implementation note) |
+| Cartesia | Primary TTS — `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID` (§12.6) |
+| ElevenLabs | Fallback TTS — `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` |
+| `QUESTION_BANK_SOURCE` | `static` default; `db` after seed verified |
+| Admin auth | `requireAdmin` on admin routes |
+| Email | `pending_review` + review-request outcomes |
+| Frontend STT | Optional `@deepgram/sdk` if product standardizes on SDK (today: native `WebSocket`) |
 
 ---
 
-# Appendix A — Current implementation (baseline)
+# Section 11 — Adversarial Interview Engine
 
-*As of last doc sync; verify in code before relying on line-level detail.*
+## 11.1 Philosophy
 
-- **Questions:** Static `ROLE_PLANS` + `HR_QUESTIONS` in `server/src/routes/interview.ts`; 7 technical + 4 HR; keyword `buildQuestionPlan(role)`.
-- **APIs:** `POST /api/interview/start`, `POST /api/interview/respond`, `GET /api/interview/latest`, `GET /api/interview/:id/result`.
-- **Evaluator:** `evaluateInterview()` in `server/src/services/ai.service.ts` — aggregate JSON, optional `per_question_scores` **not** in baseline.
-- **Aggregate score:** `computeScore()` in `interview.ts` — weighted blend of concept/reasoning/communication/confidence; badges at 90 / 75 / 60.
-- **Persistence:** `Interview`, `InterviewMessage`, `VerificationStage`, `CandidateSkillVerification`; proctoring events via existing hooks in `ExpertInterviewStage.tsx`.
-- **Final technical score:** `buildTechnicalScorecard()` — `aptitude_score*0.25 + dsa_score*0.35 + ai_interview_score*0.40` (each input **0–100**). Aptitude arm is derived from latest `AptitudeTestResult` + heuristics, not from raw stage marks alone; see **`docs/PRD_VERIFICATION_SCORING.md`** for aptitude UI/storage (percent on stage, raw marks on result row).
+The interview probes **failure boundaries of understanding**, not flash-card correctness. Every answer triggers parallel agents; follow-ups are generated in real time from what the candidate just said.
 
-The **Pro Upgrade** sections above supersede Appendix A for each topic once shipped.
+## 11.2 Sprint structure
+
+**Total:** 15 questions across 3 sprints × 5 questions.
+
+| Sprint | Name | Persona | Goal |
+|--------|------|---------|------|
+| 1 | Project Defense | `curious_lead` | Ownership, decisions, failures — what they actually built |
+| 2 | Foundations | `socratic_mentor` | Conceptual depth — reasoning, not trivia |
+| 3 | System Design | `senior_peer` | Trade-offs, scaling, failure modes, alternatives |
+
+**Openers (fixed when each sprint begins):**
+
+1. *Tell me about a project from your background that you're genuinely proud of — what problem were you trying to solve, and why did it matter?*
+2. *Let's talk about the technical concepts behind your work. Pick one idea at the core of what you've built — how would you explain it to someone encountering it for the first time?*
+3. *Let's think through a design problem. Imagine you're building a system to serve real-time predictions for millions of users — where would you start, and what are the hardest parts to get right?*
+
+## 11.3 Personas (summary)
+
+- **curious_lead:** Curious, non-confrontational; “why that choice?”; ownership and honest failure.
+- **socratic_mentor:** Plain-language explanation, think-aloud, acknowledge good reasoning before pushing.
+- **senior_peer:** Real constraints, trade-offs, scale (“10x load”), collaborative design tension.
+
+## 11.4 Agent pipeline (every turn)
+
+Executed in parallel after each candidate answer:
+
+| Agent | Role | Model tier (spec) |
+|-------|------|-------------------|
+| WeaknessAgent | Main reasoning gap | balanced |
+| ConceptAgent | Extract technical concepts for prefetch | fast |
+| DiscrepancyAgent | Resume vs answer consistency | balanced |
+| ReasoningBehaviorAgent | Meta-cognition (structure, adaptability, calibration) | balanced |
+
+**Weakness types:** `missing_step` | `vague` | `incorrect` | `shallow` | `overconfidence`  
+**Attack strategies:** `implementation_probe` | `edge_case` | `scaling` | `contradiction` | `step_by_step`  
+**Severity:** `high` | `medium` | `low` — sprint context shifts emphasis (see product prose in v3 board).
+
+**Discrepancy output:** `{ conflict, description, severity: "low" | "high" }`  
+**Reasoning behavior:** structure score 0–3, clarification behavior, adaptability, confidence calibration.
+
+## 11.5 Follow-up priority
+
+1. Resume discrepancy (`conflict` AND `severity=high`) → `generateDiscrepancyFollowup()`
+2. Weakness `severity=high` → `generateWeaknessFollowup()`
+3. Else prefetched question (from cache keyed by `interviewId`) if valid
+4. Else `generateSprintQuestion()` — aligned to sprint, no repeats from history
+
+## 11.6 Prefetch
+
+On **final** partials from Deepgram (and `/v2/partial`): extract concepts, enqueue ~2 candidate follow-ups in memory (`prefetchCache`), **Flash-only** — no weakness evaluation on partials.
+
+## 11.7 Interview state
+
+Stored in `Interview.questionPlan` JSON (single object in array): `sprint`, `persona`, `sprintName`, `questionCount`, `sprintQuestionCount`, `history[]`, `weaknesses[]`, `reasoningSignals[]`, `lastQuestion`, `interviewStartTime`.
+
+## 11.8 Sprint progression & termination
+
+- After 5 questions in a sprint → advance; next question is next sprint **opener**.
+- **Terminate** when: 15 questions completed **or** sprint 3 exhausted **or** **30 minutes** elapsed since `interviewStartTime` (product rule — verify §16).
+- On complete → `evaluateFullInterview()` → persist scores → `complete: true`.
+
+---
+
+# Section 12 — Voice architecture
+
+## 12.1 STT — Deepgram nova-3
+
+- **Transport:** Browser `WebSocket` to `wss://api.deepgram.com/v1/listen` — audio **does not** go through ProvenHire API.
+- **Auth:** Backend `GET /api/interview/deepgram-token` returns credentials for the browser (see §13.4 implementation note).
+- **Parameters (target):**
+
+```
+model: nova-3
+language: en
+encoding: linear16
+sample_rate: <match AudioContext, typically 48000; spec may standardize 16000>
+channels: 1
+interim_results: true
+vad_events: true
+endpointing: 1200
+utterance_end_ms: 2500
+```
+
+- **Buffering:** accumulate `is_final` fragments; flush on `UtteranceEnd` or 5s safety timer; never commit answer on partial alone.
+
+## 12.2 Floor manager
+
+States: `idle` | `user_speaking` | `ai_thinking` | `ai_speaking`.
+
+- **Barge-in:** On `SpeechStarted` while AI is speaking → abort TTS (AbortController), floor → `user_speaking`.
+- **Silence nudge (product):** If `user_speaking` & ~5s silence → short filler (“Take your time…”) — optional per §16.
+
+## 12.3 TTS — Cartesia (primary) → ElevenLabs (fallback)
+
+**Cartesia (target):** `POST https://api.cartesia.ai/tts/bytes` with `Cartesia-Version`, `X-API-Key`, body `model_id: sonic-english`, `transcript`, `voice`, `output_format` MP3 44100.
+
+**ElevenLabs (fallback):** stream `eleven_turbo_v2_5` as today.
+
+**Final fallback:** Browser `speechSynthesis`.
+
+## 12.4 Filler-first latency masking
+
+On utterance end: play low-latency filler via `GET /api/interview/tts-filler` + TTS immediately; run agents; abort filler when main response TTS is ready (product ideal). Filler list: “Hmm, interesting.”, “Got it.”, “I see.”, “That makes sense.”, “Alright.”, “Let me think about that.”
+
+## 12.5 Turn ID — stale response protection
+
+Each turn exposes a **`turnId`** (UUID in spec). Frontend keeps `currentTurnId`; discard responses where `response.turn_id !== currentTurnId`. Barge-in increments turn id so in-flight completions drop (spec).
+
+## 12.6 Environment variables
+
+```
+DEEPGRAM_API_KEY=
+CARTESIA_API_KEY=
+CARTESIA_VOICE_ID=
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=
+QUESTION_BANK_SOURCE=static
+GEMINI_API_KEY=
+```
+
+## 12.7 Latency targets (product)
+
+| Step | Target |
+|------|--------|
+| Filler first chunk | < 100 ms |
+| Partial → concept path | < 200 ms |
+| Agent pipeline | < 2000 ms |
+| Stop speaking → AI audio starts | < 2500 ms (filler covers gap) |
+
+---
+
+# Section 13 — v2 API routes
+
+All **new** interviews use v2; v1 remains for compatibility (§15).
+
+## 13.1 `POST /api/interview/v2/start`
+
+Body: `{ jobRole, experienceLevel? }`  
+Response: `{ interviewId, question, sprint, sprintName, persona, totalSprints: 3, questionsPerSprint: 5 }`.
+
+## 13.2 `POST /api/interview/v2/turn`
+
+Body includes: `interviewId`, `answer`, `inputMode`, optional `transcriptionConfidence`, `audioUrl`, `pasteCount`, `timeToSubmitSeconds`.  
+Response includes `response`, `sprint`, `persona`, `complete`, `weakness?`, `questionCount`, **`turnId`**, and when complete: `totalScore`, `badgeLevel`, `evaluation`.
+
+## 13.3 `POST /api/interview/v2/partial`
+
+`{ interviewId, text }` → `{ ok: true }`; background prefetch only.
+
+## 13.4 `GET /api/interview/deepgram-token`
+
+**Spec:** returns a credential for browser STT.
+
+**As implemented (this repo):** `{ "token": string | null, "auth": "bearer" | "token" | null }` — prefers short-lived JWT from Deepgram `POST /v1/auth/grant`, else raw key with `auth: "token"`.
+
+## 13.5 `POST /api/interview/tts`
+
+**Spec:** stream MP3; Cartesia first, then ElevenLabs; `503` if both fail.
+
+**As implemented:** ElevenLabs only today; if missing key returns **`200` JSON** `{ "fallback": true }` so the client uses `speechSynthesis` (no hard 503 for “no provider”). **Cartesia** — §16.
+
+## 13.6 `GET /api/interview/tts-filler`
+
+Returns `{ text }` — random filler phrase.
+
+---
+
+# Section 14 — Evaluation (adversarial)
+
+`evaluateFullInterview()` consumes full `history`, `resume`, accumulated `weaknesses`, `reasoningSignals`; aggregates reasoning; may emit **failure_surface**, **hire_recommendation**, **per_question_scores**, and maps to `Interview.totalScore`, `badgeLevel`, `scoreBreakdown` per §14.3–14.4.
+
+**Badge thresholds:** Elite ≥ 90 · Gold ≥ 75 · Silver ≥ 60 · else Not Verified.
+
+**Model tiers (spec):** Flash for agents; **Pro** for final full-interview evaluation — see §16 for exact model IDs in code.
+
+---
+
+# Section 15 — Route migration
+
+- v1: `POST /api/interview/start`, `POST /api/interview/respond` — keep for old in-flight sessions.
+- v2: `v2/start`, `v2/turn`, `v2/partial` — **ExpertInterviewStage** uses v2 for new sessions.
+- Deprecation: after coexistence window, confirm no legacy in-progress interviews; retire v1 handlers.
+
+---
+
+# Section 16 — Repository implementation status (April 2026)
+
+This section is the **engineering** view of §§11–15 above. Update when shipping.
+
+| Area | Spec reference | Status |
+|------|----------------|--------|
+| Adversarial orchestrator + agents | §11 | **Shipped** — `server/src/services/interview/orchestrator.ts`, `agents.ts` |
+| Parallel agents per turn | §11.4 | **Shipped** |
+| Prefetch cache on partials | §11.6 | **Shipped** — `handlePartialTranscript`, in-memory cache |
+| Sprint openers / 15-question flow | §11.2, §11.8 | **Shipped** (orchestrator constants) |
+| 30-minute hard stop | §11.8–11.9 | **Not shipped** — completion is by question/sprint count only (`processTurn`) |
+| Turn ID × barge-in stale drop | §12.5 | **Partial** — API returns `turnId` (= user `InterviewMessage.id`); frontend does not yet use UUID turn invalidation as in spec |
+| Floor + TTS abort on barge-in | §12.2 | **Partial** — AbortController + `SpeechStarted` clears thinking; verify all edge cases |
+| Silence nudge after 5s | §12.2 | **Not shipped** |
+| Deepgram **nova-3** | §12.1 | **Not yet** — client uses **nova-2** (`src/hooks/useDeepgramSession.ts`); JWT grant + `sample_rate` match AudioContext; Web Speech API fallback |
+| Cartesia TTS primary | §12.3 | **Not shipped** — **ElevenLabs** only in `server/src/routes/interview.ts` |
+| TTS fallback shape | §13.5 | **Shipped** — `200` + `{ fallback: true }` + browser TTS (differs from spec `503`) |
+| Filler TTS “pre-cached at startup” | §12.4 | **Not shipped** — random filler per request |
+| `deepgram-token` JWT | §13.4 | **Shipped** |
+| v2 `/start`, `/turn`, `/partial` | §13 | **Shipped** |
+| Gemini tiers in code | §14.5 | **Partial** — `gemini-2.0-flash` (fast), `gemini-2.5-flash` (balanced), `gemini-2.5-pro` (deep) |
+| Pro Upgrade §§1–10 items | §9 checklist | Mixed — see `docs/PRD.md` §3.4 and task rows §9 |
+
+**Next engineering deltas (priority):** (1) `nova-3` + confirm params vs Deepgram docs, (2) Cartesia in `/api/interview/tts` with ElevenLabs fallback, (3) optional `503` or keep `200` fallback contract, (4) 30m interview cap, (5) turn UUID + client discard, (6) silence nudge.
+
+---
+
+# Appendix A — Baseline / legacy (v1)
+
+*Verify in code before relying on line detail.*
+
+- **Legacy plan:** Static / DB question bank via `QUESTION_BANK_SOURCE`, `POST /api/interview/start` + `respond` — still in `server/src/routes/interview.ts`.
+- **Primary learner path:** **v2 adversarial** + `ExpertInterviewStage.tsx` + voice hooks.
+- **Evaluator (v1 path):** `evaluateInterview()` aggregate JSON in `ai.service.ts`.
+- **Scorecard:** `buildTechnicalScorecard()` — `aptitude*0.25 + dsa*0.35 + ai_interview*0.40` (0–100 arms); see **`docs/PRD_VERIFICATION_SCORING.md`**.
+
+Sections **1–15** are the target product spec; **§16** tracks repository drift.
 
 ---
 
@@ -512,5 +748,9 @@ The **Pro Upgrade** sections above supersede Appendix A for each topic once ship
 | Version | Change |
 |---------|--------|
 | 1.0 | Baseline-only PRD |
-| 2.0 | Merged **Pro Upgrade** spec (question bank, per-Q scoring, fallback, calibration, voice, proctoring bands, explainability, anti-gaming, 24-task checklist, dependencies) |
-| 2.1 | Appendix A: clarified scorecard inputs (0–100 aptitude via result row + scoring PRD link). |
+| 2.0 | Pro Upgrade (question bank, per-Q scoring, fallback, calibration, voice, proctoring, explainability, anti-gaming, checklist) |
+| 2.1 | Appendix A: scorecard / aptitude clarity |
+| 3.0 | Sections **11–15**: adversarial engine, voice (Deepgram + Cartesia), v2 APIs, evaluation, migration; **§16** codebase status; header aligns with product board |
+| 3.0.1 | **§16** + §13.4/13.5 **implementation notes** (JWT token shape, ElevenLabs-only TTS until Cartesia) |
+
+*PRD v3.0 — April 2026 | ProvenHire Product Team*

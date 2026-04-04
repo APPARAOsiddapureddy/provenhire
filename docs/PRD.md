@@ -1,6 +1,6 @@
 # ProvenHire — Product Requirements Document (PRD)
 
-**Version:** 6.1  
+**Version:** 6.2  
 **Last Updated:** April 2026  
 **Status:** Current
 
@@ -63,7 +63,7 @@ No Stage 5 (Human Expert Interview) for non-technical track.
 
 ### 3.4 AI Expert Interview (Stage 4) — Specification & implementation status
 
-This section is the **single place** in the main PRD for what the AI interview is supposed to do, what is live in the product today, and what remains from the extended “Pro Upgrade” write-up in **`docs/PRD_AI_INTERVIEW_ROUND.md`**.
+This section is the **single place** in the main PRD for what the AI interview is supposed to do, what is live in the product today, and what remains open. The **full product specification** (Pro Upgrade §§1–10, adversarial engine §11, voice §12, v2 APIs §13–15) lives in **`docs/PRD_AI_INTERVIEW_ROUND.md` (v3.0)**; **codebase vs spec** is tracked there in **§16**.
 
 #### 3.4.1 Purpose and learner promise
 
@@ -124,7 +124,7 @@ This section is the **single place** in the main PRD for what the AI interview i
 |------|--------|
 | 3-sprint adversarial v2 flow | Done |
 | Role + experience level on start | Done |
-| Cloud STT/TTS + browser fallbacks | Done |
+| Cloud STT/TTS + browser fallbacks | Partial — ElevenLabs + Deepgram live; **Cartesia** (spec §12) not yet; Deepgram model **nova-2** in client until **nova-3** (see `PRD_AI_INTERVIEW_ROUND.md` §16) |
 | Camera + proctoring hooks + face/phone | Done |
 | Final Gemini evaluation + badge/score UI | Done |
 | Question bank DB + admin CRUD | Partial (schema + legacy plan path; not driving v2 orchestrator) |
@@ -396,4 +396,4 @@ Seed: `cd server && npm run seed:interviewer`
 
 ---
 
-*PRD v6.1 — April 2026*
+*PRD v6.2 — April 2026*
