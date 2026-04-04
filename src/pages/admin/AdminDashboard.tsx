@@ -41,6 +41,15 @@ interface JobSeeker {
   profile?: { full_name?: string | null; email?: string | null };
   certification_level?: number;
   certification_label?: string;
+  certificationLevel?: "L1" | "L2" | "L3" | null;
+  certificationLabelShort?: string | null;
+}
+
+function adminSeekerCertBadgeClasses(level: number): string {
+  if (level >= 3) return "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300";
+  if (level === 2) return "bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-300";
+  if (level === 1) return "bg-amber-500/15 text-amber-800 border-amber-500/35 dark:text-amber-200";
+  return "bg-muted text-muted-foreground border-border";
 }
 
 interface Recruiter {
@@ -927,10 +936,26 @@ const AdminDashboard = () => {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-col gap-1">
-                              <Badge variant="outline">L{seeker.certification_level ?? 0}</Badge>
-                              <span className="text-xs text-muted-foreground">{seeker.certification_label ?? "Level 0 - Not Yet Certified"}</span>
-                            </div>
+                            {(() => {
+                              const lvl = seeker.certification_level ?? 0;
+                              const short =
+                                seeker.certificationLabelShort?.trim() ||
+                                (lvl >= 3
+                                  ? "Elite Verified"
+                                  : lvl === 2
+                                    ? "Skill Passport"
+                                    : lvl === 1
+                                      ? "Cognitive Verified"
+                                      : "Not Certified");
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs font-medium border ${adminSeekerCertBadgeClasses(lvl)}`}
+                                >
+                                  {lvl <= 0 ? "L0" : seeker.certificationLevel ?? `L${lvl}`} · {short}
+                                </Badge>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell>
                             <Badge

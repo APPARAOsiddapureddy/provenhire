@@ -41,6 +41,8 @@ interface JobSeekerProfile {
   created_at: string | null;
   certification_level?: number;
   certification_label?: string;
+  certificationLevel?: "L1" | "L2" | "L3" | null;
+  certificationLabelShort?: string | null;
   aptitude_score?: number | null;
   dsa_score?: number | null;
   ai_interview_score?: number | null;
@@ -194,15 +196,25 @@ const CandidateSearch = () => {
 
   const getCertificationBadge = (candidate: JobSeekerProfile) => {
     const lvl = candidate.certification_level ?? 0;
-    const label = candidate.certification_label ?? `Level ${lvl}`;
-    const tone = lvl >= 3
-      ? "bg-purple-500/10 text-purple-600 border-purple-500/20"
-      : lvl === 2
-        ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
-        : lvl === 1
-          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-          : "bg-muted text-muted-foreground border-border";
-    return <Badge className={tone}>{label}</Badge>;
+    const label =
+      candidate.certificationLabelShort?.trim() ||
+      candidate.certification_label ||
+      (lvl >= 3 ? "Elite Verified" : lvl === 2 ? "Skill Passport" : lvl === 1 ? "Cognitive Verified" : "Not Certified");
+    const tone =
+      lvl >= 3
+        ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-300"
+        : lvl === 2
+          ? "bg-blue-500/10 text-blue-700 border-blue-500/25 dark:text-blue-300"
+          : lvl === 1
+            ? "bg-amber-500/15 text-amber-900 border-amber-500/30 dark:text-amber-200"
+            : "bg-muted text-muted-foreground border-border";
+    const code = candidate.certificationLevel ?? (lvl >= 1 && lvl <= 3 ? (`L${lvl}` as const) : lvl <= 0 ? "L0" : null);
+    return (
+      <Badge className={tone}>
+        {code ? `${code} · ` : ""}
+        {label}
+      </Badge>
+    );
   };
 
   const incrementProfileView = async (candidateId: string) => {

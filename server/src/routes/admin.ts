@@ -106,23 +106,27 @@ adminRouter.get("/job-seekers", async (_req, res) => {
       certByUserId.set(p.userId, await calculateCertificationLevel(p.userId));
     })
   );
-  const mapped = profiles.map((p) => ({
-    certification_level: certByUserId.get(p.userId)?.level ?? 0,
-    certification_label: certByUserId.get(p.userId)?.label ?? "Level 0 - Not Yet Certified",
-    id: p.id,
-    user_id: p.userId,
-    college: p.college,
-    experience_years: p.experienceYears,
-    skills: p.skills as string[] | null,
-    verification_status: p.verificationStatus,
-    phone: p.phone,
-    created_at: p.createdAt,
-    profile: {
-      full_name: p.fullName,
-      // User.email (sign-up) is the main email; profile.email is legacy/fallback
-      email: p.user?.email ?? p.email ?? null,
-    },
-  }));
+  const mapped = profiles.map((p) => {
+    const cert = certByUserId.get(p.userId);
+    return {
+      certification_level: cert?.level ?? 0,
+      certification_label: cert?.label ?? "Level 0 - Not Yet Certified",
+      certificationLevel: cert?.certificationLevel ?? null,
+      certificationLabelShort: cert?.certificationLabel ?? null,
+      id: p.id,
+      user_id: p.userId,
+      college: p.college,
+      experience_years: p.experienceYears,
+      skills: p.skills as string[] | null,
+      verification_status: p.verificationStatus,
+      phone: p.phone,
+      created_at: p.createdAt,
+      profile: {
+        full_name: p.fullName,
+        email: p.user?.email ?? p.email ?? null,
+      },
+    };
+  });
   res.json({ jobSeekers: mapped });
 });
 
@@ -221,19 +225,13 @@ adminRouter.get("/jobs", async (_req, res) => {
 
 /** Aggregate stats for admin dashboard */
 adminRouter.get("/stats", async (_req, res) => {
-  const [totalJobSeekers, totalRecruiters, totalInterviewers, totalJobs, totalApplications, totalVerified] =
-    await Promise.all([
-      prisma.jobSeekerProfile.count(),
-      prisma.recruiterProfile.count(),
-      prisma.interviewer.count({ where: { userId: { not: null } } }),
-      prisma.job.count(),
-      prisma.jobApplication.count(),
-      prisma.jobSeekerProfile.count({
-        where: {
-          verificationStatus: { in: ["verified", "expert_verified"] },
-        },
-      }),
-    ]);
+  const [totalJobSeekers, totalRecruiters, totalInterviewers, totalJobs, totalApplications] = await Promise.all([
+    prisma.jobSeekerProfile.count(),
+    prisma.recruiterProfile.count(),
+    prisma.interviewer.count({ where: { userId: { not: null } } }),
+    prisma.job.count(),
+    prisma.jobApplication.count(),
+  ]);
 
   const seekers = await prisma.jobSeekerProfile.findMany({
     select: { userId: true },
@@ -246,6 +244,10 @@ adminRouter.get("/stats", async (_req, res) => {
       levelBuckets[lvl] = (levelBuckets[lvl] ?? 0) + 1;
     })
   );
+
+  /** Anyone at L1+ (cognitive+ pipeline progress) counts as verified for admin KPIs — matches certification ladder, not raw profile field alone. */
+  const totalVerified =
+    (levelBuckets[1] ?? 0) + (levelBuckets[2] ?? 0) + (levelBuckets[3] ?? 0);
 
   res.json({
     totalJobSeekers,

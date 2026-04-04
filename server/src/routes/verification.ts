@@ -15,6 +15,7 @@ import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
 import { buildTechnicalScorecard } from "../services/verificationScoring.service.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { syncJobSeekerVerificationStatus } from "../services/certification.service.js";
 import { upsertSkillVerification, getSkillVerifications } from "../services/skillVerification.service.js";
 import { buildAptitudeLatestResult } from "../utils/aptitudeScoring.js";
 import {
@@ -325,6 +326,13 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
       });
     }
   }
+
+  try {
+    await syncJobSeekerVerificationStatus(userId);
+  } catch (e) {
+    console.warn("[verification/stages/update] syncJobSeekerVerificationStatus", e);
+  }
+
   res.json({ updated: updated.count });
 });
 
@@ -881,6 +889,12 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
 
   if (dsaScore != null) {
     await upsertSkillVerification(userId, "LIVE_CODING", Math.round(dsaScore), new Date());
+  }
+
+  try {
+    await syncJobSeekerVerificationStatus(userId);
+  } catch (e) {
+    console.warn("[verification/dsa] syncJobSeekerVerificationStatus", e);
   }
 
   res.json({

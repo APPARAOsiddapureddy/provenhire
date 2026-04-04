@@ -450,6 +450,8 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
         graduation_year: p.graduationYear,
         certification_level: cert?.level ?? 0,
         certification_label: cert?.label ?? "Level 0",
+        certificationLevel: cert?.certificationLevel ?? null,
+        certificationLabelShort: cert?.certificationLabel ?? null,
         aptitude_score: aptitude,
         dsa_score: dsa,
         ai_interview_score: ai,

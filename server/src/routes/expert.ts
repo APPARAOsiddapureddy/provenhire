@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireExpertInterviewer, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
+import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { syncJobSeekerVerificationStatus } from "../services/certification.service.js";
 // Daily.co disabled for MVP - using Google Meet. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -210,7 +212,24 @@ expertRouter.get("/sessions/upcoming", async (req: AuthedRequest, res) => {
     },
     orderBy: { scheduledAt: "asc" },
   });
-  res.json({ sessions });
+  const userIds = [...new Set(sessions.map((s) => s.userId))];
+  const certByUser = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
+  await Promise.all(
+    userIds.map(async (uid) => {
+      certByUser.set(uid, await calculateCertificationLevel(uid));
+    })
+  );
+  res.json({
+    sessions: sessions.map((s) => {
+      const c = certByUser.get(s.userId);
+      return {
+        ...s,
+        candidate_certification_numeric: c?.level ?? 0,
+        candidate_certification_code: c?.certificationLevel ?? null,
+        candidate_certification_label_short: c?.certificationLabel ?? null,
+      };
+    }),
+  });
 });
 
 /** Past sessions — must be before /sessions/:id so "past" isn't matched as id */
@@ -229,7 +248,24 @@ expertRouter.get("/sessions/past", async (req: AuthedRequest, res) => {
     orderBy: { scheduledAt: "desc" },
     take: 50,
   });
-  res.json({ sessions });
+  const pastUserIds = [...new Set(sessions.map((s) => s.userId))];
+  const certPast = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
+  await Promise.all(
+    pastUserIds.map(async (uid) => {
+      certPast.set(uid, await calculateCertificationLevel(uid));
+    })
+  );
+  res.json({
+    sessions: sessions.map((s) => {
+      const c = certPast.get(s.userId);
+      return {
+        ...s,
+        candidate_certification_numeric: c?.level ?? 0,
+        candidate_certification_code: c?.certificationLevel ?? null,
+        candidate_certification_label_short: c?.certificationLabel ?? null,
+      };
+    }),
+  });
 });
 
 /** MVP: Get meeting link (Google Meet). Interviewer adds via PATCH. Daily.co disabled. */
@@ -332,6 +368,12 @@ expertRouter.post("/sessions/:id/evaluate", async (req: AuthedRequest, res) => {
       where: { userId: session.userId, stageName: "human_expert_interview" },
       data: { status: "failed", score: Math.round(total) },
     });
+  }
+
+  try {
+    await syncJobSeekerVerificationStatus(session.userId);
+  } catch (e) {
+    console.warn("[expert/evaluate] syncJobSeekerVerificationStatus", e);
   }
 
   res.json({ ok: true, total: Math.round(total), pass });

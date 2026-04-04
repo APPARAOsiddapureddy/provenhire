@@ -45,7 +45,13 @@ export function calculateCertificationLevelFromCompletedStages(
 
   if (completedStageNames.has("human_expert_interview")) return 3;
   if (completedStageNames.has("dsa_round") && completedStageNames.has("expert_interview")) return 2;
-  if (completedStageNames.has("profile_setup") && completedStageNames.has("aptitude_test")) return 1;
+  if (
+    completedStageNames.has("profile_setup") &&
+    completedStageNames.has("aptitude_test") &&
+    completedStageNames.has("dsa_round")
+  ) {
+    return 1;
+  }
   return 0;
 }
 
@@ -88,7 +94,8 @@ export function minimumLevelHint(roleType: CertificationTrack, level: number): s
     return "Complete verification stages to unlock this role.";
   }
 
-  if (level <= 1) return "Complete Profile Setup and Cognitive Assessment to unlock this role.";
+  if (level <= 1)
+    return "Complete Profile Setup, Cognitive Assessment, and Live Coding (DSA) to unlock this role.";
   if (level === 2) return "Complete DSA Round and AI Interview to unlock this role.";
   if (level >= 3) return "Complete Human Expert Interview to unlock this role.";
   return "Complete verification stages to unlock this role.";

@@ -28,6 +28,8 @@ interface Applicant {
   location?: string | null;
   certification_level?: number;
   certification_label?: string;
+  certificationLevel?: "L1" | "L2" | "L3" | null;
+  certificationLabelShort?: string | null;
   aptitude_score?: number | null;
   dsa_score?: number | null;
   ai_interview_score?: number | null;
@@ -375,7 +377,12 @@ const ApplicantsPage = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sorted.map((a, idx) => {
-              const lvl = Math.min(3, Math.max(1, a.certification_level ?? 1));
+              const lvl = Math.min(3, Math.max(0, a.certification_level ?? 0));
+              const certText =
+                a.certificationLabelShort?.trim() ||
+                (a.certification_label && a.certification_label.trim()) ||
+                CERT_LABELS[lvl] ||
+                CERT_LABELS[0];
               const stageMeta = getVerificationStageMeta(a);
               return (
                 <div
@@ -383,7 +390,7 @@ const ApplicantsPage = () => {
                   className="group rounded-xl border border-border bg-card/80 backdrop-blur overflow-hidden transition-all hover:border-primary/20 hover:-translate-y-0.5 hover:shadow-lg animate-in fade-in"
                   style={{ animationDelay: `${idx * 50}ms` }}
                 >
-                  <div className={`h-0.5 ${CERT_STRIP_CLASS[lvl] ?? CERT_STRIP_CLASS[3]}`} />
+                  <div className={`h-0.5 ${CERT_STRIP_CLASS[lvl] ?? CERT_STRIP_CLASS[0]}`} />
                   <div className="p-4 border-b border-white/5">
                     <div className="flex gap-3">
                       <div className="w-12 h-12 rounded-full bg-primary/10 border-2 border-primary flex items-center justify-center text-primary font-bold shrink-0">
@@ -411,8 +418,9 @@ const ApplicantsPage = () => {
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
-                        <Badge className={CERT_BADGE_CLASS[lvl] ?? CERT_BADGE_CLASS[3]}>
-                          {CERT_LABELS[lvl] ?? "Verified"}
+                        <Badge className={CERT_BADGE_CLASS[lvl] ?? CERT_BADGE_CLASS[0]}>
+                          {a.certificationLevel ? `${a.certificationLevel} · ` : ""}
+                          {certText}
                         </Badge>
                         <Badge variant="outline" className={stageMeta.badgeClass}>
                           {stageMeta.label}

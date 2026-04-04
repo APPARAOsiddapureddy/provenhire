@@ -47,7 +47,9 @@ const deriveCertificationFromStages = (
   }
   if (completed.has("human_expert_interview")) return { level: 3, label: "Level 3 - Elite ProvenHire Candidate" };
   if (completed.has("dsa_round") && completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
-  if (completed.has("profile_setup") && completed.has("aptitude_test")) return { level: 1, label: "Level 1 - Cognitive Verified" };
+  if (completed.has("profile_setup") && completed.has("aptitude_test") && completed.has("dsa_round")) {
+    return { level: 1, label: "Level 1 - Cognitive Verified" };
+  }
   return { level: 0, label: "Level 0 - Not Yet Certified" };
 };
 
@@ -154,12 +156,12 @@ const JobSeekerDashboard = () => {
           {
             level: 1,
             label: "Level 1 - Cognitive Verified",
-            stages: ["profile_setup", "aptitude_test"],
+            stages: ["profile_setup", "aptitude_test", "dsa_round"],
           },
           {
             level: 2,
             label: "Level 2 - Skill Passport",
-            stages: ["dsa_round", "expert_interview"],
+            stages: ["expert_interview"],
           },
           {
             level: 3,
@@ -304,17 +306,29 @@ const JobSeekerDashboard = () => {
       const role = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
       const derivedCertification = deriveCertificationFromStages(role, stagesList);
       const apiLevel = stagesData?.certification_level ?? 0;
-      const effectiveLevel = Math.max(apiLevel, derivedCertification.level);
-      const effectiveLabel =
-        effectiveLevel === derivedCertification.level
-          ? derivedCertification.label
-          : (stagesData?.certification_label ?? derivedCertification.label);
+      const apiLabel = stagesData?.certification_label ?? "Level 0 - Not Yet Certified";
+      /** Certification ladder comes from the API (same logic as admin/recruiters). Fallback only if stages request failed. */
+      const stagesOk = stagesRes.status === "fulfilled";
+      const effectiveLevel = stagesOk ? apiLevel : derivedCertification.level;
+      const effectiveLabel = stagesOk ? apiLabel : derivedCertification.label;
       setCertificationLevelNumber(effectiveLevel);
       setCertificationLabel(effectiveLabel);
-      const code = stagesData?.certificationLevel ?? null;
-      setProvenhireCertCode(code === "L1" || code === "L2" || code === "L3" ? code : null);
+      const code = stagesOk ? stagesData?.certificationLevel ?? null : null;
+      setProvenhireCertCode(
+        code === "L1" || code === "L2" || code === "L3"
+          ? code
+          : !stagesOk && derivedCertification.level >= 1
+            ? derivedCertification.level === 3
+              ? "L3"
+              : derivedCertification.level === 2
+                ? "L2"
+                : "L1"
+            : null
+      );
       setProvenhireCertSubtitle(
-        typeof stagesData?.certificationLabelShort === "string" ? stagesData.certificationLabelShort : null,
+        stagesOk && typeof stagesData?.certificationLabelShort === "string"
+          ? stagesData.certificationLabelShort
+          : null
       );
 
       const criticalError = profileRes.status === "rejected" || stagesRes.status === "rejected";

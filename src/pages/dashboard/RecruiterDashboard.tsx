@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
-import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, FileText, Lock, CheckCircle2, Search, Settings, ExternalLink } from "lucide-react";
+import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, FileText, CheckCircle2, Search, Settings, ExternalLink, Award } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
@@ -99,6 +99,30 @@ interface TalentCandidate {
   actively_looking_roles: string[] | null;
   resume_url: string | null;
   created_at?: string | null;
+  certification_level?: number;
+  certification_label?: string;
+  certificationLevel?: "L1" | "L2" | "L3" | null;
+  certificationLabelShort?: string | null;
+  aptitude_score?: number | null;
+  dsa_score?: number | null;
+  ai_interview_score?: number | null;
+  human_expert_interview_score?: number | null;
+}
+
+function recruiterCertPillClass(lvl: number): string {
+  if (lvl >= 3) return "bg-emerald-500/20 text-emerald-100 border-emerald-500/40";
+  if (lvl === 2) return "bg-blue-500/20 text-blue-100 border-blue-500/40";
+  if (lvl === 1) return "bg-amber-500/25 text-amber-50 border-amber-500/45";
+  return "bg-white/10 text-[var(--dash-text-muted)] border-white/15";
+}
+
+function recruiterCertDisplay(c: TalentCandidate): { lvl: number; line: string } {
+  const lvl = c.certification_level ?? 0;
+  const short =
+    c.certificationLabelShort?.trim() ||
+    (lvl >= 3 ? "Elite Verified" : lvl === 2 ? "Skill Passport" : lvl === 1 ? "Cognitive Verified" : "Not Certified");
+  const code = c.certificationLevel ?? (lvl >= 1 && lvl <= 3 ? `L${lvl}` : "L0");
+  return { lvl, line: `${code} · ${short}` };
 }
 
 const RecruiterDashboard = () => {
@@ -551,19 +575,47 @@ const RecruiterDashboard = () => {
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-1.5 justify-end">
-                              <span className="dashboard-badge-a text-sm font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
-                                <Lock className="h-3 w-3" /> Level A Verified
-                              </span>
-                              <span className="dashboard-verified-pill inline-flex items-center gap-1">
-                                <CheckCircle2 className="h-3 w-3" /> AI + Human Validated
-                              </span>
+                              {(() => {
+                                const { lvl, line } = recruiterCertDisplay(c);
+                                return (
+                                  <span
+                                    className={`text-xs font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1 border ${recruiterCertPillClass(lvl)}`}
+                                  >
+                                    <Award className="h-3 w-3 shrink-0" />
+                                    {line}
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-sm font-medium mb-4">
-                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">HUMAN EXPERT</span> <strong className="text-white">—</strong>/100</div>
-                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">DSA ROUND</span> <strong className="text-white">—</strong>/100</div>
-                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">AI INTERVIEW</span> <strong className="text-white">—</strong>/100</div>
-                            <div className="bg-white/5 rounded px-2 py-1.5"><span className="text-[var(--dash-text-muted)]">APTITUDE</span> <strong className="text-white">—</strong>th %ile</div>
+                            <div className="bg-white/5 rounded px-2 py-1.5">
+                              <span className="text-[var(--dash-text-muted)]">HUMAN EXPERT</span>{" "}
+                              <strong className="text-white">
+                                {c.human_expert_interview_score != null ? Math.round(c.human_expert_interview_score) : "—"}
+                              </strong>
+                              /100
+                            </div>
+                            <div className="bg-white/5 rounded px-2 py-1.5">
+                              <span className="text-[var(--dash-text-muted)]">DSA ROUND</span>{" "}
+                              <strong className="text-white">
+                                {c.dsa_score != null ? Math.round(c.dsa_score) : "—"}
+                              </strong>
+                              /100
+                            </div>
+                            <div className="bg-white/5 rounded px-2 py-1.5">
+                              <span className="text-[var(--dash-text-muted)]">AI INTERVIEW</span>{" "}
+                              <strong className="text-white">
+                                {c.ai_interview_score != null ? Math.round(c.ai_interview_score) : "—"}
+                              </strong>
+                              /100
+                            </div>
+                            <div className="bg-white/5 rounded px-2 py-1.5">
+                              <span className="text-[var(--dash-text-muted)]">APTITUDE</span>{" "}
+                              <strong className="text-white">
+                                {c.aptitude_score != null ? Math.round(c.aptitude_score) : "—"}
+                              </strong>
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             <Button variant="outline" size="sm" className="dashboard-btn-ghost flex-1" asChild>
