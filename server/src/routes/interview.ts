@@ -36,11 +36,42 @@ const FILLERS = ["Hmm, interesting.", "Got it.", "I see.", "That makes sense.", 
 
 // ── V2 adversarial voice interview + media helpers (register before /:id routes) ──
 
-/** Returns API key when DEEPGRAM_API_KEY is set; otherwise token: null so the client uses browser STT (no 503). */
+async function deepgramCreateEphemeralJwt(apiKey: string): Promise<string | null> {
+  try {
+    const res = await fetch("https://api.deepgram.com/v1/auth/grant", {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ttl_seconds: 3600 }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.warn("[interview/deepgram-token] auth/grant failed", res.status, t.slice(0, 200));
+      return null;
+    }
+    const data = (await res.json()) as { access_token?: string };
+    return data.access_token?.trim() || null;
+  } catch (e) {
+    console.warn("[interview/deepgram-token] auth/grant error", e);
+    return null;
+  }
+}
+
+/**
+ * Short-lived JWT for browser WebSocket (subprotocol bearer + token) when possible.
+ * Falls back to returning the raw key with auth "token" if /v1/auth/grant fails (e.g. key permissions).
+ */
 interviewRouter.get("/deepgram-token", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res) => {
   const key = process.env.DEEPGRAM_API_KEY?.trim();
-  if (!key) return res.json({ token: null });
-  return res.json({ token: key });
+  if (!key) return res.json({ token: null as string | null, auth: null as "bearer" | "token" | null });
+
+  const jwt = await deepgramCreateEphemeralJwt(key);
+  if (jwt) {
+    return res.json({ token: jwt, auth: "bearer" as const });
+  }
+  return res.json({ token: key, auth: "token" as const });
 });
 
 interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRequest, res: Response) => {

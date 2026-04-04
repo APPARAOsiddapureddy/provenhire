@@ -82,6 +82,10 @@ async function speakText(text: string, signal?: AbortSignal): Promise<void> {
     }
 
     const blob = await res.blob();
+    if (blob.size === 0) {
+      await fallbackSpeak(text, signal);
+      return;
+    }
     if (blob.size < 64) {
       try {
         const parsed = JSON.parse(await blob.text()) as { fallback?: boolean };
@@ -99,6 +103,7 @@ async function speakText(text: string, signal?: AbortSignal): Promise<void> {
       const audio = new Audio();
       audio.preload = "auto";
       audio.setAttribute("playsinline", "");
+      audio.volume = 1;
       audio.src = url;
       const cleanup = () => {
         URL.revokeObjectURL(url);
@@ -314,6 +319,7 @@ export default function ExpertInterviewStage({
 
   const aiSpeak = useCallback(
     async (text: string) => {
+      window.speechSynthesis?.cancel();
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;

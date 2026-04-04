@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, type MutableRefObject } from "react";
 import { api } from "@/lib/api";
 
 export type FloorState = "idle" | "user_speaking" | "ai_thinking" | "ai_speaking";
@@ -13,6 +13,34 @@ function getSpeechRecognition(): typeof window.SpeechRecognition | null {
     webkitSpeechRecognition?: typeof window.SpeechRecognition;
   };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
+/** Mic + AudioContext + processors only (WebSocket closed separately). */
+function releaseMediaAndAudio(args: {
+  flushTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  vizFrameRef: MutableRefObject<number | null>;
+  mediaStreamRef: MutableRefObject<MediaStream | null>;
+  audioContextRef: MutableRefObject<AudioContext | null>;
+  analyserRef: MutableRefObject<AnalyserNode | null>;
+  workletNodeRef: MutableRefObject<AudioWorkletNode | null>;
+  processorRef: MutableRefObject<ScriptProcessorNode | null>;
+  utteranceBufferRef: MutableRefObject<string[]>;
+}) {
+  if (args.flushTimerRef.current) clearTimeout(args.flushTimerRef.current);
+  args.flushTimerRef.current = null;
+  if (args.vizFrameRef.current != null) cancelAnimationFrame(args.vizFrameRef.current);
+  args.vizFrameRef.current = null;
+
+  args.workletNodeRef.current?.disconnect();
+  args.workletNodeRef.current = null;
+  args.processorRef.current?.disconnect();
+  args.processorRef.current = null;
+  args.mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+  args.mediaStreamRef.current = null;
+  void args.audioContextRef.current?.close();
+  args.audioContextRef.current = null;
+  args.analyserRef.current = null;
+  args.utteranceBufferRef.current = [];
 }
 
 export function useDeepgramSession({
@@ -34,17 +62,20 @@ export function useDeepgramSession({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const utteranceBufferRef = useRef<string[]>([]);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const vizFrameRef = useRef<number | null>(null);
   const currentAbortRef = useRef<AbortController | null>(null);
+  const intentionalWsCloseRef = useRef(false);
 
   const recognitionRef = useRef<InstanceType<NonNullable<ReturnType<typeof getSpeechRecognition>>> | null>(null);
   const browserStoppedRef = useRef(false);
   const latestTranscriptRef = useRef("");
   const browserAudioCtxRef = useRef<AudioContext | null>(null);
   const browserAnalyserRef = useRef<AnalyserNode | null>(null);
+  const deepgramFallbackStartedRef = useRef(false);
 
   const transition = useCallback((next: FloorState) => {
     setFloor(next);
@@ -58,6 +89,19 @@ export function useDeepgramSession({
     }
   }, [onFinal]);
 
+  const releaseDeepgramMedia = useCallback(() => {
+    releaseMediaAndAudio({
+      flushTimerRef,
+      vizFrameRef,
+      mediaStreamRef,
+      audioContextRef,
+      analyserRef,
+      workletNodeRef,
+      processorRef,
+      utteranceBufferRef,
+    });
+  }, []);
+
   const stopBrowserRecognition = useCallback(() => {
     browserStoppedRef.current = true;
     try {
@@ -70,13 +114,9 @@ export function useDeepgramSession({
       cancelAnimationFrame(vizFrameRef.current);
       vizFrameRef.current = null;
     }
-    processorRef.current?.disconnect();
-    processorRef.current = null;
     void browserAudioCtxRef.current?.close();
     browserAudioCtxRef.current = null;
     browserAnalyserRef.current = null;
-    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-    mediaStreamRef.current = null;
   }, []);
 
   const startBrowserRecognition = useCallback(async () => {
@@ -168,17 +208,62 @@ export function useDeepgramSession({
   }, [interviewId, onError, onFinal, onPartial, transition]);
 
   const startDeepgram = useCallback(
-    async (token: string) => {
-      const ws = new WebSocket(
-        `wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1&interim_results=true&vad_events=true&endpointing=1200&utterance_end_ms=2500`,
-        ["token", token]
-      );
+    async (token: string, auth: "bearer" | "token") => {
+      deepgramFallbackStartedRef.current = false;
 
-      wsRef.current = ws;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      mediaStreamRef.current = stream;
 
-      ws.onopen = () => {
-        transition("user_speaking");
-      };
+      const audioCtx = new AudioContext();
+      audioContextRef.current = audioCtx;
+      await audioCtx.resume().catch(() => {});
+      const sampleRate = Math.round(audioCtx.sampleRate);
+
+      const qs = new URLSearchParams({
+        model: "nova-2",
+        language: "en",
+        encoding: "linear16",
+        sample_rate: String(sampleRate),
+        channels: "1",
+        interim_results: "true",
+        vad_events: "true",
+        endpointing: "1200",
+        utterance_end_ms: "2500",
+      });
+      const wsUrl = `wss://api.deepgram.com/v1/listen?${qs.toString()}`;
+      const protocolAttempts: string[][] =
+        auth === "bearer"
+          ? [
+              ["bearer", token],
+              ["token", token],
+            ]
+          : [["token", token]];
+
+      let ws: WebSocket | null = null;
+      let connectErr: Error | null = null;
+
+      for (const protocols of protocolAttempts) {
+        const attempt = new WebSocket(wsUrl, protocols);
+        wsRef.current = attempt;
+        try {
+          await waitForWebSocketOpen(attempt, 15_000);
+          ws = attempt;
+          connectErr = null;
+          break;
+        } catch (e) {
+          connectErr = e instanceof Error ? e : new Error(String(e));
+          intentionalWsCloseRef.current = true;
+          attempt.close();
+          wsRef.current = null;
+        }
+      }
+
+      if (!ws) {
+        releaseDeepgramMedia();
+        throw connectErr ?? new Error("Deepgram WebSocket failed to open");
+      }
+
+      transition("user_speaking");
 
       ws.onmessage = (event: MessageEvent) => {
         let data: Record<string, unknown>;
@@ -189,6 +274,14 @@ export function useDeepgramSession({
         }
 
         const type = data.type as string | undefined;
+        if (type === "Error") {
+          const msg =
+            (typeof data.err_msg === "string" && data.err_msg) ||
+            (typeof data.message === "string" && data.message) ||
+            "Deepgram stream error";
+          onError(msg);
+          return;
+        }
         if (type === "SpeechStarted") {
           if (currentAbortRef.current) {
             currentAbortRef.current.abort();
@@ -226,31 +319,33 @@ export function useDeepgramSession({
         }
       };
 
-      ws.onerror = () => onError("Deepgram connection error");
-      ws.onclose = () => transition("idle");
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      mediaStreamRef.current = stream;
-
-      const audioCtx = new AudioContext({ sampleRate: 16000 });
-      audioContextRef.current = audioCtx;
-
-      const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(2048, 1, 1);
-      processorRef.current = processor;
-
-      processor.onaudioprocess = (e) => {
-        if (ws.readyState !== WebSocket.OPEN) return;
-        const float32 = e.inputBuffer.getChannelData(0);
-        const pcm16 = float32ToPcm16(float32);
-        ws.send(pcm16);
+      ws.onerror = () => {
+        if (!intentionalWsCloseRef.current) {
+          onError("Deepgram connection error — check API key / project permissions.");
+        }
       };
 
-      const silentGain = audioCtx.createGain();
-      silentGain.gain.value = 0;
-      source.connect(processor);
-      processor.connect(silentGain);
-      silentGain.connect(audioCtx.destination);
+      ws.onclose = (ev) => {
+        if (intentionalWsCloseRef.current) {
+          intentionalWsCloseRef.current = false;
+          return;
+        }
+        wsRef.current = null;
+        releaseDeepgramMedia();
+        const reason = ev.reason?.trim();
+        const msg = `Deepgram disconnected (${ev.code}${reason ? `: ${reason}` : ""}).`;
+        if (!deepgramFallbackStartedRef.current) {
+          deepgramFallbackStartedRef.current = true;
+          setSttMode("browser");
+          onError(`${msg} Switching to browser speech…`);
+          void startBrowserRecognition().catch((err) => onError(`Could not start browser speech: ${String(err)}`));
+        } else {
+          transition("idle");
+        }
+      };
+
+      try {
+      const source = audioCtx.createMediaStreamSource(stream);
 
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
@@ -259,24 +354,98 @@ export function useDeepgramSession({
 
       const vizData = new Uint8Array(analyser.frequencyBinCount);
       const vizLoop = () => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
         analyser.getByteFrequencyData(vizData);
         const avg = vizData.reduce((a, b) => a + b, 0) / vizData.length;
         setMicLevel(avg / 128);
         vizFrameRef.current = requestAnimationFrame(vizLoop);
       };
       vizLoop();
+
+      const silentGain = audioCtx.createGain();
+      silentGain.gain.value = 0;
+
+      let usedWorklet = false;
+      try {
+        const workletUrl = `${import.meta.env.BASE_URL}deepgram-capture.worklet.js`;
+        await audioCtx.audioWorklet.addModule(workletUrl);
+        const node = new AudioWorkletNode(audioCtx, "deepgram-capture-processor");
+        workletNodeRef.current = node;
+        node.port.onmessage = (e: MessageEvent<Float32Array>) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const float32 = e.data;
+          if (!(float32 instanceof Float32Array) || float32.length === 0) return;
+          ws.send(float32ToPcm16(float32));
+        };
+        source.connect(node);
+        node.connect(silentGain);
+        usedWorklet = true;
+      } catch {
+        /* AudioWorklet unsupported or module load failed */
+      }
+
+      if (!usedWorklet) {
+        const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+        processorRef.current = processor;
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const float32 = e.inputBuffer.getChannelData(0);
+          ws.send(float32ToPcm16(float32));
+        };
+        source.connect(processor);
+        processor.connect(silentGain);
+      }
+
+      silentGain.connect(audioCtx.destination);
+      } catch (pipeErr) {
+        intentionalWsCloseRef.current = true;
+        ws.close();
+        wsRef.current = null;
+        releaseDeepgramMedia();
+        throw pipeErr;
+      }
     },
-    [flushUtterance, interviewId, onError, onPartial, transition]
+    [flushUtterance, interviewId, onError, onPartial, releaseDeepgramMedia, startBrowserRecognition, transition]
   );
 
+  const stop = useCallback(() => {
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = null;
+    if (vizFrameRef.current != null) cancelAnimationFrame(vizFrameRef.current);
+    vizFrameRef.current = null;
+
+    const ws = wsRef.current;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      intentionalWsCloseRef.current = true;
+      ws.close();
+    }
+    wsRef.current = null;
+
+    stopBrowserRecognition();
+    releaseDeepgramMedia();
+
+    utteranceBufferRef.current = [];
+    setSttMode("idle");
+    transition("idle");
+  }, [releaseDeepgramMedia, stopBrowserRecognition, transition]);
+
   const start = useCallback(async () => {
+    stop();
+    deepgramFallbackStartedRef.current = false;
     try {
-      const data = await api.get<{ token: string | null }>(DEEPGRAM_KEY_PATH);
+      const data = await api.get<{ token: string | null; auth?: "bearer" | "token" | null }>(DEEPGRAM_KEY_PATH);
       const token = data?.token?.trim() || null;
+      const auth: "bearer" | "token" = data?.auth === "bearer" ? "bearer" : "token";
 
       if (token) {
         setSttMode("deepgram");
-        await startDeepgram(token);
+        try {
+          await startDeepgram(token, auth);
+        } catch (e) {
+          setSttMode("browser");
+          onError(`Deepgram: ${String(e)}. Using browser speech.`);
+          await startBrowserRecognition();
+        }
       } else {
         setSttMode("browser");
         await startBrowserRecognition();
@@ -296,30 +465,7 @@ export function useDeepgramSession({
         );
       }
     }
-  }, [onError, startBrowserRecognition, startDeepgram]);
-
-  const stop = useCallback(() => {
-    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
-    if (vizFrameRef.current != null) cancelAnimationFrame(vizFrameRef.current);
-    vizFrameRef.current = null;
-
-    wsRef.current?.close();
-    wsRef.current = null;
-
-    stopBrowserRecognition();
-
-    processorRef.current?.disconnect();
-    processorRef.current = null;
-    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-    mediaStreamRef.current = null;
-    void audioContextRef.current?.close();
-    audioContextRef.current = null;
-    analyserRef.current = null;
-
-    utteranceBufferRef.current = [];
-    setSttMode("idle");
-    transition("idle");
-  }, [stopBrowserRecognition, transition]);
+  }, [onError, startBrowserRecognition, startDeepgram, stop]);
 
   const setAbortController = useCallback((ac: AbortController | null) => {
     currentAbortRef.current = ac;
@@ -330,6 +476,32 @@ export function useDeepgramSession({
   }, [stop]);
 
   return { floor, micLevel, start, stop, transition, setAbortController, sttMode };
+}
+
+function waitForWebSocketOpen(ws: WebSocket, ms: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      resolve();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      ws.removeEventListener("open", onOpen);
+      ws.removeEventListener("error", onErr);
+      reject(new Error("connect timeout"));
+    }, ms);
+    const onOpen = () => {
+      window.clearTimeout(timer);
+      ws.removeEventListener("error", onErr);
+      resolve();
+    };
+    const onErr = () => {
+      window.clearTimeout(timer);
+      ws.removeEventListener("open", onOpen);
+      reject(new Error("WebSocket error"));
+    };
+    ws.addEventListener("open", onOpen, { once: true });
+    ws.addEventListener("error", onErr, { once: true });
+  });
 }
 
 function float32ToPcm16(float32: Float32Array): ArrayBuffer {
