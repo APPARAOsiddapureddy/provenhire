@@ -296,6 +296,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [dsaPassThreshold, setDsaPassThreshold] = useState(DSA_PASS_THRESHOLD);
   const [dsaTotalMinutes, setDsaTotalMinutes] = useState(DSA_TOTAL_MINUTES);
   const [noDsaSubmitting, setNoDsaSubmitting] = useState(false);
+  /** True only when API says this role skips DSA (analytics-style waiver). Do not infer from empty question list alone. */
+  const [dsaWaiverEligible, setDsaWaiverEligible] = useState(false);
   const [questionSecondsRemaining, setQuestionSecondsRemaining] = useState<number>(DSA_MINUTES_PER_QUESTION * 60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -518,6 +520,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setJustPassed(false);
       setHasFailed(false);
       setLocalFinalScore(null);
+      setDsaWaiverEligible(false);
 
       type DsaQuestionsPayload = {
         questions: ApiDSAQuestion[];
@@ -555,6 +558,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         if (typeof payload.timeLimitMinutes === "number") {
           setDsaTotalMinutes(payload.timeLimitMinutes);
         }
+
+        setDsaWaiverEligible(payload.dsaWaiver === true);
 
         const questionsFromApi = Array.isArray(payload.questions) ? payload.questions : [];
         setQuestions(questionsFromApi);
@@ -1060,6 +1065,29 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   }
 
   if (questions.length === 0) {
+    if (!dsaWaiverEligible) {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>DSA Round</CardTitle>
+            <CardDescription>Could not load coding problems</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              No questions were returned for this round. This usually means the question bank is not seeded on the server yet,
+              or a temporary loading issue. Your role still expects a DSA round; use Retry after deployment fixes.
+            </p>
+            <Button onClick={() => setQuestionsReloadKey((k) => k + 1)} variant="outline">
+              Retry
+            </Button>
+            <Button variant="ghost" className="ml-2" onClick={() => navigate("/dashboard/jobseeker")}>
+              Return to dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
     const handleNoDsaComplete = async () => {
       setNoDsaSubmitting(true);
       try {
