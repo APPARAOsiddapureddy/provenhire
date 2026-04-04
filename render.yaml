@@ -1,15 +1,19 @@
 # Render Blueprint - ProvenHire Backend
 # See docs/DEPLOYMENT_COMPLETE.md for full setup.
-# If you already have a Web Service, update Build Command in Settings instead.
+#
+# DATABASE_URL (critical): In Render Dashboard → Postgres → Connect → copy **External Database URL**.
+# It must include the full hostname (e.g. …postgres.render.com), not only `dpg-…-a`.
+# Append ?sslmode=require if not already present. Link the DB to the web service in the same region.
+# Do NOT run migrate in buildCommand — builds often lack DB access; `npm start` runs migrate with retries.
 services:
   - type: web
     name: provenhire-server
     runtime: node
     rootDir: server
-    buildCommand: npm install && npx prisma generate && npm run build && npm run deploy:migrate
+    buildCommand: npm install && npx prisma generate && npm run build
     startCommand: npm run start
     envVars:
       - key: DATABASE_URL
-        sync: false  # Set manually: Internal Database URL from Render Postgres
+        sync: false
       - key: JWT_SECRET
         generateValue: true
