@@ -1,51 +1,21 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { api } from "@/lib/api";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { api, getAuthToken } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import TestProctoringBar from "@/components/TestProctoringBar";
-import SoundDetectedAlert from "@/components/SoundDetectedAlert";
-import FullScreenMonitor from "@/components/FullScreenMonitor";
-import { useSoundDetection } from "@/hooks/useSoundDetection";
-import { useFullScreenState } from "@/hooks/useFullScreenState";
+import { useDeepgramSession } from "@/hooks/useDeepgramSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
-import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
 import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
-import { Mic, MicOff, Video, VideoOff, ArrowRight, CheckCircle2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Mic, Video, VideoOff, Shield } from "lucide-react";
 
-const INTERVIEW_ROLES = [
-  "Frontend Developer",
-  "Backend Developer",
-  "Full Stack Developer",
-  "Data Analyst",
-  "Data Scientist",
-  "DevOps Engineer",
-  "ML Engineer",
-  "Mobile Developer",
-  "QA Engineer",
-  "Software Engineer",
-  "Product Manager",
-  "Project Manager",
-  "Other Technical Role",
-];
+const PERSONA_DESC: Record<string, string> = {
+  curious_lead: "Exploring your ownership & decisions",
+  socratic_mentor: "Testing your first principles",
+  senior_peer: "Stress-testing your architecture",
+};
 
 const EXPERIENCE_OPTIONS = [
   { value: "junior", label: "0–2 years (Junior)" },
@@ -53,183 +23,282 @@ const EXPERIENCE_OPTIONS = [
   { value: "senior", label: "5+ years (Senior)" },
 ] as const;
 
-interface ExpertInterviewStageProps {
+const INTERVIEW_ROLES = [
+  "Backend Developer",
+  "Frontend Developer",
+  "Full Stack Developer",
+  "Data Scientist",
+  "DevOps Engineer",
+  "ML Engineer",
+  "Mobile Developer",
+  "QA Engineer",
+  "Software Engineer",
+  "Other Technical Role",
+];
+
+export interface ExpertInterviewStageProps {
   targetJobTitle?: string;
   onReturnToDashboard?: () => void;
-  /** After final AI submission: admin review queue (backend); return user to dashboard. */
   onInterviewAwaitingReview?: () => void;
 }
 
-const ExpertInterviewStage = ({
+async function speakText(text: string, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+  try {
+    const res = await fetch("/api/interview/tts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+      body: JSON.stringify({ text }),
+      signal,
+    });
+    if (!res.ok || !res.body) throw new Error("TTS failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    await new Promise<void>((resolve) => {
+      const audio = new Audio(url);
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      const onAbort = () => {
+        audio.pause();
+        cleanup();
+      };
+      signal?.addEventListener("abort", onAbort);
+      audio.onended = () => {
+        signal?.removeEventListener("abort", onAbort);
+        cleanup();
+      };
+      audio.onerror = () => {
+        signal?.removeEventListener("abort", onAbort);
+        cleanup();
+      };
+      audio.play().catch(() => {
+        signal?.removeEventListener("abort", onAbort);
+        void fallbackSpeak(text, signal).finally(cleanup);
+      });
+    });
+  } catch {
+    await fallbackSpeak(text, signal);
+  }
+}
+
+function fallbackSpeak(text: string, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis || signal?.aborted) {
+      resolve();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.95;
+    const onAbort = () => {
+      window.speechSynthesis.cancel();
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort);
+    u.onend = () => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    u.onerror = () => resolve();
+    window.speechSynthesis.speak(u);
+  });
+}
+
+export default function ExpertInterviewStage({
   targetJobTitle = "",
   onReturnToDashboard,
   onInterviewAwaitingReview,
-}: ExpertInterviewStageProps) => {
+}: ExpertInterviewStageProps) {
   const { user } = useAuth();
-  const fallbackTestIdRef = useRef(`AI_INTERVIEW_${Date.now()}`);
+  const { getMode } = useFeatureFlags();
+
   const [jobRole, setJobRole] = useState(
-    targetJobTitle && INTERVIEW_ROLES.includes(targetJobTitle)
-      ? targetJobTitle
-      : targetJobTitle
-        ? "Other Technical Role"
-        : "Frontend Developer",
+    targetJobTitle && INTERVIEW_ROLES.includes(targetJobTitle) ? targetJobTitle : "Software Engineer"
   );
-  const [experienceLevel, setExperienceLevel] = useState<(typeof EXPERIENCE_OPTIONS)[number]["value"]>("mid");
+  const [experienceLevel, setExperienceLevel] = useState<"junior" | "mid" | "senior">("mid");
+
   const [interviewId, setInterviewId] = useState<string | null>(null);
-  const [question, setQuestion] = useState<string | null>(null);
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [totalQuestions, setTotalQuestions] = useState(11);
-  const [answer, setAnswer] = useState("");
+  const [started, setStarted] = useState(false);
+  const [outcome, setOutcome] = useState<{
+    terminatedByProctoring?: boolean;
+    totalScore?: number;
+    badgeLevel?: string;
+    evaluation?: Record<string, unknown>;
+  } | null>(null);
+
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [soundAlertOpen, setSoundAlertOpen] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState<string>("");
+  const [sprint, setSprint] = useState(1);
+  const [sprintName, setSprintName] = useState("Project Defense");
+  const [persona, setPersona] = useState("curious_lead");
+  const [questionCount, setQuestionCount] = useState(0);
+  const [partial, setPartial] = useState("");
+  const [weakness, setWeakness] = useState<Record<string, unknown> | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
-  const [micActive, setMicActive] = useState(false);
-  const [lowTranscriptionConfidence, setLowTranscriptionConfidence] = useState(false);
-  const [submitUnlockAt, setSubmitUnlockAt] = useState(0);
-  const [tick, setTick] = useState(0);
-  const [reviewReason, setReviewReason] = useState("");
-  const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [reviewModalOpen, setReviewModalOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const recognitionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recordedAudioRef = useRef<Blob | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const questionShownAtRef = useRef<number>(Date.now());
-  const pasteCountRef = useRef(0);
-  const rawTranscriptAtMicStopRef = useRef<string | null>(null);
-  const voiceConfidencesRef = useRef<number[]>([]);
-  const inputModeAnswerRef = useRef<"voice" | "typed">("typed");
-  const answerRef = useRef(answer);
-  answerRef.current = answer;
+  const abortRef = useRef<AbortController | null>(null);
+  const processingRef = useRef(false);
+  const questionShownAtRef = useRef(Date.now());
+  const aiSpeakRef = useRef<(text: string) => Promise<void>>(async () => {});
 
-  const inTest = !!interviewId && !result;
-  const isFullScreen = useFullScreenState(inTest);
-  const { getMode: getFlagMode } = useFeatureFlags();
-  const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
-  const tabSwitchMode = getFlagMode("tab_switch_detection");
-  const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
-  const fullscreenRequired = isFlagEnabled("fullscreen_required");
-  const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
-  const strikeTerminationMode = getFlagMode("proctoring_strike_termination") as StrikeTerminationMode;
+  const inTest = Boolean(interviewId) && !outcome;
 
-  const terminateInterviewForProctoring = useCallback((_reason: ProctoringEventCode) => {
+  const isFlagEnabled = (name: string) => getMode(name) === "MONITOR" || getMode(name) === "STRICT";
+  const strikeTerminationMode = getMode("proctoring_strike_termination") as StrikeTerminationMode;
+
+  const terminateForProctoring = useCallback((reason: ProctoringEventCode) => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
     setCameraActive(false);
-    setMicActive(false);
-    try {
-      recognitionRef.current?.stop?.();
-    } catch {
-      /* ignore */
-    }
-    setResult({
-      terminatedByProctoring: true,
-      badgeLevel: "Not Verified",
-      totalScore: 0,
-      candidateMessage:
-        "This interview was ended after repeated integrity alerts (for example tab switch or fullscreen). If this was a mistake, contact support.",
-    });
+    setOutcome({ terminatedByProctoring: true, totalScore: 0, badgeLevel: "Not Verified" });
+    void reason;
   }, []);
 
   const { violationSessionLevel, totalLoggedViolations } = useProctoringRiskMonitor({
     enabled: inTest,
     candidateId: user?.id,
-    testId: interviewId ?? fallbackTestIdRef.current,
+    testId: interviewId ?? `AI_INTERVIEW_${Date.now()}`,
     testType: "ai_interview",
     cameraStream: cameraActive ? streamRef.current : null,
     microphoneStream: null,
-    tabSwitchDetectionEnabled,
+    tabSwitchDetectionEnabled: isFlagEnabled("tab_switch_detection"),
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
     multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
-    maxTabSwitches: tabSwitchMode === "STRICT" ? 3 : 999,
+    maxTabSwitches: 999,
     strikeTerminationMode,
-    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateInterviewForProctoring : undefined,
-  });
-
-  useSoundDetection({ enabled: false });
-
-  useProctorFrameCapture({
-    enabled: inTest && cameraActive && isFlagEnabled("screen_recording_enabled"),
-    sessionId: interviewId ?? fallbackTestIdRef.current,
-    testType: "ai_interview",
-    cameraStream: cameraActive ? streamRef.current : null,
+    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateForProctoring : undefined,
   });
 
   useFaceAndPhoneDetection({
     videoRef,
-    sessionId: interviewId ?? fallbackTestIdRef.current,
+    sessionId: interviewId ?? `AI_INTERVIEW_${Date.now()}`,
     testType: "ai_interview",
     userId: user?.id,
     enabled: inTest && cameraActive,
     onServerAction: (action, evt) => {
-      if (action === "STOP_TEST") terminateInterviewForProctoring(evt as ProctoringEventCode);
+      if (action === "STOP_TEST") terminateForProctoring(evt as ProctoringEventCode);
     },
   });
 
-  useEffect(() => {
-    if (targetJobTitle && INTERVIEW_ROLES.includes(targetJobTitle)) {
-      setJobRole(targetJobTitle);
-    }
-  }, [targetJobTitle]);
+  const deepgramSession = useDeepgramSession({
+    interviewId,
+    onPartial: setPartial,
+    onError: (err) => toast.error(err),
+    onFinal: async (text) => {
+      if (processingRef.current || !interviewId) return;
+      processingRef.current = true;
+
+      setPartial("");
+
+      let fillerAc = new AbortController();
+      try {
+        const fillerRes = await fetch("/api/interview/tts-filler", {
+          headers: { Authorization: `Bearer ${getAuthToken()}` },
+        }).then((r) => r.json() as Promise<{ text?: string }>);
+        fillerAc = new AbortController();
+        abortRef.current = fillerAc;
+        deepgramSession.setAbortController(fillerAc);
+        deepgramSession.transition("ai_thinking");
+        void speakText(fillerRes.text ?? "Hmm...", fillerAc.signal);
+      } catch {
+        fillerAc = new AbortController();
+      }
+
+      try {
+        const timeToSubmit = Math.floor((Date.now() - questionShownAtRef.current) / 1000);
+
+        const turnResult = await api.post<{
+          response: string;
+          sprint: number;
+          sprintName: string;
+          persona: string;
+          complete: boolean;
+          weakness?: Record<string, unknown>;
+          questionCount: number;
+          totalScore?: number;
+          badgeLevel?: string;
+          evaluation?: Record<string, unknown>;
+        }>("/api/interview/v2/turn", {
+          interviewId,
+          answer: text,
+          inputMode: "voice",
+          timeToSubmitSeconds: timeToSubmit,
+        });
+
+        fillerAc.abort();
+
+        setWeakness(turnResult.weakness ?? null);
+        setQuestionCount(turnResult.questionCount);
+        setSprint(turnResult.sprint);
+        setSprintName(turnResult.sprintName);
+        setPersona(turnResult.persona);
+        setCurrentQuestion(turnResult.response);
+        questionShownAtRef.current = Date.now();
+
+        if (turnResult.complete) {
+          setOutcome({
+            totalScore: turnResult.totalScore,
+            badgeLevel: turnResult.badgeLevel,
+            evaluation: turnResult.evaluation,
+          });
+          streamRef.current?.getTracks().forEach((t) => t.stop());
+          setCameraActive(false);
+          deepgramSession.stop();
+          onInterviewAwaitingReview?.();
+        } else {
+          await aiSpeakRef.current(turnResult.response);
+        }
+      } catch {
+        fillerAc.abort();
+        toast.error("Interview error — please try again.");
+        deepgramSession.transition("user_speaking");
+      } finally {
+        processingRef.current = false;
+      }
+    },
+  });
+
+  const aiSpeak = useCallback(
+    async (text: string) => {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      deepgramSession.setAbortController(ac);
+      deepgramSession.transition("ai_speaking");
+      try {
+        await speakText(text, ac.signal);
+      } catch {
+        /* fallback inside speakText */
+      }
+      if (!ac.signal.aborted) {
+        deepgramSession.transition("user_speaking");
+      }
+    },
+    [deepgramSession]
+  );
 
   useEffect(() => {
-    return () => {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (cameraActive && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [cameraActive]);
-
-  useEffect(() => {
-    if (!inTest) return;
-    const onPaste = () => {
-      pasteCountRef.current += 1;
-    };
-    document.addEventListener("paste", onPaste, true);
-    return () => document.removeEventListener("paste", onPaste, true);
-  }, [inTest]);
-
-  useEffect(() => {
-    if (question && interviewId) {
-      questionShownAtRef.current = Date.now();
-      pasteCountRef.current = 0;
-      setSubmitUnlockAt(0);
-      setLowTranscriptionConfidence(false);
-      rawTranscriptAtMicStopRef.current = null;
-      voiceConfidencesRef.current = [];
-    }
-  }, [question, questionIndex, interviewId]);
-
-  useEffect(() => {
-    if (submitUnlockAt <= Date.now()) return;
-    const id = window.setInterval(() => setTick((t) => t + 1), 200);
-    return () => window.clearInterval(id);
-  }, [submitUnlockAt, tick]);
+    aiSpeakRef.current = aiSpeak;
+  }, [aiSpeak]);
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: 640, height: 480 },
-        audio: false,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       streamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
       setCameraActive(true);
     } catch {
-      toast.error("Camera access denied. Please allow camera in browser settings and try again.");
+      toast.error("Camera access denied.");
     }
   };
 
@@ -240,303 +309,73 @@ const ExpertInterviewStage = ({
     setCameraActive(false);
   };
 
-  const toggleCamera = () => {
-    if (cameraActive) stopCamera();
-    else startCamera();
-  };
-
-  const applyVoiceCooldown = useCallback(() => {
-    setSubmitUnlockAt(Date.now() + 5000);
-  }, []);
-
-  const startVoiceInput = async () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      toast.error("Voice input is not supported in this browser. Use Chrome or Edge. You can type your answer.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
-
-      audioChunksRef.current = [];
-      recordedAudioRef.current = null;
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-      const recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-      recorder.start(1000);
-      mediaRecorderRef.current = recorder;
-
-      voiceConfidencesRef.current = [];
-      inputModeAnswerRef.current = "voice";
-
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-US";
-      recognition.onresult = (e: any) => {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (!e.results[i].isFinal) continue;
-          const alt = e.results[i][0];
-          const newText = (alt?.transcript ?? "").trim();
-          if (!newText) continue;
-          const conf = typeof alt?.confidence === "number" ? alt.confidence : 0.92;
-          if (conf < 0.6) {
-            toast.error(
-              "We could not reliably transcribe part of your response. Please type your answer or try speaking again.",
-            );
-            continue;
-          }
-          voiceConfidencesRef.current.push(conf);
-          setAnswer((prev) => (prev ? `${prev} ${newText}` : newText));
-        }
-      };
-      recognition.onerror = (e: any) => {
-        setMicActive(false);
-        recognitionRef.current = null;
-        if (e.error === "not-allowed") {
-          toast.error("Microphone access denied. You can type your answer.");
-        } else if (e.error !== "aborted" && e.error !== "no-speech") {
-          console.warn("[SpeechRecognition] error:", e.error);
-        }
-      };
-      recognition.onend = () => {
-        if (micActive && recognitionRef.current === recognition) {
-          setMicActive(false);
-          recognitionRef.current = null;
-        }
-      };
-      recognition.start();
-      recognitionRef.current = recognition;
-      setMicActive(true);
-    } catch {
-      toast.error("Microphone access denied. Please allow microphone to use voice input, or type your answer.");
-    }
-  };
-
-  const stopVoiceInput = (): Promise<Blob | null> => {
-    return new Promise((resolve) => {
-      const finish = (blob: Blob | null) => {
-        audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-        audioStreamRef.current = null;
-        if (recognitionRef.current) {
-          recognitionRef.current.stop();
-          recognitionRef.current = null;
-        }
-        setMicActive(false);
-        resolve(blob);
-      };
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        mediaRecorderRef.current.onstop = () => {
-          let blob: Blob | null = null;
-          if (audioChunksRef.current.length > 0) {
-            const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-            blob = new Blob(audioChunksRef.current, { type: mime });
-          }
-          mediaRecorderRef.current = null;
-          finish(blob);
-        };
-        mediaRecorderRef.current.stop();
-      } else {
-        finish(recordedAudioRef.current);
-      }
-    });
-  };
-
-  const finalizeVoiceSession = async () => {
-    const blob = await stopVoiceInput();
-    recordedAudioRef.current = blob;
-    const confs = voiceConfidencesRef.current;
-    if (confs.length > 0) {
-      const minC = Math.min(...confs);
-      const avg = confs.reduce((a, b) => a + b, 0) / confs.length;
-      setLowTranscriptionConfidence(minC >= 0.6 && minC < 0.85);
-      rawTranscriptAtMicStopRef.current = answerRef.current.trim();
-      applyVoiceCooldown();
-      return avg;
-    }
-    applyVoiceCooldown();
-    return undefined;
-  };
-
-  const toggleVoice = async () => {
-    if (micActive) {
-      await finalizeVoiceSession();
-    } else {
-      startVoiceInput();
-    }
-  };
-
-  const switchToTypedOnly = () => {
-    inputModeAnswerRef.current = "typed";
-    setLowTranscriptionConfidence(false);
-    toast.info("Using typed input for this answer.");
-  };
-
   const startInterview = async () => {
-    try {
-      await document.documentElement.requestFullscreen();
-    } catch {
-      /* ignore */
-    }
     setLoading(true);
     try {
-      const role = jobRole === "Other Technical Role" ? targetJobTitle || "Software Engineer" : jobRole;
+      await document.documentElement.requestFullscreen().catch(() => {});
+
       const res = await api.post<{
         interviewId: string;
         question: string;
-        questionIndex?: number;
-        totalQuestions?: number;
-      }>("/api/interview/start", { jobRole: role, experienceLevel });
-      setInterviewId(res.interviewId);
-      setQuestion(res.question);
-      setQuestionIndex(res.questionIndex ?? 1);
-      if (res.totalQuestions != null) setTotalQuestions(res.totalQuestions);
-      if (!cameraActive) startCamera();
-    } catch (error: unknown) {
-      const err = error as Error & { response?: { data?: { error?: string } } };
-      const msg = err.response?.data?.error ?? (error instanceof Error ? error.message : "Failed to start interview.");
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const sendAnswer = async () => {
-    if (!interviewId || !answer.trim()) return;
-    if (Date.now() < submitUnlockAt) return;
-    setLoading(true);
-    try {
-      let audioUrl: string | undefined;
-      if (micActive) {
-        await finalizeVoiceSession();
-      }
-      if (recordedAudioRef.current) {
-        const formData = new FormData();
-        formData.append("file", recordedAudioRef.current, "answer.webm");
-        const uploadRes = await api.post<{ url: string }>("/api/uploads", formData);
-        audioUrl = uploadRes.url;
-        recordedAudioRef.current = null;
-      }
-
-      const timeToSubmitSeconds = Math.max(
-        0,
-        Math.floor((Date.now() - questionShownAtRef.current) / 1000),
-      );
-      const pasteCount = pasteCountRef.current;
-      const trimmed = answerRef.current.trim();
-      const confs = voiceConfidencesRef.current;
-      const avgVoiceConfidence =
-        inputModeAnswerRef.current === "voice" && confs.length > 0
-          ? confs.reduce((a, b) => a + b, 0) / confs.length
-          : undefined;
-
-      const res = await api.post<any>("/api/interview/respond", {
-        interviewId,
-        answer: trimmed,
-        ...(audioUrl && { audioUrl: `${window.location.origin}${audioUrl}` }),
-        ...(avgVoiceConfidence != null ? { transcriptionConfidence: avgVoiceConfidence } : {}),
-        inputMode: inputModeAnswerRef.current,
-        rawTranscript: inputModeAnswerRef.current === "voice" ? rawTranscriptAtMicStopRef.current ?? trimmed : undefined,
-        answerLengthChars: trimmed.length,
-        pasteCount,
-        timeToSubmitSeconds,
+        sprint: number;
+        sprintName: string;
+        persona: string;
+      }>("/api/interview/v2/start", {
+        jobRole: jobRole === "Other Technical Role" ? targetJobTitle || "Software Engineer" : jobRole,
+        experienceLevel,
       });
 
-      setAnswer("");
-      inputModeAnswerRef.current = "typed";
-      setLowTranscriptionConfidence(false);
-      setSubmitUnlockAt(0);
+      setInterviewId(res.interviewId);
+      setSprint(res.sprint);
+      setSprintName(res.sprintName);
+      setPersona(res.persona);
+      setCurrentQuestion(res.question);
+      questionShownAtRef.current = Date.now();
 
-      if (res.completed) {
-        setResult(res);
-        stopCamera();
-        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-        setReviewModalOpen(true);
-        if (res.pendingReview) {
-          toast.info("Your interview was saved and is under review.");
-        }
-      } else {
-        setQuestion(res.question);
-        setQuestionIndex(res.questionIndex ?? 0);
-        if (res.totalQuestions != null) setTotalQuestions(res.totalQuestions);
-      }
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to submit answer.");
+      setStarted(true);
+
+      await startCamera();
+      await deepgramSession.start();
+
+      await aiSpeakRef.current(res.question);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to start interview.";
+      toast.error(msg);
+      setStarted(false);
     } finally {
       setLoading(false);
     }
   };
 
-  const submitReviewRequest = async () => {
-    if (!interviewId || !reviewReason.trim()) {
-      toast.error("Please enter a short reason.");
-      return;
-    }
-    setReviewSubmitting(true);
-    try {
-      await api.post(`/api/interview/${interviewId}/request-review`, { reason: reviewReason.trim() });
-      toast.success("Review request submitted.");
-      setReviewReason("");
-    } catch (e: any) {
-      toast.error(e?.message || "Request failed.");
-    } finally {
-      setReviewSubmitting(false);
-    }
-  };
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      deepgramSession.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, [deepgramSession]);
 
-  const secondsUntilSubmit = Math.max(0, Math.ceil((submitUnlockAt - Date.now()) / 1000));
-  const submitBlockedByCooldown = Date.now() < submitUnlockAt;
-  const notVerified = result?.badgeLevel === "Not Verified";
-  const showNumericScore = result && !result.pendingReview && !notVerified;
-
-  const dismissReviewModal = () => {
-    setReviewModalOpen(false);
-    onInterviewAwaitingReview?.();
-  };
+  const progressPct = Math.min((questionCount / 15) * 100, 100);
+  const evaluation = outcome?.evaluation;
 
   return (
     <div className="space-y-4">
-      <Dialog open={reviewModalOpen} onOpenChange={(o) => !o && dismissReviewModal()}>
-        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>Interview submitted</DialogTitle>
-            <DialogDescription className="text-base text-foreground/90 pt-2">
-              Your interview is under review. You will receive an email within 10–15 hours with your result.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button className="w-full sm:w-auto" onClick={dismissReviewModal}>
-              Got it
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-      <TestProctoringBar showTabSwitch={tabSwitchDetectionEnabled} />
-      {!effectivelyFullScreen && inTest && fullscreenRequired && (
-        <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
-            Enter full screen to proceed to the next question or submit.
-          </span>
-          <FullScreenMonitor active={inTest && fullscreenRequired} exitMessage="Please stay in full screen during the interview." />
-        </div>
-      )}
       <Card>
         <CardHeader>
-          <CardTitle>AI Expert Interview</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            AI Expert Interview
+          </CardTitle>
           <CardDescription>
-            Answer 11 questions (7 role-specific + 4 HR). Use voice or type. Camera is on for proctoring. Retakes: 30-day
-            cooldown before a new attempt (badge resets).
+            3-sprint adversarial interview — Project Defense → Foundations → System Design. Voice-first. Camera
+            required for proctoring.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {!interviewId ? (
+          {!started && (
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">Your role (for tailored questions)</label>
+                <label className="text-sm font-medium mb-2 block">Target role</label>
                 <Select value={jobRole} onValueChange={setJobRole}>
                   <SelectTrigger>
                     <SelectValue />
@@ -551,8 +390,11 @@ const ExpertInterviewStage = ({
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">Experience level (calibrates evaluation)</label>
-                <Select value={experienceLevel} onValueChange={(v) => setExperienceLevel(v as typeof experienceLevel)}>
+                <label className="text-sm font-medium mb-2 block">Experience level</label>
+                <Select
+                  value={experienceLevel}
+                  onValueChange={(v) => setExperienceLevel(v as "junior" | "mid" | "senior")}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -565,9 +407,9 @@ const ExpertInterviewStage = ({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={startInterview} disabled={loading}>
-                  {loading ? "Starting..." : "Start Interview"}
+              <div className="flex gap-2 flex-wrap">
+                <Button onClick={() => void startInterview()} disabled={loading} size="lg">
+                  {loading ? "Starting..." : "Start Interview →"}
                 </Button>
                 {onReturnToDashboard && (
                   <Button variant="outline" onClick={onReturnToDashboard}>
@@ -576,150 +418,138 @@ const ExpertInterviewStage = ({
                 )}
               </div>
             </div>
-          ) : (
-            <div className="space-y-6">
-              {question && (
-                <>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-muted-foreground">
-                      Question {questionIndex} of {totalQuestions}
-                    </span>
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-md border bg-muted/40">
-                      <span className="text-xs text-muted-foreground">Violations</span>
-                      <span
-                        className={`text-xs font-semibold uppercase tracking-wide ${
-                          violationSessionLevel === "high_attention"
-                            ? "text-red-500"
-                            : violationSessionLevel === "elevated"
-                              ? "text-amber-500"
-                              : "text-emerald-600"
-                        }`}
-                      >
-                        {violationSessionLevel === "high_attention"
-                          ? "High attention"
-                          : violationSessionLevel === "elevated"
-                            ? "Elevated"
-                            : "Baseline"}
-                      </span>
-                      <span className="text-xs font-mono tabular-nums text-muted-foreground">
-                        ({totalLoggedViolations})
-                      </span>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5 font-medium text-lg">{question}</div>
+          )}
 
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-                      <Video className="h-4 w-4" />
-                      Your camera — you&apos;ll see yourself as in a real interview
-                    </div>
-                    <div className="aspect-video max-w-2xl mx-auto rounded-xl border-2 border-primary/30 bg-muted overflow-hidden relative shadow-lg">
-                      {cameraActive ? (
-                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-muted-foreground p-6">
-                          <Video className="h-12 w-12 opacity-50" />
-                          <p className="text-sm font-medium">Camera off</p>
-                          <Button variant="secondary" size="sm" onClick={toggleCamera}>
-                            <Video className="h-4 w-4 mr-2" />
-                            Turn on camera
-                          </Button>
-                        </div>
-                      )}
-                      {cameraActive && (
-                        <div className="absolute bottom-2 right-2">
-                          <Button size="sm" variant="destructive" onClick={toggleCamera}>
-                            <VideoOff className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label className="text-sm font-medium block">Your answer — speak or type</label>
-                    <div className="flex flex-col sm:flex-row flex-wrap gap-3">
-                      <Button
-                        type="button"
-                        variant={micActive ? "destructive" : "default"}
-                        size="lg"
-                        className="shrink-0 font-semibold"
-                        onClick={toggleVoice}
-                      >
-                        {micActive ? (
-                          <>
-                            <MicOff className="h-5 w-5 mr-2" />
-                            Stop recording
-                          </>
-                        ) : (
-                          <>
-                            <Mic className="h-5 w-5 mr-2" />
-                            Click to speak your answer
-                          </>
-                        )}
-                      </Button>
-                      <Button type="button" variant="outline" size="lg" onClick={switchToTypedOnly}>
-                        Switch to typed input
-                      </Button>
-                      <span className="text-sm text-muted-foreground self-center">
-                        {micActive ? "Speaking… Your words appear below." : "Or type in the box below."}
-                      </span>
-                    </div>
-                    {lowTranscriptionConfidence && (
-                      <p className="text-sm text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-md px-3 py-2">
-                        Low confidence transcription — please review before submitting.
-                      </p>
-                    )}
-                    <Textarea
-                      value={answer}
-                      onChange={(e) => {
-                        inputModeAnswerRef.current = "typed";
-                        setAnswer(e.target.value);
-                      }}
-                      placeholder="Your answer will appear here when you speak, or type directly..."
-                      className="min-h-[120px] text-base"
-                      disabled={loading}
+          {started && !outcome && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-2 text-sm flex-wrap">
+                  <span className="font-semibold text-primary">Sprint {sprint}</span>
+                  <span className="text-muted-foreground">—</span>
+                  <span className="text-muted-foreground">{sprintName}</span>
+                  <span className="text-xs text-muted-foreground italic ml-2">{PERSONA_DESC[persona]}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all"
+                      style={{ width: `${progressPct}%` }}
                     />
-
-                    {answer.trim() && (
-                      <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-primary font-medium">
-                          <CheckCircle2 className="h-5 w-5" />
-                          Review your answer
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Read your answer above. Edit if needed. After voice input, wait a few seconds before you can
-                          submit.
-                        </p>
-                        {submitBlockedByCooldown && (
-                          <p className="text-sm font-medium text-primary">
-                            Review your answer — submitting in {secondsUntilSubmit}s
-                          </p>
-                        )}
-                        <Button
-                          onClick={sendAnswer}
-                          disabled={loading || !effectivelyFullScreen || submitBlockedByCooldown}
-                          size="lg"
-                        >
-                          {loading ? "Submitting..." : "Submit & go to next question"}
-                          <ArrowRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
                   </div>
-                </>
+                  <span className="text-xs text-muted-foreground tabular-nums">{questionCount}/15</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    violationSessionLevel === "high_attention"
+                      ? "bg-red-500"
+                      : violationSessionLevel === "elevated"
+                        ? "bg-amber-500"
+                        : "bg-green-500"
+                  }`}
+                />
+                <span>
+                  {violationSessionLevel === "high_attention"
+                    ? "High attention"
+                    : violationSessionLevel === "elevated"
+                      ? "Elevated"
+                      : "Proctoring baseline"}
+                </span>
+                <span className="tabular-nums">({totalLoggedViolations} alerts)</span>
+              </div>
+
+              <div className="aspect-video max-w-xs rounded-xl border-2 border-primary/20 bg-muted overflow-hidden relative">
+                {cameraActive ? (
+                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Button variant="secondary" size="sm" onClick={() => void startCamera()}>
+                      <Video className="h-4 w-4 mr-2" />
+                      Turn on camera
+                    </Button>
+                  </div>
+                )}
+                {cameraActive && (
+                  <button
+                    type="button"
+                    onClick={stopCamera}
+                    className="absolute top-2 right-2 p-1 rounded bg-black/50 text-white"
+                    aria-label="Stop camera"
+                  >
+                    <VideoOff className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {currentQuestion && (
+                <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5">
+                  <p className="text-xs text-primary font-medium mb-2 uppercase tracking-wide">AI is asking</p>
+                  <p className="text-base font-medium">{currentQuestion}</p>
+                </div>
               )}
+
+              <div className="flex items-center gap-3 text-sm flex-wrap">
+                <div
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
+                    deepgramSession.floor === "user_speaking"
+                      ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300"
+                      : deepgramSession.floor === "ai_thinking"
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                        : deepgramSession.floor === "ai_speaking"
+                          ? "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                          : "border-muted bg-muted/30 text-muted-foreground"
+                  }`}
+                >
+                  <Mic className="h-3.5 w-3.5 shrink-0" />
+                  <span className="text-xs font-medium uppercase tracking-wide">
+                    {deepgramSession.floor === "user_speaking"
+                      ? "Listening to you"
+                      : deepgramSession.floor === "ai_thinking"
+                        ? "AI thinking..."
+                        : deepgramSession.floor === "ai_speaking"
+                          ? "AI speaking"
+                          : "Idle"}
+                  </span>
+                </div>
+                {weakness?.severity === "high" && (
+                  <span className="text-xs px-2 py-1 rounded-full bg-red-500/10 text-red-600 border border-red-500/20 animate-pulse">
+                    Probing weakness
+                  </span>
+                )}
+              </div>
+
+              {partial && (
+                <div className="rounded-lg border bg-muted/30 px-4 py-2 text-sm text-muted-foreground italic">
+                  {partial}
+                </div>
+              )}
+
+              {deepgramSession.floor === "user_speaking" && (
+                <div className="flex items-end gap-1 h-8">
+                  {Array.from({ length: 20 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 bg-primary/60 rounded-full transition-all duration-75 min-h-[4px]"
+                      style={{
+                        height: `${Math.max(15, Math.min(100, deepgramSession.micLevel * 100 + (i % 3) * 5))}%`,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+
             </div>
           )}
 
-          {result && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
-              {result.terminatedByProctoring ? (
+          {outcome && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-5 space-y-3">
+              {outcome.terminatedByProctoring ? (
                 <>
                   <h4 className="font-semibold text-destructive">Interview ended</h4>
                   <p className="text-sm text-muted-foreground">
-                    {result.candidateMessage ||
-                      "This session was stopped after repeated integrity alerts. Use Return to Dashboard if you need to leave."}
+                    Session stopped after repeated integrity alerts.
                   </p>
                   {onReturnToDashboard && (
                     <Button variant="outline" onClick={onReturnToDashboard}>
@@ -727,111 +557,49 @@ const ExpertInterviewStage = ({
                     </Button>
                   )}
                 </>
-              ) : result.pendingReview ? (
-                <>
-                  <h4 className="font-semibold">Under review</h4>
-                  <span className="inline-block text-xs font-semibold uppercase tracking-wide bg-muted text-muted-foreground px-2 py-1 rounded">
-                    Pending Review
-                  </span>
-                  <p className="text-sm text-muted-foreground">
-                    {result.candidateMessage ||
-                      "Your interview responses have been recorded successfully. Our evaluation system encountered a technical issue — your interview has been flagged for manual review and you will receive your result within 24 hours. This does not affect your application status."}
-                  </p>
-                  <p className="text-sm font-medium">Expected result: within 24 hours</p>
-                </>
               ) : (
                 <>
-                  <h4 className="font-semibold">Interview completed</h4>
-                  <div className="flex flex-wrap items-center gap-3">
-                    {showNumericScore && (
+                  <h4 className="font-semibold">Interview complete</h4>
+                  <div className="flex flex-wrap gap-3 items-center">
+                    {outcome.totalScore != null && (
                       <span className="text-sm">
-                        Total score: <strong className="text-lg">{result.totalScore ?? 0}/100</strong>
+                        Score:{" "}
+                        <strong className="text-lg">
+                          {outcome.totalScore}/100
+                        </strong>
                       </span>
                     )}
-                    {notVerified && (
-                      <span className="text-sm text-muted-foreground">
-                        You did not reach the verification threshold this time — see feedback below.
-                      </span>
-                    )}
-                    <span className="badge bg-primary/20 text-primary px-2 py-0.5 rounded">
-                      {result.badgeLevel ?? "Not Verified"}
+                    <span className="px-2 py-0.5 rounded bg-primary/20 text-primary text-sm">
+                      {outcome.badgeLevel || "Processing..."}
                     </span>
                   </div>
-                  {result.experienceLevel && (
-                    <p className="text-xs text-muted-foreground border-l-2 border-primary/30 pl-2">
-                      This score reflects performance against a{" "}
-                      {result.experienceLevel === "junior"
-                        ? "Junior"
-                        : result.experienceLevel === "senior"
-                          ? "Senior"
-                          : "Mid-Level"}{" "}
-                      benchmark. Scores are not directly comparable across experience levels.
-                    </p>
+                  {evaluation?.final_verdict != null && (
+                    <p className="text-sm text-muted-foreground">{String(evaluation.final_verdict)}</p>
                   )}
-                  {result.evaluation && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                      {result.evaluation.concept_score != null && (
-                        <div className="rounded bg-muted/50 px-2 py-1">
-                          <span className="text-muted-foreground">Concept</span> {result.evaluation.concept_score}
-                        </div>
-                      )}
-                      {result.evaluation.reasoning_score != null && (
-                        <div className="rounded bg-muted/50 px-2 py-1">
-                          <span className="text-muted-foreground">Reasoning</span> {result.evaluation.reasoning_score}
-                        </div>
-                      )}
-                      {result.evaluation.communication_score != null && (
-                        <div className="rounded bg-muted/50 px-2 py-1">
-                          <span className="text-muted-foreground">Communication</span>{" "}
-                          {result.evaluation.communication_score}
-                        </div>
-                      )}
-                      {result.evaluation.confidence_score != null && (
-                        <div className="rounded bg-muted/50 px-2 py-1">
-                          <span className="text-muted-foreground">Confidence</span> {result.evaluation.confidence_score}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {result.evaluation?.final_verdict && (
-                    <p className="text-sm">{result.evaluation.final_verdict}</p>
-                  )}
-                  {Array.isArray(result.evaluation?.strengths) && result.evaluation.strengths.length > 0 && (
+                  {Array.isArray(evaluation?.strengths) && (evaluation.strengths as unknown[]).length > 0 && (
                     <div>
-                      <span className="text-sm font-medium text-emerald-600">What you did well</span>
+                      <p className="text-sm font-medium text-green-600 mb-1">What you did well</p>
                       <ul className="list-disc list-inside text-sm text-muted-foreground">
-                        {result.evaluation.strengths.map((s: string) => (
+                        {(evaluation.strengths as string[]).map((s) => (
                           <li key={s}>{s}</li>
                         ))}
                       </ul>
                     </div>
                   )}
-                  {Array.isArray(result.evaluation?.weaknesses) && result.evaluation.weaknesses.length > 0 && (
+                  {Array.isArray(evaluation?.weaknesses) && (evaluation.weaknesses as unknown[]).length > 0 && (
                     <div>
-                      <span className="text-sm font-medium text-amber-600">Areas to improve</span>
+                      <p className="text-sm font-medium text-amber-600 mb-1">Areas to improve</p>
                       <ul className="list-disc list-inside text-sm text-muted-foreground">
-                        {result.evaluation.weaknesses.map((w: string) => (
+                        {(evaluation.weaknesses as string[]).map((w) => (
                           <li key={w}>{w}</li>
                         ))}
                       </ul>
                     </div>
                   )}
-
-                  {!result.pendingReview && interviewId && (
-                    <div className="pt-2 border-t space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        Request a one-time manual review within 7 days if you believe your interview was scored unfairly.
-                      </p>
-                      <Textarea
-                        placeholder="Brief reason (max 500 characters)"
-                        value={reviewReason}
-                        onChange={(e) => setReviewReason(e.target.value.slice(0, 500))}
-                        className="min-h-[72px]"
-                      />
-                      <Button variant="outline" size="sm" onClick={submitReviewRequest} disabled={reviewSubmitting}>
-                        {reviewSubmitting ? "Submitting…" : "Request manual review"}
-                      </Button>
-                    </div>
+                  {onReturnToDashboard && (
+                    <Button variant="outline" onClick={onReturnToDashboard} className="mt-2">
+                      Return to Dashboard
+                    </Button>
                   )}
                 </>
               )}
@@ -841,6 +609,4 @@ const ExpertInterviewStage = ({
       </Card>
     </div>
   );
-};
-
-export default ExpertInterviewStage;
+}

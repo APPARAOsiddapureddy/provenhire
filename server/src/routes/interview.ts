@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireAuth, requireJobSeeker, AuthedRequest } from "../middleware/auth.js";
@@ -24,8 +24,163 @@ import {
 } from "../services/aiInterviewProctoringRisk.service.js";
 import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
 import { recordAiInterviewSubmittedForAdminReview } from "../services/humanInterviewGate.service.js";
+import {
+  startAdversarialInterview,
+  processTurn,
+  handlePartialTranscript,
+} from "../services/interview/orchestrator.js";
 
 export const interviewRouter = Router();
+
+const FILLERS = ["Hmm, interesting.", "Got it.", "I see.", "That makes sense.", "Alright."];
+
+// ── V2 adversarial voice interview + media helpers (register before /:id routes) ──
+
+interviewRouter.get("/deepgram-token", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res) => {
+  const key = process.env.DEEPGRAM_API_KEY;
+  if (!key) return res.status(503).json({ error: "Deepgram not configured" });
+  return res.json({ token: key });
+});
+
+interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRequest, res: Response) => {
+  const text = (req.body as { text?: string })?.text;
+  if (!text?.trim()) return res.status(400).json({ error: "text required" });
+
+  const elevenKey = process.env.ELEVENLABS_API_KEY;
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
+
+  if (!elevenKey) {
+    return res.status(503).json({ error: "TTS not configured" });
+  }
+
+  try {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
+      method: "POST",
+      headers: {
+        "xi-api-key": elevenKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_turbo_v2_5",
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+      }),
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({ error: "TTS failed" });
+    }
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-cache");
+
+    if (!response.body) {
+      return res.status(502).json({ error: "TTS empty body" });
+    }
+
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+    res.end();
+  } catch (e) {
+    console.error("[interview/tts]", e);
+    return res.status(502).json({ error: "TTS unavailable" });
+  }
+});
+
+interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res) => {
+  const filler = FILLERS[Math.floor(Math.random() * FILLERS.length)]!;
+  return res.json({ text: filler });
+});
+
+interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const schema = z.object({
+      jobRole: z.string().min(1),
+      experienceLevel: z.enum(["junior", "mid", "senior"]).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    const { jobRole, experienceLevel = "mid" } = parsed.data;
+
+    const interview = await prisma.interview.create({
+      data: {
+        userId: req.user!.id,
+        jobRole,
+        experienceLevel,
+        questionPlan: [],
+        questionIndex: 0,
+        status: "in_progress",
+      },
+    });
+
+    const result = await startAdversarialInterview(interview.id);
+
+    return res.json({
+      interviewId: interview.id,
+      question: result.question,
+      sprint: result.sprint,
+      sprintName: result.sprintName,
+      persona: result.persona,
+      totalSprints: 3,
+      questionsPerSprint: 5,
+    });
+  } catch (e) {
+    console.error("[interview/v2/start]", e);
+    return res.status(500).json({ error: "Failed to start interview" });
+  }
+});
+
+interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const schema = z.object({
+      interviewId: z.string().min(1),
+      answer: z.string().min(1),
+      audioUrl: z.string().optional(),
+      transcriptionConfidence: z.number().optional(),
+      inputMode: z.enum(["voice", "typed"]).optional(),
+      pasteCount: z.number().int().optional(),
+      timeToSubmitSeconds: z.number().int().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    const result = await processTurn(parsed.data.interviewId, parsed.data.answer, req.user!.id, {
+      audioUrl: parsed.data.audioUrl,
+      transcriptionConfidence: parsed.data.transcriptionConfidence,
+      inputMode: parsed.data.inputMode,
+      pasteCount: parsed.data.pasteCount,
+      timeToSubmitSeconds: parsed.data.timeToSubmitSeconds,
+    });
+
+    return res.json(result);
+  } catch (e) {
+    console.error("[interview/v2/turn]", e);
+    const msg = e instanceof Error ? e.message : "Failed to process turn";
+    if (msg === "Interview not found") return res.status(404).json({ error: msg });
+    return res.status(500).json({ error: "Failed to process turn" });
+  }
+});
+
+interviewRouter.post("/v2/partial", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const interviewId = (req.body as { interviewId?: string })?.interviewId;
+    const text = (req.body as { text?: string })?.text;
+    if (!interviewId || !text) return res.json({ ok: true });
+
+    void handlePartialTranscript(interviewId, text, req.user!.id).catch((err) =>
+      console.error("[interview/v2/partial]", err)
+    );
+
+    return res.json({ ok: true });
+  } catch {
+    return res.json({ ok: true });
+  }
+});
 
 const QUESTION_BANK_SOURCE = (process.env.QUESTION_BANK_SOURCE || "static").toLowerCase();
 
