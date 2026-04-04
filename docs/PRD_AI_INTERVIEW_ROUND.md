@@ -1,6 +1,6 @@
 # PRD: AI Expert Interview Round
 
-**Status:** **Pro Upgrade implemented in codebase** (Mar 2026; doc sync Apr 2026). Deploy checklist: apply Prisma migration `20260316150000_ai_interview_pro_upgrade`, run `cd server && npm run seed:interview-bank` if using `QUESTION_BANK_SOURCE=db`, set server env `QUESTION_BANK_SOURCE` (`static` default).  
+**Status:** **Pro Upgrade partially implemented** — see **`docs/PRD.md` §3.4** for the canonical “what ships vs what is open” matrix for the AI interview (v2 adversarial flow, voice, proctoring, scoring). This document remains the deep spec for question bank, per-question scoring, `pending_review`, and the 24-task checklist. Deploy checklist: apply Prisma migration `20260316150000_ai_interview_pro_upgrade`, run `cd server && npm run seed:interview-bank` if using `QUESTION_BANK_SOURCE=db`, set server env `QUESTION_BANK_SOURCE` (`static` default).  
 **Scope:** Verification stage `expert_interview` (AI interview), not DSA or human expert interviews.  
 **Model:** Gemini 2.5 Flash via `@google/genai`  
 **Weight in final technical score:** 40% (see `server/src/services/verificationScoring.service.ts`)

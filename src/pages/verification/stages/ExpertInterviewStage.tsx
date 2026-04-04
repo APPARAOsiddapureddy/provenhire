@@ -9,7 +9,7 @@ import { useDeepgramSession } from "@/hooks/useDeepgramSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
-import { Mic, Video, VideoOff, Shield } from "lucide-react";
+import { Mic, Video, VideoOff, Shield, RotateCcw, Radio } from "lucide-react";
 
 const PERSONA_DESC: Record<string, string> = {
   curious_lead: "Exploring your ownership & decisions",
@@ -21,6 +21,12 @@ const EXPERIENCE_OPTIONS = [
   { value: "junior", label: "0–2 years (Junior)" },
   { value: "mid", label: "2–5 years (Mid)" },
   { value: "senior", label: "5+ years (Senior)" },
+] as const;
+
+const SPRINT_STEPS = [
+  { num: 1, short: "Defense" },
+  { num: 2, short: "Foundations" },
+  { num: 3, short: "Systems" },
 ] as const;
 
 const INTERVIEW_ROLES = [
@@ -176,6 +182,7 @@ export default function ExpertInterviewStage({
   const [partial, setPartial] = useState("");
   const [weakness, setWeakness] = useState<Record<string, unknown> | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const [turnInFlight, setTurnInFlight] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -232,6 +239,7 @@ export default function ExpertInterviewStage({
     onFinal: async (text) => {
       if (processingRef.current || !interviewId) return;
       processingRef.current = true;
+      setTurnInFlight(true);
 
       setPartial("");
 
@@ -299,6 +307,7 @@ export default function ExpertInterviewStage({
         deepgramSession.transition("user_speaking");
       } finally {
         processingRef.current = false;
+        setTurnInFlight(false);
       }
     },
   });
@@ -321,6 +330,13 @@ export default function ExpertInterviewStage({
     },
     [deepgramSession]
   );
+
+  const replayQuestion = useCallback(() => {
+    if (!currentQuestion.trim()) return;
+    if (deepgramSession.floor === "ai_thinking" || deepgramSession.floor === "ai_speaking") return;
+    if (turnInFlight) return;
+    void aiSpeak(currentQuestion);
+  }, [aiSpeak, currentQuestion, deepgramSession.floor, turnInFlight]);
 
   useEffect(() => {
     aiSpeakRef.current = aiSpeak;
@@ -456,28 +472,60 @@ export default function ExpertInterviewStage({
           )}
 
           {started && !outcome && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-2 text-sm flex-wrap">
-                  <span className="font-semibold text-primary">Sprint {sprint}</span>
-                  <span className="text-muted-foreground">—</span>
-                  <span className="text-muted-foreground">{sprintName}</span>
-                  <span className="text-xs text-muted-foreground italic ml-2">{PERSONA_DESC[persona]}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all"
-                      style={{ width: `${progressPct}%` }}
-                    />
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Sprints</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SPRINT_STEPS.map((step) => {
+                      const active = sprint === step.num;
+                      const done = sprint > step.num;
+                      return (
+                        <div
+                          key={step.num}
+                          className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                            active
+                              ? "border-primary bg-primary/15 text-primary shadow-sm"
+                              : done
+                                ? "border-primary/20 bg-muted/50 text-muted-foreground"
+                                : "border-muted bg-muted/20 text-muted-foreground"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] tabular-nums ${
+                              active ? "bg-primary text-primary-foreground" : done ? "bg-primary/30 text-primary" : "bg-muted"
+                            }`}
+                          >
+                            {step.num}
+                          </span>
+                          <span>{step.short}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <span className="text-xs text-muted-foreground tabular-nums">{questionCount}/15</span>
+                </div>
+                <div className="flex flex-col items-start sm:items-end gap-1">
+                  <div className="flex items-center gap-2 text-sm flex-wrap">
+                    <span className="font-semibold text-primary">Sprint {sprint}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">{sprintName}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground italic">{PERSONA_DESC[persona]}</span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="w-28 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground tabular-nums">{questionCount}/15</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
                 <div
-                  className={`w-1.5 h-1.5 rounded-full ${
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                     violationSessionLevel === "high_attention"
                       ? "bg-red-500"
                       : violationSessionLevel === "elevated"
@@ -495,96 +543,160 @@ export default function ExpertInterviewStage({
                 <span className="tabular-nums">({totalLoggedViolations} alerts)</span>
               </div>
 
-              <div className="aspect-video max-w-xs rounded-xl border-2 border-primary/20 bg-muted overflow-hidden relative">
-                {cameraActive ? (
-                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Button variant="secondary" size="sm" onClick={() => void startCamera()}>
-                      <Video className="h-4 w-4 mr-2" />
-                      Turn on camera
-                    </Button>
+              <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
+                <div className="lg:col-span-5 space-y-3">
+                  <div className="rounded-xl border-2 border-primary/20 bg-muted/30 overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/60 bg-background/50">
+                      <span className="text-xs font-medium text-muted-foreground">Camera preview</span>
+                      {cameraActive ? (
+                        <span className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400">Live</span>
+                      ) : (
+                        <span className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">Required</span>
+                      )}
+                    </div>
+                    <div className="aspect-video relative bg-black/40">
+                      {cameraActive ? (
+                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center">
+                          <Video className="h-10 w-10 text-muted-foreground opacity-60" />
+                          <p className="text-xs text-muted-foreground max-w-[14rem]">
+                            Turn on your camera for proctoring. Your video is not uploaded as a recording.
+                          </p>
+                          <Button variant="secondary" size="sm" onClick={() => void startCamera()}>
+                            <Video className="h-4 w-4 mr-2" />
+                            Enable camera
+                          </Button>
+                        </div>
+                      )}
+                      {cameraActive && (
+                        <button
+                          type="button"
+                          onClick={stopCamera}
+                          className="absolute top-2 right-2 p-1.5 rounded-md bg-black/60 text-white hover:bg-black/80"
+                          aria-label="Stop camera"
+                        >
+                          <VideoOff className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                )}
-                {cameraActive && (
-                  <button
-                    type="button"
-                    onClick={stopCamera}
-                    className="absolute top-2 right-2 p-1 rounded bg-black/50 text-white"
-                    aria-label="Stop camera"
-                  >
-                    <VideoOff className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-
-              {currentQuestion && (
-                <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5">
-                  <p className="text-xs text-primary font-medium mb-2 uppercase tracking-wide">AI is asking</p>
-                  <p className="text-base font-medium">{currentQuestion}</p>
                 </div>
-              )}
 
-              <div className="flex items-center gap-3 text-sm flex-wrap">
-                <div
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
-                    deepgramSession.floor === "user_speaking"
-                      ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300"
-                      : deepgramSession.floor === "ai_thinking"
-                        ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                        : deepgramSession.floor === "ai_speaking"
-                          ? "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-                          : "border-muted bg-muted/30 text-muted-foreground"
-                  }`}
-                >
-                  <Mic className="h-3.5 w-3.5 shrink-0" />
-                  <span className="text-xs font-medium uppercase tracking-wide">
-                    {deepgramSession.floor === "user_speaking"
-                      ? "Listening to you"
-                      : deepgramSession.floor === "ai_thinking"
-                        ? "AI thinking..."
-                        : deepgramSession.floor === "ai_speaking"
-                          ? "AI speaking"
-                          : "Idle"}
-                  </span>
-                  {deepgramSession.sttMode === "browser" && (
-                    <span className="text-[10px] font-normal normal-case opacity-80 border-l pl-2 ml-0.5 border-current/30">
-                      Browser mic
-                    </span>
+                <div className="lg:col-span-7 space-y-4 min-h-[12rem]">
+                  {currentQuestion && (
+                    <div className="rounded-xl border-2 border-primary/25 bg-gradient-to-br from-primary/8 to-background p-5 md:p-6 shadow-sm">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                        <p className="text-xs text-primary font-semibold uppercase tracking-wide">AI is asking</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 gap-1.5"
+                          onClick={() => replayQuestion()}
+                          disabled={
+                            !currentQuestion.trim() ||
+                            deepgramSession.floor === "ai_thinking" ||
+                            deepgramSession.floor === "ai_speaking" ||
+                            turnInFlight
+                          }
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Replay audio
+                        </Button>
+                      </div>
+                      <p className="text-base md:text-lg font-medium leading-relaxed text-foreground">{currentQuestion}</p>
+                    </div>
                   )}
-                  {deepgramSession.sttMode === "deepgram" && (
-                    <span className="text-[10px] font-normal normal-case opacity-80 border-l pl-2 ml-0.5 border-current/30">
-                      Cloud STT
-                    </span>
-                  )}
+
+                  <div className="rounded-xl border bg-card p-4 space-y-4 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <Radio className="h-4 w-4 text-primary shrink-0" />
+                      <h3 className="text-sm font-semibold">Voice session</h3>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border ${
+                          deepgramSession.floor === "user_speaking"
+                            ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-300 ring-2 ring-green-500/20"
+                            : deepgramSession.floor === "ai_thinking"
+                              ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                              : deepgramSession.floor === "ai_speaking"
+                                ? "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/15"
+                                : "border-muted bg-muted/40 text-muted-foreground"
+                        }`}
+                      >
+                        <Mic
+                          className={`h-4 w-4 shrink-0 ${
+                            deepgramSession.floor === "ai_speaking" ? "opacity-60" : ""
+                          }`}
+                        />
+                        <span className="text-xs font-semibold uppercase tracking-wide">
+                          {deepgramSession.floor === "user_speaking"
+                            ? "Listening — speak your answer"
+                            : deepgramSession.floor === "ai_thinking"
+                              ? "AI thinking…"
+                              : deepgramSession.floor === "ai_speaking"
+                                ? "AI speaking — listen"
+                                : deepgramSession.sttMode === "idle"
+                                  ? "Starting microphone…"
+                                  : "Ready"}
+                        </span>
+                        {deepgramSession.sttMode === "browser" && (
+                          <span className="text-[10px] font-normal normal-case opacity-85 border-l pl-2 ml-1 border-current/25">
+                            Browser mic
+                          </span>
+                        )}
+                        {deepgramSession.sttMode === "deepgram" && (
+                          <span className="text-[10px] font-normal normal-case opacity-85 border-l pl-2 ml-1 border-current/25">
+                            Cloud STT
+                          </span>
+                        )}
+                      </div>
+                      {weakness?.severity === "high" && (
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 border border-red-500/25">
+                          Probing weakness
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Input level</p>
+                      <div className="flex items-end gap-0.5 h-10 px-1">
+                        {Array.from({ length: 24 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={`flex-1 rounded-full transition-all duration-75 min-h-[5px] ${
+                              deepgramSession.floor === "user_speaking" ? "bg-primary/70" : "bg-muted-foreground/25"
+                            }`}
+                            style={{
+                              height: `${Math.max(
+                                12,
+                                deepgramSession.floor === "user_speaking"
+                                  ? Math.min(100, deepgramSession.micLevel * 100 + (i % 3) * 6)
+                                  : 14
+                              )}%`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {deepgramSession.floor === "user_speaking"
+                          ? "Bars move when the mic hears you."
+                          : "When the AI finishes, you can speak again."}
+                      </p>
+                    </div>
+
+                    {partial && (
+                      <div className="rounded-lg border border-dashed border-primary/25 bg-muted/20 px-3 py-2">
+                        <p className="text-[10px] font-medium text-primary uppercase tracking-wide mb-1">Live transcript</p>
+                        <p className="text-sm text-muted-foreground italic leading-snug">{partial}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {weakness?.severity === "high" && (
-                  <span className="text-xs px-2 py-1 rounded-full bg-red-500/10 text-red-600 border border-red-500/20 animate-pulse">
-                    Probing weakness
-                  </span>
-                )}
               </div>
-
-              {partial && (
-                <div className="rounded-lg border bg-muted/30 px-4 py-2 text-sm text-muted-foreground italic">
-                  {partial}
-                </div>
-              )}
-
-              {deepgramSession.floor === "user_speaking" && (
-                <div className="flex items-end gap-1 h-8">
-                  {Array.from({ length: 20 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="flex-1 bg-primary/60 rounded-full transition-all duration-75 min-h-[4px]"
-                      style={{
-                        height: `${Math.max(15, Math.min(100, deepgramSession.micLevel * 100 + (i % 3) * 5))}%`,
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-
             </div>
           )}
 

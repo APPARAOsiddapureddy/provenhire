@@ -1,6 +1,6 @@
 # ProvenHire — Product Requirements Document (PRD)
 
-**Version:** 6.0  
+**Version:** 6.1  
 **Last Updated:** April 2026  
 **Status:** Current
 
@@ -60,6 +60,92 @@ No Stage 5 (Human Expert Interview) for non-technical track.
 - `pending` — In progress
 - `verified` — All stages passed (technical: through Stage 4 or 5)
 - `expert_verified` — Passed Stage 5 human expert interview
+
+### 3.4 AI Expert Interview (Stage 4) — Specification & implementation status
+
+This section is the **single place** in the main PRD for what the AI interview is supposed to do, what is live in the product today, and what remains from the extended “Pro Upgrade” write-up in **`docs/PRD_AI_INTERVIEW_ROUND.md`**.
+
+#### 3.4.1 Purpose and learner promise
+
+- **Goal:** A structured, **voice-first**, technical interview that feeds the verification scorecard (**40%** of the technical blend with Stages 2–3; see §3.1 and `buildTechnicalScorecard()`).
+- **Format (live product):** **Adversarial v2** — three **sprints** (Project Defense → Foundations → System Design), up to **15** total exchanges, with dynamic follow-ups (weakness / discrepancy / reasoning probes) driven by Gemini.
+- **Trust:** Camera and tab/proctoring signals are required during the session; outcomes can be flagged for admin review when integrity or anti-gaming rules fire.
+
+#### 3.4.2 Interview engines in the codebase
+
+| Track | Entry | Behavior |
+|-------|--------|----------|
+| **Primary (verification UI)** | `POST /api/interview/v2/start`, `POST /api/interview/v2/turn`, `POST /api/interview/v2/partial` | Orchestrator in `server/src/services/interview/orchestrator.ts`: sprint personas, static openers per sprint, `processTurn` / agents for follow-ups and final evaluation. Front end: `src/pages/verification/stages/ExpertInterviewStage.tsx`. |
+| **Legacy / question-plan** | `POST /api/interview/start`, `POST /api/interview/respond`, etc. | Older linear plan with optional **`QUESTION_BANK_SOURCE=db`** (`InterviewQuestionBank`). Still present for compatibility; the verification flow uses **v2** for the AI Expert Interview stage. |
+
+#### 3.4.3 Voice, TTS, and environment
+
+| Capability | Implemented | Notes |
+|------------|-------------|--------|
+| **Speech-to-text (live)** | Yes | **Deepgram** WebSocket when `DEEPGRAM_API_KEY` is set; otherwise **Web Speech API** (Chrome/Edge) with live partials and `/v2/partial` prefetch. Hook: `src/hooks/useDeepgramSession.ts`. |
+| **TTS (question + fillers)** | Yes | **ElevenLabs** streaming MP3 when `ELEVENLABS_API_KEY` (and voice id) set; otherwise **`speechSynthesis`** fallback. Routes: `GET/POST` patterns under `server/src/routes/interview.ts` (`/tts`, `/tts-filler`). |
+| **Whisper / post-hoc STT on audio** | No | Not in the v2 voice path; gap vs older gap-analysis doc for “upload then transcribe” pipelines. |
+| **5s review / edit transcript before send** | No | Spec’d in `PRD_AI_INTERVIEW_ROUND.md` §5 for typed+voice hybrid; v2 is continuous voice turn submission without that gate. |
+| **Typed answer toggle** | No | v2 is voice-primary only from the candidate side during the live session. |
+
+**Production checklist (operator):** set `GEMINI_API_KEY`, optional `DEEPGRAM_API_KEY`, optional `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` on the API service so candidates get cloud STT/TTS instead of browser-only fallbacks.
+
+#### 3.4.4 Proctoring, anti-gaming, and integrity
+
+| Area | Status | Implementation pointers |
+|------|--------|-------------------------|
+| Tab switch, fullscreen, copy/paste, devtools (feature flags) | Live | `useProctoringRiskMonitor` in `ExpertInterviewStage`; events logged per session. |
+| Face / phone hints | Live | `useFaceAndPhoneDetection` with optional server `STOP_TEST` when strict. |
+| Session labels (baseline / elevated / high attention) | Live | Driven by logged violation counts, not a single “risk score” as the learner-facing number. |
+| Anti-gaming scoring | Partial / live | `analyzeAnswerAntiGaming` and merge into `integrityFlag` / interview outcome (see `interview.ts` + services). |
+| Admin override + `ProctoringReviewLog` | Per extended PRD | Model/checklist in `PRD_AI_INTERVIEW_ROUND.md`; confirm admin UI coverage separately. |
+| **`pending_review`** when Gemini eval fails | Partial | Canonical fallback and admin re-eval are spec’d in `PRD_AI_INTERVIEW_ROUND.md` §3; wire-up should be verified per release. |
+
+#### 3.4.5 Scoring, shortlist, and what the candidate sees
+
+- **Per-session score:** v2 completion returns `totalScore`, `badgeLevel`, and structured **`evaluation`** (verdict, strengths, weaknesses) consistent with `evaluateFullInterview` / aggregates.
+- **Shortlist gate:** Stage 4 contributes **0–100** into the technical scorecard; combined blend and floors (e.g. AI interview **≥ 60**) — §3.1.
+- **Candidate explainability:** Completion UI shows badge, score, verdict, strengths, and improvement bullets — aligned with §7 of the extended PRD where implemented; **per-question breakdown** remains admin-only per spec.
+
+#### 3.4.6 API surface (AI interview, v2 + media)
+
+| Method | Path | Role |
+|--------|------|------|
+| POST | `/api/interview/v2/start` | Create session + first sprint question (auth, job seeker). |
+| POST | `/api/interview/v2/turn` | Submit answer (`inputMode: voice`), receive next question or completion. |
+| POST | `/api/interview/v2/partial` | Optional prefetch while user is still speaking. |
+| GET | `/api/interview/deepgram-token` | Returns `{ token }` or `{ token: null }` for browser STT fallback. |
+| POST | `/api/interview/tts` | MP3 stream or JSON `{ fallback: true }` for browser TTS. |
+| GET | `/api/interview/tts-filler` | Short filler line while model thinks. |
+
+#### 3.4.7 Implementation status matrix (summary)
+
+| Item | Status |
+|------|--------|
+| 3-sprint adversarial v2 flow | Done |
+| Role + experience level on start | Done |
+| Cloud STT/TTS + browser fallbacks | Done |
+| Camera + proctoring hooks + face/phone | Done |
+| Final Gemini evaluation + badge/score UI | Done |
+| Question bank DB + admin CRUD | Partial (schema + legacy plan path; not driving v2 orchestrator) |
+| Per-question `InterviewQuestionResult` rows | Partial / verify against v2 finalize path |
+| Transcript confidence + edit window + typed mode | Not done (v2) |
+| Whisper on recorded audio | Not done |
+| Async queue (BullMQ) for STT/eval | Not done |
+| Full admin pending-review + re-eval UX | Partial — see extended PRD |
+
+#### 3.4.8 Target UI/UX (product direction)
+
+The live screen should read as **voice-first**, not a static form. Recommended patterns (many can ship incrementally):
+
+1. **Split layout (large viewports):** Proctoring + camera in one column; **question + voice hub** in the other so the question is not a thin band lost in empty space.
+2. **Sprint strip:** Always show three sprint markers and highlight the active sprint so “where am I?” is obvious.
+3. **Voice hub:** Large state pill (**Listening / AI speaking / Thinking**), visible **mic level** when listening, and a **Replay question** control (TTS again) when audio was missed or blocked.
+4. **Secondary cues:** Live transcript line (“You said…”) when partial STT is available; optional subtle **speaker** icon animation during TTS.
+5. **Camera:** Clear “Preview on” / “Required for session” copy; avoid a black box with only a tiny icon.
+6. **Accessibility:** Keyboard target for replay; respect `prefers-reduced-motion` for pulsers.
+
+Detailed task checklist and data model notes remain in **`docs/PRD_AI_INTERVIEW_ROUND.md`** and **`docs/AI_INTERVIEW_GAP_ANALYSIS.md`**.
 
 ---
 
@@ -310,4 +396,4 @@ Seed: `cd server && npm run seed:interviewer`
 
 ---
 
-*PRD v6.0 — April 2026*
+*PRD v6.1 — April 2026*
