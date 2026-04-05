@@ -59,6 +59,9 @@ const SPRINT_OPENERS: Record<number, string> = {
 
 const prefetchCache: Map<string, string[]> = new Map();
 
+/** Max consecutive "hard probe" questions (weakness / discrepancy). After this, force a normal sprint question for variety. */
+const MAX_ADVERSARIAL_PROBE_STREAK = 2;
+
 type AdversarialState = {
   sprint: number;
   persona: string;
@@ -79,7 +82,46 @@ type AdversarialState = {
   reasoningSignals: Record<string, unknown>[];
   lastQuestion: string;
   interviewStartTime: number;
+  /** How many turns in a row we asked a high-priority weakness or discrepancy follow-up. */
+  adversarialProbeStreak?: number;
 };
+
+function normalizeQuestionLine(q: string): string {
+  return q
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/^[¿?¡!]+/, "")
+    .replace(/[?.!,;:]+$/g, "");
+}
+
+/** True if candidate is essentially the same as something we already asked (common LLM collapse on short prompts). */
+export function isNearDuplicateQuestion(candidate: string, recent: string[]): boolean {
+  const c = normalizeQuestionLine(candidate);
+  if (c.length < 10) return false;
+  for (const r of recent) {
+    const rN = normalizeQuestionLine(r);
+    if (!rN.length) continue;
+    if (c === rN) return true;
+    const short = Math.min(40, c.length, rN.length);
+    if (short >= 14 && c.slice(0, short) === rN.slice(0, short)) return true;
+    const cw = new Set(c.split(/\s+/).filter((w) => w.length > 2));
+    const rw = new Set(rN.split(/\s+/).filter((w) => w.length > 2));
+    if (cw.size < 4 || rw.size < 4) continue;
+    let inter = 0;
+    for (const w of cw) if (rw.has(w)) inter += 1;
+    const union = cw.size + rw.size - inter;
+    if (union === 0) continue;
+    if (inter / union > 0.68) return true;
+  }
+  return false;
+}
+
+function priorAskedQuestions(history: AdversarialState["history"], lastQuestion: string, cap = 16): string[] {
+  const fromH = history.map((h) => h.question).filter(Boolean) as string[];
+  const merged = lastQuestion.trim() ? [...fromH, lastQuestion] : fromH;
+  return [...new Set(merged)].slice(-cap);
+}
 
 export function buildResumeContext(profile: {
   currentRole?: string | null;
@@ -123,6 +165,7 @@ export async function startAdversarialInterview(
     reasoningSignals: [],
     lastQuestion: opener,
     interviewStartTime: Date.now(),
+    adversarialProbeStreak: 0,
   };
 
   await prisma.interview.update({
@@ -163,6 +206,7 @@ function defaultState(): AdversarialState {
     reasoningSignals: [],
     lastQuestion: SPRINT_OPENERS[1],
     interviewStartTime: Date.now(),
+    adversarialProbeStreak: 0,
   };
 }
 
@@ -250,19 +294,42 @@ export async function processTurn(
     extractConcepts(answer),
   ]);
 
+  const probeStreak = state.adversarialProbeStreak ?? 0;
+  const atProbeLimit = probeStreak >= MAX_ADVERSARIAL_PROBE_STREAK;
+  const askedForPrompt = priorAskedQuestions(history, lastQuestion);
+
   let followup: string;
+  let nextProbeStreak = 0;
   const cached = prefetchCache.get(interviewId);
 
-  if (discrepancy.conflict && discrepancy.severity === "high") {
-    followup = await generateDiscrepancyFollowup(lastQuestion, answer, discrepancy, persona, resumeContext);
-  } else if (weakness.severity === "high") {
-    followup = await generateWeaknessFollowup(lastQuestion, answer, weakness, persona, resumeContext);
+  if (discrepancy.conflict && discrepancy.severity === "high" && !atProbeLimit) {
+    followup = await generateDiscrepancyFollowup(
+      lastQuestion,
+      answer,
+      discrepancy,
+      persona,
+      resumeContext,
+      askedForPrompt
+    );
+    nextProbeStreak = probeStreak + 1;
+  } else if (weakness.severity === "high" && !atProbeLimit) {
+    followup = await generateWeaknessFollowup(
+      lastQuestion,
+      answer,
+      weakness,
+      persona,
+      resumeContext,
+      askedForPrompt
+    );
+    nextProbeStreak = probeStreak + 1;
   } else if (cached && cached.length > 0) {
     followup = cached.shift()!;
     if (cached.length === 0) prefetchCache.delete(interviewId);
     else prefetchCache.set(interviewId, cached);
+    nextProbeStreak = 0;
   } else {
-    followup = await generateSprintQuestion(sprint, persona, resumeContext, history);
+    followup = await generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt);
+    nextProbeStreak = 0;
   }
 
   const newHistory = [
@@ -350,6 +417,7 @@ export async function processTurn(
     reasoningSignals: newReasoningSignals,
     lastQuestion: isComplete ? "" : followup,
     interviewStartTime: interviewStartedAt,
+    adversarialProbeStreak: nextProbeStreak,
   };
 
   if (isComplete) {

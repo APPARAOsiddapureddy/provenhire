@@ -90,6 +90,7 @@ Do NOT validate or praise. Find the most significant weakness.
 Weakness types: missing_step | vague | incorrect | shallow | overconfidence
 Attack strategies: implementation_probe | edge_case | scaling | contradiction | step_by_step
 Severity: high (must probe) | medium (worth following up) | low (minor)
+Use **high** only for a clear substantive gap. Routine brevity, oral fillers, or minor vagueness → **medium** or **low** so the interview does not over-probe.
 
 Return JSON only:
 {
@@ -182,12 +183,20 @@ const SPRINT_GOALS: Record<number, string> = {
   3: "Think through real engineering trade-offs together — scaling decisions, failure modes, design alternatives. Treat it as a collaborative discussion.",
 };
 
+/** Lines to append to prompts so the model avoids repeating the same short question many turns in a row. */
+export function formatAskedQuestionsBlock(questions: string[], maxLines = 16): string {
+  const u = [...new Set(questions.map((q) => q.trim()).filter(Boolean))].slice(-maxLines);
+  if (!u.length) return "";
+  return `\nAlready asked in this session (must not repeat or near-duplicate):\n${u.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`;
+}
+
 export async function generateWeaknessFollowup(
   question: string,
   answer: string,
   weakness: { weakness?: string; attackStrategy?: string },
   persona: string,
-  resumeContext: string
+  resumeContext: string,
+  recentAsked: string[] = []
 ): Promise<string> {
   const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead;
   const attackInstruction =
@@ -201,7 +210,7 @@ Candidate's answer: ${answer}
 Weakness detected: ${weakness.weakness ?? ""}
 Attack strategy: ${attackInstruction}
 Generate ONE follow-up question executing this strategy. Ground it in something specific from their answer.
-
+${formatAskedQuestionsBlock(recentAsked)}
 Generate ONE follow-up question. Maximum 15 words. Output only the question.`,
     "balanced"
   );
@@ -214,7 +223,8 @@ export async function generateDiscrepancyFollowup(
   answer: string,
   discrepancy: { description?: string },
   persona: string,
-  resumeContext: string
+  resumeContext: string,
+  recentAsked: string[] = []
 ): Promise<string> {
   const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead;
 
@@ -225,7 +235,7 @@ Previous question: ${question}
 Candidate's answer: ${answer}
 Discrepancy: ${discrepancy.description ?? ""}
 Generate ONE question that surfaces this inconsistency — curious and direct, not accusatory. Give them a chance to explain.
-
+${formatAskedQuestionsBlock(recentAsked)}
 Generate ONE question. Maximum 15 words. Curious not accusatory. Output only the question.`,
     "balanced"
   );
@@ -237,22 +247,24 @@ export async function generateSprintQuestion(
   sprint: number,
   persona: string,
   resumeContext: string,
-  history: { question?: string }[]
+  history: { question?: string }[],
+  recentAsked?: string[]
 ): Promise<string> {
-  const covered = history
-    .slice(-6)
+  const fromHist = history
     .map((h) => h.question)
     .filter(Boolean)
-    .join("\n- ");
+    .map(String) as string[];
+  const merged = [...new Set([...(recentAsked ?? []), ...fromHist].filter(Boolean))].slice(-18);
+  const covered = merged.length ? merged.join("\n- ") : "(none yet)";
   const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead;
 
   const text = await callGeminiText(
     system,
     `Sprint goal: ${SPRINT_GOALS[sprint] ?? ""}
 Candidate background: ${resumeContext.slice(0, 800)}
-Questions already asked — do NOT repeat:
-- ${covered || "(none yet)"}
-Generate ONE new interview question that directly references something specific from their background and aligns with the sprint goal.
+Questions already asked — do NOT repeat or ask the same angle again:
+- ${covered}
+Your next question must open a meaningfully different line of inquiry (new sub-topic, trade-off, or concrete detail), not a minor rewording of any line above.
 
 Generate ONE question. Maximum 15 words. Output only the question.`,
     "balanced"
@@ -275,7 +287,7 @@ export async function prefetchFollowups(
     `Sprint ${sprint} — ${SPRINT_GOALS[sprint] ?? ""}
 Candidate background: ${resumeContext.slice(0, 600)}
 The candidate is currently talking about: ${concepts.slice(0, 3).join(", ")}.
-Generate 2 follow-up questions. Maximum 10 words each.
+Generate 2 distinct follow-up questions (different angles; not paraphrases of each other). Maximum 10 words each.
 Return JSON: {"questions": ["...", "..."]}`,
     "fast"
   )) as { questions?: string[] } | null;
