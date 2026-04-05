@@ -107,6 +107,8 @@ interface InterviewerApplication {
   phone: string | null;
   linkedIn: string | null;
   whyJoin: string | null;
+  currentCompany: string | null;
+  jobTitle: string | null;
   status: string;
   createdAt: string;
   reviewedAt: string | null;
@@ -1542,6 +1544,8 @@ const AdminDashboard = () => {
                         <TableHead>Track</TableHead>
                         <TableHead>Experience</TableHead>
                         <TableHead>Domains</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Title</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Applied</TableHead>
                         <TableHead>Actions</TableHead>
@@ -1579,6 +1583,8 @@ const AdminDashboard = () => {
                               )}
                             </div>
                           </TableCell>
+                          <TableCell className="max-w-[120px] truncate text-sm">{app.currentCompany || "—"}</TableCell>
+                          <TableCell className="max-w-[120px] truncate text-sm">{app.jobTitle || "—"}</TableCell>
                           <TableCell>
                             <Badge
                               variant={app.status === "approved" ? "default" : app.status === "rejected" ? "destructive" : "secondary"}
@@ -1589,7 +1595,7 @@ const AdminDashboard = () => {
                           <TableCell>{formatDateDisplay(app.createdAt)}</TableCell>
                           <TableCell>
                             {app.status === "pending" && (
-                              <div className="flex gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 <Button
                                   size="sm"
                                   onClick={() => handleApproveInterviewer(app.id)}

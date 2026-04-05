@@ -24,6 +24,7 @@ import JobSeekerApplicationsPage from "./pages/dashboard/JobSeekerApplicationsPa
 import JobSeekerSavedJobsPage from "./pages/dashboard/JobSeekerSavedJobsPage";
 import RecruiterDashboard from "./pages/dashboard/RecruiterDashboard";
 import ExpertDashboard from "./pages/dashboard/ExpertDashboard";
+import ExpertProfileSetup from "./pages/dashboard/ExpertProfileSetup";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 
 const RecruiterOnboarding = lazy(() => import("./pages/dashboard/RecruiterOnboarding"));
@@ -178,6 +179,14 @@ const App = () => (
                     <JobSeekerSavedJobsPage />
                   </ProtectedRoute>
                 } 
+              />
+              <Route
+                path="/dashboard/expert/profile-setup"
+                element={
+                  <ProtectedRoute allowedRole="expert_interviewer">
+                    <ExpertProfileSetup />
+                  </ProtectedRoute>
+                }
               />
               <Route 
                 path="/dashboard/expert" 

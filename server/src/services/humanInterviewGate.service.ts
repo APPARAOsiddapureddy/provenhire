@@ -21,6 +21,24 @@ export interface HumanInterviewEligibility {
   attempt_id: string | null;
   razorpay_key_id: string | null;
   expert_interview_stage_status: string | null;
+  /** ISO timestamp when candidate may book again after a failed expert interview (PRD: 30 days). */
+  human_expert_retry_after?: string | null;
+}
+
+function withExpertRetryCooldown(
+  e: HumanInterviewEligibility,
+  retryAfter: Date | null | undefined
+): HumanInterviewEligibility {
+  if (!retryAfter || retryAfter.getTime() <= Date.now()) {
+    return { ...e, human_expert_retry_after: null };
+  }
+  return {
+    ...e,
+    can_access_slots: false,
+    can_access_payment_page: false,
+    block_human_interview_section: true,
+    human_expert_retry_after: retryAfter.toISOString(),
+  };
 }
 
 /** True if this candidate has ever been rejected in the AI→human admin queue (retries pay ₹399). */
@@ -86,9 +104,10 @@ export async function recordAiInterviewSubmittedForAdminReview(params: {
 export async function getHumanInterviewEligibility(userId: string): Promise<HumanInterviewEligibility> {
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
-    select: { roleType: true },
+    select: { roleType: true, humanExpertRetryAfter: true },
   });
   const roleType = (profile?.roleType as string) || "technical";
+  const retryAfter = profile?.humanExpertRetryAfter ?? null;
 
   if (roleType === "non_technical") {
     const assignment = await prisma.verificationStage.findFirst({
@@ -101,19 +120,22 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
       where: { userId, stageName: "non_tech_assignment" },
     });
     const can = !!assignment;
-    return {
-      admin_review_status: "none",
-      latest_queue_id: null,
-      requires_payment: false,
-      payment_status: "waived",
-      can_access_slots: can,
-      can_access_payment_page: false,
-      block_human_interview_section: !can,
-      human_interview_attempts: sessionCount,
-      attempt_id: null,
-      razorpay_key_id: null,
-      expert_interview_stage_status: assignStage?.status ?? null,
-    };
+    return withExpertRetryCooldown(
+      {
+        admin_review_status: "none",
+        latest_queue_id: null,
+        requires_payment: false,
+        payment_status: "waived",
+        can_access_slots: can,
+        can_access_payment_page: false,
+        block_human_interview_section: !can,
+        human_interview_attempts: sessionCount,
+        attempt_id: null,
+        razorpay_key_id: null,
+        expert_interview_stage_status: assignStage?.status ?? null,
+      },
+      retryAfter
+    );
   }
 
   const expertStage = await prisma.verificationStage.findFirst({
@@ -125,19 +147,22 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
   });
 
   if (!latestQueue && expertStage?.status === "completed") {
-    return {
-      admin_review_status: "approved",
-      latest_queue_id: null,
-      requires_payment: false,
-      payment_status: "waived",
-      can_access_slots: true,
-      can_access_payment_page: false,
-      block_human_interview_section: false,
-      human_interview_attempts: humanInterviewAttemptsCount,
-      attempt_id: null,
-      razorpay_key_id: process.env.RAZORPAY_KEY_ID?.trim() || null,
-      expert_interview_stage_status: expertStage.status,
-    };
+    return withExpertRetryCooldown(
+      {
+        admin_review_status: "approved",
+        latest_queue_id: null,
+        requires_payment: false,
+        payment_status: "waived",
+        can_access_slots: true,
+        can_access_payment_page: false,
+        block_human_interview_section: false,
+        human_interview_attempts: humanInterviewAttemptsCount,
+        attempt_id: null,
+        razorpay_key_id: process.env.RAZORPAY_KEY_ID?.trim() || null,
+        expert_interview_stage_status: expertStage.status,
+      },
+      retryAfter
+    );
   }
 
   const attempt = latestQueue
@@ -187,17 +212,20 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
 
   const razorpayKey = process.env.RAZORPAY_KEY_ID?.trim() || null;
 
-  return {
-    admin_review_status,
-    latest_queue_id: latestQueue?.id ?? null,
-    requires_payment,
-    payment_status,
-    can_access_slots,
-    can_access_payment_page,
-    block_human_interview_section,
-    human_interview_attempts: humanInterviewAttemptsCount,
-    attempt_id: attempt?.id ?? null,
-    razorpay_key_id: razorpayKey,
-    expert_interview_stage_status: expertStage?.status ?? null,
-  };
+  return withExpertRetryCooldown(
+    {
+      admin_review_status,
+      latest_queue_id: latestQueue?.id ?? null,
+      requires_payment,
+      payment_status,
+      can_access_slots,
+      can_access_payment_page,
+      block_human_interview_section,
+      human_interview_attempts: humanInterviewAttemptsCount,
+      attempt_id: attempt?.id ?? null,
+      razorpay_key_id: razorpayKey,
+      expert_interview_stage_status: expertStage?.status ?? null,
+    },
+    retryAfter
+  );
 }

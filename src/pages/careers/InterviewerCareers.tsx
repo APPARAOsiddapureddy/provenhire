@@ -36,6 +36,8 @@ export default function InterviewerCareers() {
     primaryRole: "" as string,
     phone: "",
     linkedIn: "",
+    currentCompany: "",
+    jobTitle: "",
     whyJoin: "",
   });
 
@@ -50,16 +52,39 @@ export default function InterviewerCareers() {
       toast.error("Please select your primary role.");
       return;
     }
+    const yrs = form.experienceYears === "" ? NaN : Number(form.experienceYears);
+    if (!Number.isFinite(yrs) || yrs < 5) {
+      toast.error("Minimum 5 years of industry experience is required.");
+      return;
+    }
+    if (!form.phone.trim()) {
+      toast.error("Phone is required.");
+      return;
+    }
+    if (!form.linkedIn.trim()) {
+      toast.error("LinkedIn URL is required.");
+      return;
+    }
+    if (!form.currentCompany.trim() || !form.jobTitle.trim()) {
+      toast.error("Current company and job title are required.");
+      return;
+    }
+    if (form.whyJoin.trim().length < 100) {
+      toast.error("Please tell us why you want to join (at least 100 characters).");
+      return;
+    }
     setSubmitting(true);
     try {
       await api.post("/api/interviewer-application", {
         name: form.name.trim(),
         email: form.email.trim().toLowerCase(),
-        experienceYears: form.experienceYears === "" ? undefined : Number(form.experienceYears),
+        experienceYears: yrs,
         primaryRole: form.primaryRole,
-        phone: form.phone.trim() || undefined,
-        linkedIn: form.linkedIn.trim() || undefined,
-        whyJoin: form.whyJoin.trim() || undefined,
+        phone: form.phone.trim(),
+        linkedIn: form.linkedIn.trim(),
+        currentCompany: form.currentCompany.trim(),
+        jobTitle: form.jobTitle.trim(),
+        whyJoin: form.whyJoin.trim(),
       });
       setSubmitted(true);
       toast.success("Application submitted successfully!");
@@ -105,7 +130,8 @@ export default function InterviewerCareers() {
             <Alert className="max-w-3xl mx-auto border-primary/30 bg-background">
               <UserCheck className="h-5 w-5 text-primary" />
               <AlertDescription className="font-semibold text-foreground">
-                This page is for professionals who want to conduct interviews. Not for you? See Find Jobs or For Employers below.
+                This page is for experienced professionals who want to conduct technical interviews — not for job seekers.
+                Minimum 5 years of industry experience required. Not for you? Use Find Jobs or For Employers below.
               </AlertDescription>
             </Alert>
           </div>
@@ -236,16 +262,40 @@ export default function InterviewerCareers() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="experience">Years of experience</Label>
+                  <Label htmlFor="experience">Years of experience * (min 5)</Label>
                   <Input
                     id="experience"
                     type="number"
-                    min={0}
+                    min={5}
                     max={50}
                     value={form.experienceYears}
                     onChange={(e) => setForm((p) => ({ ...p, experienceYears: e.target.value }))}
-                    placeholder="e.g. 5"
+                    placeholder="e.g. 8"
+                    required
                   />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="company">Current company *</Label>
+                    <Input
+                      id="company"
+                      value={form.currentCompany}
+                      onChange={(e) => setForm((p) => ({ ...p, currentCompany: e.target.value }))}
+                      placeholder="Where you work today"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="jobTitle">Current job title *</Label>
+                    <Input
+                      id="jobTitle"
+                      value={form.jobTitle}
+                      onChange={(e) => setForm((p) => ({ ...p, jobTitle: e.target.value }))}
+                      placeholder="e.g. Senior Backend Engineer"
+                      required
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -269,36 +319,38 @@ export default function InterviewerCareers() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Mobile Number</Label>
+                  <Label htmlFor="phone">Phone *</Label>
                   <PhoneInput
                     id="phone"
                     value={form.phone}
                     onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
                     placeholder="9876543210"
                   />
-                  <p className="text-xs text-muted-foreground">Helps admin connect with you easily.</p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="linkedin">LinkedIn (optional)</Label>
+                  <Label htmlFor="linkedin">LinkedIn profile URL *</Label>
                   <Input
                     id="linkedin"
                     type="url"
                     value={form.linkedIn}
                     onChange={(e) => setForm((p) => ({ ...p, linkedIn: e.target.value }))}
                     placeholder="https://linkedin.com/in/..."
+                    required
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="whyJoin">Why do you want to conduct interviews? (optional)</Label>
+                  <Label htmlFor="whyJoin">Why join ProvenHire? * (min 100 characters)</Label>
                   <Textarea
                     id="whyJoin"
                     value={form.whyJoin}
                     onChange={(e) => setForm((p) => ({ ...p, whyJoin: e.target.value }))}
-                    placeholder="A few sentences about your motivation..."
+                    placeholder="What draws you to conducting expert interviews with us..."
                     rows={4}
+                    required
                   />
+                  <p className="text-xs text-muted-foreground">{form.whyJoin.trim().length} / 100+</p>
                 </div>
 
                 <Button type="submit" className="w-full" disabled={submitting}>

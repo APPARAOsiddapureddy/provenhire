@@ -88,6 +88,8 @@ model JobSeekerProfile {
   nonTechAssignmentResponse   String?   @db.Text
   /// Window for assignment freshness (e.g. set to submittedAt + 36h on each submit).
   nonTechAssignmentExpiresAt  DateTime?
+  /// After a failed Human Expert Interview, candidate cannot re-book until this time (PRD: 30 days).
+  humanExpertRetryAfter       DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -130,11 +132,32 @@ model RecruiterProfile {
   preferredExperienceMax  Int?
   preferredSkills        Json?    // string[]
   minimumCertificationLevel Int?  @default(1) // 0-3: Cognitive, Skill Passport, Elite
+  cultureAndBenefits        Json?    // string[] — culture, benefits (PRD recruiter)
+  hiringForRoles            Json?    // string[] — multi-select roles
+  preferredExperienceLevels Json?    // string[] — e.g. fresher | mid | senior
+  verifiedAt                DateTime?
+  rejectedAt                DateTime?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
   jobs Job[]
+  usage RecruiterUsage?
+}
+
+/// Freemium / plan usage (PRD §9). Set `periodEnd` in app when opening or rolling a monthly window.
+model RecruiterUsage {
+  id                    String   @id @default(uuid())
+  recruiterId           String   @unique
+  planType              String   @default("free") // free | paid
+  shortlistCountMonth   Int      @default(0)
+  profileViewCountMonth Int      @default(0)
+  activeJobCount        Int      @default(0)
+  periodStart           DateTime @default(now())
+  periodEnd             DateTime?
+  updatedAt             DateTime @updatedAt
+
+  recruiter RecruiterProfile @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
 }
 
 model Job {
@@ -169,6 +192,9 @@ model JobApplication {
   appliedAt          DateTime @default(now())
   resumeUrl          String?
   assignmentResponse String?  // Applicant's submission for non-technical job assignment
+  recruiterNote      String?  @db.Text
+  stageChangedAt     DateTime?
+  stageHistory       Json?    // [{ stage, changedAt, changedBy? }]
 
   job       Job  @relation(fields: [jobId], references: [id])
   jobSeeker User @relation("JobApplicationsByUser", fields: [jobSeekerId], references: [id])
@@ -530,6 +556,8 @@ model InterviewerApplication {
   linkedIn        String?
   whyJoin         String?
   phone           String?
+  currentCompany  String?
+  jobTitle        String?
   status          String   @default("pending")
   createdAt       DateTime @default(now())
   reviewedAt      DateTime?
@@ -555,12 +583,51 @@ model Interviewer {
   preferredInterviewTopics Json?  // string[] e.g. DSA, System design
   // Settings: Availability (JSON: { Mon: [{ start, end }], ... })
   availabilitySchedule   Json?
+  bio                    String?  @db.Text
+  languagesSpoken        Json?    // string[]
+  profileCompleted       Boolean  @default(false)
+  totalInterviews        Int      @default(0)
+  totalPassed            Int      @default(0)
+  /// PRD §6.4 — { daysOfWeek: number[], timeSlots: string[] } (0=Sunday … 6=Saturday)
+  recurringSchedule      Json?
+  recurringActive        Boolean  @default(false)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  user    User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
-  slots   InterviewerSlot[]
-  sessions HumanInterviewSession[]
+  user         User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  slots        InterviewerSlot[]
+  sessions     HumanInterviewSession[]
+  bankDetails  InterviewerBankDetails?
+  earnings     InterviewerEarning[]
+}
+
+model InterviewerBankDetails {
+  id            String   @id @default(uuid())
+  interviewerId String   @unique
+  accountHolder String
+  /// AES-256-GCM ciphertext (base64: iv + tag + payload); never returned from GET APIs.
+  accountNumber String
+  ifscCode      String
+  bankName      String
+  verified      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  interviewer Interviewer @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
+}
+
+model InterviewerEarning {
+  id            String   @id @default(uuid())
+  interviewerId String
+  sessionId     String   @unique
+  amountPaise   Int
+  month         Int
+  year          Int
+  payoutStatus  String   @default("pending") // pending | paid | failed
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+
+  interviewer Interviewer           @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
+  session     HumanInterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model InterviewerInvite {
@@ -598,6 +665,8 @@ model HumanInterviewSession {
   verificationTier     String?
   evaluationScores     Json?
   evaluationNotes      String?
+  interviewerNotes     String?  @db.Text
+  candidateFeedback    String?  @db.Text
   evaluationPass       Boolean?
   evaluationSubmittedAt DateTime?
   attemptNumber        Int       @default(1)
@@ -609,6 +678,7 @@ model HumanInterviewSession {
   interviewer Interviewer  @relation(fields: [interviewerId], references: [id])
   slot        InterviewerSlot? @relation(fields: [slotId], references: [id])
   bookings    HumanInterviewBooking[]
+  earning     InterviewerEarning?
 }
 
 /// Canonical slot booking record for the Human Expert Interview.

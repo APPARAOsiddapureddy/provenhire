@@ -1,15 +1,45 @@
-import { Router } from "express";
+import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
 import { requireExpertInterviewer, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 import { syncJobSeekerVerificationStatus } from "../services/certification.service.js";
-// Daily.co disabled for MVP - using Google Meet. Uncomment when budget allows.
-// import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
+import { encryptSensitiveField } from "../utils/fieldEncryption.js";
+import {
+  computeWeightedTotal,
+  extractDimensionScores,
+  EXPERT_EARNINGS_PAISE,
+  EXPERT_PASS_THRESHOLD,
+  HUMAN_EXPERT_RETRY_DAYS,
+  persistableScorePayload,
+  type ExpertTrack,
+} from "../services/expertEvaluation.service.js";
 
 export const expertRouter = Router();
 expertRouter.use(requireExpertInterviewer);
+
+/** PRD §4.4 — mandatory profile before dashboard features (except profile read/update). */
+async function requireExpertProfileComplete(req: AuthedRequest, res: Response, next: NextFunction) {
+  const path = req.path ?? "";
+  const method = req.method;
+  if ((method === "GET" || method === "POST" || method === "PATCH") && path === "/profile") {
+    return next();
+  }
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) {
+    return res.status(404).json({ error: "Interviewer profile not found" });
+  }
+  if (!interviewer.profileCompleted) {
+    return res.status(403).json({
+      error: "Complete your expert profile to continue.",
+      code: "PROFILE_INCOMPLETE",
+    });
+  }
+  next();
+}
+
+expertRouter.use(requireExpertProfileComplete);
 
 /** Pending candidates: completed AI stage, not yet human expert. Role must match interviewer. */
 expertRouter.get("/pending-candidates", async (req: AuthedRequest, res) => {
@@ -55,7 +85,6 @@ expertRouter.get("/pending-candidates", async (req: AuthedRequest, res) => {
   });
 });
 
-/** Schedule interview with a pending candidate (interviewer picks slot) */
 const scheduleSchema = z.object({ candidateUserId: z.string().uuid(), slotId: z.string().uuid() });
 expertRouter.post("/schedule-interview", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
@@ -126,18 +155,45 @@ expertRouter.post("/schedule-interview", async (req: AuthedRequest, res) => {
   res.status(201).json({ session, message: "Interview scheduled" });
 });
 
-/** Stats for dashboard */
 expertRouter.get("/stats", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
-  const [total, passed] = await Promise.all([
-    prisma.humanInterviewSession.count({ where: { interviewerId: interviewer.id, evaluationSubmittedAt: { not: null } } }),
-    prisma.humanInterviewSession.count({ where: { interviewerId: interviewer.id, evaluationPass: true } }),
+
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+
+  const [conductedCount, passedCount, thisMonthCount, earningsSum] = await Promise.all([
+    prisma.humanInterviewSession.count({
+      where: { interviewerId: interviewer.id, evaluationSubmittedAt: { not: null } },
+    }),
+    prisma.humanInterviewSession.count({
+      where: { interviewerId: interviewer.id, evaluationPass: true },
+    }),
+    prisma.humanInterviewSession.count({
+      where: {
+        interviewerId: interviewer.id,
+        evaluationSubmittedAt: { gte: monthStart },
+      },
+    }),
+    prisma.interviewerEarning.aggregate({
+      where: { interviewerId: interviewer.id, year: y, month: m },
+      _sum: { amountPaise: true },
+    }),
   ]);
-  res.json({ totalConducted: total, passed, passRate: total ? Math.round((passed / total) * 100) : 0 });
+
+  res.json({
+    conductedCount,
+    passedCount,
+    passRate: conductedCount ? Math.round((passedCount / conductedCount) * 100) : 0,
+    thisMonthCount,
+    thisMonthEarningsPaise: earningsSum._sum.amountPaise ?? 0,
+    totalInterviews: interviewer.totalInterviews,
+    totalPassed: interviewer.totalPassed,
+  });
 });
 
-/** Get my interviewer profile + slots */
 expertRouter.get("/profile", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({
     where: { userId: req.user!.id },
@@ -147,8 +203,53 @@ expertRouter.get("/profile", async (req: AuthedRequest, res) => {
   res.json({ interviewer });
 });
 
-/** Update interviewer profile (e.g. phone) */
-const updateProfileSchema = z.object({ phone: z.string().max(20).optional() });
+const completeProfileSchema = z.object({
+  profileImage: z.string().url().optional().nullable(),
+  bio: z.string().min(80).max(4000),
+  currentCompany: z.string().min(1).max(200),
+  jobTitle: z.string().min(1).max(200),
+  linkedInUrl: z.string().url(),
+  expertiseAreas: z.array(z.string()).min(1),
+  preferredInterviewTopics: z.array(z.string()).min(1),
+  languagesSpoken: z.array(z.string()).min(1),
+});
+
+expertRouter.post("/profile", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const parsed = completeProfileSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+
+  const d = parsed.data;
+  const updated = await prisma.interviewer.update({
+    where: { id: interviewer.id },
+    data: {
+      profileImage: d.profileImage ?? undefined,
+      bio: d.bio,
+      currentCompany: d.currentCompany,
+      jobTitle: d.jobTitle,
+      linkedInUrl: d.linkedInUrl,
+      expertiseAreas: d.expertiseAreas,
+      preferredInterviewTopics: d.preferredInterviewTopics,
+      languagesSpoken: d.languagesSpoken,
+      profileCompleted: true,
+    },
+  });
+  res.json({ interviewer: updated });
+});
+
+const updateProfileSchema = z.object({
+  phone: z.string().max(20).optional(),
+  profileImage: z.string().url().optional().nullable(),
+  bio: z.string().min(80).max(4000).optional(),
+  currentCompany: z.string().min(1).max(200).optional(),
+  jobTitle: z.string().min(1).max(200).optional(),
+  linkedInUrl: z.string().url().optional(),
+  expertiseAreas: z.array(z.string()).min(1).optional(),
+  preferredInterviewTopics: z.array(z.string()).min(1).optional(),
+  languagesSpoken: z.array(z.string()).min(1).optional(),
+});
+
 expertRouter.patch("/profile", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -161,7 +262,136 @@ expertRouter.patch("/profile", async (req: AuthedRequest, res) => {
   res.json({ interviewer: updated });
 });
 
-/** Create a slot */
+const bankDetailsSchema = z.object({
+  accountHolder: z.string().min(1).max(200),
+  accountNumber: z.string().min(5).max(32),
+  ifscCode: z.string().min(11).max(11),
+  bankName: z.string().min(1).max(200),
+});
+
+expertRouter.post("/bank-details", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const parsed = bankDetailsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+  const enc = encryptSensitiveField(parsed.data.accountNumber);
+  await prisma.interviewerBankDetails.upsert({
+    where: { interviewerId: interviewer.id },
+    create: {
+      interviewerId: interviewer.id,
+      accountHolder: parsed.data.accountHolder,
+      accountNumber: enc,
+      ifscCode: parsed.data.ifscCode.toUpperCase(),
+      bankName: parsed.data.bankName,
+    },
+    update: {
+      accountHolder: parsed.data.accountHolder,
+      accountNumber: enc,
+      ifscCode: parsed.data.ifscCode.toUpperCase(),
+      bankName: parsed.data.bankName,
+    },
+  });
+  res.status(204).end();
+});
+
+expertRouter.get("/earnings/summary", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const [monthSessions, sum] = await Promise.all([
+    prisma.interviewerEarning.count({
+      where: { interviewerId: interviewer.id, year: y, month: m },
+    }),
+    prisma.interviewerEarning.aggregate({
+      where: { interviewerId: interviewer.id, year: y, month: m },
+      _sum: { amountPaise: true },
+    }),
+  ]);
+  res.json({
+    year: y,
+    month: m,
+    sessions: monthSessions,
+    earningsPaise: sum._sum.amountPaise ?? 0,
+    payoutStatus: "pending",
+  });
+});
+
+expertRouter.get("/earnings/history", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const rows = await prisma.interviewerEarning.findMany({
+    where: { interviewerId: interviewer.id },
+    orderBy: [{ year: "desc" }, { month: "desc" }, { createdAt: "desc" }],
+    take: 500,
+  });
+  const byMonth = new Map<
+    string,
+    { year: number; month: number; sessions: number; earningsPaise: number; payoutStatus: string }
+  >();
+  for (const r of rows) {
+    const key = `${r.year}-${r.month}`;
+    const cur = byMonth.get(key);
+    if (!cur) {
+      byMonth.set(key, {
+        year: r.year,
+        month: r.month,
+        sessions: 1,
+        earningsPaise: r.amountPaise,
+        payoutStatus: r.payoutStatus,
+      });
+    } else {
+      cur.sessions += 1;
+      cur.earningsPaise += r.amountPaise;
+    }
+  }
+  res.json({
+    history: Array.from(byMonth.values()).sort((a, b) => (b.year !== a.year ? b.year - a.year : b.month - a.month)),
+  });
+});
+
+expertRouter.get("/earnings/sessions", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const rows = await prisma.interviewerEarning.findMany({
+    where: { interviewerId: interviewer.id },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    include: {
+      session: {
+        include: {
+          user: { include: { jobSeekerProfile: { select: { targetJobTitle: true } } } },
+        },
+      },
+    },
+  });
+  res.json({
+    sessions: rows.map((r) => ({
+      id: r.id,
+      amountPaise: r.amountPaise,
+      month: r.month,
+      year: r.year,
+      payoutStatus: r.payoutStatus,
+      paidAt: r.paidAt,
+      scheduledAt: r.session.scheduledAt,
+      candidateRole: r.session.user?.jobSeekerProfile?.targetJobTitle ?? null,
+    })),
+  });
+});
+
+expertRouter.get("/slots", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const from = req.query.from ? new Date(String(req.query.from)) : new Date();
+  const slots = await prisma.interviewerSlot.findMany({
+    where: { interviewerId: interviewer.id, startsAt: { gte: from } },
+    orderBy: { startsAt: "asc" },
+    take: 500,
+  });
+  res.json({ slots });
+});
+
 const createSlotSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime().optional(),
@@ -183,7 +413,63 @@ expertRouter.post("/slots", async (req: AuthedRequest, res) => {
   res.status(201).json({ slot });
 });
 
-/** Delete a slot (only if not booked) */
+const bulkSlotsSchema = z.object({
+  slots: z.array(
+    z.object({
+      startsAt: z.string().datetime(),
+      endsAt: z.string().datetime().optional(),
+    })
+  ),
+});
+
+expertRouter.post("/slots/bulk", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const parsed = bulkSlotsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+  const created: { id: string; startsAt: Date }[] = [];
+  for (const s of parsed.data.slots) {
+    const start = new Date(s.startsAt);
+    const end = s.endsAt ? new Date(s.endsAt) : new Date(start.getTime() + 45 * 60 * 1000);
+    if (start >= end || start < new Date()) continue;
+    const slot = await prisma.interviewerSlot.create({
+      data: { interviewerId: interviewer.id, startsAt: start, endsAt: end },
+    });
+    created.push({ id: slot.id, startsAt: slot.startsAt });
+  }
+  res.status(201).json({ created: created.length, slots: created });
+});
+
+const recurringSchema = z.object({
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1),
+  timeSlots: z.array(z.string().regex(/^\d{1,2}:\d{2}$/)).min(1),
+});
+
+expertRouter.post("/recurring-schedule", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  const parsed = recurringSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+  await prisma.interviewer.update({
+    where: { id: interviewer.id },
+    data: {
+      recurringSchedule: parsed.data as object,
+      recurringActive: true,
+    },
+  });
+  res.json({ ok: true });
+});
+
+expertRouter.delete("/recurring-schedule", async (req: AuthedRequest, res) => {
+  const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
+  if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
+  await prisma.interviewer.update({
+    where: { id: interviewer.id },
+    data: { recurringActive: false },
+  });
+  res.json({ ok: true });
+});
+
 expertRouter.delete("/slots/:id", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -196,7 +482,6 @@ expertRouter.delete("/slots/:id", async (req: AuthedRequest, res) => {
   res.json({ ok: true });
 });
 
-/** Upcoming sessions */
 expertRouter.get("/sessions/upcoming", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -232,20 +517,20 @@ expertRouter.get("/sessions/upcoming", async (req: AuthedRequest, res) => {
   });
 });
 
-/** Past sessions — must be before /sessions/:id so "past" isn't matched as id */
 expertRouter.get("/sessions/past", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
   const sessions = await prisma.humanInterviewSession.findMany({
     where: {
       interviewerId: interviewer.id,
-      OR: [{ status: "completed" }, { completedAt: { lt: new Date() } }],
+      evaluationSubmittedAt: { not: null },
     },
     include: {
       user: { include: { jobSeekerProfile: true } },
       slot: true,
+      earning: true,
     },
-    orderBy: { scheduledAt: "desc" },
+    orderBy: { evaluationSubmittedAt: "desc" },
     take: 50,
   });
   const pastUserIds = [...new Set(sessions.map((s) => s.userId))];
@@ -258,8 +543,11 @@ expertRouter.get("/sessions/past", async (req: AuthedRequest, res) => {
   res.json({
     sessions: sessions.map((s) => {
       const c = certPast.get(s.userId);
+      const payload = s.evaluationScores as { weightedTotal?: number } | null;
       return {
         ...s,
+        weightedScoreSubmitted: payload?.weightedTotal ?? null,
+        earningsPaise: s.earning?.amountPaise ?? null,
         candidate_certification_numeric: c?.level ?? 0,
         candidate_certification_code: c?.certificationLevel ?? null,
         candidate_certification_label_short: c?.certificationLabel ?? null,
@@ -268,7 +556,6 @@ expertRouter.get("/sessions/past", async (req: AuthedRequest, res) => {
   });
 });
 
-/** MVP: Get meeting link (Google Meet). Interviewer adds via PATCH. Daily.co disabled. */
 expertRouter.post("/sessions/:id/create-room", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -282,7 +569,6 @@ expertRouter.post("/sessions/:id/create-room", async (req: AuthedRequest, res) =
   return res.status(400).json({ error: "Add your Google Meet link below, then open it to start the interview." });
 });
 
-/** Get single session (for interview room) */
 expertRouter.get("/sessions/:id", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -291,13 +577,13 @@ expertRouter.get("/sessions/:id", async (req: AuthedRequest, res) => {
     include: {
       user: { include: { jobSeekerProfile: true } },
       slot: true,
+      interviewer: { select: { id: true, track: true } },
     },
   });
   if (!session) return res.status(404).json({ error: "Session not found" });
   res.json({ session });
 });
 
-/** Update session (e.g. meeting link) */
 expertRouter.patch("/sessions/:id", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -310,19 +596,25 @@ expertRouter.patch("/sessions/:id", async (req: AuthedRequest, res) => {
     where: { id: session.id },
     data: meetingLink !== undefined ? { meetingLink: meetingLink || null } : {},
   });
+  if (meetingLink && meetingLink.length > 0) {
+    await prisma.notification.create({
+      data: {
+        userId: session.userId,
+        title: "Expert interview — meeting link",
+        message: `Your interview link is ready. Join: ${meetingLink}`,
+        targetRole: "jobseeker",
+      },
+    });
+  }
   res.json({ session: updated });
 });
 
-/** Submit evaluation */
-const evaluateSchema = z.object({
-  technicalDepth: z.number().min(0).max(100),
-  problemSolving: z.number().min(0).max(100),
-  authenticity: z.number().min(0).max(100),
-  realWorldExposure: z.number().min(0).max(100),
-  systemThinking: z.number().min(0).max(100),
-  communication: z.number().min(0).max(100),
-  notes: z.string().max(2000).optional(),
+const evaluateBodySchema = z.object({
+  candidateFeedback: z.string().min(50).max(4000),
+  internalNotes: z.string().max(2000).optional(),
+  interviewerNotes: z.string().max(8000).optional(),
 });
+
 expertRouter.post("/sessions/:id/evaluate", async (req: AuthedRequest, res) => {
   const interviewer = await prisma.interviewer.findFirst({ where: { userId: req.user!.id } });
   if (!interviewer) return res.status(404).json({ error: "Interviewer profile not found" });
@@ -330,43 +622,78 @@ expertRouter.post("/sessions/:id/evaluate", async (req: AuthedRequest, res) => {
     where: { id: req.params.id, interviewerId: interviewer.id },
   });
   if (!session) return res.status(404).json({ error: "Session not found" });
-  if (session.evaluationSubmittedAt) return res.status(400).json({ error: "Evaluation already submitted" });
+  if (session.evaluationSubmittedAt) {
+    return res.status(409).json({ error: "Evaluation already submitted" });
+  }
 
-  const parsed = evaluateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
-  const scores = parsed.data;
-  const weights = { technicalDepth: 0.30, problemSolving: 0.20, authenticity: 0.15, realWorldExposure: 0.15, systemThinking: 0.10, communication: 0.10 };
-  const total = (Object.entries(weights) as [keyof typeof weights, number][]).reduce(
-    (s, [k, w]) => s + (typeof scores[k] === "number" ? scores[k] : 0) * w,
-    0
-  );
-  const pass = total >= 70;
+  const track: ExpertTrack = interviewer.track === "non_technical" ? "non_technical" : "technical";
+  const meta = evaluateBodySchema.safeParse(req.body);
+  if (!meta.success) return res.status(400).json({ error: meta.error.flatten().fieldErrors });
 
-  await prisma.humanInterviewSession.update({
-    where: { id: session.id },
-    data: {
-      status: "completed",
-      completedAt: new Date(),
-      evaluationScores: scores as object,
-      evaluationNotes: scores.notes ?? null,
-      evaluationPass: pass,
-      evaluationSubmittedAt: new Date(),
-    },
+  const { scores, missingKeys } = extractDimensionScores(req.body as Record<string, unknown>, track);
+  if (missingKeys.length) {
+    return res.status(400).json({ error: `Missing or invalid scores: ${missingKeys.join(", ")}` });
+  }
+
+  const weighted = computeWeightedTotal(scores, track);
+  const pass = weighted >= EXPERT_PASS_THRESHOLD;
+  const persisted = persistableScorePayload(scores, track, weighted);
+  const now = new Date();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.humanInterviewSession.update({
+      where: { id: session.id },
+      data: {
+        status: "completed",
+        completedAt: now,
+        evaluationScores: persisted as object,
+        evaluationNotes: meta.data.internalNotes ?? null,
+        interviewerNotes: meta.data.interviewerNotes ?? null,
+        candidateFeedback: meta.data.candidateFeedback,
+        evaluationPass: pass,
+        evaluationSubmittedAt: now,
+      },
+    });
+
+    await tx.interviewerEarning.create({
+      data: {
+        interviewerId: interviewer.id,
+        sessionId: session.id,
+        amountPaise: EXPERT_EARNINGS_PAISE,
+        month: now.getMonth() + 1,
+        year: now.getFullYear(),
+        payoutStatus: "pending",
+      },
+    });
+
+    await tx.interviewer.update({
+      where: { id: interviewer.id },
+      data: {
+        totalInterviews: { increment: 1 },
+        ...(pass ? { totalPassed: { increment: 1 } } : {}),
+      },
+    });
   });
 
   if (pass) {
     await prisma.jobSeekerProfile.updateMany({
       where: { userId: session.userId },
-      data: { verificationStatus: "expert_verified" },
+      data: { verificationStatus: "expert_verified", humanExpertRetryAfter: null },
     });
     await prisma.verificationStage.updateMany({
       where: { userId: session.userId, stageName: "human_expert_interview" },
-      data: { status: "completed", score: Math.round(total) },
+      data: { status: "completed", score: Math.round(weighted) },
     });
   } else {
+    const retry = new Date();
+    retry.setUTCDate(retry.getUTCDate() + HUMAN_EXPERT_RETRY_DAYS);
+    await prisma.jobSeekerProfile.updateMany({
+      where: { userId: session.userId },
+      data: { humanExpertRetryAfter: retry },
+    });
     await prisma.verificationStage.updateMany({
       where: { userId: session.userId, stageName: "human_expert_interview" },
-      data: { status: "failed", score: Math.round(total) },
+      data: { status: "failed", score: Math.round(weighted) },
     });
   }
 
@@ -376,5 +703,20 @@ expertRouter.post("/sessions/:id/evaluate", async (req: AuthedRequest, res) => {
     console.warn("[expert/evaluate] syncJobSeekerVerificationStatus", e);
   }
 
-  res.json({ ok: true, total: Math.round(total), pass });
+  await prisma.notification.create({
+    data: {
+      userId: session.userId,
+      title: "Human Expert Interview completed",
+      message:
+        "Your Human Expert Interview has been completed. Your result will be available within 15 minutes.",
+      targetRole: "jobseeker",
+    },
+  });
+
+  res.json({
+    ok: true,
+    message: "Evaluation recorded.",
+    earningsPaise: EXPERT_EARNINGS_PAISE,
+    weightedScoreSubmitted: Math.round(weighted * 100) / 100,
+  });
 });

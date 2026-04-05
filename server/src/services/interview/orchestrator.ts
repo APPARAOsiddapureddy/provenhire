@@ -57,10 +57,82 @@ const SPRINT_OPENERS: Record<number, string> = {
   3: "You're building a real-time prediction system for millions — where do you start?",
 };
 
-const prefetchCache: Map<string, string[]> = new Map();
+/** Prefetch queue for partial-transcript warm-up; bounded TTL/size so the server cannot leak memory across interviews. */
+type PrefetchCacheEntry = { questions: string[]; expiresAt: number };
+const prefetchCache: Map<string, PrefetchCacheEntry> = new Map();
+const PREFETCH_CACHE_TTL_MS = 45 * 60_000;
+const MAX_PREFETCH_CACHE_KEYS = 1_500;
+
+function prunePrefetchCacheIfNeeded(): void {
+  if (prefetchCache.size <= MAX_PREFETCH_CACHE_KEYS) return;
+  const now = Date.now();
+  for (const [id, entry] of prefetchCache) {
+    if (now > entry.expiresAt) prefetchCache.delete(id);
+  }
+  while (prefetchCache.size > MAX_PREFETCH_CACHE_KEYS) {
+    const oldest = prefetchCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    prefetchCache.delete(oldest);
+  }
+}
+
+function getPrefetchEntry(interviewId: string): PrefetchCacheEntry | undefined {
+  const e = prefetchCache.get(interviewId);
+  if (!e) return undefined;
+  if (Date.now() > e.expiresAt) {
+    prefetchCache.delete(interviewId);
+    return undefined;
+  }
+  return e;
+}
+
+function setPrefetchQuestions(interviewId: string, questions: string[]): void {
+  prunePrefetchCacheIfNeeded();
+  prefetchCache.set(interviewId, { questions, expiresAt: Date.now() + PREFETCH_CACHE_TTL_MS });
+}
+
+function popPrefetchQuestion(interviewId: string): string | undefined {
+  const e = getPrefetchEntry(interviewId);
+  if (!e?.questions.length) return undefined;
+  const next = e.questions.shift();
+  if (!next) return undefined;
+  if (e.questions.length === 0) prefetchCache.delete(interviewId);
+  return next;
+}
+
+/** If Gemini keeps emitting the same short probe, use a different angle without another model round-trip. */
+const DISTINCT_FALLBACK_QUESTIONS: string[] = [
+  "What was the hardest bug or incident you debugged on that?",
+  "If you rebuilt it today, what would you simplify first?",
+  "Which part are you least comfortable defending in depth?",
+  "What trade-off did you accept that others might question?",
+  "How would you prove that design worked in production?",
+  "What breaks first if traffic or data volume 10x overnight?",
+];
+
+function firstNonDuplicateFromPool(asked: string[]): string | null {
+  for (const f of DISTINCT_FALLBACK_QUESTIONS) {
+    if (!isNearDuplicateQuestion(f, asked)) return f;
+  }
+  return null;
+}
+
+async function resolveDistinctQuestion(asked: string[], generate: () => Promise<string>): Promise<string> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const q = (await generate()).trim();
+    const candidate = q || "Could you unpack that with one concrete example?";
+    if (!isNearDuplicateQuestion(candidate, asked)) return candidate;
+    const fromPool = firstNonDuplicateFromPool(asked);
+    if (fromPool) return fromPool;
+  }
+  const last = (await generate()).trim();
+  return last || DISTINCT_FALLBACK_QUESTIONS[0]!;
+}
 
 /** Max consecutive "hard probe" questions (weakness / discrepancy). After this, force a normal sprint question for variety. */
 const MAX_ADVERSARIAL_PROBE_STREAK = 2;
+
+type FollowupBranch = "discrepancy_probe" | "weakness_probe" | "prefetch" | "sprint";
 
 type AdversarialState = {
   sprint: number;
@@ -300,36 +372,50 @@ export async function processTurn(
 
   let followup: string;
   let nextProbeStreak = 0;
-  const cached = prefetchCache.get(interviewId);
+  let followupBranch: FollowupBranch = "sprint";
 
   if (discrepancy.conflict && discrepancy.severity === "high" && !atProbeLimit) {
-    followup = await generateDiscrepancyFollowup(
-      lastQuestion,
-      answer,
-      discrepancy,
-      persona,
-      resumeContext,
-      askedForPrompt
+    followupBranch = "discrepancy_probe";
+    followup = await resolveDistinctQuestion(askedForPrompt, () =>
+      generateDiscrepancyFollowup(
+        lastQuestion,
+        answer,
+        discrepancy,
+        persona,
+        resumeContext,
+        askedForPrompt
+      )
     );
     nextProbeStreak = probeStreak + 1;
   } else if (weakness.severity === "high" && !atProbeLimit) {
-    followup = await generateWeaknessFollowup(
-      lastQuestion,
-      answer,
-      weakness,
-      persona,
-      resumeContext,
-      askedForPrompt
+    followupBranch = "weakness_probe";
+    followup = await resolveDistinctQuestion(askedForPrompt, () =>
+      generateWeaknessFollowup(
+        lastQuestion,
+        answer,
+        weakness,
+        persona,
+        resumeContext,
+        askedForPrompt
+      )
     );
     nextProbeStreak = probeStreak + 1;
-  } else if (cached && cached.length > 0) {
-    followup = cached.shift()!;
-    if (cached.length === 0) prefetchCache.delete(interviewId);
-    else prefetchCache.set(interviewId, cached);
-    nextProbeStreak = 0;
   } else {
-    followup = await generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt);
-    nextProbeStreak = 0;
+    let prefetched: string | undefined;
+    do {
+      prefetched = popPrefetchQuestion(interviewId);
+    } while (prefetched && isNearDuplicateQuestion(prefetched, askedForPrompt));
+
+    if (prefetched) {
+      followupBranch = "prefetch";
+      followup = prefetched;
+      nextProbeStreak = 0;
+    } else {
+      followup = await resolveDistinctQuestion(askedForPrompt, () =>
+        generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt)
+      );
+      nextProbeStreak = 0;
+    }
   }
 
   const newHistory = [
@@ -534,6 +620,6 @@ export async function handlePartialTranscript(interviewId: string, text: string,
   const questions = await prefetchFollowups(concepts, resumeContext, st.sprint, st.persona);
 
   if (questions.length) {
-    prefetchCache.set(interviewId, questions);
+    setPrefetchQuestions(interviewId, questions);
   }
 }

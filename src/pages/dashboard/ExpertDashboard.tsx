@@ -46,7 +46,7 @@ export default function ExpertDashboard() {
   const [slots, setSlots] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [past, setPast] = useState<any[]>([]);
-  const [stats, setStats] = useState({ totalConducted: 0, passed: 0, passRate: 0 });
+  const [stats, setStats] = useState({ totalConducted: 0, passed: 0, passRate: 0, thisMonthCount: 0 });
   const [pending, setPending] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [addSlotOpen, setAddSlotOpen] = useState(false);
@@ -86,7 +86,15 @@ export default function ExpertDashboard() {
       }
       if (upcomingRes.status === "fulfilled") setUpcoming(upcomingRes.value?.sessions ?? []);
       if (pastRes.status === "fulfilled") setPast(pastRes.value?.sessions ?? []);
-      if (statsRes.status === "fulfilled") setStats(statsRes.value ?? { totalConducted: 0, passed: 0, passRate: 0 });
+      if (statsRes.status === "fulfilled" && statsRes.value) {
+        const v = statsRes.value as Record<string, unknown>;
+        setStats({
+          totalConducted: (v.conductedCount as number) ?? (v.totalConducted as number) ?? 0,
+          passed: (v.passedCount as number) ?? (v.passed as number) ?? 0,
+          passRate: (v.passRate as number) ?? 0,
+          thisMonthCount: (v.thisMonthCount as number) ?? 0,
+        });
+      }
       if (pendingRes.status === "fulfilled") setPending(pendingRes.value?.candidates ?? []);
     } catch (e) {
       toast.error("Failed to load dashboard");
@@ -98,6 +106,12 @@ export default function ExpertDashboard() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (profile && profile.profileCompleted === false) {
+      navigate("/dashboard/expert/profile-setup", { replace: true });
+    }
+  }, [profile, navigate]);
 
   const handleAddSlot = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -302,8 +316,8 @@ export default function ExpertDashboard() {
           </CardContent>
         </Card>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        {/* Stats — aligned with GET /api/expert/stats (PRD §5.3) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <Card className="border-2 shadow-md bg-card/80 backdrop-blur">
             <CardContent className="p-5 flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center">
@@ -334,6 +348,17 @@ export default function ExpertDashboard() {
               <div>
                 <p className="text-2xl font-bold">{stats.passRate}%</p>
                 <p className="text-sm text-muted-foreground">Pass rate</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-2 shadow-md bg-card/80 backdrop-blur">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-blue-500/15 flex items-center justify-center">
+                <Calendar className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{stats.thisMonthCount}</p>
+                <p className="text-sm text-muted-foreground">This month (submitted)</p>
               </div>
             </CardContent>
           </Card>

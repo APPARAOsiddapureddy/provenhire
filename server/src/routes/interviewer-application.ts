@@ -6,11 +6,13 @@ import { getTrackForRole } from "../data/interviewerRoles.js";
 const applySchema = z.object({
   name: z.string().min(1).max(200),
   email: z.string().email(),
-  experienceYears: z.number().int().min(0).max(50).optional(),
+  experienceYears: z.number().int().min(5).max(50),
   primaryRole: z.string().min(1).max(100),
-  phone: z.string().max(20).optional(),
-  linkedIn: z.union([z.string().url(), z.literal("")]).optional(),
-  whyJoin: z.string().max(2000).optional(),
+  phone: z.string().min(1).max(20),
+  linkedIn: z.string().url(),
+  currentCompany: z.string().min(1).max(200),
+  jobTitle: z.string().min(1).max(200),
+  whyJoin: z.string().min(100).max(2000),
 });
 
 export const interviewerApplicationRouter = Router();
@@ -38,9 +40,11 @@ interviewerApplicationRouter.post("/", async (req, res) => {
       experienceYears: data.experienceYears,
       track,
       domains: [data.primaryRole],
-      phone: data.phone?.trim() || null,
-      linkedIn: data.linkedIn || null,
-      whyJoin: data.whyJoin || null,
+      phone: data.phone.trim(),
+      linkedIn: data.linkedIn.trim(),
+      whyJoin: data.whyJoin.trim(),
+      currentCompany: data.currentCompany.trim(),
+      jobTitle: data.jobTitle.trim(),
     },
   });
   res.status(201).json({ id: app.id, message: "Application submitted successfully." });

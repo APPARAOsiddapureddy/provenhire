@@ -1505,6 +1505,12 @@ verificationRouter.post("/book-slot", requireAuth, requireJobSeeker, async (req:
 
   const eligibility = await getHumanInterviewEligibility(req.user!.id);
   if (!eligibility.can_access_slots) {
+    if (eligibility.human_expert_retry_after) {
+      return res.status(403).json({
+        error: "You can book another Human Expert Interview after the cooldown ends.",
+        retryAfter: eligibility.human_expert_retry_after,
+      });
+    }
     return res.status(403).json({
       error: "Complete admin review and payment (if required) before booking a slot.",
     });

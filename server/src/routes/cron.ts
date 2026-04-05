@@ -7,6 +7,7 @@ import { prisma } from "../config/prisma.js";
 import { markExpiredSkills } from "../services/skillVerification.service.js";
 import { SKILL_DISPLAY_NAMES } from "../config/skillValidity.js";
 import { sendSkillExpiryReminderEmail, sendSkillExpiredEmail } from "../services/resend.js";
+import { generateRecurringSlotsForAllInterviewers } from "../services/expertRecurringSlots.service.js";
 
 export const cronRouter = Router();
 
@@ -112,6 +113,20 @@ cronRouter.post("/expire-skills", async (req: Request, res: Response) => {
     });
   } catch (e) {
     console.error("[cron/expire-skills]", e);
+    return res.status(500).json({ error: e instanceof Error ? e.message : "Cron failed" });
+  }
+});
+
+/** Daily: expand expert interviewer recurring schedules into concrete slots (~2 weeks ahead). */
+cronRouter.post("/expert-recurring-slots", async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  try {
+    const result = await generateRecurringSlotsForAllInterviewers();
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error("[cron/expert-recurring-slots]", e);
     return res.status(500).json({ error: e instanceof Error ? e.message : "Cron failed" });
   }
 });

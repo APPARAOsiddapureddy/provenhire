@@ -307,6 +307,8 @@ adminRouter.get("/interviewer-applications", async (_req, res) => {
       phone: a.phone,
       linkedIn: a.linkedIn,
       whyJoin: a.whyJoin,
+      currentCompany: a.currentCompany,
+      jobTitle: a.jobTitle,
       status: a.status,
       createdAt: a.createdAt,
       reviewedAt: a.reviewedAt,
@@ -348,6 +350,10 @@ adminRouter.post("/interviewer-applications/:id/approve", async (req, res) => {
       experienceYears: app.experienceYears,
       phone: app.phone ?? null,
       status: "active",
+      profileCompleted: false,
+      currentCompany: app.currentCompany ?? null,
+      jobTitle: app.jobTitle ?? null,
+      linkedInUrl: app.linkedIn?.trim() || null,
     },
   });
 
@@ -359,7 +365,7 @@ adminRouter.post("/interviewer-applications/:id/approve", async (req, res) => {
   await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
   const tokenPlain = generateRefreshToken();
   const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
+  expiresAt.setTime(Date.now() + 72 * 60 * 60 * 1000);
   await prisma.passwordResetToken.create({
     data: {
       userId: user.id,
@@ -608,7 +614,7 @@ adminRouter.get("/export-interviewer-applications", async (_req, res) => {
   const apps = await prisma.interviewerApplication.findMany({ orderBy: { createdAt: "desc" } });
   const rows: string[] = [];
   rows.push(
-    "Application ID,Name,Email,Phone,Track,Experience Years,Domains,LinkedIn,Status,Created At (UTC),Reviewed At (UTC)",
+    "Application ID,Name,Email,Phone,Track,Experience Years,Domains,Current Company,Job Title,LinkedIn,Why Join,Status,Created At (UTC),Reviewed At (UTC)",
   );
   for (const a of apps) {
     const domains =
@@ -622,7 +628,10 @@ adminRouter.get("/export-interviewer-applications", async (_req, res) => {
         csvEscape(a.track),
         a.experienceYears ?? "",
         csvEscape(domains),
+        csvEscape(a.currentCompany),
+        csvEscape(a.jobTitle),
         csvEscape(a.linkedIn),
+        csvEscape(a.whyJoin),
         csvEscape(a.status),
         a.createdAt.toISOString(),
         a.reviewedAt?.toISOString() ?? "",

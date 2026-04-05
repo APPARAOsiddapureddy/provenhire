@@ -26,8 +26,12 @@ async function callGeminiJson(system: string, user: string, tier: "fast" | "bala
       return JSON.parse(text.replace(/^```json\n?|```$/g, "").trim());
     } catch {
       const match = text.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-      return null;
+      if (!match) return null;
+      try {
+        return JSON.parse(match[0]);
+      } catch {
+        return null;
+      }
     }
   } catch (e) {
     console.error("[interview/gemini] JSON generation failed:", e);
@@ -209,9 +213,9 @@ Previous question: ${question}
 Candidate's answer: ${answer}
 Weakness detected: ${weakness.weakness ?? ""}
 Attack strategy: ${attackInstruction}
-Generate ONE follow-up question executing this strategy. Ground it in something specific from their answer.
+Generate ONE follow-up executing this strategy; ground it in something specific from their answer.
 ${formatAskedQuestionsBlock(recentAsked)}
-Generate ONE follow-up question. Maximum 15 words. Output only the question.`,
+Maximum 15 words. Output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
