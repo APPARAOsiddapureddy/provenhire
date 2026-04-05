@@ -7,7 +7,12 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-for (const cmd of ["npm run seed:dsa", "npm run seed:interviewer", "npm run seed:skill-verifications"]) {
+for (const cmd of [
+  "npm run seed:dsa",
+  "npm run seed:interviewer",
+  "npm run seed:recruiter",
+  "npm run seed:skill-verifications",
+]) {
   console.log(`\n▶ ${cmd}`);
   execSync(cmd, { cwd: root, stdio: "inherit", env: process.env });
 }

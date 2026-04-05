@@ -10,11 +10,11 @@ import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-const TEST_PASSWORD = "Test123456";
+const TEST_PASSWORD = "PhE2E_Apr2026!x7";
 
 const AI_INTERVIEW_TEST_USERS = [
-  { email: "interview@test.provenhire.com", name: "AI Interview Test User" },
-  { email: "interview2@test.provenhire.com", name: "AI Interview Test User 2" },
+  { email: "qa.ai.apr2026@test.provenhire.com", name: "QA AI Interview Apr2026" },
+  { email: "qa.ai2.apr2026@test.provenhire.com", name: "QA AI Interview 2 Apr2026" },
 ] as const;
 
 const technicalStages = ["profile_setup", "aptitude_test", "dsa_round", "expert_interview"];

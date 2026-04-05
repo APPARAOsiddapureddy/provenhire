@@ -11,20 +11,20 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-const PASSWORD = "Test123456";
+const PASSWORD = "PhE2E_Apr2026!x7";
 
 const TEST_USERS = [
   {
-    email: "aptitude@test.provenhire.com",
-    name: "Aptitude Test User",
+    email: "qa.apt.apr2026@test.provenhire.com",
+    name: "QA Aptitude Apr2026",
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "in_progress" },
     ],
   },
   {
-    email: "dsa@test.provenhire.com",
-    name: "DSA Test User",
+    email: "qa.dsa.apr2026@test.provenhire.com",
+    name: "QA DSA Apr2026",
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "completed", score: 75 },
@@ -45,8 +45,8 @@ const TEST_USERS = [
     dsaScore: 70,
   },
   {
-    email: "interview2@test.provenhire.com",
-    name: "Interview Test User 2",
+    email: "qa.ai2.apr2026@test.provenhire.com",
+    name: "QA AI Interview 2 Apr2026",
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "completed", score: 80 },
@@ -75,13 +75,14 @@ async function main() {
           passwordHash: hash,
           role: "jobseeker",
           emailVerified: true,
+          authProvider: "EMAIL",
         },
       });
       console.log(`Created: ${u.email}`);
     } else {
       await prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash: hash },
+        data: { passwordHash: hash, name: u.name, authProvider: "EMAIL" },
       });
       console.log(`Updated: ${u.email}`);
     }
@@ -154,10 +155,11 @@ async function main() {
   console.log("\n--- Login at: /auth (select Job Seeker → Sign In) ---\n");
   console.log("| Test              | Email                          | Password   |");
   console.log("|-------------------|--------------------------------|------------|");
-  console.log("| 1. Aptitude Test   | aptitude@test.provenhire.com   | Test123456 |");
-  console.log("| 2. DSA Round       | dsa@test.provenhire.com        | Test123456 |");
-  console.log("| 3. AI Interview    | interview@test.provenhire.com  | Test123456 |");
-  console.log("\nAfter login, go to Verification → you’ll see the next stage ready.\n");
+  console.log("| 1. Aptitude        | qa.apt.apr2026@test.provenhire.com  | PhE2E_Apr2026!x7 |");
+  console.log("| 2. DSA Round       | qa.dsa.apr2026@test.provenhire.com | PhE2E_Apr2026!x7 |");
+  console.log("| 3. AI Interview    | qa.ai.apr2026@test.provenhire.com  | PhE2E_Apr2026!x7 |");
+  console.log("| 4. AI Interview 2  | qa.ai2.apr2026@test.provenhire.com | PhE2E_Apr2026!x7 |");
+  console.log("\nAfter login, go to Verification — the next stage is ready.\n");
 
   await prisma.$disconnect();
 }

@@ -17,6 +17,7 @@
     "generate": "prisma generate",
     "migrate:legacy": "tsx src/utils/migrate.ts",
     "seed:interviewer": "tsx prisma/seed-interviewer.ts",
+    "seed:recruiter": "tsx prisma/seed-recruiter.ts",
     "seed:admin": "tsx prisma/seed-admin.ts",
     "seed:ai-interview": "tsx prisma/seed-ai-interview-user.ts",
     "seed:test-credentials": "tsx prisma/seed-test-credentials.ts",

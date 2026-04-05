@@ -1,56 +1,55 @@
 /**
- * Seed one test interviewer for development/testing.
+ * Seed one test expert interviewer for development/testing.
  * Run: npx tsx prisma/seed-interviewer.ts
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-const TEST_EMAIL = "interviewer@test.provenhire.com";
-const TEST_PASSWORD = "Test123456";
-const TEST_NAME = "Test Interviewer";
+const TEST_EMAIL = "qa.expert.apr2026@test.provenhire.com";
+const TEST_PASSWORD = "PhE2E_Apr2026!x7";
+const TEST_NAME = "QA Expert Interviewer Apr2026";
 
 async function main() {
   const prisma = new PrismaClient();
-  const existing = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
-  if (existing) {
-    const inv = await prisma.interviewer.findFirst({ where: { userId: existing.id } });
-    if (inv) {
-      console.log("Test interviewer already exists.");
-      console.log(`  Email: ${TEST_EMAIL}`);
-      console.log(`  Password: ${TEST_PASSWORD}`);
-      console.log(`  Login at /auth`);
-      await prisma.$disconnect();
-      return;
-    }
-  }
+  const hash = await bcrypt.hash(TEST_PASSWORD, 12);
 
-  let userId: string;
-  if (existing) {
-    userId = existing.id;
-    console.log("User exists, linking Interviewer profile...");
-  } else {
-    const hash = await bcrypt.hash(TEST_PASSWORD, 12);
-    const user = await prisma.user.create({
+  let user = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
+  if (!user) {
+    user = await prisma.user.create({
       data: {
         email: TEST_EMAIL,
         name: TEST_NAME,
         passwordHash: hash,
         role: "expert_interviewer",
+        emailVerified: true,
+        authProvider: "EMAIL",
       },
     });
-    userId = user.id;
-    console.log("Created test user.");
+    console.log("Created test interviewer user.");
+  } else {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: hash,
+        role: "expert_interviewer",
+        emailVerified: true,
+        name: TEST_NAME,
+        authProvider: "EMAIL",
+      },
+    });
+    console.log("Updated test interviewer user.");
   }
 
   await prisma.interviewer.upsert({
-    where: { userId },
+    where: { userId: user.id },
     create: {
-      userId,
+      userId: user.id,
       name: TEST_NAME,
       track: "technical",
       domains: ["DSA / Algorithms", "Full Stack Development"],
       experienceYears: 5,
       status: "active",
+      profileCompleted: true,
     },
     update: {
       name: TEST_NAME,
@@ -58,14 +57,15 @@ async function main() {
       domains: ["DSA / Algorithms", "Full Stack Development"],
       experienceYears: 5,
       status: "active",
+      profileCompleted: true,
     },
   });
 
-  console.log("\n--- Test Interviewer Credentials ---");
+  console.log("\n Test expert interviewer credentials ");
   console.log(`  Email:    ${TEST_EMAIL}`);
   console.log(`  Password: ${TEST_PASSWORD}`);
   console.log(`  Login at: /auth`);
-  console.log("  After login you'll be redirected to /dashboard/expert\n");
+  console.log("  After login you are redirected to /dashboard/expert\n");
   await prisma.$disconnect();
 }
 
