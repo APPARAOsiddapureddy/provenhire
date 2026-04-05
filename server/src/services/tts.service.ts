@@ -1,4 +1,5 @@
 const CARTESIA_API_URL = "https://api.cartesia.ai/tts/bytes";
+/** Cartesia requires this header; HTTP TTS auth is `Authorization: Bearer`, not X-API-Key. */
 const CARTESIA_VERSION = "2024-06-10";
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 
@@ -27,7 +28,7 @@ export async function synthesizeSpeech(text: string): Promise<TTSResult> {
         method: "POST",
         headers: {
           "Cartesia-Version": CARTESIA_VERSION,
-          "X-API-Key": cartesiaKey,
+          Authorization: `Bearer ${cartesiaKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

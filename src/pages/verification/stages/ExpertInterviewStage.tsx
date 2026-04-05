@@ -29,6 +29,22 @@ const SPRINT_STEPS = [
   { num: 3, short: "Systems" },
 ] as const;
 
+/** Tiny silent WAV — call synchronously from a click/tap before awaits so later `Audio.play()` is not blocked by autoplay policy. */
+function unlockInterviewAudioOutput(): void {
+  try {
+    const a = new Audio(
+      "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+    );
+    a.volume = 0.01;
+    void a.play().then(() => {
+      a.pause();
+      a.removeAttribute("src");
+    }).catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
 const INTERVIEW_ROLES = [
   "Backend Developer",
   "Frontend Developer",
@@ -63,8 +79,10 @@ async function speakText(text: string, signal?: AbortSignal): Promise<void> {
     if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
 
     const contentType = res.headers.get("Content-Type") || "";
+    const looksLikeAudio =
+      contentType.includes("audio") || contentType.includes("octet-stream");
 
-    if (contentType.includes("audio")) {
+    if (looksLikeAudio) {
       const blob = await res.blob();
       if (blob.size === 0) {
         await fallbackBrowserTTS(text, signal);
@@ -120,14 +138,28 @@ async function speakFiller(signal?: AbortSignal): Promise<void> {
     if (!res.ok) return;
 
     const contentType = res.headers.get("Content-Type") || "";
+    const looksLikeAudio =
+      contentType.includes("audio") || contentType.includes("octet-stream");
 
-    if (contentType.includes("audio")) {
+    if (looksLikeAudio) {
+      let fillerFromHeader = "";
+      try {
+        const raw = res.headers.get("X-Filler-Text");
+        if (raw) fillerFromHeader = decodeURIComponent(raw);
+      } catch {
+        /* ignore */
+      }
+
       const blob = await res.blob();
-      if (blob.size === 0) return;
+      if (blob.size === 0) {
+        if (fillerFromHeader) await fallbackBrowserTTS(fillerFromHeader, signal);
+        return;
+      }
       const url = URL.createObjectURL(blob);
       await new Promise<void>((resolve) => {
         const audio = new Audio();
         audio.volume = 1;
+        audio.setAttribute("playsinline", "");
         audio.src = url;
         const cleanup = () => {
           URL.revokeObjectURL(url);
@@ -140,8 +172,18 @@ async function speakFiller(signal?: AbortSignal): Promise<void> {
         };
         signal?.addEventListener("abort", onAbort);
         audio.onended = cleanup;
-        audio.onerror = cleanup;
-        void audio.play().catch(cleanup);
+        audio.onerror = () => {
+          void (fillerFromHeader
+            ? fallbackBrowserTTS(fillerFromHeader, signal)
+            : Promise.resolve()
+          ).finally(cleanup);
+        };
+        void audio.play().catch(() => {
+          void (fillerFromHeader
+            ? fallbackBrowserTTS(fillerFromHeader, signal)
+            : Promise.resolve()
+          ).finally(cleanup);
+        });
       });
       return;
     }
@@ -371,6 +413,7 @@ export default function ExpertInterviewStage({
   );
 
   const replayQuestion = useCallback(() => {
+    unlockInterviewAudioOutput();
     if (!currentQuestion.trim()) return;
     if (deepgramSession.floor === "ai_thinking" || deepgramSession.floor === "ai_speaking") return;
     if (turnInFlight) return;
@@ -400,6 +443,7 @@ export default function ExpertInterviewStage({
   };
 
   const startInterview = async () => {
+    unlockInterviewAudioOutput();
     setLoading(true);
     try {
       await document.documentElement.requestFullscreen().catch(() => {});
@@ -421,6 +465,7 @@ export default function ExpertInterviewStage({
       setPersona(res.persona);
       setCurrentQuestion(res.question);
       questionShownAtRef.current = Date.now();
+      setRemainingMinutes(30);
 
       setStarted(true);
 

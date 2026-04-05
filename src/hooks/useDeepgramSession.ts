@@ -214,15 +214,17 @@ export function useDeepgramSession({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       mediaStreamRef.current = stream;
 
-      const audioCtx = new AudioContext({ sampleRate: 16000 });
+      // Prefer 16 kHz; browsers often ignore hint and use 44.1/48 kHz — Deepgram must get the *actual* rate.
+      const audioCtx = new AudioContext({ sampleRate: 16_000 });
       audioContextRef.current = audioCtx;
       await audioCtx.resume().catch(() => {});
 
+      const sampleRate = Math.round(audioCtx.sampleRate);
       const qs = new URLSearchParams({
         model: "nova-3",
         language: "en",
         encoding: "linear16",
-        sample_rate: "16000",
+        sample_rate: String(sampleRate),
         channels: "1",
         interim_results: "true",
         vad_events: "true",
