@@ -14,6 +14,36 @@ import {
 
 const QUESTIONS_PER_SPRINT = 5;
 const MAX_QUESTIONS = 15;
+const MAX_INTERVIEW_MINUTES = 30;
+
+export type InterviewCompletionReason = "questions_exhausted" | "time_limit" | "sprint_3_complete" | null;
+
+function isInterviewComplete(state: {
+  questionCount: number;
+  sprint: number;
+  sprintQuestionCount: number;
+  interviewStartTime?: number;
+}): { complete: boolean; reason: InterviewCompletionReason } {
+  if (state.questionCount >= MAX_QUESTIONS) {
+    return { complete: true, reason: "questions_exhausted" };
+  }
+
+  if (state.sprint === 3 && state.sprintQuestionCount >= QUESTIONS_PER_SPRINT) {
+    return { complete: true, reason: "sprint_3_complete" };
+  }
+
+  const start =
+    typeof state.interviewStartTime === "number" && Number.isFinite(state.interviewStartTime)
+      ? state.interviewStartTime
+      : Date.now();
+  const elapsedMs = Date.now() - start;
+  const elapsedMinutes = elapsedMs / 60_000;
+  if (elapsedMinutes >= MAX_INTERVIEW_MINUTES) {
+    return { complete: true, reason: "time_limit" };
+  }
+
+  return { complete: false, reason: null };
+}
 
 const SPRINTS: Record<number, { name: string; persona: string }> = {
   1: { name: "Project Defense", persona: "curious_lead" },
@@ -159,6 +189,8 @@ export async function processTurn(
   totalScore?: number;
   badgeLevel?: string;
   evaluation?: Record<string, unknown>;
+  remainingMinutes?: number;
+  completionReason?: InterviewCompletionReason;
 }> {
   const interview = await prisma.interview.findUnique({
     where: { id: interviewId },
@@ -270,13 +302,32 @@ export async function processTurn(
     }
   }
 
-  const isComplete =
-    newQuestionCount >= MAX_QUESTIONS ||
-    (currentSprint === 3 && currentSprintQuestionCount >= QUESTIONS_PER_SPRINT);
+  const interviewStartedAt =
+    typeof state.interviewStartTime === "number" && Number.isFinite(state.interviewStartTime)
+      ? state.interviewStartTime
+      : Date.now();
 
-  const wrapMessage =
+  const completionCheck = isInterviewComplete({
+    questionCount: newQuestionCount,
+    sprint: currentSprint,
+    sprintQuestionCount: currentSprintQuestionCount,
+    interviewStartTime: interviewStartedAt,
+  });
+
+  const isComplete = completionCheck.complete;
+
+  const sprintClosing =
     "That wraps up our interview. Well done for getting through all three sprints. Your report is being generated now.";
-  const aiText = isComplete ? wrapMessage : followup;
+  const timeClosing =
+    "We've reached the end of our time together. Thank you for the conversation — your report is being generated now.";
+  const closingMessage = completionCheck.reason === "time_limit" ? timeClosing : sprintClosing;
+  const aiText = isComplete ? closingMessage : followup;
+
+  if (isComplete) {
+    console.log(
+      `[interview] Complete — reason: ${completionCheck.reason}, questions: ${newQuestionCount}, sprint: ${currentSprint}`
+    );
+  }
 
   await prisma.interviewMessage.create({
     data: {
@@ -298,7 +349,7 @@ export async function processTurn(
     weaknesses: newWeaknesses,
     reasoningSignals: newReasoningSignals,
     lastQuestion: isComplete ? "" : followup,
-    interviewStartTime: state.interviewStartTime,
+    interviewStartTime: interviewStartedAt,
   };
 
   if (isComplete) {
@@ -355,7 +406,7 @@ export async function processTurn(
     });
 
     return {
-      response: wrapMessage,
+      response: closingMessage,
       sprint: currentSprint,
       sprintName: currentSprintName,
       persona: currentPersona,
@@ -366,6 +417,7 @@ export async function processTurn(
       totalScore: overallScore,
       badgeLevel: badge,
       evaluation,
+      completionReason: completionCheck.reason,
     };
   }
 
@@ -377,6 +429,9 @@ export async function processTurn(
     },
   });
 
+  const remainingMs = Math.max(0, MAX_INTERVIEW_MINUTES * 60_000 - (Date.now() - interviewStartedAt));
+  const remainingMinutes = Math.ceil(remainingMs / 60_000);
+
   return {
     response: followup,
     sprint: currentSprint,
@@ -386,6 +441,7 @@ export async function processTurn(
     weakness,
     questionCount: newQuestionCount,
     turnId: userMessage.id,
+    remainingMinutes,
   };
 }
 

@@ -29,10 +29,9 @@ import {
   processTurn,
   handlePartialTranscript,
 } from "../services/interview/orchestrator.js";
+import { getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
 
 export const interviewRouter = Router();
-
-const FILLERS = ["Hmm, interesting.", "Got it.", "I see.", "That makes sense.", "Alright."];
 
 // ── V2 adversarial voice interview + media helpers (register before /:id routes) ──
 
@@ -75,57 +74,73 @@ interviewRouter.get("/deepgram-token", requireAuth, requireJobSeeker, async (_re
 });
 
 interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRequest, res: Response) => {
-  const text = (req.body as { text?: string })?.text;
-  if (!text?.trim()) return res.status(400).json({ error: "text required" });
-
-  const elevenKey = process.env.ELEVENLABS_API_KEY;
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
-
-  if (!elevenKey) {
-    return res.status(200).json({ fallback: true, reason: "elevenlabs_not_configured" });
+  const text = (req.body as { text?: unknown })?.text;
+  if (typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "text is required" });
   }
 
-  try {
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
-      method: "POST",
-      headers: {
-        "xi-api-key": elevenKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_turbo_v2_5",
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-      }),
-    });
+  const result = await synthesizeSpeech(text.trim());
 
-    if (!response.ok) {
-      return res.status(502).json({ error: "TTS failed" });
-    }
-
+  if (result.stream) {
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-TTS-Provider", result.provider);
 
-    if (!response.body) {
-      return res.status(502).json({ error: "TTS empty body" });
+    const reader = result.stream.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+    } catch (e) {
+      console.error("[tts] Stream write error:", e);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Stream failed" });
+      } else {
+        res.end();
+      }
     }
-
-    const reader = response.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
-    }
-    res.end();
-  } catch (e) {
-    console.error("[interview/tts]", e);
-    return res.status(502).json({ error: "TTS unavailable" });
+    return;
   }
+
+  return res.status(200).json({
+    fallback: true,
+    text: text.trim(),
+    provider: "browser_fallback",
+  });
 });
 
-interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res) => {
-  const filler = FILLERS[Math.floor(Math.random() * FILLERS.length)]!;
-  return res.json({ text: filler });
+interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res: Response) => {
+  const fillerText = getRandomFiller();
+  const result = await synthesizeSpeech(fillerText);
+
+  if (result.stream) {
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-Filler-Text", encodeURIComponent(fillerText));
+    res.setHeader("X-TTS-Provider", result.provider);
+
+    const reader = result.stream.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+    } catch {
+      res.end();
+    }
+    return;
+  }
+
+  return res.status(200).json({
+    fallback: true,
+    text: fillerText,
+    provider: "browser_fallback",
+  });
 });
 
 interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {

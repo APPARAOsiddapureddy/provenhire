@@ -9,7 +9,7 @@ import { useDeepgramSession } from "@/hooks/useDeepgramSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
-import { Mic, Video, VideoOff, Shield, RotateCcw, Radio } from "lucide-react";
+import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock } from "lucide-react";
 
 const PERSONA_DESC: Record<string, string> = {
   curious_lead: "Exploring your ownership & decisions",
@@ -60,79 +60,102 @@ async function speakText(text: string, signal?: AbortSignal): Promise<void> {
       body: JSON.stringify({ text }),
       signal,
     });
-    if (!res.ok) {
-      await fallbackSpeak(text, signal);
-      return;
-    }
+    if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
 
-    const ct = res.headers.get("Content-Type") ?? "";
-    if (ct.includes("application/json")) {
-      const data = (await res.json()) as { fallback?: boolean };
-      if (data.fallback) {
-        await fallbackSpeak(text, signal);
+    const contentType = res.headers.get("Content-Type") || "";
+
+    if (contentType.includes("audio")) {
+      const blob = await res.blob();
+      if (blob.size === 0) {
+        await fallbackBrowserTTS(text, signal);
         return;
       }
-      await fallbackSpeak(text, signal);
-      return;
-    }
-
-    if (!res.body) {
-      await fallbackSpeak(text, signal);
-      return;
-    }
-
-    const blob = await res.blob();
-    if (blob.size === 0) {
-      await fallbackSpeak(text, signal);
-      return;
-    }
-    if (blob.size < 64) {
-      try {
-        const parsed = JSON.parse(await blob.text()) as { fallback?: boolean };
-        if (parsed.fallback) {
-          await fallbackSpeak(text, signal);
-          return;
-        }
-      } catch {
-        /* not JSON */
-      }
-    }
-
-    const url = URL.createObjectURL(blob);
-    await new Promise<void>((resolve) => {
-      const audio = new Audio();
-      audio.preload = "auto";
-      audio.setAttribute("playsinline", "");
-      audio.volume = 1;
-      audio.src = url;
-      const cleanup = () => {
-        URL.revokeObjectURL(url);
-        resolve();
-      };
-      const onAbort = () => {
-        audio.pause();
-        cleanup();
-      };
-      signal?.addEventListener("abort", onAbort);
-      audio.onended = () => {
-        signal?.removeEventListener("abort", onAbort);
-        cleanup();
-      };
-      audio.onerror = () => {
-        signal?.removeEventListener("abort", onAbort);
-        cleanup();
-      };
-      void audio.play().catch(() => {
-        signal?.removeEventListener("abort", onAbort);
-        void fallbackSpeak(text, signal).finally(cleanup);
+      const url = URL.createObjectURL(blob);
+      await new Promise<void>((resolve) => {
+        const audio = new Audio();
+        audio.preload = "auto";
+        audio.setAttribute("playsinline", "");
+        audio.volume = 1;
+        audio.src = url;
+        const cleanup = () => {
+          URL.revokeObjectURL(url);
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        };
+        const onAbort = () => {
+          audio.pause();
+          audio.src = "";
+          cleanup();
+        };
+        signal?.addEventListener("abort", onAbort);
+        audio.onended = cleanup;
+        audio.onerror = () => {
+          void fallbackBrowserTTS(text, signal).finally(cleanup);
+        };
+        void audio.play().catch(() => {
+          void fallbackBrowserTTS(text, signal).finally(cleanup);
+        });
       });
-    });
-  } catch {
-    await fallbackSpeak(text, signal);
+      return;
+    }
+
+    const data = (await res.json()) as { fallback?: boolean; text?: string };
+    if (data.fallback) {
+      await fallbackBrowserTTS(data.text || text, signal);
+    }
+  } catch (e) {
+    if (signal?.aborted) return;
+    console.warn("[speakText] TTS request failed, using browser fallback:", e);
+    await fallbackBrowserTTS(text, signal);
   }
 }
 
-function fallbackSpeak(text: string, signal?: AbortSignal): Promise<void> {
+async function speakFiller(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+  try {
+    const res = await fetch("/api/interview/tts-filler", {
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+      signal,
+    });
+    if (!res.ok) return;
+
+    const contentType = res.headers.get("Content-Type") || "";
+
+    if (contentType.includes("audio")) {
+      const blob = await res.blob();
+      if (blob.size === 0) return;
+      const url = URL.createObjectURL(blob);
+      await new Promise<void>((resolve) => {
+        const audio = new Audio();
+        audio.volume = 1;
+        audio.src = url;
+        const cleanup = () => {
+          URL.revokeObjectURL(url);
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        };
+        const onAbort = () => {
+          audio.pause();
+          cleanup();
+        };
+        signal?.addEventListener("abort", onAbort);
+        audio.onended = cleanup;
+        audio.onerror = cleanup;
+        void audio.play().catch(cleanup);
+      });
+      return;
+    }
+
+    const data = (await res.json()) as { fallback?: boolean; text?: string };
+    if (data.fallback && data.text) {
+      await fallbackBrowserTTS(data.text, signal);
+    }
+  } catch {
+    /* filler optional */
+  }
+}
+
+function fallbackBrowserTTS(text: string, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (!window.speechSynthesis || signal?.aborted) {
       resolve();
@@ -141,6 +164,12 @@ function fallbackSpeak(text: string, signal?: AbortSignal): Promise<void> {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 0.95;
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(
+      (v) =>
+        v.name.includes("Samantha") || v.name.includes("Karen") || v.name.includes("Google US English")
+    );
+    if (preferred) u.voice = preferred;
     const onAbort = () => {
       window.speechSynthesis.cancel();
       signal?.removeEventListener("abort", onAbort);
@@ -188,6 +217,7 @@ export default function ExpertInterviewStage({
   const [weakness, setWeakness] = useState<Record<string, unknown> | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [turnInFlight, setTurnInFlight] = useState(false);
+  const [remainingMinutes, setRemainingMinutes] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -250,14 +280,11 @@ export default function ExpertInterviewStage({
 
       let fillerAc = new AbortController();
       try {
-        const fillerRes = await fetch("/api/interview/tts-filler", {
-          headers: { Authorization: `Bearer ${getAuthToken()}` },
-        }).then((r) => r.json() as Promise<{ text?: string }>);
         fillerAc = new AbortController();
         abortRef.current = fillerAc;
         deepgramSession.setAbortController(fillerAc);
         deepgramSession.transition("ai_thinking");
-        void speakText(fillerRes.text ?? "Hmm...", fillerAc.signal);
+        void speakFiller(fillerAc.signal);
       } catch {
         fillerAc = new AbortController();
       }
@@ -276,6 +303,8 @@ export default function ExpertInterviewStage({
           totalScore?: number;
           badgeLevel?: string;
           evaluation?: Record<string, unknown>;
+          remainingMinutes?: number;
+          completionReason?: string | null;
         }>("/api/interview/v2/turn", {
           interviewId,
           answer: text,
@@ -284,6 +313,10 @@ export default function ExpertInterviewStage({
         });
 
         fillerAc.abort();
+
+        if (turnResult.remainingMinutes != null) {
+          setRemainingMinutes(turnResult.remainingMinutes);
+        }
 
         setWeakness(turnResult.weakness ?? null);
         setQuestionCount(turnResult.questionCount);
@@ -517,7 +550,7 @@ export default function ExpertInterviewStage({
                     <span className="text-muted-foreground">{sprintName}</span>
                   </div>
                   <span className="text-xs text-muted-foreground italic">{PERSONA_DESC[persona]}</span>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <div className="w-28 h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary rounded-full transition-all"
@@ -525,6 +558,12 @@ export default function ExpertInterviewStage({
                       />
                     </div>
                     <span className="text-xs text-muted-foreground tabular-nums">{questionCount}/15</span>
+                    {remainingMinutes != null && (
+                      <span className="text-xs text-muted-foreground tabular-nums inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3 opacity-70" aria-hidden />
+                        ~{remainingMinutes} min left
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
