@@ -84,7 +84,37 @@ export function useDeepgramSession({
   const browserAnalyserRef = useRef<AnalyserNode | null>(null);
   const deepgramFallbackStartedRef = useRef(false);
 
+  /** Mirrors `floor` for capture callbacks (worklet/ScriptProcessor run outside React render). */
+  const floorRef = useRef<FloorState>("idle");
+  /** When true, browser SpeechRecognition must not transcribe or auto-restart (AI/filler is playing). */
+  const listeningPausedRef = useRef(false);
+  const sttModeRef = useRef<InterviewSttMode>("idle");
+
+  useEffect(() => {
+    sttModeRef.current = sttMode;
+  }, [sttMode]);
+
   const transition = useCallback((next: FloorState) => {
+    floorRef.current = next;
+    const listenOn = next === "user_speaking";
+    listeningPausedRef.current = !listenOn;
+
+    if (sttModeRef.current === "browser" && recognitionRef.current) {
+      if (!listenOn) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          /* noop */
+        }
+      } else {
+        try {
+          recognitionRef.current.start();
+        } catch {
+          /* may already be running */
+        }
+      }
+    }
+
     setFloor(next);
   }, []);
 
@@ -180,6 +210,7 @@ export function useDeepgramSession({
     };
 
     rec.onresult = (event: SpeechRecognitionEvent) => {
+      if (listeningPausedRef.current) return;
       let line = "";
       for (let i = 0; i < event.results.length; i++) {
         line += event.results[i]![0]!.transcript;
@@ -200,13 +231,16 @@ export function useDeepgramSession({
     };
 
     rec.onend = () => {
+      if (listeningPausedRef.current) {
+        return;
+      }
       const stopped = browserStoppedRef.current;
       const t = latestTranscriptRef.current.trim();
       latestTranscriptRef.current = "";
       if (!stopped && t) {
         onFinal(t);
       }
-      if (!browserStoppedRef.current && recognitionRef.current) {
+      if (!browserStoppedRef.current && recognitionRef.current && floorRef.current === "user_speaking") {
         try {
           rec.start();
         } catch {
@@ -216,11 +250,6 @@ export function useDeepgramSession({
     };
 
     transition("user_speaking");
-    try {
-      rec.start();
-    } catch (e) {
-      onError(`Could not start speech recognition: ${String(e)}`);
-    }
   }, [interviewId, onError, onFinal, onPartial, transition]);
 
   const startDeepgram = useCallback(
@@ -370,6 +399,7 @@ export function useDeepgramSession({
         const msg = `Deepgram disconnected (${ev.code}${reason ? `: ${reason}` : ""}).`;
         if (!deepgramFallbackStartedRef.current) {
           deepgramFallbackStartedRef.current = true;
+          sttModeRef.current = "browser";
           setSttMode("browser");
           onError(`${msg} Switching to browser speech…`);
           void startBrowserRecognition().catch((err) => onError(`Could not start browser speech: ${String(err)}`));
@@ -393,9 +423,13 @@ export function useDeepgramSession({
       const vizData = new Uint8Array(analyser.frequencyBinCount);
       const vizLoop = () => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        analyser.getByteFrequencyData(vizData);
-        const avg = vizData.reduce((a, b) => a + b, 0) / vizData.length;
-        setMicLevel(avg / 128);
+        if (floorRef.current !== "user_speaking") {
+          setMicLevel(0);
+        } else {
+          analyser.getByteFrequencyData(vizData);
+          const avg = vizData.reduce((a, b) => a + b, 0) / vizData.length;
+          setMicLevel(avg / 128);
+        }
         vizFrameRef.current = requestAnimationFrame(vizLoop);
       };
       vizLoop();
@@ -433,6 +467,7 @@ export function useDeepgramSession({
         processorRef.current = processor;
         processor.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return;
+          if (floorRef.current !== "user_speaking") return;
           const float32 = e.inputBuffer.getChannelData(0);
           ws.send(float32ToPcm16(float32));
         };
@@ -472,6 +507,7 @@ export function useDeepgramSession({
     sharedSessionStreamRef.current = null;
 
     utteranceBufferRef.current = [];
+    sttModeRef.current = "idle";
     setSttMode("idle");
     transition("idle");
   }, [releaseDeepgramMedia, stopBrowserRecognition, transition]);
@@ -486,21 +522,25 @@ export function useDeepgramSession({
       const auth: "bearer" | "token" = data?.auth === "bearer" ? "bearer" : "token";
 
       if (token) {
+        sttModeRef.current = "deepgram";
         setSttMode("deepgram");
         try {
           await startDeepgram(token, auth);
         } catch (e) {
+          sttModeRef.current = "browser";
           setSttMode("browser");
           onError(`Deepgram: ${String(e)}. Using browser speech.`);
           await startBrowserRecognition();
         }
       } else {
+        sttModeRef.current = "browser";
         setSttMode("browser");
         await startBrowserRecognition();
       }
     } catch (e) {
       const SR = getSpeechRecognition();
       if (SR) {
+        sttModeRef.current = "browser";
         setSttMode("browser");
         try {
           await startBrowserRecognition();
