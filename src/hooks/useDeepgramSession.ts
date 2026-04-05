@@ -288,6 +288,15 @@ export function useDeepgramSession({
         throw connectErr ?? new Error("Deepgram WebSocket failed to open");
       }
 
+      // If React re-ran an effect cleanup (e.g. interviewId changed stop()), context may already be closed.
+      if (audioCtx.state === "closed") {
+        intentionalWsCloseRef.current = true;
+        ws.close();
+        wsRef.current = null;
+        throw new Error("AudioContext closed unexpectedly — try starting the interview again.");
+      }
+      await audioCtx.resume().catch(() => {});
+
       transition("user_speaking");
 
       ws.onmessage = (event: MessageEvent) => {
@@ -370,6 +379,10 @@ export function useDeepgramSession({
       };
 
       try {
+      if (audioCtx.state === "closed") {
+        throw new Error("AudioContext is closed");
+      }
+
       const source = audioCtx.createMediaStreamSource(stream);
 
       const analyser = audioCtx.createAnalyser();
@@ -391,25 +404,31 @@ export function useDeepgramSession({
       silentGain.gain.value = 0;
 
       let usedWorklet = false;
-      try {
-        const workletUrl = `${import.meta.env.BASE_URL}deepgram-capture.worklet.js`;
-        await audioCtx.audioWorklet.addModule(workletUrl);
-        const node = new AudioWorkletNode(audioCtx, "deepgram-capture-processor");
-        workletNodeRef.current = node;
-        node.port.onmessage = (e: MessageEvent<Float32Array>) => {
-          if (ws.readyState !== WebSocket.OPEN) return;
-          const float32 = e.data;
-          if (!(float32 instanceof Float32Array) || float32.length === 0) return;
-          ws.send(float32ToPcm16(float32));
-        };
-        source.connect(node);
-        node.connect(silentGain);
-        usedWorklet = true;
-      } catch {
-        /* AudioWorklet unsupported or module load failed */
+      if (audioCtx.state !== "closed") {
+        try {
+          const base = import.meta.env.BASE_URL || "/";
+          const workletUrl =
+            typeof window !== "undefined"
+              ? new URL("deepgram-capture.worklet.js", new URL(base, window.location.origin).href).href
+              : `${base.replace(/\/?$/, "/")}deepgram-capture.worklet.js`;
+          await audioCtx.audioWorklet.addModule(workletUrl);
+          const node = new AudioWorkletNode(audioCtx, "deepgram-capture-processor");
+          workletNodeRef.current = node;
+          node.port.onmessage = (e: MessageEvent<Float32Array>) => {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            const float32 = e.data;
+            if (!(float32 instanceof Float32Array) || float32.length === 0) return;
+            ws.send(float32ToPcm16(float32));
+          };
+          source.connect(node);
+          node.connect(silentGain);
+          usedWorklet = true;
+        } catch {
+          /* AudioWorklet unsupported or module load failed */
+        }
       }
 
-      if (!usedWorklet) {
+      if (!usedWorklet && audioCtx.state !== "closed") {
         const processor = audioCtx.createScriptProcessor(2048, 1, 1);
         processorRef.current = processor;
         processor.onaudioprocess = (e) => {
@@ -419,6 +438,8 @@ export function useDeepgramSession({
         };
         source.connect(processor);
         processor.connect(silentGain);
+      } else if (!usedWorklet) {
+        throw new Error("Audio capture unavailable (audio context closed)");
       }
 
       silentGain.connect(audioCtx.destination);
@@ -498,9 +519,14 @@ export function useDeepgramSession({
     currentAbortRef.current = ac;
   }, []);
 
+  /** Must only run on real unmount. If `[stop]` were a dependency, cleanup would run whenever `interviewId` changes (via `stopBrowserRecognition` → `stop`) and would tear down the AudioContext while `startDeepgram` is still running. */
+  const stopOnUnmountRef = useRef(stop);
+  stopOnUnmountRef.current = stop;
   useEffect(() => {
-    return () => stop();
-  }, [stop]);
+    return () => {
+      stopOnUnmountRef.current();
+    };
+  }, []);
 
   return { floor, micLevel, start, stop, transition, setAbortController, sttMode };
 }

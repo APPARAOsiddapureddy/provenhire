@@ -430,7 +430,10 @@ export default function ExpertInterviewStage({
     const stream = streamRef.current;
     if (!cameraActive || !el || !stream) return;
     el.srcObject = stream;
-    void el.play().catch(() => {});
+    const play = () => void el.play().catch(() => {});
+    play();
+    el.addEventListener("loadedmetadata", play, { once: true });
+    return () => el.removeEventListener("loadedmetadata", play);
   }, [cameraActive, started]);
 
   const startCamera = async () => {
@@ -511,13 +514,16 @@ export default function ExpertInterviewStage({
     }
   };
 
+  /** Only run on real unmount. `deepgramSession` is a new object every render — deps on it re-fired cleanup after every state tick and killed camera/mic/Deepgram. */
+  const deepgramSessionRef = useRef(deepgramSession);
+  deepgramSessionRef.current = deepgramSession;
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
-      deepgramSession.stop();
+      deepgramSessionRef.current.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [deepgramSession]);
+  }, []);
 
   const progressPct = Math.min((questionCount / 15) * 100, 100);
   const evaluation = outcome?.evaluation;
