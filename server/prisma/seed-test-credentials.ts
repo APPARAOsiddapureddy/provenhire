@@ -1,6 +1,7 @@
 /**
  * Seed test job seekers for end-to-end verification testing.
- * Run: cd server && npx tsx prisma/seed-test-credentials.ts
+ * Apply migrations first (same DATABASE_URL): `npx prisma migrate deploy`
+ * Then: cd server && npx tsx prisma/seed-test-credentials.ts
  *
  * Creates:
  * 1. Aptitude user   – profile done, ready to take Aptitude Test
