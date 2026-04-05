@@ -9,7 +9,7 @@ import { useDeepgramSession } from "@/hooks/useDeepgramSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
-import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock } from "lucide-react";
+import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock, Send } from "lucide-react";
 
 const PERSONA_DESC: Record<string, string> = {
   curious_lead: "Exploring your ownership & decisions",
@@ -260,6 +260,8 @@ export default function ExpertInterviewStage({
   const [cameraActive, setCameraActive] = useState(false);
   const [turnInFlight, setTurnInFlight] = useState(false);
   const [remainingMinutes, setRemainingMinutes] = useState<number | null>(null);
+  /** Committed voice segments (finalized STT). Live line is `partial`. Submit sends draft + partial. */
+  const [answerDraft, setAnswerDraft] = useState("");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -267,8 +269,18 @@ export default function ExpertInterviewStage({
   const processingRef = useRef(false);
   const questionShownAtRef = useRef(Date.now());
   const aiSpeakRef = useRef<(text: string) => Promise<void>>(async () => {});
+  const answerDraftRef = useRef("");
+  const interviewIdRef = useRef<string | null>(null);
 
   const inTest = Boolean(interviewId) && !outcome;
+
+  useEffect(() => {
+    interviewIdRef.current = interviewId;
+  }, [interviewId]);
+
+  useEffect(() => {
+    answerDraftRef.current = answerDraft;
+  }, [answerDraft]);
 
   const isFlagEnabled = (name: string) => getMode(name) === "MONITOR" || getMode(name) === "STRICT";
   const strikeTerminationMode = getMode("proctoring_strike_termination") as StrikeTerminationMode;
@@ -309,89 +321,19 @@ export default function ExpertInterviewStage({
     },
   });
 
+  /** Voice end-of-utterance only extends the local draft; user submits explicitly to advance. */
+  const appendFinalToDraft = useCallback((text: string) => {
+    const t = text.trim();
+    if (!t) return;
+    setAnswerDraft((prev) => (prev ? `${prev} ${t}` : t));
+    setPartial("");
+  }, []);
+
   const deepgramSession = useDeepgramSession({
     interviewId,
     onPartial: setPartial,
     onError: (err) => toast.error(err, { duration: 2600 }),
-    onFinal: async (text) => {
-      if (processingRef.current || !interviewId) return;
-      processingRef.current = true;
-      setTurnInFlight(true);
-
-      setPartial("");
-      deepgramSession.setCaptureEnabled(false);
-
-      let fillerAc = new AbortController();
-      try {
-        fillerAc = new AbortController();
-        abortRef.current = fillerAc;
-        deepgramSession.setAbortController(fillerAc);
-        deepgramSession.transition("ai_thinking");
-        void speakFiller(fillerAc.signal);
-      } catch {
-        fillerAc = new AbortController();
-      }
-
-      try {
-        const timeToSubmit = Math.floor((Date.now() - questionShownAtRef.current) / 1000);
-
-        const turnResult = await api.post<{
-          response: string;
-          sprint: number;
-          sprintName: string;
-          persona: string;
-          complete: boolean;
-          weakness?: Record<string, unknown>;
-          questionCount: number;
-          totalScore?: number;
-          badgeLevel?: string;
-          evaluation?: Record<string, unknown>;
-          remainingMinutes?: number;
-          completionReason?: string | null;
-        }>("/api/interview/v2/turn", {
-          interviewId,
-          answer: text,
-          inputMode: "voice",
-          timeToSubmitSeconds: timeToSubmit,
-        });
-
-        fillerAc.abort();
-
-        if (turnResult.remainingMinutes != null) {
-          setRemainingMinutes(turnResult.remainingMinutes);
-        }
-
-        setWeakness(turnResult.weakness ?? null);
-        setQuestionCount(turnResult.questionCount);
-        setSprint(turnResult.sprint);
-        setSprintName(turnResult.sprintName);
-        setPersona(turnResult.persona);
-        setCurrentQuestion(turnResult.response);
-        questionShownAtRef.current = Date.now();
-
-        if (turnResult.complete) {
-          setOutcome({
-            totalScore: turnResult.totalScore,
-            badgeLevel: turnResult.badgeLevel,
-            evaluation: turnResult.evaluation,
-          });
-          streamRef.current?.getTracks().forEach((t) => t.stop());
-          setCameraActive(false);
-          deepgramSession.stop();
-          onInterviewAwaitingReview?.();
-        } else {
-          await aiSpeakRef.current(turnResult.response);
-        }
-      } catch {
-        fillerAc.abort();
-        toast.error("Interview error — please try again.", { duration: 2600 });
-        deepgramSession.setCaptureEnabled(true);
-        deepgramSession.transition("user_speaking");
-      } finally {
-        processingRef.current = false;
-        setTurnInFlight(false);
-      }
-    },
+    onFinal: appendFinalToDraft,
   });
 
   const aiSpeak = useCallback(
@@ -415,6 +357,96 @@ export default function ExpertInterviewStage({
     },
     [deepgramSession]
   );
+
+  const submitAnswer = useCallback(async () => {
+    const id = interviewIdRef.current;
+    if (processingRef.current || !id) return;
+    if (deepgramSession.floor !== "user_speaking") return;
+    if (turnInFlight) return;
+
+    const composed = [answerDraftRef.current, partial].filter(Boolean).join(" ").trim();
+    if (!composed) {
+      toast.error("Speak your answer, then tap submit when you are done.", { duration: 2800 });
+      return;
+    }
+
+    processingRef.current = true;
+    setTurnInFlight(true);
+    deepgramSession.setCaptureEnabled(false);
+
+    let fillerAc = new AbortController();
+    try {
+      fillerAc = new AbortController();
+      abortRef.current = fillerAc;
+      deepgramSession.setAbortController(fillerAc);
+      deepgramSession.transition("ai_thinking");
+      void speakFiller(fillerAc.signal);
+    } catch {
+      fillerAc = new AbortController();
+    }
+
+    try {
+      const timeToSubmit = Math.floor((Date.now() - questionShownAtRef.current) / 1000);
+
+      const turnResult = await api.post<{
+        response: string;
+        sprint: number;
+        sprintName: string;
+        persona: string;
+        complete: boolean;
+        weakness?: Record<string, unknown>;
+        questionCount: number;
+        totalScore?: number;
+        badgeLevel?: string;
+        evaluation?: Record<string, unknown>;
+        remainingMinutes?: number;
+        completionReason?: string | null;
+      }>("/api/interview/v2/turn", {
+        interviewId: id,
+        answer: composed,
+        inputMode: "voice",
+        timeToSubmitSeconds: timeToSubmit,
+      });
+
+      fillerAc.abort();
+
+      if (turnResult.remainingMinutes != null) {
+        setRemainingMinutes(turnResult.remainingMinutes);
+      }
+
+      setWeakness(turnResult.weakness ?? null);
+      setQuestionCount(turnResult.questionCount);
+      setSprint(turnResult.sprint);
+      setSprintName(turnResult.sprintName);
+      setPersona(turnResult.persona);
+      setCurrentQuestion(turnResult.response);
+      questionShownAtRef.current = Date.now();
+      setAnswerDraft("");
+      setPartial("");
+
+      if (turnResult.complete) {
+        setOutcome({
+          totalScore: turnResult.totalScore,
+          badgeLevel: turnResult.badgeLevel,
+          evaluation: turnResult.evaluation,
+        });
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        setCameraActive(false);
+        deepgramSession.stop();
+        onInterviewAwaitingReview?.();
+      } else {
+        await aiSpeakRef.current(turnResult.response);
+      }
+    } catch {
+      fillerAc.abort();
+      toast.error("Interview error — please try again.", { duration: 2600 });
+      deepgramSession.setCaptureEnabled(true);
+      deepgramSession.transition("user_speaking");
+    } finally {
+      processingRef.current = false;
+      setTurnInFlight(false);
+    }
+  }, [deepgramSession, partial, turnInFlight, onInterviewAwaitingReview]);
 
   const replayQuestion = useCallback(() => {
     unlockInterviewAudioOutput();
@@ -496,6 +528,8 @@ export default function ExpertInterviewStage({
       setCurrentQuestion(res.question);
       questionShownAtRef.current = Date.now();
       setRemainingMinutes(30);
+      setAnswerDraft("");
+      setPartial("");
 
       setStarted(true);
       streamRef.current = combinedStream;
@@ -817,12 +851,37 @@ export default function ExpertInterviewStage({
                       </p>
                     </div>
 
-                    {partial && (
-                      <div className="rounded-lg border border-dashed border-primary/25 bg-muted/20 px-3 py-2">
-                        <p className="text-[10px] font-medium text-primary uppercase tracking-wide mb-1">Live transcript</p>
-                        <p className="text-sm text-muted-foreground italic leading-snug">{partial}</p>
+                    {(answerDraft || partial) && (
+                      <div className="rounded-lg border border-dashed border-primary/25 bg-muted/20 px-3 py-2 space-y-2">
+                        <p className="text-[10px] font-medium text-primary uppercase tracking-wide">Your answer</p>
+                        <p className="text-sm text-foreground leading-snug">
+                          {answerDraft}
+                          {answerDraft && partial ? " " : ""}
+                          {partial ? <span className="text-muted-foreground italic">{partial}</span> : null}
+                        </p>
                       </div>
                     )}
+
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+                      <Button
+                        type="button"
+                        size="default"
+                        className="gap-2 shrink-0"
+                        onClick={() => void submitAnswer()}
+                        disabled={
+                          !interviewId ||
+                          deepgramSession.floor !== "user_speaking" ||
+                          turnInFlight ||
+                          ![answerDraft, partial].filter(Boolean).join(" ").trim()
+                        }
+                      >
+                        <Send className="h-4 w-4" />
+                        {questionCount >= 14 ? "Submit & complete round" : "Submit answer"}
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground">
+                        When you are done speaking, submit to move on. Pauses no longer auto-advance.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
