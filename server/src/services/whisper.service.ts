@@ -1,4 +1,4 @@
-import OpenAI, { toFile } from "openai";
+import OpenAI, { toFile, APIError } from "openai";
 
 const openai = process.env.OPENAI_API_KEY?.trim()
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY.trim() })
@@ -7,6 +7,28 @@ const openai = process.env.OPENAI_API_KEY?.trim()
 export interface WhisperResult {
   transcript: string;
   confidence: "high" | "medium" | "low";
+}
+
+/** User-facing message for logs + JSON `message` field (no secrets). */
+export function whisperOpenAIErrorMessage(err: unknown): string {
+  if (err instanceof APIError) {
+    const s = err.status;
+    if (s === 401)
+      return "OpenAI rejected the API key (401). Use a valid key from platform.openai.com/api-keys on the server.";
+    if (s === 402)
+      return "OpenAI billing: no payment method or insufficient quota (402). Add a card and credits at platform.openai.com/settings/organization/billing — ChatGPT Plus does not cover API.";
+    if (s === 403)
+      return "OpenAI access denied for this key (403). Check project/key permissions and that the Audio API is allowed.";
+    if (s === 429)
+      return "OpenAI rate limited (429). Retry in a minute or check usage limits.";
+    if (s === 503 || s === 502)
+      return "OpenAI service temporarily unavailable. Retry shortly.";
+    const body = err.error as { message?: string } | undefined;
+    const detail = typeof body?.message === "string" ? body.message : err.message;
+    return detail || `OpenAI request failed (${String(s ?? "error")})`;
+  }
+  if (err instanceof Error) return err.message;
+  return "Whisper request failed";
 }
 
 function confidenceFromVerbose(raw: {
@@ -56,12 +78,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = "a
       const text = typeof response === "object" && response && "text" in response ? String((response as { text?: string }).text ?? "") : "";
       return { transcript: text.trim(), confidence: "medium" };
     } catch (second) {
-      const err = second as { status?: number; message?: string };
-      const msg =
-        err?.status === 401
-          ? "OpenAI rejected the API key (401). Check OPENAI_API_KEY on the server."
-          : err?.message || (first instanceof Error ? first.message : "Whisper request failed");
-      throw new Error(msg);
+      throw new Error(whisperOpenAIErrorMessage(second));
     }
   }
 }

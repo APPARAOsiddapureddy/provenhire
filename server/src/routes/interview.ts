@@ -1,4 +1,4 @@
-import { Router, type Response } from "express";
+import { Router, type Response, type NextFunction } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
@@ -31,7 +31,7 @@ import {
   handlePartialTranscript,
 } from "../services/interview/orchestrator.js";
 import { getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
-import { transcribeAudio } from "../services/whisper.service.js";
+import { transcribeAudio, whisperOpenAIErrorMessage } from "../services/whisper.service.js";
 
 export const interviewRouter = Router();
 
@@ -84,7 +84,25 @@ interviewRouter.post(
   "/transcribe",
   requireAuth,
   requireJobSeeker,
-  audioUpload.single("audio"),
+  (req: AuthedRequest, res: Response, next: NextFunction) => {
+    audioUpload.single("audio")(req, res, (err: unknown) => {
+      if (!err) return next();
+      const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
+      if (code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({
+          error: "Audio too large",
+          message: "Recording exceeds server limit (25MB). Use shorter voice segments.",
+        });
+      }
+      if (code.startsWith("LIMIT_") || code === "MISSING_FIELD_NAME") {
+        return res.status(400).json({
+          error: "Upload error",
+          message: err instanceof Error ? err.message : "Invalid multipart upload",
+        });
+      }
+      return next(err as Error);
+    });
+  },
   async (req: AuthedRequest, res: Response) => {
     try {
       if (!process.env.OPENAI_API_KEY?.trim()) {
@@ -96,7 +114,7 @@ interviewRouter.post(
         });
       }
 
-      if (!req.file?.buffer) {
+      if (!req.file?.buffer?.length) {
         return res.status(400).json({ error: "No audio file provided" });
       }
 
@@ -108,10 +126,11 @@ interviewRouter.post(
 
       return res.json({ transcript, confidence, empty: false });
     } catch (e) {
-      console.error("[interview/transcribe]", e);
+      const message = whisperOpenAIErrorMessage(e);
+      console.error("[interview/transcribe]", message, e);
       return res.status(500).json({
         error: "Transcription failed",
-        message: e instanceof Error ? e.message : "Unknown error",
+        message,
       });
     }
   }
