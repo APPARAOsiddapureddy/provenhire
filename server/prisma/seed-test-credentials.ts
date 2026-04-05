@@ -34,8 +34,8 @@ const TEST_USERS = [
     aptitudeScore: 75,
   },
   {
-    email: "interview@test.provenhire.com",
-    name: "Interview Test User",
+    email: "qa.ai.apr2026@test.provenhire.com",
+    name: "QA AI Interview Apr2026",
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "completed", score: 80 },
