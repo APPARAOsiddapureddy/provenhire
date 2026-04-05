@@ -88,11 +88,17 @@ export function useDeepgramSession({
   const floorRef = useRef<FloorState>("idle");
   /** When true, browser SpeechRecognition must not transcribe or auto-restart (AI/filler is playing). */
   const listeningPausedRef = useRef(false);
+  /** Parent sets false before any TTS (question + replay); true only after playback fully ends. Gates PCM + partials. */
+  const captureEnabledRef = useRef(false);
   const sttModeRef = useRef<InterviewSttMode>("idle");
 
   useEffect(() => {
     sttModeRef.current = sttMode;
   }, [sttMode]);
+
+  const setCaptureEnabled = useCallback((enabled: boolean) => {
+    captureEnabledRef.current = enabled;
+  }, []);
 
   const transition = useCallback((next: FloorState) => {
     floorRef.current = next;
@@ -100,7 +106,7 @@ export function useDeepgramSession({
     listeningPausedRef.current = !listenOn;
 
     if (sttModeRef.current === "browser" && recognitionRef.current) {
-      if (!listenOn) {
+      if (!listenOn || !captureEnabledRef.current) {
         try {
           recognitionRef.current.stop();
         } catch {
@@ -119,6 +125,10 @@ export function useDeepgramSession({
   }, []);
 
   const flushUtterance = useCallback(() => {
+    if (!captureEnabledRef.current) {
+      utteranceBufferRef.current = [];
+      return;
+    }
     const text = utteranceBufferRef.current.join(" ").trim();
     utteranceBufferRef.current = [];
     if (text) {
@@ -188,9 +198,13 @@ export function useDeepgramSession({
     const vizData = new Uint8Array(analyser.frequencyBinCount);
     const vizLoop = () => {
       if (browserStoppedRef.current) return;
-      analyser.getByteFrequencyData(vizData);
-      const avg = vizData.reduce((a, b) => a + b, 0) / vizData.length;
-      setMicLevel(avg / 128);
+      if (!captureEnabledRef.current || floorRef.current !== "user_speaking") {
+        setMicLevel(0);
+      } else {
+        analyser.getByteFrequencyData(vizData);
+        const avg = vizData.reduce((a, b) => a + b, 0) / vizData.length;
+        setMicLevel(avg / 128);
+      }
       vizFrameRef.current = requestAnimationFrame(vizLoop);
     };
     vizLoop();
@@ -210,7 +224,7 @@ export function useDeepgramSession({
     };
 
     rec.onresult = (event: SpeechRecognitionEvent) => {
-      if (listeningPausedRef.current) return;
+      if (listeningPausedRef.current || !captureEnabledRef.current) return;
       let line = "";
       for (let i = 0; i < event.results.length; i++) {
         line += event.results[i]![0]!.transcript;
@@ -240,7 +254,12 @@ export function useDeepgramSession({
       if (!stopped && t) {
         onFinal(t);
       }
-      if (!browserStoppedRef.current && recognitionRef.current && floorRef.current === "user_speaking") {
+      if (
+        !browserStoppedRef.current &&
+        recognitionRef.current &&
+        floorRef.current === "user_speaking" &&
+        captureEnabledRef.current
+      ) {
         try {
           rec.start();
         } catch {
@@ -249,7 +268,8 @@ export function useDeepgramSession({
       }
     };
 
-    transition("user_speaking");
+    captureEnabledRef.current = false;
+    transition("idle");
   }, [interviewId, onError, onFinal, onPartial, transition]);
 
   const startDeepgram = useCallback(
@@ -326,7 +346,8 @@ export function useDeepgramSession({
       }
       await audioCtx.resume().catch(() => {});
 
-      transition("user_speaking");
+      captureEnabledRef.current = false;
+      transition("idle");
 
       ws.onmessage = (event: MessageEvent) => {
         let data: Record<string, unknown>;
@@ -345,17 +366,13 @@ export function useDeepgramSession({
           onError(msg);
           return;
         }
-        if (type === "SpeechStarted") {
-          if (currentAbortRef.current) {
-            currentAbortRef.current.abort();
-            currentAbortRef.current = null;
-          }
-          transition("user_speaking");
-        }
-
         if (type === "UtteranceEnd") {
           if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
           flushUtterance();
+          return;
+        }
+
+        if (!captureEnabledRef.current || floorRef.current !== "user_speaking") {
           return;
         }
 
@@ -423,7 +440,7 @@ export function useDeepgramSession({
       const vizData = new Uint8Array(analyser.frequencyBinCount);
       const vizLoop = () => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        if (floorRef.current !== "user_speaking") {
+        if (!captureEnabledRef.current || floorRef.current !== "user_speaking") {
           setMicLevel(0);
         } else {
           analyser.getByteFrequencyData(vizData);
@@ -450,6 +467,7 @@ export function useDeepgramSession({
           workletNodeRef.current = node;
           node.port.onmessage = (e: MessageEvent<Float32Array>) => {
             if (ws.readyState !== WebSocket.OPEN) return;
+            if (!captureEnabledRef.current || floorRef.current !== "user_speaking") return;
             const float32 = e.data;
             if (!(float32 instanceof Float32Array) || float32.length === 0) return;
             ws.send(float32ToPcm16(float32));
@@ -467,7 +485,7 @@ export function useDeepgramSession({
         processorRef.current = processor;
         processor.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return;
-          if (floorRef.current !== "user_speaking") return;
+          if (!captureEnabledRef.current || floorRef.current !== "user_speaking") return;
           const float32 = e.inputBuffer.getChannelData(0);
           ws.send(float32ToPcm16(float32));
         };
@@ -507,6 +525,7 @@ export function useDeepgramSession({
     sharedSessionStreamRef.current = null;
 
     utteranceBufferRef.current = [];
+    captureEnabledRef.current = false;
     sttModeRef.current = "idle";
     setSttMode("idle");
     transition("idle");
@@ -568,7 +587,7 @@ export function useDeepgramSession({
     };
   }, []);
 
-  return { floor, micLevel, start, stop, transition, setAbortController, sttMode };
+  return { floor, micLevel, start, stop, transition, setAbortController, setCaptureEnabled, sttMode };
 }
 
 function waitForWebSocketOpen(ws: WebSocket, ms: number): Promise<void> {

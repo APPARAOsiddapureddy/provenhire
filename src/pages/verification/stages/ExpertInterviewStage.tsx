@@ -319,6 +319,7 @@ export default function ExpertInterviewStage({
       setTurnInFlight(true);
 
       setPartial("");
+      deepgramSession.setCaptureEnabled(false);
 
       let fillerAc = new AbortController();
       try {
@@ -384,6 +385,7 @@ export default function ExpertInterviewStage({
       } catch {
         fillerAc.abort();
         toast.error("Interview error — please try again.", { duration: 2600 });
+        deepgramSession.setCaptureEnabled(true);
         deepgramSession.transition("user_speaking");
       } finally {
         processingRef.current = false;
@@ -399,6 +401,7 @@ export default function ExpertInterviewStage({
       const ac = new AbortController();
       abortRef.current = ac;
       deepgramSession.setAbortController(ac);
+      deepgramSession.setCaptureEnabled(false);
       deepgramSession.transition("ai_speaking");
       try {
         await speakText(text, ac.signal);
@@ -406,6 +409,7 @@ export default function ExpertInterviewStage({
         /* fallback inside speakText */
       }
       if (!ac.signal.aborted) {
+        deepgramSession.setCaptureEnabled(true);
         deepgramSession.transition("user_speaking");
       }
     },
