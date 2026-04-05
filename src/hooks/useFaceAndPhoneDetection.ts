@@ -1,9 +1,11 @@
 import { useEffect, useRef, type RefObject } from "react";
-import * as tf from "@tensorflow/tfjs";
-import * as blazeface from "@tensorflow-models/blazeface";
-import * as cocoSsd from "@tensorflow-models/coco-ssd";
 import { api } from "@/lib/api";
-import { blazeFaceModelUrl, COCO_SSD_LITE_MODEL_URL } from "@/lib/tfModelUrls";
+import {
+  acquireTfProctoringModels,
+  releaseTfProctoringModels,
+  estimateBlazeFaces,
+  detectCellPhoneInFrame,
+} from "@/utils/tfProctoringDetection";
 
 export type ProctoringServerAction = "CONTINUE" | "SHOW_WARNING" | "STOP_TEST";
 
@@ -14,7 +16,8 @@ const WARN: Record<string, string> = {
 };
 
 /**
- * Lightweight face + cell-phone pass using BlazeFace + COCO-SSD (aptitude / DSA only).
+ * Lightweight face + cell-phone pass using BlazeFace + COCO-SSD.
+ * Uses the shared tfProctoring singleton (reference counted) so GPU memory is released on unmount.
  */
 export function useFaceAndPhoneDetection(opts: {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -25,10 +28,7 @@ export function useFaceAndPhoneDetection(opts: {
   onServerAction?: (action: ProctoringServerAction, eventType: string) => void;
 }) {
   const { videoRef, sessionId, testType, userId, enabled, onServerAction } = opts;
-  const modelsRef = useRef<{ face: blazeface.BlazeFaceModel | null; coco: cocoSsd.ObjectDetection | null }>({
-    face: null,
-    coco: null,
-  });
+  const acquiredRef = useRef(false);
 
   useEffect(() => {
     if (!enabled || !userId || !sessionId) return;
@@ -62,19 +62,18 @@ export function useFaceAndPhoneDetection(opts: {
 
     async function tick() {
       const video = videoRef.current;
-      if (!video || video.readyState < 2 || !modelsRef.current.face || !modelsRef.current.coco) return;
+      if (!video || video.readyState < 2) return;
 
       try {
-        const faces = await modelsRef.current.face.estimateFaces(video, false);
+        const faces = await estimateBlazeFaces(video);
         if (faces.length === 0) {
           await sendEvent("NO_FACE_DETECTED");
         } else if (faces.length >= 2) {
           await sendEvent("MULTIPLE_FACES_DETECTED");
         }
 
-        const objects = await modelsRef.current.coco.detect(video);
-        const phones = objects.filter((o) => o.class === "cell phone" && o.score > 0.6);
-        if (phones.length > 0) {
+        const { found } = await detectCellPhoneInFrame(video, 0.6);
+        if (found) {
           await sendEvent("PHONE_DETECTED");
         }
       } catch {
@@ -83,32 +82,16 @@ export function useFaceAndPhoneDetection(opts: {
     }
 
     async function load() {
-      let face: blazeface.BlazeFaceModel | null = null;
       try {
-        await tf.ready();
-        if (cancelled) return;
-        face = await blazeface.load({ modelUrl: blazeFaceModelUrl() });
-        const coco = await cocoSsd.load({
-          base: "lite_mobilenet_v2",
-          modelUrl: COCO_SSD_LITE_MODEL_URL,
-        });
+        await acquireTfProctoringModels();
         if (cancelled) {
-          try {
-            face.dispose();
-          } catch {
-            /* ignore */
-          }
+          releaseTfProctoringModels();
           return;
         }
-        modelsRef.current = { face, coco };
+        acquiredRef.current = true;
         intervalId = window.setInterval(() => void tick(), 3000);
       } catch (e) {
         console.warn("[useFaceAndPhoneDetection] model load failed — face/phone checks disabled for this session:", e);
-        try {
-          face?.dispose();
-        } catch {
-          /* ignore */
-        }
       }
     }
 
@@ -117,7 +100,10 @@ export function useFaceAndPhoneDetection(opts: {
     return () => {
       cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
-      modelsRef.current = { face: null, coco: null };
+      if (acquiredRef.current) {
+        acquiredRef.current = false;
+        releaseTfProctoringModels();
+      }
     };
   }, [enabled, userId, sessionId, testType, videoRef, onServerAction]);
 }

@@ -538,8 +538,8 @@ export function useProctoringRiskMonitor({
   }, [enabled, logViolation, microphoneStream, microphoneMonitoringEnabled]);
 
   useEffect(() => {
-    // ai_interview uses a separate video pipeline (ExpertInterviewStage); skip this effect there.
-    if (!enabled || !cameraStream || testType === "ai_interview" || !multipleFaceDetectionEnabled) return;
+    /** BlazeFace + COCO-SSD: requires `cameraStream`; use `proctorVideoRef` when the live <video> is separate from a hidden stream sink (e.g. Expert Interview). */
+    if (!enabled || !cameraStream || !multipleFaceDetectionEnabled) return;
 
     let cancelled = false;
     const useExternalVideo = Boolean(proctorVideoRef);
@@ -659,14 +659,7 @@ export function useProctoringRiskMonitor({
       internalVideo.srcObject = null;
       if (tfModelsAcquired) releaseTfProctoringModels();
     };
-  }, [
-    cameraStream,
-    enabled,
-    logViolation,
-    multipleFaceDetectionEnabled,
-    proctorVideoRef,
-    testType,
-  ]);
+  }, [cameraStream, enabled, logViolation, multipleFaceDetectionEnabled, proctorVideoRef]);
 
   const recordEvent = useCallback(
     (eventCode: ProctoringEventCode, details?: Record<string, unknown>) => {

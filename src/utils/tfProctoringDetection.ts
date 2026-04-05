@@ -27,7 +27,8 @@ export async function loadTfProctoringModels(): Promise<void> {
   if (blazefaceModel && cocoModel) return;
   if (!loadPromise) {
     loadPromise = (async () => {
-      await import("@tensorflow/tfjs");
+      const tf = await import("@tensorflow/tfjs");
+      await tf.ready();
       const [blazeface, coco] = await Promise.all([
         import("@tensorflow-models/blazeface"),
         import("@tensorflow-models/coco-ssd"),

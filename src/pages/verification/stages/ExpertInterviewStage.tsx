@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWhisperSession } from "@/hooks/useWhisperSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
-import { useFaceAndPhoneDetection } from "@/hooks/useFaceAndPhoneDetection";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock, Send } from "lucide-react";
 
@@ -303,22 +302,13 @@ export default function ExpertInterviewStage({
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
     fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
+    /** Expert Interview: match legacy always-on face/phone checks whenever camera is live (camera is required for this round). */
+    multipleFaceDetectionEnabled: inTest && cameraActive,
+    proctorVideoRef: videoRef,
     microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
     maxTabSwitches: 999,
     strikeTerminationMode,
     onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateForProctoring : undefined,
-  });
-
-  useFaceAndPhoneDetection({
-    videoRef,
-    sessionId: interviewId ?? `AI_INTERVIEW_${Date.now()}`,
-    testType: "ai_interview",
-    userId: user?.id,
-    enabled: inTest && cameraActive,
-    onServerAction: (action, evt) => {
-      if (action === "STOP_TEST") terminateForProctoring(evt as ProctoringEventCode);
-    },
   });
 
   /** Voice end-of-utterance only extends the local draft; user submits explicitly to advance. */

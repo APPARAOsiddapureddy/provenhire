@@ -87,6 +87,15 @@ interviewRouter.post(
   audioUpload.single("audio"),
   async (req: AuthedRequest, res: Response) => {
     try {
+      if (!process.env.OPENAI_API_KEY?.trim()) {
+        console.error("[interview/transcribe] OPENAI_API_KEY is not set");
+        return res.status(503).json({
+          error: "Transcription unavailable",
+          message:
+            "Server missing OPENAI_API_KEY. Add it to the API host environment (e.g. Render dashboard → Environment).",
+        });
+      }
+
       if (!req.file?.buffer) {
         return res.status(400).json({ error: "No audio file provided" });
       }
