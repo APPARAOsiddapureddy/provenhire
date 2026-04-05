@@ -1,11 +1,12 @@
 /**
- * Seed three test job seekers for end-to-end verification testing.
+ * Seed test job seekers for end-to-end verification testing.
  * Run: cd server && npx tsx prisma/seed-test-credentials.ts
  *
  * Creates:
- * 1. Aptitude user  – profile done, ready to take Aptitude Test
- * 2. DSA user       – profile + aptitude done, ready to take DSA Round
- * 3. Interview user – profile + aptitude + DSA done, ready to take AI Expert Interview
+ * 1. Aptitude user   – profile done, ready to take Aptitude Test
+ * 2. DSA user        – profile + aptitude done, ready to take DSA Round
+ * 3. Interview user  – ready for AI Expert Interview
+ * 4. Interview user 2 – second account, same stage (parallel QA)
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
@@ -34,6 +35,18 @@ const TEST_USERS = [
   {
     email: "interview@test.provenhire.com",
     name: "Interview Test User",
+    stages: [
+      { stageName: "profile_setup", status: "completed", score: 100 },
+      { stageName: "aptitude_test", status: "completed", score: 80 },
+      { stageName: "dsa_round", status: "completed", score: 70 },
+      { stageName: "expert_interview", status: "in_progress" },
+    ],
+    aptitudeScore: 80,
+    dsaScore: 70,
+  },
+  {
+    email: "interview2@test.provenhire.com",
+    name: "Interview Test User 2",
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "completed", score: 80 },

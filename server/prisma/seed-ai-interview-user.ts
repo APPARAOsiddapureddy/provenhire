@@ -1,5 +1,5 @@
 /**
- * Seed a job seeker who can directly open the AI Interview round.
+ * Seed job seekers who can directly open the AI Interview round.
  * Run: cd server && npm run seed:ai-interview
  * Or:  cd server && npx tsx prisma/seed-ai-interview-user.ts
  *
@@ -10,20 +10,24 @@ import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-// Keep consistent with `prisma/seed-test-credentials.ts` so QA can use one set.
-const TEST_EMAIL = "interview@test.provenhire.com".trim().toLowerCase();
 const TEST_PASSWORD = "Test123456";
-const TEST_NAME = "AI Interview Test User";
+
+const AI_INTERVIEW_TEST_USERS = [
+  { email: "interview@test.provenhire.com", name: "AI Interview Test User" },
+  { email: "interview2@test.provenhire.com", name: "AI Interview Test User 2" },
+] as const;
 
 const technicalStages = ["profile_setup", "aptitude_test", "dsa_round", "expert_interview"];
 
-async function main() {
-  const prisma = new PrismaClient();
-  // Find by email case-insensitively so we match even if DB has different casing
+async function seedOne(
+  prisma: PrismaClient,
+  hash: string,
+  TEST_EMAIL: string,
+  TEST_NAME: string
+) {
   let user = await prisma.user.findFirst({
     where: { email: { equals: TEST_EMAIL, mode: "insensitive" } },
   });
-  const hash = await bcrypt.hash(TEST_PASSWORD, 12);
 
   if (!user) {
     user = await prisma.user.create({
@@ -36,7 +40,7 @@ async function main() {
         authProvider: "EMAIL",
       },
     });
-    console.log("Created test job seeker user.");
+    console.log(`Created test job seeker: ${TEST_EMAIL}`);
   } else {
     await prisma.user.update({
       where: { id: user.id },
@@ -47,7 +51,7 @@ async function main() {
         name: TEST_NAME,
       },
     });
-    console.log("Updated existing test user (email normalized to lowercase, password and authProvider set).");
+    console.log(`Updated test user: ${TEST_EMAIL}`);
   }
 
   await prisma.jobSeekerProfile.upsert({
@@ -67,10 +71,8 @@ async function main() {
     },
   });
 
-  // Mark profile_setup, aptitude_test, dsa_round as completed; expert_interview as in_progress
   for (const stageName of technicalStages) {
-    const status =
-      stageName === "expert_interview" ? "in_progress" : "completed";
+    const status = stageName === "expert_interview" ? "in_progress" : "completed";
     const score = stageName === "expert_interview" ? undefined : 80;
     await prisma.verificationStage.upsert({
       where: { userId_stageName: { userId: user.id, stageName } },
@@ -83,12 +85,24 @@ async function main() {
       update: { status, score: score ?? undefined },
     });
   }
+}
 
-  console.log("\n--- AI Interview Test User ---");
-  console.log("  Email:    " + TEST_EMAIL);
-  console.log("  Password: " + TEST_PASSWORD);
+async function main() {
+  const prisma = new PrismaClient();
+  const hash = await bcrypt.hash(TEST_PASSWORD, 12);
+
+  for (const { email, name } of AI_INTERVIEW_TEST_USERS) {
+    const normalized = email.trim().toLowerCase();
+    await seedOne(prisma, hash, normalized, name);
+  }
+
+  console.log("\n--- AI Interview Test Users ---");
+  console.log("  Password (all): " + TEST_PASSWORD);
   console.log("  Login at: /auth (select Job Seeker, then Sign In)");
-  console.log("  After login, go to Verification Pipeline — you'll see AI Expert Interview as the next step.\n");
+  for (const { email } of AI_INTERVIEW_TEST_USERS) {
+    console.log("  Email:    " + email.trim().toLowerCase());
+  }
+  console.log("  After login, go to Verification Pipeline — AI Expert Interview is the next step.\n");
   await prisma.$disconnect();
 }
 
