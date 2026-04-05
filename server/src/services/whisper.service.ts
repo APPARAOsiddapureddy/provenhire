@@ -50,10 +50,23 @@ function confidenceFromVerbose(raw: {
   };
 }
 
+/** Strip codec params (e.g. `audio/webm;codecs=opus`) — some API paths are picky about `type`. */
+function normalizeWhisperMime(mime: string): { type: string; filename: string } {
+  const base = (mime || "audio/webm").split(";")[0].trim().toLowerCase() || "audio/webm";
+  if (base === "audio/mp4" || base === "audio/m4a") return { type: base, filename: "answer.mp4" };
+  if (base === "audio/wav" || base === "audio/x-wav") return { type: "audio/wav", filename: "answer.wav" };
+  return { type: "audio/webm", filename: "answer.webm" };
+}
+
+async function whisperToFile(buffer: Buffer, mimeType: string) {
+  const { type, filename } = normalizeWhisperMime(mimeType);
+  return toFile(buffer, filename, { type });
+}
+
 export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = "audio/webm"): Promise<WhisperResult> {
   if (!openai) throw new Error("OPENAI_API_KEY not configured");
 
-  const file = await toFile(audioBuffer, "answer.webm", { type: mimeType || "audio/webm" });
+  const file = await whisperToFile(audioBuffer, mimeType);
 
   try {
     const response = await openai.audio.transcriptions.create({
@@ -67,7 +80,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = "a
   } catch (first) {
     /** Some accounts/API paths reject verbose_json; fall back to plain json (no per-segment confidence). */
     try {
-      const fileRetry = await toFile(audioBuffer, "answer.webm", { type: mimeType || "audio/webm" });
+      const fileRetry = await whisperToFile(audioBuffer, mimeType);
       const response = await openai.audio.transcriptions.create({
         file: fileRetry,
         model: "whisper-1",
@@ -78,7 +91,25 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = "a
       const text = typeof response === "object" && response && "text" in response ? String((response as { text?: string }).text ?? "") : "";
       return { transcript: text.trim(), confidence: "medium" };
     } catch (second) {
-      throw new Error(whisperOpenAIErrorMessage(second));
+      try {
+        const filePlain = await whisperToFile(audioBuffer, mimeType);
+        const response = await openai.audio.transcriptions.create({
+          file: filePlain,
+          model: "whisper-1",
+          language: "en",
+          response_format: "text",
+          temperature: 0,
+        });
+        const text =
+          typeof response === "string"
+            ? response
+            : typeof response === "object" && response && "text" in response
+              ? String((response as { text?: string }).text ?? "")
+              : "";
+        return { transcript: text.trim(), confidence: "medium" };
+      } catch (third) {
+        throw new Error(whisperOpenAIErrorMessage(third));
+      }
     }
   }
 }

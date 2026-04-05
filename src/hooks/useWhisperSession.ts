@@ -132,8 +132,15 @@ export function useWhisperSession({
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const msg = (body as { message?: string }).message || `HTTP ${res.status}`;
+        const raw = await res.text();
+        let msg = `HTTP ${res.status}`;
+        try {
+          const body = JSON.parse(raw) as { message?: string; error?: string };
+          msg = body.message || body.error || msg;
+        } catch {
+          const snippet = raw.replace(/\s+/g, " ").trim().slice(0, 180);
+          if (snippet) msg = `${msg}${snippet ? ` — ${snippet}` : ""}`;
+        }
         throw new Error(msg);
       }
 

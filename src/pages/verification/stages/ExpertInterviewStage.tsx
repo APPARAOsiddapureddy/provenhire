@@ -270,6 +270,8 @@ export default function ExpertInterviewStage({
   const aiSpeakRef = useRef<(text: string) => Promise<void>>(async () => {});
   const answerDraftRef = useRef("");
   const interviewIdRef = useRef<string | null>(null);
+  /** Scrollable answer panel: keep viewport near bottom when new text arrives unless user scrolled up. */
+  const answerScrollRef = useRef<HTMLDivElement>(null);
 
   const inTest = Boolean(interviewId) && !outcome;
 
@@ -280,6 +282,16 @@ export default function ExpertInterviewStage({
   useEffect(() => {
     answerDraftRef.current = answerDraft;
   }, [answerDraft]);
+
+  useEffect(() => {
+    const el = answerScrollRef.current;
+    if (!el) return;
+    const pad = 72;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < pad;
+    if (nearBottom || partial) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [answerDraft, partial]);
 
   const isFlagEnabled = (name: string) => getMode(name) === "MONITOR" || getMode(name) === "STRICT";
   const strikeTerminationMode = getMode("proctoring_strike_termination") as StrikeTerminationMode;
@@ -322,7 +334,7 @@ export default function ExpertInterviewStage({
   const whisperSession = useWhisperSession({
     interviewId,
     onPartial: setPartial,
-    onError: (err) => toast.error(err, { duration: 2600 }),
+    onError: (err) => toast.error(err, { duration: 8000 }),
     onFinal: appendFinalToDraft,
   });
 
@@ -840,14 +852,30 @@ export default function ExpertInterviewStage({
                       </p>
                     </div>
 
-                    {(answerDraft || partial) && (
+                    {started && interviewId && !outcome && (
                       <div className="rounded-lg border border-dashed border-primary/25 bg-muted/20 px-3 py-2 space-y-2">
                         <p className="text-[10px] font-medium text-primary uppercase tracking-wide">Your answer</p>
-                        <p className="text-sm text-foreground leading-snug">
-                          {answerDraft}
-                          {answerDraft && partial ? " " : ""}
-                          {partial ? <span className="text-muted-foreground italic">{partial}</span> : null}
-                        </p>
+                        <div
+                          ref={answerScrollRef}
+                          className="max-h-[min(40vh,18rem)] min-h-[5.5rem] overflow-y-auto rounded-md border border-border/80 bg-background px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words"
+                          aria-label="Transcribed answer text"
+                        >
+                          {answerDraft || partial ? (
+                            <>
+                              {answerDraft}
+                              {partial ? (
+                                <>
+                                  {answerDraft ? " " : ""}
+                                  <span className="text-muted-foreground italic">{partial}</span>
+                                </>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground italic text-[13px]">
+                              Your speech is transcribed here after each pause. Scroll inside this box to read longer answers; only this area updates as you speak.
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
 
