@@ -52,9 +52,9 @@ const SPRINTS: Record<number, { name: string; persona: string }> = {
 };
 
 const SPRINT_OPENERS: Record<number, string> = {
-  1: "Tell me about a project from your background that you're genuinely proud of — what problem were you trying to solve, and why did it matter?",
-  2: "Let's talk about the technical concepts behind your work. Pick one idea at the core of what you've built — how would you explain it to someone encountering it for the first time?",
-  3: "Let's think through a design problem. Imagine you're building a system to serve real-time predictions for millions of users — where would you start, and what are the hardest parts to get right?",
+  1: "Tell me about a project you're proud of — what problem did it solve?",
+  2: "Pick one core concept from your work — how does it actually work?",
+  3: "You're building a real-time prediction system for millions — where do you start?",
 };
 
 const prefetchCache: Map<string, string[]> = new Map();

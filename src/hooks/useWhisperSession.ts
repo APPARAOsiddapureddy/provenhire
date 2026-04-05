@@ -1,0 +1,369 @@
+import { useRef, useState, useCallback, useEffect, useLayoutEffect } from "react";
+import { getAuthToken } from "@/lib/api";
+
+export type FloorState = "idle" | "user_speaking" | "ai_thinking" | "ai_speaking";
+
+/** UI label for voice session badge (Expert Interview). */
+export type InterviewSttMode = "whisper" | "idle";
+
+const SILENCE_THRESHOLD = 0.012;
+const SILENCE_DURATION_MS = 1500;
+const MAX_RECORDING_MS = 120_000;
+const MIN_SPEECH_MS = 300;
+
+export function useWhisperSession({
+  interviewId: _interviewId,
+  onFinal,
+  onPartial,
+  onError,
+}: {
+  interviewId: string | null;
+  onFinal: (text: string) => void;
+  onPartial: (text: string) => void;
+  onError: (err: string) => void;
+}) {
+  const [floor, setFloor] = useState<FloorState>("idle");
+  const [micLevel, setMicLevel] = useState(0);
+  const [sttMode, setSttMode] = useState<InterviewSttMode>("idle");
+
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  /** When true, `mediaStreamRef` is owned by the parent (e.g. camera+mic) — do not stop its tracks on teardown. */
+  const sharedStreamRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxRecordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vizFrameRef = useRef<number | null>(null);
+  const vadFrameRef = useRef<number | null>(null);
+  const currentAbortRef = useRef<AbortController | null>(null);
+  const isSpeakingRef = useRef(false);
+  const recordingStartRef = useRef(0);
+  const floorRef = useRef<FloorState>("idle");
+  const isTranscribingRef = useRef(false);
+  const captureEnabledRef = useRef(true);
+  const pendingDiscardRef = useRef(false);
+  const startRecordingFnRef = useRef<() => void>(() => {});
+
+  const transition = useCallback((next: FloorState) => {
+    floorRef.current = next;
+    setFloor(next);
+  }, []);
+
+  const getRMS = useCallback((): number => {
+    const analyser = analyserRef.current;
+    if (!analyser) return 0;
+    const data = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+    return Math.sqrt(sum / data.length);
+  }, []);
+
+  const clearRecordingTimers = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (maxRecordingTimerRef.current) {
+      clearTimeout(maxRecordingTimerRef.current);
+      maxRecordingTimerRef.current = null;
+    }
+    if (vadFrameRef.current != null) {
+      cancelAnimationFrame(vadFrameRef.current);
+      vadFrameRef.current = null;
+    }
+  }, []);
+
+  const stopAndTranscribe = useCallback(async () => {
+    const rec = mediaRecorderRef.current;
+    if (!rec || rec.state === "inactive" || isTranscribingRef.current) return;
+
+    isTranscribingRef.current = true;
+    clearRecordingTimers();
+
+    const discard = pendingDiscardRef.current;
+    pendingDiscardRef.current = false;
+
+    rec.stop();
+
+    await new Promise<void>((resolve) => {
+      rec.onstop = () => resolve();
+    });
+
+    mediaRecorderRef.current = null;
+
+    if (discard) {
+      audioChunksRef.current = [];
+      isTranscribingRef.current = false;
+      if (captureEnabledRef.current && floorRef.current === "user_speaking") {
+        startRecordingFnRef.current();
+      }
+      return;
+    }
+
+    const duration = Date.now() - recordingStartRef.current;
+    if (duration < MIN_SPEECH_MS || audioChunksRef.current.length === 0) {
+      audioChunksRef.current = [];
+      isTranscribingRef.current = false;
+      if (captureEnabledRef.current && floorRef.current === "user_speaking") {
+        startRecordingFnRef.current();
+      }
+      return;
+    }
+
+    const mime = rec.mimeType || "audio/webm";
+    const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+    audioChunksRef.current = [];
+
+    transition("ai_thinking");
+
+    try {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "answer.webm");
+
+      const token = getAuthToken();
+      const res = await fetch("/api/interview/transcribe", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+        signal: currentAbortRef.current?.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg = (body as { message?: string }).message || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      const data = (await res.json()) as {
+        transcript: string;
+        confidence: string;
+        empty: boolean;
+      };
+
+      onPartial("");
+      isTranscribingRef.current = false;
+
+      transition("user_speaking");
+      if (!data.empty && data.transcript.trim()) {
+        onFinal(data.transcript.trim());
+      }
+      if (captureEnabledRef.current && floorRef.current === "user_speaking") {
+        startRecordingFnRef.current();
+      }
+    } catch (e) {
+      onPartial("");
+      isTranscribingRef.current = false;
+      onError(`Transcription failed: ${e instanceof Error ? e.message : "unknown"}`);
+      transition("user_speaking");
+      if (captureEnabledRef.current) {
+        startRecordingFnRef.current();
+      }
+    }
+  }, [onFinal, onPartial, onError, transition, clearRecordingTimers]);
+
+  const startRecording = useCallback(() => {
+    const stream = mediaStreamRef.current;
+    if (!stream || isTranscribingRef.current || !captureEnabledRef.current) return;
+    if (floorRef.current !== "user_speaking") return;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") return;
+
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) return;
+
+    const recordStream = new MediaStream(audioTracks);
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+
+    const recorder = mimeType
+      ? new MediaRecorder(recordStream, { mimeType })
+      : new MediaRecorder(recordStream);
+
+    audioChunksRef.current = [];
+    recordingStartRef.current = Date.now();
+    isSpeakingRef.current = false;
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+
+    recorder.start(100);
+    mediaRecorderRef.current = recorder;
+
+    maxRecordingTimerRef.current = setTimeout(() => {
+      void stopAndTranscribe();
+    }, MAX_RECORDING_MS);
+
+    const vadLoop = () => {
+      if (floorRef.current !== "user_speaking" || !mediaRecorderRef.current) return;
+
+      const rms = getRMS();
+      const speaking = rms > SILENCE_THRESHOLD;
+
+      if (speaking) {
+        isSpeakingRef.current = true;
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
+      } else if (isSpeakingRef.current && !silenceTimerRef.current) {
+        silenceTimerRef.current = setTimeout(() => {
+          void stopAndTranscribe();
+        }, SILENCE_DURATION_MS);
+      }
+
+      vadFrameRef.current = requestAnimationFrame(vadLoop);
+    };
+    vadFrameRef.current = requestAnimationFrame(vadLoop);
+  }, [getRMS, stopAndTranscribe]);
+
+  useLayoutEffect(() => {
+    startRecordingFnRef.current = startRecording;
+  });
+
+  const stop = useCallback(() => {
+    clearRecordingTimers();
+    if (vizFrameRef.current != null) {
+      cancelAnimationFrame(vizFrameRef.current);
+      vizFrameRef.current = null;
+    }
+
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      try {
+        rec.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+
+    if (!sharedStreamRef.current) {
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    }
+    mediaStreamRef.current = null;
+    sharedStreamRef.current = false;
+
+    void audioContextRef.current?.close().catch(() => {});
+    audioContextRef.current = null;
+    analyserRef.current = null;
+
+    isTranscribingRef.current = false;
+    setSttMode("idle");
+    setMicLevel(0);
+    transition("idle");
+  }, [clearRecordingTimers, transition]);
+
+  const start = useCallback(
+    async (opts?: { sharedMediaStream?: MediaStream | null }) => {
+      stop();
+
+      let stream: MediaStream;
+      if (opts?.sharedMediaStream && opts.sharedMediaStream.getAudioTracks().length > 0) {
+        stream = opts.sharedMediaStream;
+        sharedStreamRef.current = true;
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: false,
+        });
+        sharedStreamRef.current = false;
+      }
+
+      mediaStreamRef.current = stream;
+
+      const audioCtx = new AudioContext();
+      await audioCtx.resume().catch(() => {});
+      audioContextRef.current = audioCtx;
+
+      const srcStream =
+        stream.getAudioTracks().length > 0 ? new MediaStream(stream.getAudioTracks()) : stream;
+      const source = audioCtx.createMediaStreamSource(srcStream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      const vizData = new Uint8Array(analyser.frequencyBinCount);
+      const vizLoop = () => {
+        const a = analyserRef.current;
+        if (!a) return;
+        a.getByteFrequencyData(vizData);
+        const avg = vizData.reduce((acc, b) => acc + b, 0) / vizData.length;
+        setMicLevel(avg / 128);
+        vizFrameRef.current = requestAnimationFrame(vizLoop);
+      };
+      vizFrameRef.current = requestAnimationFrame(vizLoop);
+
+      setSttMode("whisper");
+      captureEnabledRef.current = true;
+      transition("user_speaking");
+      startRecordingFnRef.current();
+    },
+    [stop, transition],
+  );
+
+  const setCaptureEnabled = useCallback(
+    (enabled: boolean) => {
+      captureEnabledRef.current = enabled;
+      if (!enabled) {
+        clearRecordingTimers();
+        pendingDiscardRef.current = true;
+        const rec = mediaRecorderRef.current;
+        if (rec && rec.state !== "inactive") {
+          rec.onstop = () => {
+            pendingDiscardRef.current = false;
+          };
+          try {
+            rec.stop();
+          } catch {
+            pendingDiscardRef.current = false;
+          }
+        } else {
+          pendingDiscardRef.current = false;
+        }
+        mediaRecorderRef.current = null;
+        audioChunksRef.current = [];
+        isTranscribingRef.current = false;
+      } else if (floorRef.current === "user_speaking" && !isTranscribingRef.current && mediaStreamRef.current) {
+        startRecordingFnRef.current();
+      }
+    },
+    [clearRecordingTimers],
+  );
+
+  const setAbortController = useCallback((ac: AbortController | null) => {
+    currentAbortRef.current = ac;
+  }, []);
+
+  const resumeListening = useCallback(() => {
+    if (isTranscribingRef.current) return;
+    transition("user_speaking");
+    captureEnabledRef.current = true;
+    startRecordingFnRef.current();
+  }, [transition]);
+
+  useEffect(() => {
+    return () => {
+      stop();
+    };
+  }, [stop]);
+
+  return {
+    floor,
+    micLevel,
+    sttMode,
+    start,
+    stop,
+    transition,
+    setAbortController,
+    setCaptureEnabled,
+    resumeListening,
+  };
+}

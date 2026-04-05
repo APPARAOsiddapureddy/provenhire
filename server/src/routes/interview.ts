@@ -1,4 +1,5 @@
 import { Router, type Response } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireAuth, requireJobSeeker, AuthedRequest } from "../middleware/auth.js";
@@ -30,8 +31,14 @@ import {
   handlePartialTranscript,
 } from "../services/interview/orchestrator.js";
 import { getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
+import { transcribeAudio } from "../services/whisper.service.js";
 
 export const interviewRouter = Router();
+
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
 
 // ── V2 adversarial voice interview + media helpers (register before /:id routes) ──
 
@@ -72,6 +79,34 @@ interviewRouter.get("/deepgram-token", requireAuth, requireJobSeeker, async (_re
   }
   return res.json({ token: key, auth: "token" as const });
 });
+
+interviewRouter.post(
+  "/transcribe",
+  requireAuth,
+  requireJobSeeker,
+  audioUpload.single("audio"),
+  async (req: AuthedRequest, res: Response) => {
+    try {
+      if (!req.file?.buffer) {
+        return res.status(400).json({ error: "No audio file provided" });
+      }
+
+      const { transcript, confidence } = await transcribeAudio(req.file.buffer, req.file.mimetype);
+
+      if (!transcript.trim()) {
+        return res.json({ transcript: "", confidence: "low", empty: true });
+      }
+
+      return res.json({ transcript, confidence, empty: false });
+    } catch (e) {
+      console.error("[interview/transcribe]", e);
+      return res.status(500).json({
+        error: "Transcription failed",
+        message: e instanceof Error ? e.message : "Unknown error",
+      });
+    }
+  }
+);
 
 interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRequest, res: Response) => {
   const text = (req.body as { text?: unknown })?.text;

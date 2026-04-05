@@ -152,18 +152,28 @@ Return JSON: {"structureScore": 0-3, "clarificationBehavior": "asks|assumes|mixe
 
 // ── FOLLOWUP AGENT ────────────────────────────────────────────────────────────
 const PERSONA_PROMPTS: Record<string, string> = {
-  curious_lead: `You are a Curious Lead interviewer. Ask ONE follow-up that digs deeper into their specific work. Be genuinely curious, not confrontational. Reference something specific they said. Output only the question text, no preamble.`,
-  socratic_mentor: `You are a Socratic Mentor. Ask ONE question that tests whether they truly understand the concept underneath their answer — not facts, but reasoning. Output only the question text.`,
-  senior_peer: `You are a Senior Peer thinking through a real engineering problem together. Ask ONE question about trade-offs, failure modes, or scaling. Treat them as a peer. Output only the question text.`,
+  curious_lead: `You are a Curious Lead interviewer.
+Ask ONE question only. Maximum 15 words. Conversational, specific, curious.
+Reference something from their background. No yes/no questions.
+Output only the question — nothing else.`,
+
+  socratic_mentor: `You are a Socratic Mentor interviewer.
+Ask ONE question only. Maximum 15 words. Clear, focused on reasoning.
+Ask for understanding not facts. Make them think out loud.
+Output only the question — nothing else.`,
+
+  senior_peer: `You are a Senior Peer interviewer.
+Ask ONE question only. Maximum 15 words. Real engineering trade-offs.
+Treat them as a peer. Ground it in realistic scenarios.
+Output only the question — nothing else.`,
 };
 
 const ATTACK_INSTRUCTIONS: Record<string, string> = {
-  implementation_probe:
-    "Ask them to walk through the actual implementation step-by-step. They were vague — push for the specific mechanism.",
-  step_by_step: "Ask them to reason through it explicitly step by step.",
-  contradiction: "Surface a contradiction directly but without accusation. Reference what they said earlier.",
-  edge_case: "Introduce a specific scenario that breaks their assumption.",
-  scaling: "Push the scale: what's the first thing that breaks at 100x?",
+  implementation_probe: "Ask them to walk through the exact mechanism. Under 12 words.",
+  step_by_step: "Ask them to reason through it step by step. Under 12 words.",
+  contradiction: "Surface the contradiction directly, not accusatory. Under 15 words.",
+  edge_case: "Introduce the specific breaking scenario. Under 12 words.",
+  scaling: "Push the scale — e.g. 'What breaks first at 100x?' Under 10 words.",
 };
 
 const SPRINT_GOALS: Record<number, string> = {
@@ -190,7 +200,9 @@ Previous question: ${question}
 Candidate's answer: ${answer}
 Weakness detected: ${weakness.weakness ?? ""}
 Attack strategy: ${attackInstruction}
-Generate ONE follow-up question executing this strategy. Ground it in something specific from their answer.`,
+Generate ONE follow-up question executing this strategy. Ground it in something specific from their answer.
+
+Generate ONE follow-up question. Maximum 15 words. Output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -212,7 +224,9 @@ export async function generateDiscrepancyFollowup(
 Previous question: ${question}
 Candidate's answer: ${answer}
 Discrepancy: ${discrepancy.description ?? ""}
-Generate ONE question that surfaces this inconsistency — curious and direct, not accusatory. Give them a chance to explain.`,
+Generate ONE question that surfaces this inconsistency — curious and direct, not accusatory. Give them a chance to explain.
+
+Generate ONE question. Maximum 15 words. Curious not accusatory. Output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -238,7 +252,9 @@ export async function generateSprintQuestion(
 Candidate background: ${resumeContext.slice(0, 800)}
 Questions already asked — do NOT repeat:
 - ${covered || "(none yet)"}
-Generate ONE new interview question that directly references something specific from their background and aligns with the sprint goal.`,
+Generate ONE new interview question that directly references something specific from their background and aligns with the sprint goal.
+
+Generate ONE question. Maximum 15 words. Output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -259,7 +275,7 @@ export async function prefetchFollowups(
     `Sprint ${sprint} — ${SPRINT_GOALS[sprint] ?? ""}
 Candidate background: ${resumeContext.slice(0, 600)}
 The candidate is currently talking about: ${concepts.slice(0, 3).join(", ")}.
-Generate 2 short follow-up questions that dig deeper, grounded in their specific background.
+Generate 2 follow-up questions. Maximum 10 words each.
 Return JSON: {"questions": ["...", "..."]}`,
     "fast"
   )) as { questions?: string[] } | null;
