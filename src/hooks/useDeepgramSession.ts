@@ -20,6 +20,7 @@ function releaseMediaAndAudio(args: {
   flushTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   vizFrameRef: MutableRefObject<number | null>;
   mediaStreamRef: MutableRefObject<MediaStream | null>;
+  micStreamOwnedRef: MutableRefObject<boolean>;
   audioContextRef: MutableRefObject<AudioContext | null>;
   analyserRef: MutableRefObject<AnalyserNode | null>;
   workletNodeRef: MutableRefObject<AudioWorkletNode | null>;
@@ -35,8 +36,11 @@ function releaseMediaAndAudio(args: {
   args.workletNodeRef.current = null;
   args.processorRef.current?.disconnect();
   args.processorRef.current = null;
-  args.mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+  if (args.micStreamOwnedRef.current) {
+    args.mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+  }
   args.mediaStreamRef.current = null;
+  args.micStreamOwnedRef.current = true;
   void args.audioContextRef.current?.close();
   args.audioContextRef.current = null;
   args.analyserRef.current = null;
@@ -60,6 +64,9 @@ export function useDeepgramSession({
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  /** When using parent-provided camera+mic stream, do not stop its tracks on release. */
+  const micStreamOwnedRef = useRef(true);
+  const sharedSessionStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -94,6 +101,7 @@ export function useDeepgramSession({
       flushTimerRef,
       vizFrameRef,
       mediaStreamRef,
+      micStreamOwnedRef,
       audioContextRef,
       analyserRef,
       workletNodeRef,
@@ -126,7 +134,15 @@ export function useDeepgramSession({
       return;
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const preferred = sharedSessionStreamRef.current;
+    let stream: MediaStream;
+    if (preferred && preferred.getAudioTracks().length > 0) {
+      stream = preferred;
+      micStreamOwnedRef.current = false;
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      micStreamOwnedRef.current = true;
+    }
     mediaStreamRef.current = stream;
 
     const audioCtx = new AudioContext();
@@ -211,7 +227,15 @@ export function useDeepgramSession({
     async (token: string, auth: "bearer" | "token") => {
       deepgramFallbackStartedRef.current = false;
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const preferred = sharedSessionStreamRef.current;
+      let stream: MediaStream;
+      if (preferred && preferred.getAudioTracks().length > 0) {
+        stream = preferred;
+        micStreamOwnedRef.current = false;
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        micStreamOwnedRef.current = true;
+      }
       mediaStreamRef.current = stream;
 
       // Prefer 16 kHz; browsers often ignore hint and use 44.1/48 kHz — Deepgram must get the *actual* rate.
@@ -424,14 +448,16 @@ export function useDeepgramSession({
 
     stopBrowserRecognition();
     releaseDeepgramMedia();
+    sharedSessionStreamRef.current = null;
 
     utteranceBufferRef.current = [];
     setSttMode("idle");
     transition("idle");
   }, [releaseDeepgramMedia, stopBrowserRecognition, transition]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (opts?: { sharedMediaStream?: MediaStream | null }) => {
     stop();
+    sharedSessionStreamRef.current = opts?.sharedMediaStream ?? null;
     deepgramFallbackStartedRef.current = false;
     try {
       const data = await api.get<{ token: string | null; auth?: "bearer" | "token" | null }>(DEEPGRAM_KEY_PATH);

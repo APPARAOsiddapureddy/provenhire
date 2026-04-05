@@ -11,7 +11,7 @@ const Toaster = ({ ...props }: ToasterProps) => (
     closeButton
     className="ph-sonner-toaster"
     toastOptions={{
-      duration: 4000,
+      duration: 2800,
       classNames: {
         toast: "ph-toast",
         title: "ph-toast-title",

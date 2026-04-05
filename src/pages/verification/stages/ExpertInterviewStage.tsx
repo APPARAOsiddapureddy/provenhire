@@ -312,7 +312,7 @@ export default function ExpertInterviewStage({
   const deepgramSession = useDeepgramSession({
     interviewId,
     onPartial: setPartial,
-    onError: (err) => toast.error(err),
+    onError: (err) => toast.error(err, { duration: 2600 }),
     onFinal: async (text) => {
       if (processingRef.current || !interviewId) return;
       processingRef.current = true;
@@ -383,7 +383,7 @@ export default function ExpertInterviewStage({
         }
       } catch {
         fillerAc.abort();
-        toast.error("Interview error — please try again.");
+        toast.error("Interview error — please try again.", { duration: 2600 });
         deepgramSession.transition("user_speaking");
       } finally {
         processingRef.current = false;
@@ -424,18 +424,34 @@ export default function ExpertInterviewStage({
     aiSpeakRef.current = aiSpeak;
   }, [aiSpeak]);
 
+  /** Video mounts only after `cameraActive` is true, so binding must run after that render (ref was null in the same tick as getUserMedia). */
+  useEffect(() => {
+    const el = videoRef.current;
+    const stream = streamRef.current;
+    if (!cameraActive || !el || !stream) return;
+    el.srcObject = stream;
+    void el.play().catch(() => {});
+  }, [cameraActive, started]);
+
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      deepgramSession.stop();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
       streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
       setCameraActive(true);
+      if (started && interviewId && !outcome) {
+        await deepgramSession.start({ sharedMediaStream: stream });
+      }
     } catch {
-      toast.error("Camera access denied.");
+      toast.error("Camera and microphone access is required.", { duration: 2600 });
     }
   };
 
   const stopCamera = () => {
+    deepgramSession.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -445,7 +461,14 @@ export default function ExpertInterviewStage({
   const startInterview = async () => {
     unlockInterviewAudioOutput();
     setLoading(true);
+    let combinedStream: MediaStream | null = null;
     try {
+      // One prompt for camera + mic while we still have a direct user gesture (mobile Safari / Chrome).
+      combinedStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+
       await document.documentElement.requestFullscreen().catch(() => {});
 
       const res = await api.post<{
@@ -468,14 +491,20 @@ export default function ExpertInterviewStage({
       setRemainingMinutes(30);
 
       setStarted(true);
+      streamRef.current = combinedStream;
+      setCameraActive(true);
 
-      await startCamera();
-      await deepgramSession.start();
+      await deepgramSession.start({ sharedMediaStream: combinedStream });
 
       await aiSpeakRef.current(res.question);
     } catch (e: unknown) {
+      if (combinedStream) {
+        combinedStream.getTracks().forEach((t) => t.stop());
+      }
+      streamRef.current = null;
+      setCameraActive(false);
       const msg = e instanceof Error ? e.message : "Failed to start interview.";
-      toast.error(msg);
+      toast.error(msg, { duration: 3200 });
       setStarted(false);
     } finally {
       setLoading(false);
