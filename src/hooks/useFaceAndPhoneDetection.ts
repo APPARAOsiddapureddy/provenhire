@@ -3,6 +3,7 @@ import * as tf from "@tensorflow/tfjs";
 import * as blazeface from "@tensorflow-models/blazeface";
 import * as cocoSsd from "@tensorflow-models/coco-ssd";
 import { api } from "@/lib/api";
+import { blazeFaceModelUrl, COCO_SSD_LITE_MODEL_URL } from "@/lib/tfModelUrls";
 
 export type ProctoringServerAction = "CONTINUE" | "SHOW_WARNING" | "STOP_TEST";
 
@@ -82,16 +83,36 @@ export function useFaceAndPhoneDetection(opts: {
     }
 
     async function load() {
-      await tf.ready();
-      if (cancelled) return;
-      const face = await blazeface.load();
-      const coco = await cocoSsd.load();
-      if (cancelled) return;
-      modelsRef.current = { face, coco };
-      intervalId = window.setInterval(() => void tick(), 3000);
+      let face: blazeface.BlazeFaceModel | null = null;
+      try {
+        await tf.ready();
+        if (cancelled) return;
+        face = await blazeface.load({ modelUrl: blazeFaceModelUrl() });
+        const coco = await cocoSsd.load({
+          base: "lite_mobilenet_v2",
+          modelUrl: COCO_SSD_LITE_MODEL_URL,
+        });
+        if (cancelled) {
+          try {
+            face.dispose();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        modelsRef.current = { face, coco };
+        intervalId = window.setInterval(() => void tick(), 3000);
+      } catch (e) {
+        console.warn("[useFaceAndPhoneDetection] model load failed — face/phone checks disabled for this session:", e);
+        try {
+          face?.dispose();
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
-    void load();
+    void load().catch(() => {});
 
     return () => {
       cancelled = true;

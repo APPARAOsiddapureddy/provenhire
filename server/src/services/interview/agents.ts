@@ -15,17 +15,22 @@ async function callGeminiJson(system: string, user: string, tier: "fast" | "bala
   if (!gemini) return null;
   const model =
     tier === "fast" ? "gemini-2.0-flash" : tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
-  const response = await gemini.models.generateContent({
-    model,
-    contents: `${system}\n\n${user}`,
-    config: { temperature: 0.2, responseMimeType: "application/json" },
-  });
-  const text = responseText(response);
   try {
-    return JSON.parse(text.replace(/^```json\n?|```$/g, "").trim());
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
+    const response = await gemini.models.generateContent({
+      model,
+      contents: `${system}\n\n${user}`,
+      config: { temperature: 0.2, responseMimeType: "application/json" },
+    });
+    const text = responseText(response);
+    try {
+      return JSON.parse(text.replace(/^```json\n?|```$/g, "").trim());
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
+      return null;
+    }
+  } catch (e) {
+    console.error("[interview/gemini] JSON generation failed:", e);
     return null;
   }
 }
@@ -34,12 +39,17 @@ async function callGeminiText(system: string, user: string, tier: "fast" | "bala
   if (!gemini) return "";
   const model =
     tier === "fast" ? "gemini-2.0-flash" : tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
-  const response = await gemini.models.generateContent({
-    model,
-    contents: `${system}\n\n${user}`,
-    config: { temperature: 0.35 },
-  });
-  return responseText(response);
+  try {
+    const response = await gemini.models.generateContent({
+      model,
+      contents: `${system}\n\n${user}`,
+      config: { temperature: 0.35 },
+    });
+    return responseText(response);
+  } catch (e) {
+    console.error("[interview/gemini] text generation failed:", e);
+    return "";
+  }
 }
 
 // ── CONCEPT AGENT ─────────────────────────────────────────────────────────────

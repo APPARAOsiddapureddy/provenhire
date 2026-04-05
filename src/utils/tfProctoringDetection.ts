@@ -5,6 +5,7 @@
 
 import type { NormalizedFace } from "@tensorflow-models/blazeface";
 import type { ObjectDetection } from "@tensorflow-models/coco-ssd";
+import { blazeFaceModelUrl, COCO_SSD_LITE_MODEL_URL } from "@/lib/tfModelUrls";
 
 let blazefaceModel: import("@tensorflow-models/blazeface").BlazeFaceModel | null = null;
 let cocoModel: ObjectDetection | null = null;
@@ -31,7 +32,10 @@ export async function loadTfProctoringModels(): Promise<void> {
         import("@tensorflow-models/blazeface"),
         import("@tensorflow-models/coco-ssd"),
       ]);
-      const [bf, cocoLoaded] = await Promise.all([blazeface.load(), coco.load()]);
+      const [bf, cocoLoaded] = await Promise.all([
+        blazeface.load({ modelUrl: blazeFaceModelUrl() }),
+        coco.load({ base: "lite_mobilenet_v2", modelUrl: COCO_SSD_LITE_MODEL_URL }),
+      ]);
       blazefaceModel = bf;
       cocoModel = cocoLoaded;
     })();

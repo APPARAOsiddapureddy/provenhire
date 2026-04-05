@@ -437,9 +437,11 @@ export default function ExpertInterviewStage({
       } else {
         await aiSpeakRef.current(turnResult.response);
       }
-    } catch {
+    } catch (e) {
       fillerAc.abort();
-      toast.error("Interview error — please try again.", { duration: 2600 });
+      const fallback = "Could not submit your answer. Check your connection and try again.";
+      const msg = e instanceof Error && e.message && e.message !== "Request failed" ? e.message : fallback;
+      toast.error(msg, { duration: 4500 });
       deepgramSession.setCaptureEnabled(true);
       deepgramSession.transition("user_speaking");
     } finally {
