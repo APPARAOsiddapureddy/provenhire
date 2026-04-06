@@ -1,5 +1,7 @@
 /**
- * Generates favicon PNGs, favicon.ico, logo.png, og-image.png from public SVGs.
+ * Generates favicon PNGs, favicon.ico, og-image.png from public SVGs.
+ * **public/logo.png** is the official brand mark for SEO (JSON-LD) — add/replace manually;
+ * this script does not overwrite it.
  * Run from repo root: node scripts/generate-favicons.js
  */
 import fs from "fs";
@@ -26,7 +28,6 @@ async function main() {
   await sharp(svgBuffer).resize(32, 32).png().toFile(path.join(pub, "favicon-32x32.png"));
   await sharp(svgBuffer).resize(16, 16).png().toFile(path.join(pub, "favicon-16x16.png"));
   await sharp(svgBuffer).resize(180, 180).png().toFile(path.join(pub, "apple-touch-icon.png"));
-  await sharp(svgBuffer).resize(512, 512).png().toFile(path.join(pub, "logo.png"));
 
   const png32 = fs.readFileSync(path.join(pub, "favicon-32x32.png"));
   const png16 = fs.readFileSync(path.join(pub, "favicon-16x16.png"));

@@ -57,7 +57,8 @@ Curated list including `/`, `/jobs`, `/for-employers`, `/about`, `/auth`, `/care
 | File | Source |
 |------|--------|
 | `public/favicon.svg` | Vector mark (PH). |
-| `favicon.ico`, PNG sizes, `apple-touch-icon.png`, `logo.png`, `og-image.png` | Regenerate from SVGs via **`npm run generate:favicons`** (repo root; uses **sharp** + **png-to-ico**). |
+| `favicon.ico`, PNG sizes, `apple-touch-icon.png`, `og-image.png` | Regenerate from SVGs via **`npm run generate:favicons`**. |
+| **`public/logo.png`** | Official **brand logo** (JSON-LD + PWA manifest). **Not** overwritten by the script — replace this file when updating the mark. |
 
 `og-image.png` is rasterized from **`public/og-image.svg`** (1200×630 layout).
 
