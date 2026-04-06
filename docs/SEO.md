@@ -40,7 +40,7 @@ Use `<SEO />` on public marketing pages as today.
 
 ## 3. `public/sitemap.xml`
 
-Curated list including `/`, `/jobs`, `/for-employers`, `/about`, `/auth`, `/careers/interviewer`, `/verification`. **Update `lastmod`** when you ship meaningful content changes. Submit in Google Search Console: **`https://provenhire.in/sitemap.xml`**.
+Includes the homepage, auth, jobs, legacy marketing routes, **full SEO architecture** (for-job-seekers, for-recruiters, feature/use-case/pillar URLs, `/features`, `/resources`, `/blog`), and **programmatic** `/jobs/...` and `/skills/...` slugs defined in `src/data/seoArchitecture.ts`. **Update `lastmod`** when you ship meaningful content changes; add new slugs when you extend programmatic data. Submit in Search Console: **`https://provenhire.in/sitemap.xml`**.
 
 ---
 

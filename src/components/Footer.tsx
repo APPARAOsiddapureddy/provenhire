@@ -56,12 +56,18 @@ const Footer = () => {
                 )}
                 <li><Link to="/verification" className="text-muted-foreground hover:text-primary transition-colors">Get Verified</Link></li>
                 <li><Link to="/auth" className="text-muted-foreground hover:text-primary transition-colors">Log In / Sign Up</Link></li>
+                <li><Link to="/for-job-seekers" className="text-muted-foreground hover:text-primary transition-colors">For Job Seekers</Link></li>
                 {userRole !== "jobseeker" && (
                   <>
                     <li><Link to="/for-employers" className="text-muted-foreground hover:text-primary transition-colors">For Employers</Link></li>
+                    <li><Link to="/for-recruiters" className="text-muted-foreground hover:text-primary transition-colors">For Recruiters</Link></li>
                     <li><Link to="/post-job" className="text-muted-foreground hover:text-primary transition-colors">Post a Job</Link></li>
                   </>
                 )}
+                <li><Link to="/features" className="text-muted-foreground hover:text-primary transition-colors">Features</Link></li>
+                <li><Link to="/resources" className="text-muted-foreground hover:text-primary transition-colors">Resources</Link></li>
+                <li><Link to="/blog" className="text-muted-foreground hover:text-primary transition-colors">Blog</Link></li>
+                <li><Link to="/no-resume-hiring" className="text-muted-foreground hover:text-primary transition-colors">No-Resume Hiring</Link></li>
                 <li><Link to="/careers/interviewer" className="text-muted-foreground hover:text-primary transition-colors">Careers</Link></li>
                 <li><Link to="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link></li>
               </ul>

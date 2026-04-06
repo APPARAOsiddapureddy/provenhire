@@ -338,8 +338,12 @@ Login → Admin Dashboard → Manage job seekers, recruiters
 | `/` | Public | Landing |
 | `/auth` | Public | Login / Sign up |
 | `/jobs` | Public | Job listings |
+| `/jobs/:seoSlug` | Public | Programmatic SEO (whitelist slugs only) |
+| `/skills/:skillSlug` | Public | Programmatic SEO — skill × jobs intent |
 | `/about` | Public | About |
 | `/for-employers` | Public | Employer marketing |
+| `/for-recruiters`, `/for-job-seekers`, `/features`, `/resources`, `/blog` | Public | SEO hubs & core money pages |
+| Many `/hire-*`, `/skill-*`, `/no-resume-hiring`, etc. | Public | Feature / use-case / pillar SEO (see `src/data/seoArchitecture.ts`) |
 | `/careers/interviewer` | Public | Interviewer application |
 | `/verification` | Job seeker | Verification flow |
 | `/dashboard/jobseeker` | Job seeker | Job seeker dashboard |
@@ -355,10 +359,10 @@ Login → Admin Dashboard → Manage job seekers, recruiters
 ## 9. Navigation by Role
 
 ### Job Seeker / Guest
-- Find Jobs, For Employers, Careers, About
+- Find Jobs, Job Seekers, For Employers (hidden), Recruiters (hidden), Resources, Careers, About
 
 ### Recruiter
-- Find Jobs (hidden), For Employers, Careers, About
+- Find Jobs (hidden), Job Seekers, For Employers, Recruiters, Resources, Careers, About
 
 ### Expert Interviewer
 - **Minimal:** Logo, Dashboard, Notifications, Sign out only (no Find Jobs, Employers, Careers, About)

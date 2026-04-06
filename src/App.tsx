@@ -15,6 +15,11 @@ import Auth from "./pages/Auth";
 import Jobs from "./pages/Jobs";
 import About from "./pages/About";
 import ForEmployers from "./pages/ForEmployers";
+import SeoMarketingPage from "./pages/seo/SeoMarketingPage";
+import { FeaturesHubPage, ResourcesHubPage } from "./pages/seo/SeoHubPage";
+import BlogIndexPage from "./pages/seo/BlogIndexPage";
+import { ProgrammaticJobSlugRoute, ProgrammaticSkillSlugRoute } from "./pages/seo/ProgrammaticSeoPage";
+import { SEO_LANDING_PAGES } from "./data/seoArchitecture";
 import NotFound from "./pages/NotFound";
 import FirebaseAuthHandler from "./pages/FirebaseAuthHandler";
 
@@ -120,8 +125,16 @@ const App = () => (
               <Route path="/signup" element={<Navigate to="/auth?mode=signup" replace />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/jobs" element={<Jobs />} />
+              <Route path="/jobs/:seoSlug" element={<ProgrammaticJobSlugRoute />} />
+              <Route path="/skills/:skillSlug" element={<ProgrammaticSkillSlugRoute />} />
               <Route path="/about" element={<About />} />
               <Route path="/for-employers" element={<ForEmployers />} />
+              {SEO_LANDING_PAGES.map((p) => (
+                <Route key={p.path} path={p.path} element={<SeoMarketingPage page={p} />} />
+              ))}
+              <Route path="/features" element={<FeaturesHubPage />} />
+              <Route path="/resources" element={<ResourcesHubPage />} />
+              <Route path="/blog" element={<BlogIndexPage />} />
               <Route path="/careers/interviewer" element={<InterviewerCareers />} />
               <Route path="/admin" element={<AdminLogin />} />
               <Route

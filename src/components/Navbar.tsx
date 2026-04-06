@@ -17,7 +17,10 @@ const Navbar = () => {
   const navLinks = userRole !== "expert_interviewer" && (
     <>
       {userRole !== "recruiter" && <Link to="/jobs" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Find Jobs</Link>}
+      <Link to="/for-job-seekers" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Job Seekers</Link>
       {userRole !== "jobseeker" && <Link to="/for-employers" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">For Employers</Link>}
+      {userRole !== "jobseeker" && <Link to="/for-recruiters" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Recruiters</Link>}
+      <Link to="/resources" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Resources</Link>
       {userRole !== "jobseeker" && <Link to="/careers/interviewer" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Careers</Link>}
       <Link to="/about" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">About</Link>
     </>
