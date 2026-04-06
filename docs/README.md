@@ -41,6 +41,7 @@ Supporting / historical / audits:
 | [**DEPLOYMENT.md**](DEPLOYMENT.md) | Additional deployment notes. |
 | [**DOMAIN_SETUP.md**](DOMAIN_SETUP.md) | Custom domain (e.g. `provenhire.in` / Vercel). |
 | [**SEO.md**](SEO.md) | Meta tags, canonical (**apex**), sitemap, robots, favicons, Search Console. |
+| **`src/data/seoArchitecture.ts`** | **Programmatic + money-page SEO** — paths, titles, copy, related links (keep in sync with `public/sitemap.xml`). |
 | [**LOCAL_SETUP_STEPS.md**](LOCAL_SETUP_STEPS.md) | Local dev checklist. |
 | [**GOOGLE_AUTH_SETUP.md**](GOOGLE_AUTH_SETUP.md) | Firebase / Google sign-in. |
 | [**POSTGRES_SETUP.md**](POSTGRES_SETUP.md) | Database setup. |
