@@ -56,10 +56,26 @@ const SPRINTS: Record<number, { name: string; persona: string }> = {
 };
 
 const SPRINT_OPENERS: Record<number, string> = {
-  1: "Tell me about a project you're proud of — what problem did it solve?",
-  2: "Pick one core concept from your work — how does it actually work?",
-  3: "You're building a real-time prediction system for millions — where do you start?",
+  1: `Let's start with something concrete from your background. Tell me about a project you've worked on that you're genuinely proud of — what problem were you solving, what did you personally build, and what made it technically interesting to you?`,
+  2: `Now let's go a level deeper into the concepts behind your work. Pick one technical idea that sits at the core of something you've built — something you really had to understand to get it right. How would you explain it to someone encountering it for the first time?`,
+  3: `Let's think through a design problem together. Imagine you're building a system that needs to serve real-time predictions for a few million users — the kind of scale where simple solutions start breaking. Where would you start, and what do you think the hardest parts would be to get right?`,
 };
+
+/** Spoken after each accepted answer, before the next question (TTS only; not stored on InterviewMessage). */
+const TURN_ACKNOWLEDGEMENTS = [
+  "Got it.",
+  "I see.",
+  "Interesting.",
+  "That makes sense.",
+  "Okay.",
+  "Fair enough.",
+  "Alright.",
+  "Right.",
+] as const;
+
+function pickTurnAcknowledgement(): string {
+  return TURN_ACKNOWLEDGEMENTS[Math.floor(Math.random() * TURN_ACKNOWLEDGEMENTS.length)]!;
+}
 
 /** Prefetch queue for partial-transcript warm-up; bounded TTL/size so the server cannot leak memory across interviews. */
 type PrefetchCacheEntry = { questions: string[]; expiresAt: number };
@@ -106,12 +122,12 @@ function popPrefetchQuestion(interviewId: string): string | undefined {
 
 /** If Gemini keeps emitting the same short probe, use a different angle without another model round-trip. */
 const DISTINCT_FALLBACK_QUESTIONS: string[] = [
-  "What was the hardest bug or incident you debugged on that?",
-  "If you rebuilt it today, what would you simplify first?",
-  "Which part are you least comfortable defending in depth?",
-  "What trade-off did you accept that others might question?",
-  "How would you prove that design worked in production?",
-  "What breaks first if traffic or data volume 10x overnight?",
+  "I'd like to understand how you actually chased that down in production. What was the hardest bug or incident you debugged on that system, and what did you learn from it?",
+  "If you had to rebuild that today with what you know now, what would you simplify first, and what would you definitely keep?",
+  "Which part of that design or implementation are you least comfortable defending in depth if a senior engineer pressed you on it?",
+  "What trade-off did you accept on that project that others on the team might have questioned — and why was it still the right call for your constraints?",
+  "How would you prove to yourself — not just on paper — that that design really worked in production under real load?",
+  "If traffic or data volume jumped 10x overnight, what breaks first in your approach, and what would you change first to survive?",
 ];
 
 function firstNonDuplicateFromPool(asked: string[]): string | null {
@@ -380,6 +396,8 @@ export async function processTurn(
   }
 ): Promise<{
   response: string;
+  /** Short neutral transition for TTS before `response`; empty when fragment retry or interview complete. */
+  acknowledgement: string;
   sprint: number;
   sprintName: string;
   persona: string;
@@ -463,6 +481,7 @@ export async function processTurn(
     const tid = options?.clientTurnId?.trim() || userMessage.id;
     return {
       response: prompt,
+      acknowledgement: "",
       sprint,
       sprintName: stateSprintName ?? SPRINTS[1].name,
       persona,
@@ -785,6 +804,7 @@ export async function processTurn(
 
     return {
       response: closingMessage,
+      acknowledgement: "",
       sprint: currentSprint,
       sprintName: currentSprintName,
       persona: currentPersona,
@@ -812,6 +832,7 @@ export async function processTurn(
 
   return {
     response: followup,
+    acknowledgement: pickTurnAcknowledgement(),
     sprint: currentSprint,
     sprintName: currentSprintName,
     persona: currentPersona,

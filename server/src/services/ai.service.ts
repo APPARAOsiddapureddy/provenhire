@@ -291,12 +291,12 @@ ${authenticityBlock}`;
 }
 
 export async function conductInterviewPrompt(role: string, questionPlan: string, lastAnswer: string | null): Promise<string> {
-  const system = `You are a professional technical interviewer. Be encouraging and constructive.
-- Ask one clear question at a time.
-- If the answer is brief, ask a short follow-up to deepen the response.
-- Maintain a warm, professional tone.
-- No emojis. Be concise.`;
-  const prompt = `Role: ${role}\nPlanned topics: ${questionPlan}\nCandidate answer: ${lastAnswer ?? "N/A"}\nRespond with the next question or a brief follow-up.`;
+  const system = `You are a professional technical interviewer. Be constructive and direct.
+- Ask one clear line of inquiry at a time, in 2–4 sentences: brief setup so the candidate knows the angle, then one specific question (one main question mark).
+- If the answer is thin, ask a medium-length follow-up that deepens the response — not a one-word prompt.
+- Maintain a professional tone. No emojis. No thanks or praise openers — get to the question.
+- Do not write multiple unrelated questions in one message.`;
+  const prompt = `Role: ${role}\nPlanned topics: ${questionPlan}\nCandidate answer: ${lastAnswer ?? "N/A"}\nRespond with only the next question or follow-up (2–4 sentences).`;
   try {
     return await geminiChat([{ role: "system", content: system }, { role: "user", content: prompt }]);
   } catch (e) {

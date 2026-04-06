@@ -31,6 +31,9 @@ const SPRINT_STEPS = [
 /** Let room audio / speaker tail decay so Whisper does not pick up TTS as the user's answer. */
 const POST_AI_SPEECH_COOLDOWN_MS = 520;
 
+/** Pause after acknowledgement clip before the next question TTS (sequential playback). */
+const ACK_BEFORE_QUESTION_GAP_MS = 400;
+
 /** Single-segment STT that is only a politeness echo (common after AI speaks). */
 const POLITENESS_ONLY_TRANSCRIPT = /^(thank you|thanks|thx|ty|okay|ok\.?|got it|gotcha|mhm+|mm+|uh-?huh|sure)\.?$/i;
 
@@ -381,6 +384,44 @@ export default function ExpertInterviewStage({
     [whisperSession]
   );
 
+  /** Sequential TTS: optional short acknowledgement fully finishes, gap, then question (barge-in aborts all). */
+  const speakAckThenQuestion = useCallback(
+    async (acknowledgement: string | null | undefined, question: string) => {
+      window.speechSynthesis?.cancel();
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      whisperSession.setAbortController(ac);
+      whisperSession.setCaptureEnabled(false);
+      whisperSession.transition("ai_speaking");
+      const ack = acknowledgement?.trim() ?? "";
+      try {
+        if (ack && !ac.signal.aborted) {
+          await speakText(ack, ac.signal);
+        }
+        if (ack && !ac.signal.aborted) {
+          await new Promise<void>((r) => setTimeout(r, ACK_BEFORE_QUESTION_GAP_MS));
+        }
+        if (!ac.signal.aborted) {
+          setCurrentQuestion(question);
+          questionShownAtRef.current = Date.now();
+          await speakText(question, ac.signal);
+        }
+      } catch {
+        /* speakText handles fallback */
+      }
+      if (!ac.signal.aborted) {
+        await new Promise<void>((r) => setTimeout(r, POST_AI_SPEECH_COOLDOWN_MS));
+      }
+      if (!ac.signal.aborted) {
+        whisperSession.setCaptureEnabled(true);
+        whisperSession.transition("user_speaking");
+        whisperSession.resumeListening();
+      }
+    },
+    [whisperSession]
+  );
+
   const submitAnswer = useCallback(async () => {
     const id = interviewIdRef.current;
     if (processingRef.current || !id) return;
@@ -456,8 +497,6 @@ export default function ExpertInterviewStage({
       setSprint(turnResult.sprint);
       setSprintName(turnResult.sprintName);
       setPersona(turnResult.persona);
-      setCurrentQuestion(turnResult.response);
-      questionShownAtRef.current = Date.now();
       setAnswerDraft("");
       setPartial("");
 
@@ -467,6 +506,8 @@ export default function ExpertInterviewStage({
       }
 
       if (turnResult.complete) {
+        setCurrentQuestion(turnResult.response);
+        questionShownAtRef.current = Date.now();
         setOutcome({
           totalScore: turnResult.totalScore,
           badgeLevel: turnResult.badgeLevel,
@@ -477,7 +518,7 @@ export default function ExpertInterviewStage({
         whisperSession.stop();
         onInterviewAwaitingReview?.();
       } else {
-        await aiSpeakRef.current(turnResult.response);
+        await speakAckThenQuestion(turnResult.acknowledgement, turnResult.response);
       }
     } catch (e) {
       fillerAc.abort();
@@ -491,7 +532,7 @@ export default function ExpertInterviewStage({
       processingRef.current = false;
       setTurnInFlight(false);
     }
-  }, [whisperSession, partial, turnInFlight, onInterviewAwaitingReview]);
+  }, [whisperSession, partial, turnInFlight, onInterviewAwaitingReview, speakAckThenQuestion]);
 
   const replayQuestion = useCallback(() => {
     unlockInterviewAudioOutput();

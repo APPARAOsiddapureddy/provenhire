@@ -224,33 +224,54 @@ export function applyReasoningHonestyCap(
 }
 
 // ── FOLLOWUP AGENT ────────────────────────────────────────────────────────────
+
+/** Shared rubric: medium conversational questions (voice interview). */
+const MEDIUM_QUESTION_RUBRIC = `Ask a medium-length question: 2 to 4 sentences.
+Start with a brief setup or context (1–2 sentences) so the candidate understands exactly what angle you are exploring, then ask the specific question.
+Do not ask multiple unrelated questions in one turn — end with exactly one clear question, with exactly one question mark for the main ask.
+Sound natural and conversational, like a senior engineer speaking — not a quiz.
+Never start with thanks, thank you, praise, or hollow enthusiasm — jump straight to the substance.
+
+GOOD (medium-length, specific):
+"You mentioned using Redis for caching in your project. Walk me through how you decided what to cache and what not to — what was your thinking on cache invalidation?"
+
+"That's an interesting approach to the problem. I want to understand the trade-off you made there — when would your solution start to break down, and what would you do differently at 10x scale?"
+
+BAD (too short — do not generate these):
+"Why Redis?"
+"What are the trade-offs?"
+"Explain caching."
+
+BAD (too long — do not generate):
+More than four sentences, or a long lecture before they hear what you want them to answer.
+
+Output only the question text — no meta like "Here is my question:".`;
+
 const PERSONA_PROMPTS: Record<string, string> = {
   curious_lead: `You are a Curious Lead interviewer.
-Ask ONE question only. Maximum 15 words. Conversational, specific, curious.
-Reference something from their background. No yes/no questions.
-Never start with thanks, thank you, "great answer", "I appreciate", or any acknowledgement — jump straight to the question.
-Output only the question — nothing else.`,
+Conversational, specific, curious. Reference something concrete from their background or last answer. No yes/no questions.
+${MEDIUM_QUESTION_RUBRIC}`,
 
   socratic_mentor: `You are a Socratic Mentor interviewer.
-Ask ONE question only. Maximum 15 words. Clear, focused on reasoning.
-Ask for understanding not facts. Make them think out loud.
-Never start with thanks, thank you, or praise — only the question.
-Output only the question — nothing else.`,
+Clear, focused on reasoning — understanding, not trivia. Make them think out loud.
+${MEDIUM_QUESTION_RUBRIC}`,
 
   senior_peer: `You are a Senior Peer interviewer.
-Ask ONE question only. Maximum 15 words. Real engineering trade-offs.
-Treat them as a peer. Ground it in realistic scenarios.
-Never start with thanks, thank you, "good point", or filler — only the question.
-Output only the question — nothing else.`,
+Real engineering trade-offs and constraints. Treat them as a peer. Ground it in realistic scenarios.
+${MEDIUM_QUESTION_RUBRIC}`,
 };
 
 const ATTACK_INSTRUCTIONS: Record<string, string> = {
-  implementation_probe: "Ask them to walk through the exact mechanism. Under 12 words.",
-  step_by_step: "Ask them to reason through it step by step. Under 12 words.",
-  contradiction: "Surface the contradiction directly, not accusatory. Under 15 words.",
-  edge_case: "Introduce the specific breaking scenario. Under 12 words.",
-  scaling: "Push the scale — e.g. 'What breaks first at 100x?' Under 10 words.",
-  explore_depth: "Ask one precise follow-up that deepens understanding without repeating prior questions. Under 14 words.",
+  implementation_probe:
+    "In 2–4 sentences, ask them to walk through the exact mechanism or data path with concrete details.",
+  step_by_step:
+    "In 2–4 sentences, ask them to reason through the steps in order and where each could fail.",
+  contradiction:
+    "In 2–4 sentences, surface the inconsistency directly but calmly, and give them room to clarify.",
+  edge_case: "In 2–4 sentences, introduce a specific breaking scenario and ask how their design behaves.",
+  scaling: "In 2–4 sentences, push scale (e.g. 10x traffic or data) and ask what breaks first and why.",
+  explore_depth:
+    "In 2–4 sentences, ask one precise follow-up that deepens understanding without repeating prior questions.",
 };
 
 /** Markers suggesting intellectual honesty — do not treat as evasion. */
@@ -291,7 +312,7 @@ Weakness detected: ${weakness.weakness ?? ""}
 Attack strategy: ${attackInstruction}
 Generate ONE follow-up executing this strategy; ground it in something specific from their answer.
 ${formatAskedQuestionsBlock(recentAsked)}
-Maximum 15 words. No pleasantries or thanks — output only the question.`,
+Follow the medium-length rubric in your system instructions.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -316,7 +337,7 @@ Candidate's answer: ${answer}
 Discrepancy: ${discrepancy.description ?? ""}
 Generate ONE question that surfaces this inconsistency — curious and direct, not accusatory. Give them a chance to explain.
 ${formatAskedQuestionsBlock(recentAsked)}
-Generate ONE question. Maximum 15 words. Curious not accusatory. No thanks or preamble — output only the question.`,
+Generate ONE question. Curious not accusatory. Follow the medium-length rubric in your system instructions.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -329,7 +350,7 @@ export async function adaptFollowup(template: string, answer: string, persona: s
     system,
     `Bank follow-up template: ${template}
 Candidate just said: ${answer.slice(0, 1200)}
-Rewrite into ONE short spoken question (max 18 words). Same intent as the template. No thanks or filler — output only the question.`,
+Rewrite into ONE medium-length spoken question (2–4 sentences). Same intent as the template. No thanks or filler — output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -359,7 +380,7 @@ Questions already asked — do NOT repeat or ask the same angle again:
 - ${covered}
 Your next question must open a meaningfully different line of inquiry (new sub-topic, trade-off, or concrete detail), not a minor rewording of any line above.
 
-Generate ONE question. Maximum 15 words. No acknowledgements — output only the question.`,
+Generate ONE question that opens a meaningfully new line of inquiry. Follow the medium-length rubric in your system instructions.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -380,8 +401,7 @@ export async function prefetchFollowups(
     `Sprint ${sprint} — ${SPRINT_GOALS[sprint] ?? ""}
 Candidate background: ${resumeContext.slice(0, 600)}
 The candidate is currently talking about: ${concepts.slice(0, 3).join(", ")}.
-Generate 2 distinct follow-up questions (different angles; not paraphrases of each other). Maximum 10 words each.
-No "thank you" or praise — questions only.
+Generate 2 distinct follow-up questions (different angles; not paraphrases). Each should be 2–3 sentences, medium-length, no "thank you" or praise — questions only.
 Return JSON: {"questions": ["...", "..."]}`,
     "fast"
   )) as { questions?: string[] } | null;
