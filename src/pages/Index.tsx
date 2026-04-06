@@ -43,8 +43,8 @@ const Index = () => {
   return (
     <div className="min-h-screen index-page">
       <SEO
-        title="ProvenHire – Skill-Based Hiring Platform | Hire on Proof, Not Resumes"
-        description="Skill-based hiring platform: hire verified talent and get hired by proving skills—not only resumes. Aptitude, coding assessment, and AI interviews for merit-based hiring in India."
+        title="ProvenHire – Hire Verified Talent with Skill Validation"
+        description="ProvenHire helps companies hire verified talent through skill validation, coding verification, and structured interviews. Build reliable teams with proven skills."
         path="/"
       />
       <Navbar />
@@ -71,11 +71,11 @@ const Index = () => {
               </div>
               {/* <img src="/logo.png" alt="ProvenHire – Verified Talent Hiring Platform" className="h-14 w-14 sm:h-16 sm:w-16 mb-6 opacity-0 animate-fade-in-up animate-fill-forwards object-contain" style={{ animationDelay: "0.15s" }} width={64} height={64} loading="eager" /> */}
               <h1 id="hero-heading" className="hero-title opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.2s" }}>
-                <span className="gradient-text">Get hired by proving your skills</span>
-                <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>Hire on proof—not just resumes</span>
+                <span className="gradient-text">Hire Verified Talent</span>
+                <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>with ProvenHire</span>
               </h1>
               <p className="hero-subtitle opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.35s" }}>
-                The <strong>skill-based hiring platform</strong> for India: verify talent through a <strong>5-layer system</strong> in 24–48 hours.{" "}
+                Prove your skills through a <strong>5-layer verification system</strong> in 24–48 hours.{" "}
                 <span className="text-primary font-semibold drop-shadow-[0_0_8px_rgba(212,175,55,0.5)]">
                   Complete all 5 stages to unlock your Skill Passport and access premium opportunities.
                 </span>
@@ -87,8 +87,8 @@ const Index = () => {
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" asChild className="btn-outline btn-hero">
-                  <Link to="/for-recruiters">
-                    Start hiring ↗
+                  <Link to="/for-employers">
+                    I&apos;m a Recruiter ↗
                   </Link>
                 </Button>
               </div>
@@ -356,34 +356,6 @@ const Index = () => {
         </div>
       </section>
 
-      <section className="py-10 border-t border-border bg-secondary/30" aria-label="Popular hiring topics">
-        <div className="container mx-auto px-4 sm:px-6">
-          <h2 className="text-center font-mono text-xs font-bold text-primary uppercase tracking-widest mb-4">
-            Explore skill-based hiring
-          </h2>
-          <nav className="flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm font-medium">
-            <Link to="/for-job-seekers" className="text-muted-foreground hover:text-primary transition-colors">
-              For job seekers
-            </Link>
-            <Link to="/for-recruiters" className="text-muted-foreground hover:text-primary transition-colors">
-              For recruiters
-            </Link>
-            <Link to="/no-resume-hiring" className="text-muted-foreground hover:text-primary transition-colors">
-              No-resume hiring
-            </Link>
-            <Link to="/skill-based-hiring" className="text-muted-foreground hover:text-primary transition-colors">
-              Skill-based hiring guide
-            </Link>
-            <Link to="/features" className="text-muted-foreground hover:text-primary transition-colors">
-              Product features
-            </Link>
-            <Link to="/blog" className="text-muted-foreground hover:text-primary transition-colors">
-              Blog
-            </Link>
-          </nav>
-        </div>
-      </section>
-
       {/* CTA Section */}
       <section className="cta-section scroll-mt-20">
         <div className="container mx-auto px-4 sm:px-6">
@@ -394,7 +366,7 @@ const Index = () => {
               <Link to="/auth">Start Verification →</Link>
             </Button>
             <Button size="lg" variant="outline" asChild className="btn-outline btn-hero">
-              <Link to="/for-recruiters">Hire certified talent</Link>
+              <Link to="/for-employers">Hire Certified Talent</Link>
             </Button>
           </div>
         </div>
