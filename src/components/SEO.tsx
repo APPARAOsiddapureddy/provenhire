@@ -34,6 +34,14 @@ export default function SEO({ title, description, path = "", noIndex = false }: 
     setMeta("description", description);
     setMeta("robots", noIndex ? "noindex, nofollow" : "index, follow");
 
+    let altName = document.querySelector('meta[name="alternate-name"]');
+    if (!altName) {
+      altName = document.createElement("meta");
+      altName.setAttribute("name", "alternate-name");
+      document.head.appendChild(altName);
+    }
+    altName.setAttribute("content", "Proven Hire");
+
     let canonicalEl = document.querySelector('link[rel="canonical"]');
     if (!canonicalEl) {
       canonicalEl = document.createElement("link");

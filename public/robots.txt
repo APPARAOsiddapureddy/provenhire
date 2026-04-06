@@ -1,4 +1,18 @@
 User-agent: *
 Allow: /
+Allow: /jobs
+Allow: /for-employers
+Allow: /about
+Allow: /verification
+Allow: /careers/interviewer
+Allow: /auth
+
+Disallow: /dashboard/
+Disallow: /admin/
+Disallow: /interview/
+Disallow: /api/
 
 Sitemap: https://provenhire.in/sitemap.xml
+
+# Crawl-delay for bots
+Crawl-delay: 1
