@@ -1,7 +1,8 @@
 # ProvenHire Product Documentation (Deep Dive)
 
-This is the complete product-level documentation for ProvenHire.  
-It explains what the website does, point-by-point, for every role, every major screen, and every critical backend flow.
+**Team entry point:** **[docs/README.md](README.md)** — indexed PRDs, deploy, and SEO.
+
+This document is a deep narrative of roles, screens, and flows. For versioned requirements and test accounts, prefer **[PRD.md](PRD.md)**.
 
 ---
 

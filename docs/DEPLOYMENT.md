@@ -1,5 +1,8 @@
 # ProvenHire Deployment Guide
 
+**Preferred runbook:** **[DEPLOYMENT_COMPLETE.md](DEPLOYMENT_COMPLETE.md)** (Vercel + Render, env vars, QA seeds).  
+**Team doc index:** [README.md](README.md)
+
 Step-by-step guide to deploy the frontend (Vercel) and backend (Railway or Render) with PostgreSQL.
 
 ---

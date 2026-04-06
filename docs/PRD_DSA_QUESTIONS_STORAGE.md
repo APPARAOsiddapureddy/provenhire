@@ -2,7 +2,9 @@
 
 **Version:** 1.1  
 **Last updated:** 2026-04-02  
-**Author:** ProvenHire Engineering
+**Author:** ProvenHire Engineering  
+
+**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md)
 
 ---
 

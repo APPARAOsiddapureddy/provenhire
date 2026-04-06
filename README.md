@@ -2,6 +2,13 @@
 
  ProvenHire is a skill-certified hiring network with a React/Vite frontend and a Node.js/Express backend.
 
+## Documentation (share with your team)
+
+All PRDs, deployment guides, and SEO notes live under **[docs/README.md](docs/README.md)** — start there for the document map.
+
+- **Main product PRD:** [docs/PRD.md](docs/PRD.md)
+- **Deploy (Vercel + Render):** [docs/DEPLOYMENT_COMPLETE.md](docs/DEPLOYMENT_COMPLETE.md)
+
 ## Stack
 
 - Frontend: React + Vite + TypeScript

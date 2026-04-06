@@ -1,5 +1,7 @@
 # Step-by-step: Fix "Server unavailable" and Google sign-in errors
 
+**Full team doc map:** [docs/README.md](README.md)
+
 Use this checklist when you see **503 (Service Unavailable)** or **"Server unavailable. Start the backend..."** or **Cross-Origin-Opener-Policy** warnings.
 
 ---

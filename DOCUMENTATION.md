@@ -1,5 +1,7 @@
 # ProvenHire - Complete Project Documentation
 
+> **For your team:** the maintained **document map** (PRDs, deploy, SEO) is **[docs/README.md](docs/README.md)**. The **authoritative product spec** is **[docs/PRD.md](docs/PRD.md)**. This file is a long UI/feature walkthrough and may lag the codebase in places—when in doubt, trust **PRD + code**.
+
 ## 📋 Table of Contents
 
 1. [Project Overview](#project-overview)
@@ -426,31 +428,25 @@ src/
 
 ### 11. Aptitude Test Stage (AptitudeTestStage.tsx)
 
-**Purpose:** Second verification stage - aptitude assessment
+**Purpose:** Second verification stage — timed MCQ assessment (technical track).
 
-**Current Status:** Placeholder implementation
-
-**UI:**
-- Card with title "Aptitude & CS Fundamentals Test"
-- Description about knowledge testing
-- Message: "This stage is under development. Click continue to proceed."
-- Continue button that calls onComplete
+**Implementation:** Full flow in production: session start, proctoring hooks, submit, scoring. See **`docs/PRD.md`** §3.1 and **`docs/PRD_VERIFICATION_SCORING.md`**.
 
 ---
 
 ### 12. DSA Round Stage (DSARoundStage.tsx)
 
-**Purpose:** Third verification stage - coding challenges
+**Purpose:** Third verification stage — coding challenges with Judge0 (or configured runner).
 
-**Current Status:** Placeholder implementation (similar to Aptitude Test)
+**Implementation:** Live editor, submissions, official attempts. See **`docs/PRD_DSA_QUESTIONS_STORAGE.md`** and main **`docs/PRD.md`**.
 
 ---
 
 ### 13. Expert Interview Stage (ExpertInterviewStage.tsx)
 
-**Purpose:** Fourth and final verification stage - live interview
+**Purpose:** Fourth verification stage — **AI-led** technical interview (voice-first v2).
 
-**Current Status:** Placeholder implementation (similar to Aptitude Test)
+**Implementation:** **`POST /api/interview/v2/*`**, orchestrator, proctoring. See **`docs/PRD.md`** §3.4 and **`docs/PRD_AI_INTERVIEW_ROUND.md`**.
 
 ---
 
@@ -831,5 +827,4 @@ All standard shadcn/ui components available in `src/components/ui/`:
 
 ---
 
-*Documentation Generated: January 2026*
-*ProvenHire Version: 1.0*
+*Documentation updated: April 2026 — cross-check [docs/PRD.md](docs/PRD.md) and [docs/README.md](docs/README.md) for team handoff.*

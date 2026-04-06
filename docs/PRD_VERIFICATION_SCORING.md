@@ -4,6 +4,8 @@
 **Last updated:** April 2026  
 **Purpose:** Define how marks are calculated, stored, and shown for the three technical verification stages. This revision matches the **current** frontend and backend (post–aptitude UI and API alignment).
 
+**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md)
+
 ---
 
 ## 1. Aptitude Test

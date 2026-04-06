@@ -1,72 +1,78 @@
-# ProvenHire SEO Implementation
+# ProvenHire SEO implementation
 
-Production SEO is implemented for **www.provenhire.in**. This doc summarizes what’s in place and optional follow-ups.
+**Last updated:** April 2026  
 
-## Implemented
+Production SEO targets **`https://provenhire.in`** (apex). **`www.provenhire.in`** redirects to apex via inline script in `index.html` (service worker teardown + redirect). Canonicals, Open Graph `og:url`, Twitter images, JSON-LD, and `public/sitemap.xml` use **apex** so crawlers see one primary URL.
 
-### 1. Page title and meta tags
-- **index.html**: Default `<title>`, `<meta name="description">`, `<meta name="keywords">`, `<meta name="author">`, `<meta name="robots" content="index, follow">`, `<meta name="viewport">`.
-- **Per-page**: `src/components/SEO.tsx` updates `document.title`, meta description, canonical, and robots on route change. Used on Home, Auth, Jobs, For Employers, About.
+---
 
-### 2. Open Graph and Twitter Cards
-- **index.html**: `og:title`, `og:description`, `og:url`, `og:type`, `og:image` (https://www.provenhire.in/og-image.png), `og:image:width/height`, `og:site_name`, `og:locale`.
-- **Twitter**: `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image`.
-- **SEO component**: Updates `og:title`, `og:description`, `og:url` on client for the current page.
+## 1. Default meta (`index.html`)
 
-### 3. Structured data (JSON-LD)
-- **Organization** and **WebSite** schemas in `index.html` (name, url, logo, description).
+- **`charset`**, **`viewport`** (`width=device-width, initial-scale=1.0`).
+- **Primary SEO:** `title`, `description`, expanded **`keywords`** (ProvenHire / Proven Hire / India hiring combinations).
+- **`author`**, **`robots`**, **`googlebot`** (`index, follow`).
+- **`link rel="canonical"`** → `https://provenhire.in`.
+- **`google-site-verification`** placeholder: replace **`ADD_VERIFICATION_CODE`** in Search Console.
+- **Open Graph:** `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` → `https://provenhire.in/og-image.png` (1200×630), dimensions, `og:locale` `en_IN`.
+- **Twitter Card:** `summary_large_image`, title, description, image (same OG asset).
+- **`application-name`**, **`apple-mobile-web-app-title`**, **`meta name="alternate-name"`** content `Proven Hire` (brand synonym).
+- **Favicon bundle:** `/favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `favicon.svg`, `apple-touch-icon.png`, **`/site.webmanifest`**.
+- **JSON-LD:** `Organization` (alternateName, logo, contact, sameAs) and **`WebSite`** with **`SearchAction`** (`/jobs?q={search_term_string}`).
+- **Performance:** `preconnect` to Google Fonts + **Manrope / Bebas / IBM Plex Mono** stylesheet.
+- **Preserved technical tags:** `Cross-Origin-Opener-Policy: same-origin-allow-popups` (Firebase popups); inline **service worker unregister** script before the rest of the head.
 
-### 4. robots.txt
-- **public/robots.txt**: `User-agent: *` → `Allow: /`, plus `Sitemap: https://www.provenhire.in/sitemap.xml`.
+---
 
-### 5. Sitemap
-- **public/sitemap.xml**: Entries for `/`, `/auth`, `/login`, `/signup`, `/jobs`, `/for-employers`, `/verification`, `/about`, `/careers/interviewer`. Update this file when adding new public routes.
+## 2. Per-route SEO (`src/components/SEO.tsx`)
 
-### 6. Heading structure
-- **Landing (Index)**:
-  - One **H1**: “Hire Verified Talent with ProvenHire”.
-  - **H2**s: Skill Verified Hiring, Live Coding Verification, Structured Interview Scoring, Why Companies Trust ProvenHire, plus How Verification Works, What You Unlock, Verification Pipeline, Why Companies Trust ProvenHire (features), Ready to Get Skill-Certified.
-- Other pages keep a single H1 per page.
+On navigation, updates:
 
-### 7. Image SEO
-- No raw `<img>` tags in `src`; assets are SVGs/icons. For any new images, use `alt` and `loading="lazy"`.
+- `document.title`
+- `meta name="description"`
+- `meta name="robots"` (supports `noIndex`)
+- **`meta name="alternate-name"`** → `Proven Hire`
+- `link rel="canonical"` (per path; site base `https://provenhire.in`)
+- `og:title`, `og:description`, `og:url`
 
-### 8. Performance and caching
-- **Vite**: Code splitting via `lazy()` for dashboards and heavy routes.
-- **index.html**: Font preconnect + single stylesheet link.
-- **vercel.json**: Cache headers for `/assets/*` (long-lived) and for favicon, og-image, logo, sitemap, robots (1 day).
+Use `<SEO />` on public marketing pages as today.
 
-### 9. Canonical URL
-- **index.html**: `<link rel="canonical" href="https://www.provenhire.in">`.
-- **SEO component**: Sets canonical per page (e.g. `https://www.provenhire.in/jobs`).
+---
 
-### 10. Google Search Console
-- **index.html**: `<meta name="google-site-verification" content="ADD_VERIFICATION_CODE">`. Replace `ADD_VERIFICATION_CODE` with the code from Search Console.
+## 3. `public/sitemap.xml`
 
-### 11. Keywords
-- Target terms (ProvenHire, Proven Hire, verified hiring platform, skill verification hiring, coding verification, AI hiring platform) are used in:
-  - Default title and meta description.
-  - H1 and H2 on the landing page.
-  - SEO content section and internal links.
+Curated list including `/`, `/jobs`, `/for-employers`, `/about`, `/auth`, `/careers/interviewer`, `/verification`. **Update `lastmod`** when you ship meaningful content changes. Submit in Google Search Console: **`https://provenhire.in/sitemap.xml`**.
 
-### 12. Landing page SEO content
-- New section with ~600+ words: Skill Verified Hiring, Live Coding Verification, Structured Interview Scoring, Why Companies Trust ProvenHire. Internal links to `/jobs`, `/for-employers`, `/verification`, `/about`.
+---
 
-### 13. Internal linking
-- Navbar: Find Jobs → `/jobs`, For Employers → `/for-employers`, About → `/about`, Get Verified → `/auth`.
-- Footer: Find Jobs, Get Verified, For Employers, Post a Job, Careers, About.
-- Landing: CTA and SEO section link to `/auth`, `/for-employers`, `/jobs`, `/verification`, `/about`.
+## 4. `public/robots.txt`
 
-### 14. URLs
-- Clean routes: `/`, `/auth`, `/login`, `/signup`, `/jobs`, `/for-employers`, `/verification`, `/about`, `/careers/interviewer`. `/login` and `/signup` redirect to `/auth?mode=login` and `/auth?mode=signup`.
+- **Allow** public marketing paths; **Disallow** `/dashboard/`, `/admin/`, `/interview/`, `/api/`.
+- **Sitemap** line points to apex.
+- **`Crawl-delay: 1`** — honored by some bots; **Google ignores crawl-delay** (harmless to leave).
 
-### 15. Favicon
-- **index.html**: `<link rel="icon" href="/favicon.ico">` and `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`. `public/favicon.svg` exists.
+---
 
-## Optional follow-ups
+## 5. Favicon & social assets
 
-1. **favicon.ico**: Add `public/favicon.ico` for older browsers (e.g. export from favicon.svg).
-2. **og-image.png**: Add `public/og-image.png` (1200×630) for social sharing; meta already points to `https://www.provenhire.in/og-image.png`.
-3. **logo.png**: Add `public/logo.png` if you want the Organization schema logo to resolve (currently `https://www.provenhire.in/logo.png`).
-4. **Google Search Console**: Replace `ADD_VERIFICATION_CODE` and submit sitemap.
-5. **Lighthouse**: Run Lighthouse (SEO and Performance) and fix any remaining issues to reach 90+ SEO score.
+| File | Source |
+|------|--------|
+| `public/favicon.svg` | Vector mark (PH). |
+| `favicon.ico`, PNG sizes, `apple-touch-icon.png`, `logo.png`, `og-image.png` | Regenerate from SVGs via **`npm run generate:favicons`** (repo root; uses **sharp** + **png-to-ico**). |
+
+`og-image.png` is rasterized from **`public/og-image.svg`** (1200×630 layout).
+
+---
+
+## 6. Operator checklist
+
+1. Replace **`ADD_VERIFICATION_CODE`** in `index.html`.
+2. Confirm **`sameAs`** URLs in JSON-LD (LinkedIn / X) or update/remove.
+3. Deploy frontend; verify **`/favicon.ico`**, **`/og-image.png`**, **`/sitemap.xml`**, **`/robots.txt`** return 200.
+4. Search Console: add property **provenhire.in**, verify, submit sitemap, request indexing for homepage.
+
+---
+
+## 7. Optional follow-ups
+
+- Lighthouse SEO + Performance passes; fix any regressions.
+- Add **`og-image.png`** branding polish beyond SVG raster if marketing provides a designed 1200×630 asset.

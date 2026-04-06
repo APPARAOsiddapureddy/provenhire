@@ -1,6 +1,6 @@
 # ProvenHire — Product Requirements Document (PRD)
 
-**Version:** 6.2  
+**Version:** 6.3  
 **Last Updated:** April 2026  
 **Status:** Current
 
@@ -368,13 +368,23 @@ Login → Admin Dashboard → Manage job seekers, recruiters
 
 ---
 
-## 10. Test Credentials
+## 10. Test Credentials (E2E / QA)
 
-| Role | Email | Password |
-|------|-------|----------|
-| Expert Interviewer | interviewer@test.provenhire.com | Test123456 |
+Seeds create users in **the database referenced by your `DATABASE_URL`** (local or Render). Production login will fail until you run these against the **production** Postgres from **Render Shell** (or equivalent).
 
-Seed: `cd server && npm run seed:interviewer`
+**Shared QA password (current seeds):** `PhE2E_Apr2026!x7`
+
+| Role | Email | Seed command |
+|------|-------|----------------|
+| Job seeker — aptitude stage | `qa.apt.apr2026@test.provenhire.com` | `npm run seed:test-credentials` |
+| Job seeker — DSA stage | `qa.dsa.apr2026@test.provenhire.com` | (same) |
+| Job seeker — AI interview stage | `qa.ai.apr2026@test.provenhire.com` | (same) |
+| Job seeker — AI interview (second) | `qa.ai2.apr2026@test.provenhire.com` | (same) |
+| Expert interviewer | `qa.expert.apr2026@test.provenhire.com` | `npm run seed:interviewer` |
+| Recruiter | `qa.recruiter.apr2026@test.provenhire.com` | `npm run seed:recruiter` |
+| Admin | `admin@test.provenhire.com` | `Admin123456` — `npm run seed:admin` (see deployment docs) |
+
+From repo: `cd server`, then `npx prisma migrate deploy` if needed, then the `npx tsx prisma/seed-*.ts` commands above. Details: **`docs/README.md`**, **`server/.env.example`**.
 
 ---
 
@@ -396,4 +406,4 @@ Seed: `cd server && npm run seed:interviewer`
 
 ---
 
-*PRD v6.2 — April 2026*
+*PRD v6.3 — April 2026*

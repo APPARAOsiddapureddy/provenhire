@@ -1,0 +1,82 @@
+# ProvenHire — Documentation for the team
+
+**Last updated:** April 2026  
+
+Use this page as the **single entry point** when onboarding engineers, product, or design. Source of truth for product behavior is the PRD set below; operational runbooks are under **Deployment & local setup**.
+
+---
+
+## Product requirements (PRDs)
+
+| Document | What it covers |
+|----------|----------------|
+| [**PRD.md**](PRD.md) | **Main PRD** — roles, verification pipeline (technical + non‑technical), AI interview summary, routes, **test credentials**, NFRs. Start here. |
+| [**PRD_PRODUCT_REQUIREMENTS.md**](PRD_PRODUCT_REQUIREMENTS.md) | Ideology, certification levels (L0–L3), progressive access, user journeys. |
+| [**PRD_AI_INTERVIEW_ROUND.md**](PRD_AI_INTERVIEW_ROUND.md) | AI Expert Interview (Stage 4) — full spec, voice, proctoring, APIs, gaps vs code. |
+| [**PRD_RECRUITER.md**](PRD_RECRUITER.md) | Recruiter flows: verification, jobs, Kanban, search, usage — API- and UI-level detail. |
+| [**PRD_EXPERT_INTERVIEWER.md**](PRD_EXPERT_INTERVIEWER.md) | Expert interviewer (Stage 5): profile gate, slots, evaluations, earnings, cron. |
+| [**PRD_VERIFICATION_SCORING.md**](PRD_VERIFICATION_SCORING.md) | Scorecards, floors, shortlist math (Stages 2–4 blend). |
+| [**PRD_DSA_QUESTIONS_STORAGE.md**](PRD_DSA_QUESTIONS_STORAGE.md) | DSA question bank and storage model. |
+
+Supporting / historical:
+
+| Document | Notes |
+|----------|--------|
+| [VERIFICATION_IDEOLOGY.md](VERIFICATION_IDEOLOGY.md) | Philosophy of verification. |
+| [AI_INTERVIEW_GAP_ANALYSIS.md](AI_INTERVIEW_GAP_ANALYSIS.md) | Gap analysis (may lag current code). |
+
+---
+
+## Engineering & operations
+
+| Document | What it covers |
+|----------|----------------|
+| [**DEPLOYMENT_COMPLETE.md**](DEPLOYMENT_COMPLETE.md) | Vercel + Render + Postgres, env vars, troubleshooting, **production seeding**. |
+| [**DEPLOYMENT.md**](DEPLOYMENT.md) | Additional deployment notes. |
+| [**DOMAIN_SETUP.md**](DOMAIN_SETUP.md) | Custom domain (e.g. `provenhire.in` / Vercel). |
+| [**SEO.md**](SEO.md) | Meta tags, canonical (**apex**), sitemap, robots, favicons, Search Console. |
+| [**LOCAL_SETUP_STEPS.md**](LOCAL_SETUP_STEPS.md) | Local dev checklist. |
+| [**GOOGLE_AUTH_SETUP.md**](GOOGLE_AUTH_SETUP.md) | Firebase / Google sign-in. |
+| [**POSTGRES_SETUP.md**](POSTGRES_SETUP.md) | Database setup. |
+| [PRODUCT_ARCHITECTURE.md](PRODUCT_ARCHITECTURE.md) | High-level system diagram and modules. |
+| [SKILL_VALIDITY_SETUP.md](SKILL_VALIDITY_SETUP.md) | Skill expiry / cron. |
+
+---
+
+## Repo root
+
+| Document | What it covers |
+|----------|----------------|
+| [../README.md](../README.md) | Quick start, stack, `server/.env` basics. |
+| [../DOCUMENTATION.md](../DOCUMENTATION.md) | Long-form UI/page walkthrough (may lag; cross-check **PRD.md**). |
+
+---
+
+## Canonical production URL
+
+- **User-facing site:** `https://provenhire.in` (apex).  
+- **`www.provenhire.in`** redirects to apex (see `index.html` inline script).  
+- SEO canonicals and sitemap use **apex** unless you intentionally standardize on `www` everywhere (would require changing redirect + CORS + meta).
+
+---
+
+## E2E test accounts (after seeding)
+
+Password for seeded QA users (see `server/prisma/seed-*.ts`): **`PhE2E_Apr2026!x7`** (rotate in scripts if needed).
+
+| Role | How to seed |
+|------|-------------|
+| Job seekers (aptitude / DSA / AI interview stages) | `npx tsx prisma/seed-test-credentials.ts` |
+| Expert interviewer | `npx tsx prisma/seed-interviewer.ts` |
+| Recruiter | `npx tsx prisma/seed-recruiter.ts` |
+| Admin | `npx tsx prisma/seed-admin.ts` (or `SEED_ON_START` path on deploy) |
+
+**Important:** Logins only exist in the database you actually seed (local vs Render must use the **same** `DATABASE_URL` you intend to test). Run `npx prisma migrate deploy` before seeds if the schema is behind.
+
+---
+
+## Changelog (docs only)
+
+| When | Change |
+|------|--------|
+| Apr 2026 | Added this index; aligned PRD test credentials; refreshed SEO + deployment seeding notes. |

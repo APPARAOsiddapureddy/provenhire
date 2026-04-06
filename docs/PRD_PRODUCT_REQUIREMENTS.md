@@ -4,6 +4,8 @@
 **Last updated:** April 2026  
 **Document type:** Product Requirements — Ideology & User Journeys
 
+**Team index:** [docs/README.md](README.md) · **Consolidated product PRD (routes, AI interview, credentials):** [PRD.md](PRD.md)
+
 ---
 
 ## Product Overview

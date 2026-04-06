@@ -3,7 +3,9 @@
 **Version:** 1.0  
 **Date:** April 2026  
 **Status:** Final  
-**Author:** ProvenHire Product Team
+**Author:** ProvenHire Product Team  
+
+**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md) · **Test recruiter seed:** `server/prisma/seed-recruiter.ts`
 
 ---
 

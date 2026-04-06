@@ -1,24 +1,38 @@
-# Custom domain (www.provenhire.in) on Vercel
+# Custom domain (`provenhire.in`) on Vercel
 
-## Keep users on the custom domain
+**Last updated:** April 2026  
 
-If visitors to **https://www.provenhire.in** are being sent to the Vercel URL (*.vercel.app), that is controlled in the **Vercel Dashboard**, not in this repo.
+**Team index:** [docs/README.md](README.md)
 
-### 1. Set the primary domain in Vercel
+---
 
-1. Open [Vercel Dashboard](https://vercel.com) → your project → **Settings** → **Domains**.
-2. Add **www.provenhire.in** and **provenhire.in** if they are not already there.
-3. Set **www.provenhire.in** as the **primary** domain (so links and redirects use it).
-4. Do **not** enable any option that “Redirect to Vercel deployment URL” or similar; the site should be served from your custom domain only.
+## Canonical host
 
-### 2. What this repo does
+- **SEO and user-facing primary URL:** **`https://provenhire.in`** (apex).
+- **`https://www.provenhire.in`** **301 redirects** to the same path on apex (see **`vercel.json`** `redirects` and **`index.html`** inline script for consistency + service worker handling).
+- **Canonical link, Open Graph `og:url`, `sitemap.xml`, and `robots.txt`** in this repo use **apex**. Keep them aligned so search engines see one primary host.
 
-- **vercel.json**  
-  - Redirects **provenhire.in** → **https://www.provenhire.in** (bare domain to www).  
-  - There are **no** redirects to `*.vercel.app` in this file.
-- **Canonical and SEO**  
-  - All canonical URLs, Open Graph, sitemap, and robots use **https://www.provenhire.in**.
-- **Backend (Render)**  
-  - CORS and email links use **https://www.provenhire.in** (and **https://provenhire.in**) so the API and emails work with your custom domain.
+---
 
-After setting www as primary and disabling “redirect to Vercel URL”, traffic to **https://www.provenhire.in** should stay on that domain.
+## Vercel Dashboard
+
+1. [Vercel](https://vercel.com) → your project → **Settings** → **Domains**.
+2. Add both **`provenhire.in`** and **`www.provenhire.in`** if missing; follow DNS instructions (A/AAAA or CNAME per Vercel).
+3. Do **not** configure an extra redirect that fights the repo (e.g. forcing apex → `*.vercel.app`). Traffic should stay on your custom domain.
+
+---
+
+## What this repo configures
+
+| Piece | Behavior |
+|--------|----------|
+| **`vercel.json`** | Permanent redirect **www → apex** for all paths. Rewrites `/api`, `/uploads`, `/health`, `/diagnostic` to the Render backend URL (update host if your service name changes). |
+| **`index.html`** | Redirects **www** → **apex** before the app bundle loads; tears down legacy service workers. |
+| **API (Render)** | `server/src/app.ts` allows `https://provenhire.in` and `https://www.provenhire.in` for CORS. |
+
+---
+
+## After DNS changes
+
+- Verify **https://provenhire.in** and **https://www.provenhire.in** both load; www should land on apex.
+- **Firebase:** add both hosts under Authentication → **Authorized domains** if you use Google sign-in.

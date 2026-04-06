@@ -2,6 +2,8 @@
 
 **Status:** Final specification; **implementation** in repo is partial-to-mostly-complete for backend flows.
 
+**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md) · **Test expert seed:** `server/prisma/seed-interviewer.ts` (e.g. `qa.expert.apr2026@test.provenhire.com`)
+
 ## Summary
 
 Expert interviewers conduct Stage 5 human interviews, set availability, view candidate context, submit weighted evaluations (≥70 = pass / L3), and accrue per-session earnings. Full narrative, UI wireframes, and notification copy live in the product PRD; this file tracks **what the codebase implements**.

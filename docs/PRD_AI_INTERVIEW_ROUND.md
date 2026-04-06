@@ -10,6 +10,8 @@
 **STT (target):** Deepgram **nova-3** (browser WebSocket); see §12.1 and §16 for current repo default.  
 **Weight in final technical score:** 40% (`server/src/services/verificationScoring.service.ts`)
 
+**Team index:** [docs/README.md](README.md) · **Main PRD (Stage 4 summary):** [PRD.md](PRD.md) §3.4
+
 > **Implementation:** This file is the **product specification**. **`docs/PRD.md` §3.4** summarizes verification flow; **§16 below** maps this spec to **what is implemented in this Git repository** vs still open.
 
 ### Document structure

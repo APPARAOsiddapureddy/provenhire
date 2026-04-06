@@ -162,6 +162,29 @@ The **Start Command** runs `seed:admin` before starting the server. This creates
 
 Log in at `/admin` or `/auth`. **Change this password in production** or remove the seed from the start command once you have real admin users.
 
+### 2.4b E2E / QA accounts (job seeker, expert, recruiter)
+
+`SEED_ON_START=true` is **off by default**. Shared QA users (password `PhE2E_Apr2026!x7` in current seeds) **do not exist** in production until you create them.
+
+**On Render (Web Service → Shell),** with `DATABASE_URL` set, from the **`server`** directory:
+
+```bash
+npx prisma migrate deploy   # if migrations ever need a manual pass
+npx tsx prisma/seed-test-credentials.ts
+npx tsx prisma/seed-interviewer.ts
+npx tsx prisma/seed-recruiter.ts
+```
+
+Emails and stages are listed in **`docs/PRD.md`** §10 and **`server/.env.example`**. The frontend must call the **same** API/database you seeded.
+
+### 2.4c Build command vs `render.yaml`
+
+The repo **`render.yaml`** blueprint uses:
+
+`npm install && npx prisma generate && npm run build`
+
+Migrations run at **`npm run start`** via **`deploy:migrate`** (retry wrapper). If you customized the Dashboard build to run `prisma migrate deploy` during build, keep **`DATABASE_URL`** available at build time. Either approach is valid if the DB ends up migrated before traffic hits the app.
+
 ### 2.5 Deploy & Verify Backend
 
 1. Click **Deploy** (or wait for auto-deploy from GitHub).
