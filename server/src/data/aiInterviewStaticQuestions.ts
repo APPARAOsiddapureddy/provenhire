@@ -1,4 +1,12 @@
-export type QuestionPlanItem = { type: string; prompt: string; keyPoints: string[]; questionBankId?: string | null; difficulty?: number };
+export type QuestionPlanItem = {
+  type: string;
+  prompt: string;
+  keyPoints: string[];
+  questionBankId?: string | null;
+  difficulty?: number;
+  /** Deepening probes aligned to this prompt (bank-driven follow-up). */
+  followups?: string[];
+};
 /** HR/behavioral questions (same for all roles). Last 4 of 11. */
 export const HR_QUESTIONS: QuestionPlanItem[] = [
   {
@@ -20,6 +28,10 @@ export const HR_QUESTIONS: QuestionPlanItem[] = [
     type: "behavioral",
     prompt: "Describe a time when you had to learn something new quickly. How did you approach it and what was the outcome?",
     keyPoints: ["specific learning challenge", "approach or strategy", "resourcefulness", "outcome and application"],
+    followups: [
+      "What would you do differently if you had to learn it again?",
+      "How did you verify you had learned enough to be effective?",
+    ],
   },
 ];
 
@@ -35,13 +47,69 @@ export const ROLE_PLANS: Record<string, QuestionPlanItem[]> = {
     { type: "scenario", prompt: "How do you ensure accessibility (a11y) in your frontend applications?", keyPoints: ["semantic HTML", "ARIA when needed", "keyboard navigation", "screen reader compatibility"] },
   ],
   backend: [
-    { type: "conceptual", prompt: "Explain how you design reliable APIs with clear contracts and versioning.", keyPoints: ["REST or alternative", "API contracts/specs", "versioning strategy", "backward compatibility"] },
-    { type: "conceptual", prompt: "Describe how you approach data modeling for scalability and integrity.", keyPoints: ["normalization vs denormalization", "constraints and validation", "scaling considerations", "consistency trade-offs"] },
-    { type: "scenario", prompt: "A critical endpoint is timing out. Walk through your debugging plan.", keyPoints: ["monitoring and logs", "identifying bottleneck", "DB queries, N+1", "caching or optimization"] },
-    { type: "scenario", prompt: "How would you design a background job system with retries and idempotency?", keyPoints: ["job queue concept", "retry with backoff", "idempotency keys", "failure handling"] },
-    { type: "problem_solving", prompt: "Design a caching strategy for a high-traffic read-heavy system.", keyPoints: ["cache layer choice", "invalidation strategy", "TTL and consistency", "cache-aside or similar"] },
-    { type: "problem_solving", prompt: "Explain how you would prevent race conditions in a multi-worker environment.", keyPoints: ["locks or transactions", "distributed locking", "idempotency", "example scenario"] },
-    { type: "scenario", prompt: "How do you secure APIs against common vulnerabilities (injection, CSRF, etc.)?", keyPoints: ["input validation", "parameterized queries", "CSRF tokens", "auth and authorization"] },
+    {
+      type: "conceptual",
+      prompt: "Explain how you design reliable APIs with clear contracts and versioning.",
+      keyPoints: ["REST or alternative", "API contracts/specs", "versioning strategy", "backward compatibility"],
+      followups: [
+        "How do you roll out a breaking API change without breaking existing clients?",
+        "Where do you validate contract compliance in CI?",
+      ],
+    },
+    {
+      type: "conceptual",
+      prompt: "Describe how you approach data modeling for scalability and integrity.",
+      keyPoints: ["normalization vs denormalization", "constraints and validation", "scaling considerations", "consistency trade-offs"],
+      followups: [
+        "When would you denormalize despite duplication risk?",
+        "How do you handle cross-service referential integrity?",
+      ],
+    },
+    {
+      type: "scenario",
+      prompt: "A critical endpoint is timing out. Walk through your debugging plan.",
+      keyPoints: ["monitoring and logs", "identifying bottleneck", "DB queries, N+1", "caching or optimization"],
+      followups: [
+        "What if traces show the DB is fast but p95 latency is still high?",
+        "How do you decide between fixing hot code vs scaling out?",
+      ],
+    },
+    {
+      type: "scenario",
+      prompt: "How would you design a background job system with retries and idempotency?",
+      keyPoints: ["job queue concept", "retry with backoff", "idempotency keys", "failure handling"],
+      followups: [
+        "What happens when a worker crashes mid-job?",
+        "How do you detect poison messages in the queue?",
+      ],
+    },
+    {
+      type: "problem_solving",
+      prompt: "Design a caching strategy for a high-traffic read-heavy system.",
+      keyPoints: ["cache layer choice", "invalidation strategy", "TTL and consistency", "cache-aside or similar"],
+      followups: [
+        "How does your strategy change under heavy writes?",
+        "How do you avoid thundering herd on expiry?",
+      ],
+    },
+    {
+      type: "problem_solving",
+      prompt: "Explain how you would prevent race conditions in a multi-worker environment.",
+      keyPoints: ["locks or transactions", "distributed locking", "idempotency", "example scenario"],
+      followups: [
+        "Compare pessimistic vs optimistic concurrency for your example.",
+        "What breaks if the lock lease expires too early?",
+      ],
+    },
+    {
+      type: "scenario",
+      prompt: "How do you secure APIs against common vulnerabilities (injection, CSRF, etc.)?",
+      keyPoints: ["input validation", "parameterized queries", "CSRF tokens", "auth and authorization"],
+      followups: [
+        "How do you prioritize fixes when OWASP scan shows many findings?",
+        "What is your approach to secrets in config and rotation?",
+      ],
+    },
   ],
   fullstack: [
     { type: "conceptual", prompt: "How do you structure a full-stack application for maintainability and team scalability?", keyPoints: ["clear layer separation", "API boundaries", "shared types/contracts", "monorepo or similar"] },
@@ -154,6 +222,7 @@ export function buildStaticQuestionPlan(jobRole: string): QuestionPlanItem[] {
     keyPoints: q.keyPoints,
     questionBankId: null,
     difficulty: difficultyForType(q.type),
+    followups: q.followups,
   }));
 }
 

@@ -72,7 +72,13 @@ export async function detectWeakness(
   answer: string,
   sprint: number,
   priorWeaknesses: { type?: string }[]
-): Promise<{ weakness: string; type: string; severity: "low" | "medium" | "high"; attackStrategy: string }> {
+): Promise<{
+  weakness: string;
+  type: string;
+  severity: "low" | "medium" | "high";
+  attackStrategy: string;
+  suggestedFollowup?: string;
+}> {
   const sprintFocus: Record<number, string> = {
     1: "Focus on: did they actually build this? Are they vague about their own contribution?",
     2: "Focus on: are they hand-waving fundamentals? Is reasoning mechanically correct?",
@@ -91,17 +97,19 @@ export async function detectWeakness(
     `You are a technical interviewer analyzing a candidate's answer for reasoning gaps.
 Do NOT validate or praise. Find the most significant weakness.
 
-Weakness types: missing_step | vague | incorrect | shallow | overconfidence
-Attack strategies: implementation_probe | edge_case | scaling | contradiction | step_by_step
+Weakness types: missing_step | vague | incorrect | shallow | overconfidence | calibration_success
+Attack strategies: implementation_probe | edge_case | scaling | contradiction | step_by_step | explore_depth
 Severity: high (must probe) | medium (worth following up) | low (minor)
+If the candidate explicitly admits uncertainty, corrects themselves, or shows honest calibration, use type **calibration_success**, severity at most **medium**, attackStrategy **explore_depth**.
 Use **high** only for a clear substantive gap. Routine brevity, oral fillers, or minor vagueness → **medium** or **low** so the interview does not over-probe.
 
 Return JSON only:
 {
   "weakness": "<one sentence describing the specific gap>",
-  "type": "missing_step | vague | incorrect | shallow | overconfidence",
+  "type": "missing_step | vague | incorrect | shallow | overconfidence | calibration_success",
   "severity": "low | medium | high",
-  "attackStrategy": "implementation_probe | edge_case | scaling | contradiction | step_by_step"
+  "attackStrategy": "implementation_probe | edge_case | scaling | contradiction | step_by_step | explore_depth",
+  "suggestedFollowup": "<short probe idea, optional>"
 }`,
     `Sprint ${sprint} — ${focus}\n${priorContext}\n\nQuestion: ${question}\n\nCandidate Answer: ${answer}`,
     "balanced"
@@ -113,14 +121,31 @@ Return JSON only:
   } | null;
 
   if (!result?.weakness) {
-    return { weakness: "Vague answer", type: "vague", severity: "low", attackStrategy: "step_by_step" };
+    return {
+      weakness: "Vague answer",
+      type: "vague",
+      severity: "low",
+      attackStrategy: "step_by_step",
+    };
   }
-  const sev = result.severity === "high" || result.severity === "medium" ? result.severity : "low";
+  let sev: "low" | "medium" | "high" =
+    result.severity === "high" || result.severity === "medium" ? result.severity : "low";
+  let wType = String(result.type ?? "vague");
+  let atk = String(result.attackStrategy ?? "step_by_step");
+  if (HONEST_ADMISSION_RE.test(answer)) {
+    if (sev === "high") sev = "medium";
+    wType = "calibration_success";
+    if (!atk.includes("explore")) atk = "explore_depth";
+  }
   return {
     weakness: String(result.weakness),
-    type: String(result.type ?? "vague"),
+    type: wType,
     severity: sev,
-    attackStrategy: String(result.attackStrategy ?? "step_by_step"),
+    attackStrategy: atk,
+    suggestedFollowup:
+      typeof (result as { suggestedFollowup?: unknown }).suggestedFollowup === "string"
+        ? String((result as { suggestedFollowup?: string }).suggestedFollowup)
+        : undefined,
   };
 }
 
@@ -128,31 +153,74 @@ Return JSON only:
 export async function checkDiscrepancy(
   resume: string,
   answer: string
-): Promise<{ conflict: boolean; description: string; severity: "low" | "high" }> {
+): Promise<{
+  conflict: boolean;
+  description: string;
+  severity: "low" | "high";
+  resumeClaim: string;
+  actualStatement: string;
+}> {
   const result = (await callGeminiJson(
     `Compare resume claims vs candidate explanation. Detect inconsistencies between what they claim to have built/know and what they demonstrate.
-Return JSON: {"conflict": true/false, "description": "...", "severity": "low | high"}`,
+Return JSON: {"conflict": true/false, "description": "...", "severity": "low | high", "resumeClaim": "short quote or paraphrase of resume claim being tested", "actualStatement": "what they said in this answer that conflicts"}`,
     `Resume:\n${resume.slice(0, 2000)}\n\nCandidate Explanation:\n${answer}`,
     "balanced"
-  )) as { conflict?: boolean; description?: string; severity?: string } | null;
-  if (!result) return { conflict: false, description: "", severity: "low" };
+  )) as {
+    conflict?: boolean;
+    description?: string;
+    severity?: string;
+    resumeClaim?: string;
+    actualStatement?: string;
+  } | null;
+  if (!result) return { conflict: false, description: "", severity: "low", resumeClaim: "", actualStatement: "" };
   return {
     conflict: Boolean(result.conflict),
     description: String(result.description ?? ""),
     severity: result.severity === "high" ? "high" : "low",
+    resumeClaim: String(result.resumeClaim ?? "").trim(),
+    actualStatement: String(result.actualStatement ?? "").trim(),
   };
 }
 
 // ── REASONING BEHAVIOR AGENT ──────────────────────────────────────────────────
-export async function evaluateReasoning(answer: string, wasChallenged: boolean): Promise<Record<string, unknown>> {
-  const result = await callGeminiJson(
+export type ReasoningBehaviorOutput = {
+  structureScore: number;
+  clarificationBehavior: string;
+  adaptability: "flexible" | "rigid" | "defensive";
+  confidenceCalibration: "calibrated" | "overconfident" | "underconfident";
+};
+
+export async function evaluateReasoning(answer: string, wasChallenged: boolean): Promise<ReasoningBehaviorOutput> {
+  const result = (await callGeminiJson(
     `Evaluate HOW the candidate thinks and communicates. Do NOT evaluate technical accuracy.
 Track: structure (do they enumerate steps?), clarification behavior, adaptability, confidence calibration.
-Return JSON: {"structureScore": 0-3, "clarificationBehavior": "asks|assumes|mixed", "adaptability": "flexible|rigid|defensive", "confidenceCalibration": "calibrated|overconfident|underconfident"}`,
+Return JSON: {"structureScore": 0-3, "clarificationBehavior": "asks_clarification|answers_directly|avoids|mixed", "adaptability": "flexible|rigid|defensive", "confidenceCalibration": "calibrated|overconfident|underconfident"}`,
     `Candidate was challenged: ${wasChallenged}\n\nAnswer:\n${answer}`,
     "balanced"
-  );
-  return (result && typeof result === "object" ? result : {}) as Record<string, unknown>;
+  )) as Record<string, unknown> | null;
+  const r = result && typeof result === "object" ? result : {};
+  const adapt = String(r.adaptability ?? "rigid");
+  const conf = String(r.confidenceCalibration ?? "calibrated");
+  return {
+    structureScore: Math.min(3, Math.max(0, Number(r.structureScore) || 0)),
+    clarificationBehavior: String(r.clarificationBehavior ?? "answers_directly"),
+    adaptability:
+      adapt === "flexible" || adapt === "defensive" ? adapt : "rigid",
+    confidenceCalibration:
+      conf === "overconfident" || conf === "underconfident" ? conf : "calibrated",
+  };
+}
+
+/** Soften model weakness when reasoning shows honest calibration (in addition to regex in detectWeakness). */
+export function applyReasoningHonestyCap(
+  weakness: { type?: string; severity?: string; attackStrategy?: string },
+  reasoning: ReasoningBehaviorOutput
+): void {
+  if (reasoning.adaptability === "flexible" && reasoning.confidenceCalibration === "calibrated") {
+    if (weakness.severity === "high") weakness.severity = "medium";
+    weakness.type = "calibration_success";
+    weakness.attackStrategy = "explore_depth";
+  }
 }
 
 // ── FOLLOWUP AGENT ────────────────────────────────────────────────────────────
@@ -179,7 +247,12 @@ const ATTACK_INSTRUCTIONS: Record<string, string> = {
   contradiction: "Surface the contradiction directly, not accusatory. Under 15 words.",
   edge_case: "Introduce the specific breaking scenario. Under 12 words.",
   scaling: "Push the scale — e.g. 'What breaks first at 100x?' Under 10 words.",
+  explore_depth: "Ask one precise follow-up that deepens understanding without repeating prior questions. Under 14 words.",
 };
+
+/** Markers suggesting intellectual honesty — do not treat as evasion. */
+const HONEST_ADMISSION_RE =
+  /to be honest|i don't know|i do not know|i should be clear|it's basically just|it is basically just|actually it's more like|actually it is more like|i should be precise|i am not sure|i'm not sure|i was wrong|i made a mistake/i;
 
 const SPRINT_GOALS: Record<number, string> = {
   1: "Build a clear picture of the candidate's most significant project — the problem it solved, why they built it this way, what they personally contributed, and what challenges they faced.",
@@ -247,6 +320,19 @@ Generate ONE question. Maximum 15 words. Curious not accusatory. Output only the
   return q || "Can you tell me more about your specific role in that?";
 }
 
+export async function adaptFollowup(template: string, answer: string, persona: string): Promise<string> {
+  const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead;
+  const text = await callGeminiText(
+    system,
+    `Bank follow-up template: ${template}
+Candidate just said: ${answer.slice(0, 1200)}
+Rewrite into ONE short spoken question (max 18 words). Same intent as the template. Output only the question.`,
+    "balanced"
+  );
+  const q = text.replace(/^["']|["']$/g, "").trim();
+  return q || template;
+}
+
 export async function generateSprintQuestion(
   sprint: number,
   persona: string,
@@ -300,6 +386,14 @@ Return JSON: {"questions": ["...", "..."]}`,
 }
 
 // ── EVALUATION AGENT ──────────────────────────────────────────────────────────
+const EXPERIENCE_EVAL_HINT: Record<string, string> = {
+  junior:
+    "Junior benchmark: score 70+ for correct core concepts even if depth is limited. Do not penalize missing advanced edge cases.",
+  mid: "Mid benchmark: score 70+ for solid practical application with reasonable trade-off reasoning.",
+  senior:
+    "Senior benchmark: score 70+ only with ownership, architectural awareness, and mentoring signal. Penalize surface-level answers.",
+};
+
 export async function evaluateFullInterview(
   history: {
     sprint?: number;
@@ -309,7 +403,12 @@ export async function evaluateFullInterview(
   }[],
   resume: string,
   weaknesses: { type?: string; severity?: string; weakness?: string }[],
-  reasoningSignals: { structureScore?: number }[]
+  reasoningSignals: { structureScore?: number }[],
+  meta?: {
+    coverageRatio: number;
+    experienceLevel?: string | null;
+    jobRole?: string | null;
+  }
 ): Promise<Record<string, unknown> | null> {
   const transcript = history
     .map(
@@ -328,8 +427,20 @@ export async function evaluateFullInterview(
       ? reasoningSignals.reduce((s, r) => s + (Number(r.structureScore) || 0), 0) / reasoningSignals.length
       : 0;
 
+  const coverage = meta?.coverageRatio ?? 0;
+  const exp = (meta?.experienceLevel ?? "mid").toLowerCase();
+  const expBlock = EXPERIENCE_EVAL_HINT[exp] ?? EXPERIENCE_EVAL_HINT.mid;
+  const coverageBlock =
+    coverage < 0.3
+      ? `Coverage ratio ${coverage.toFixed(2)} is LOW. Lower overall confidence. Mark under-tested dimensions as inconclusive. Prefer "insufficient data on X" over confident negatives on areas not probed. Set confidence_calibrated to false.`
+      : `Coverage ratio ${coverage.toFixed(2)}. Set confidence_calibrated to true unless other factors contradict.`;
+
   const result = await callGeminiJson(
     `You are evaluating a complete adversarial technical interview across 3 sprints.
+You must produce TWO SEPARATE assessments:
+1) claim_credibility_risk: were specific resume claims substantiated in dialogue? (none | low | medium | high)
+2) engineering_signal: overall engineering ability independent of claim disputes (strong | moderate | inconclusive | weak)
+
 Return JSON:
 {
   "overall_score": <0-10>,
@@ -346,12 +457,21 @@ Return JSON:
   "failure_surface": {"<domain>": <0.0-1.0>},
   "hire_recommendation": "HIRE | MAYBE | NO HIRE",
   "confidence_level": "High | Medium | Low",
+  "confidence_calibrated": <boolean>,
   "final_verdict": "<2-3 sentences for candidate>",
   "strengths": ["..."],
   "weaknesses": ["..."],
   "authenticity_concern": false,
-  "authenticity_reason": ""
-}`,
+  "authenticity_reason": "",
+  "claim_credibility_risk": "none | low | medium | high",
+  "claim_credibility_detail": "<one sentence or empty>",
+  "engineering_signal": "strong | moderate | inconclusive | weak",
+  "engineering_signal_detail": "<one sentence>"
+}
+
+${coverageBlock}
+Experience level for this candidate: ${exp}. ${expBlock}
+Role context: ${meta?.jobRole ?? "Technical candidate"}`,
     `RESUME:\n${resume.slice(0, 1500)}
 
 INTERVIEW TRANSCRIPT (${history.length} turns):

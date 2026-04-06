@@ -367,6 +367,12 @@ model Interview {
   /// Total proctoring alert rows (denormalized; optional).
   proctoringEventCount Int?
   integrityFlag       String?
+  /// Unique weakness types covered / question turns — for evaluation calibration
+  coverageRatio       Float?
+  /// none | low | medium | high — resume claim substantiation (split from engineering signal)
+  claimCredibilityRisk String?
+  /// strong | moderate | inconclusive | weak — overall engineering ability independent of claim disputes
+  engineeringSignal   String?
   reviewRequestedAt   DateTime?
   reviewRequestReason String?   @db.VarChar(500)
   reviewOutcome       String?
@@ -460,6 +466,8 @@ model InterviewQuestionBank {
   updatedAt       DateTime @updatedAt
   createdBy       String?
   tags            String[] @default([])
+  /// string[] — 2–3 deepening follow-ups for this prompt (static/DB)
+  followups       Json     @default("[]")
 
   results InterviewQuestionResult[]
 

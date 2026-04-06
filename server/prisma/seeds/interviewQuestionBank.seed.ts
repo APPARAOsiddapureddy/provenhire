@@ -45,6 +45,7 @@ async function main() {
             difficulty: difficultyForType(q.type),
             isActive: true,
             tags: [],
+            followups: (q as { followups?: string[] }).followups ?? [],
           },
         });
         created++;

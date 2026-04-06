@@ -30,7 +30,7 @@ import {
   processTurn,
   handlePartialTranscript,
 } from "../services/interview/orchestrator.js";
-import { getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
+import { getPreCachedFillerMp3, getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
 import { transcribeAudio, whisperOpenAIErrorMessage } from "../services/whisper.service.js";
 
 export const interviewRouter = Router();
@@ -176,6 +176,15 @@ interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRe
 });
 
 interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res: Response) => {
+  const precached = getPreCachedFillerMp3();
+  if (precached) {
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-Filler-Text", encodeURIComponent(precached.text));
+    res.setHeader("X-TTS-Provider", "precached");
+    return res.status(200).send(precached.buffer);
+  }
+
   const fillerText = getRandomFiller();
   const result = await synthesizeSpeech(fillerText);
 
@@ -255,6 +264,7 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, async (req: Auth
       inputMode: z.enum(["voice", "typed"]).optional(),
       pasteCount: z.number().int().optional(),
       timeToSubmitSeconds: z.number().int().optional(),
+      turnId: z.string().optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
@@ -265,6 +275,7 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, async (req: Auth
       inputMode: parsed.data.inputMode,
       pasteCount: parsed.data.pasteCount,
       timeToSubmitSeconds: parsed.data.timeToSubmitSeconds,
+      clientTurnId: parsed.data.turnId,
     });
 
     return res.json(result);
@@ -306,9 +317,16 @@ async function buildQuestionPlan(jobRole: string, experienceLevel: string): Prom
       ? experienceLevel
       : "mid";
     const tech = await prisma.$queryRaw<
-      Array<{ id: string; type: string; prompt: string; keyPoints: unknown; difficulty: number }>
+      Array<{
+        id: string;
+        type: string;
+        prompt: string;
+        keyPoints: unknown;
+        followups: unknown;
+        difficulty: number;
+      }>
     >`
-      SELECT id, type, prompt, "keyPoints", difficulty FROM "InterviewQuestionBank"
+      SELECT id, type, prompt, "keyPoints", followups, difficulty FROM "InterviewQuestionBank"
       WHERE role = ${bankRole}
         AND "experienceLevel" = ${level}
         AND type <> 'behavioral'
@@ -317,9 +335,16 @@ async function buildQuestionPlan(jobRole: string, experienceLevel: string): Prom
       LIMIT 7
     `;
     const behavioral = await prisma.$queryRaw<
-      Array<{ id: string; type: string; prompt: string; keyPoints: unknown; difficulty: number }>
+      Array<{
+        id: string;
+        type: string;
+        prompt: string;
+        keyPoints: unknown;
+        followups: unknown;
+        difficulty: number;
+      }>
     >`
-      SELECT id, type, prompt, "keyPoints", difficulty FROM "InterviewQuestionBank"
+      SELECT id, type, prompt, "keyPoints", followups, difficulty FROM "InterviewQuestionBank"
       WHERE type = 'behavioral'
         AND "isActive" = true
       ORDER BY RANDOM()
@@ -334,6 +359,7 @@ async function buildQuestionPlan(jobRole: string, experienceLevel: string): Prom
       keyPoints: normalizeKeyPoints(row.keyPoints),
       questionBankId: row.id,
       difficulty: row.difficulty,
+      followups: normalizeFollowups(row.followups),
     });
     return [...tech.map(mapRow), ...behavioral.map(mapRow)];
   } catch (e) {
@@ -346,6 +372,15 @@ function normalizeKeyPoints(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String);
   if (raw && typeof raw === "object") return Object.values(raw as Record<string, unknown>).map(String);
   return [];
+}
+
+function normalizeFollowups(raw: unknown): string[] | undefined {
+  if (!raw) return undefined;
+  if (Array.isArray(raw)) {
+    const xs = raw.map(String).filter(Boolean);
+    return xs.length ? xs : undefined;
+  }
+  return undefined;
 }
 
 const PENDING_REVIEW_MESSAGE =

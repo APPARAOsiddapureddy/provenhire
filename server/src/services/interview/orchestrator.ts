@@ -10,7 +10,11 @@ import {
   generateSprintQuestion,
   prefetchFollowups,
   evaluateFullInterview,
+  adaptFollowup,
+  applyReasoningHonestyCap,
 } from "./agents.js";
+import { findFollowupsForQuestionText } from "./questionBankService.js";
+import { computeWeaknessCoverageRatio } from "./evaluationService.js";
 
 const QUESTIONS_PER_SPRINT = 5;
 const MAX_QUESTIONS = 15;
@@ -129,10 +133,26 @@ async function resolveDistinctQuestion(asked: string[], generate: () => Promise<
   return last || DISTINCT_FALLBACK_QUESTIONS[0]!;
 }
 
-/** Max consecutive "hard probe" questions (weakness / discrepancy). After this, force a normal sprint question for variety. */
-const MAX_ADVERSARIAL_PROBE_STREAK = 2;
+/** Same weakness type probed with severity high twice in a row → force sprint breadth. */
+const MAX_CONSECUTIVE_HIGH_SAME_TYPE = 2;
 
-type FollowupBranch = "discrepancy_probe" | "weakness_probe" | "prefetch" | "sprint";
+type FollowupBranch =
+  | "discrepancy_probe"
+  | "weakness_probe"
+  | "followup_deepen"
+  | "prefetch"
+  | "sprint_question"
+  | "forced_sprint";
+
+type TurnLogEntry = {
+  turnId: string;
+  questionIndex: number;
+  weaknessSeverity: string;
+  followupDecision: FollowupBranch;
+  questionSource: string;
+  agentOutputsSnapshot: string;
+  timestamp: string;
+};
 
 type AdversarialState = {
   sprint: number;
@@ -154,8 +174,12 @@ type AdversarialState = {
   reasoningSignals: Record<string, unknown>[];
   lastQuestion: string;
   interviewStartTime: number;
-  /** How many turns in a row we asked a high-priority weakness or discrepancy follow-up. */
-  adversarialProbeStreak?: number;
+  consecutiveHighWeaknessCount?: number;
+  lastWeaknessType?: string | null;
+  probedClaims?: string[];
+  currentQuestionFollowups?: string[];
+  currentQuestionFollowupAsked?: boolean;
+  turnLog?: TurnLogEntry[];
 };
 
 function normalizeQuestionLine(q: string): string {
@@ -168,6 +192,17 @@ function normalizeQuestionLine(q: string): string {
 }
 
 /** True if candidate is essentially the same as something we already asked (common LLM collapse on short prompts). */
+function isStillRelevant(prefetchQuestion: string, answer: string, concepts: string[]): boolean {
+  const a = answer.toLowerCase();
+  const q = prefetchQuestion.toLowerCase();
+  for (const c of concepts) {
+    const t = c.trim().toLowerCase();
+    if (t.length > 2 && (a.includes(t) || q.includes(t))) return true;
+  }
+  const words = a.split(/\s+/).filter((w) => w.length > 4);
+  return words.some((w) => q.includes(w));
+}
+
 export function isNearDuplicateQuestion(candidate: string, recent: string[]): boolean {
   const c = normalizeQuestionLine(candidate);
   if (c.length < 10) return false;
@@ -225,6 +260,8 @@ export function buildResumeContext(profile: {
 export async function startAdversarialInterview(
   interviewId: string
 ): Promise<{ question: string; sprint: number; sprintName: string; persona: string }> {
+  const row = await prisma.interview.findUnique({ where: { id: interviewId }, select: { jobRole: true } });
+  const jobRole = row?.jobRole ?? "Software Engineer";
   const opener = SPRINT_OPENERS[1];
   const initial: AdversarialState = {
     sprint: 1,
@@ -237,7 +274,12 @@ export async function startAdversarialInterview(
     reasoningSignals: [],
     lastQuestion: opener,
     interviewStartTime: Date.now(),
-    adversarialProbeStreak: 0,
+    consecutiveHighWeaknessCount: 0,
+    lastWeaknessType: null,
+    probedClaims: [],
+    currentQuestionFollowups: findFollowupsForQuestionText(opener, jobRole),
+    currentQuestionFollowupAsked: false,
+    turnLog: [],
   };
 
   await prisma.interview.update({
@@ -278,7 +320,12 @@ function defaultState(): AdversarialState {
     reasoningSignals: [],
     lastQuestion: SPRINT_OPENERS[1],
     interviewStartTime: Date.now(),
-    adversarialProbeStreak: 0,
+    consecutiveHighWeaknessCount: 0,
+    lastWeaknessType: null,
+    probedClaims: [],
+    currentQuestionFollowups: [],
+    currentQuestionFollowupAsked: false,
+    turnLog: [],
   };
 }
 
@@ -292,6 +339,7 @@ export async function processTurn(
     inputMode?: "voice" | "typed";
     pasteCount?: number;
     timeToSubmitSeconds?: number;
+    clientTurnId?: string;
   }
 ): Promise<{
   response: string;
@@ -302,6 +350,8 @@ export async function processTurn(
   weakness?: unknown;
   questionCount: number;
   turnId: string;
+  pivoting?: boolean;
+  fragmentRetry?: boolean;
   totalScore?: number;
   badgeLevel?: string;
   evaluation?: Record<string, unknown>;
@@ -335,6 +385,58 @@ export async function processTurn(
     questionCount: prevQCount,
   } = state;
 
+  const interviewStartedAt =
+    typeof state.interviewStartTime === "number" && Number.isFinite(state.interviewStartTime)
+      ? state.interviewStartTime
+      : Date.now();
+
+  const trimmed = answer.trim();
+  const endsWithSentence = /[.!?…]$/.test(trimmed);
+  const isFragmentShort = trimmed.length > 0 && trimmed.length < 20;
+  const isFragmentMid = trimmed.length >= 20 && trimmed.length < 50 && !endsWithSentence;
+  if (isFragmentShort || isFragmentMid) {
+    const prompt = isFragmentShort
+      ? "Could you elaborate on that a bit more?"
+      : "Could you finish that thought — what happened next?";
+    const userMessage = await prisma.interviewMessage.create({
+      data: {
+        interviewId,
+        sender: "user",
+        message: answer,
+        questionIndex: prevQCount,
+        audioUrl: options?.audioUrl ?? null,
+        transcriptionConfidence: options?.transcriptionConfidence ?? null,
+        inputMode: options?.inputMode ?? "voice",
+        answerLengthChars: answer.length,
+        pasteCount: options?.pasteCount ?? 0,
+        timeToSubmitSeconds: options?.timeToSubmitSeconds ?? null,
+      },
+    });
+    await prisma.interviewMessage.create({
+      data: {
+        interviewId,
+        sender: "ai",
+        message: prompt,
+        questionType: `sprint_${sprint}`,
+        isFollowup: true,
+      },
+    });
+    const remainingMs = Math.max(0, MAX_INTERVIEW_MINUTES * 60_000 - (Date.now() - interviewStartedAt));
+    const remainingMinutes = Math.ceil(remainingMs / 60_000);
+    const tid = options?.clientTurnId?.trim() || userMessage.id;
+    return {
+      response: prompt,
+      sprint,
+      sprintName: stateSprintName ?? SPRINTS[1].name,
+      persona,
+      complete: false,
+      questionCount: prevQCount,
+      turnId: tid,
+      fragmentRetry: true,
+      remainingMinutes,
+    };
+  }
+
   const resumeContext = buildResumeContext(interview.user?.jobSeekerProfile);
   const jp = interview.user?.jobSeekerProfile;
   const resume =
@@ -366,16 +468,41 @@ export async function processTurn(
     extractConcepts(answer),
   ]);
 
-  const probeStreak = state.adversarialProbeStreak ?? 0;
-  const atProbeLimit = probeStreak >= MAX_ADVERSARIAL_PROBE_STREAK;
+  applyReasoningHonestyCap(weakness, reasoning);
+
+  let consec = state.consecutiveHighWeaknessCount ?? 0;
+  let lastWT = state.lastWeaknessType ?? null;
+  if (weakness.severity === "high") {
+    if (weakness.type === lastWT) consec += 1;
+    else {
+      consec = 1;
+      lastWT = weakness.type ?? null;
+    }
+  } else {
+    consec = 0;
+    lastWT = null;
+  }
+  const forceSprintQuestion = consec >= MAX_CONSECUTIVE_HIGH_SAME_TYPE;
+
   const askedForPrompt = priorAskedQuestions(history, lastQuestion);
+  let probedClaims = [...(state.probedClaims ?? [])];
+  let currentQuestionFollowups = [...(state.currentQuestionFollowups ?? [])];
+  let currentQuestionFollowupAsked = state.currentQuestionFollowupAsked ?? false;
 
   let followup: string;
-  let nextProbeStreak = 0;
-  let followupBranch: FollowupBranch = "sprint";
+  let followupBranch: FollowupBranch = "sprint_question";
+  let pivoting = false;
+  const claimKey = discrepancy.resumeClaim?.trim() || "";
 
-  if (discrepancy.conflict && discrepancy.severity === "high" && !atProbeLimit) {
+  if (
+    discrepancy.conflict &&
+    discrepancy.severity === "high" &&
+    !forceSprintQuestion &&
+    claimKey &&
+    !probedClaims.includes(claimKey)
+  ) {
     followupBranch = "discrepancy_probe";
+    probedClaims = [...probedClaims, claimKey];
     followup = await resolveDistinctQuestion(askedForPrompt, () =>
       generateDiscrepancyFollowup(
         lastQuestion,
@@ -386,8 +513,7 @@ export async function processTurn(
         askedForPrompt
       )
     );
-    nextProbeStreak = probeStreak + 1;
-  } else if (weakness.severity === "high" && !atProbeLimit) {
+  } else if (weakness.severity === "high" && !forceSprintQuestion) {
     followupBranch = "weakness_probe";
     followup = await resolveDistinctQuestion(askedForPrompt, () =>
       generateWeaknessFollowup(
@@ -399,22 +525,37 @@ export async function processTurn(
         askedForPrompt
       )
     );
-    nextProbeStreak = probeStreak + 1;
+  } else if (
+    weakness.severity !== "high" &&
+    currentQuestionFollowups.length > 0 &&
+    !currentQuestionFollowupAsked
+  ) {
+    followupBranch = "followup_deepen";
+    const template = currentQuestionFollowups[0]!;
+    followup = await adaptFollowup(template, answer, persona);
+    currentQuestionFollowups = currentQuestionFollowups.slice(1);
+    currentQuestionFollowupAsked = true;
   } else {
     let prefetched: string | undefined;
     do {
       prefetched = popPrefetchQuestion(interviewId);
     } while (prefetched && isNearDuplicateQuestion(prefetched, askedForPrompt));
 
-    if (prefetched) {
+    if (prefetched && isStillRelevant(prefetched, answer, concepts)) {
       followupBranch = "prefetch";
       followup = prefetched;
-      nextProbeStreak = 0;
     } else {
       followup = await resolveDistinctQuestion(askedForPrompt, () =>
         generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt)
       );
-      nextProbeStreak = 0;
+      if (forceSprintQuestion) {
+        followupBranch = "forced_sprint";
+        pivoting = true;
+      } else {
+        followupBranch = "sprint_question";
+      }
+      currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
+      currentQuestionFollowupAsked = false;
     }
   }
 
@@ -433,7 +574,7 @@ export async function processTurn(
   ];
 
   const newWeaknesses = weakness.type ? [...weaknesses, weakness] : weaknesses;
-  const newReasoningSignals = [...reasoningSignals, reasoning];
+  const newReasoningSignals = [...reasoningSignals, reasoning as unknown as Record<string, unknown>];
   const newQuestionCount = prevQCount + 1;
   let newSprintQuestionCount = prevSprintQ + 1;
 
@@ -452,13 +593,13 @@ export async function processTurn(
       currentSprintQuestionCount = 0;
       sprintAdvanced = true;
       followup = SPRINT_OPENERS[nextSprint];
+      currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
+      currentQuestionFollowupAsked = false;
+      consec = 0;
+      lastWT = null;
+      pivoting = true;
     }
   }
-
-  const interviewStartedAt =
-    typeof state.interviewStartTime === "number" && Number.isFinite(state.interviewStartTime)
-      ? state.interviewStartTime
-      : Date.now();
 
   const completionCheck = isInterviewComplete({
     questionCount: newQuestionCount,
@@ -468,6 +609,21 @@ export async function processTurn(
   });
 
   const isComplete = completionCheck.complete;
+
+  const turnLogEntry: TurnLogEntry = {
+    turnId: userMessage.id,
+    questionIndex: prevQCount,
+    weaknessSeverity: String(weakness.severity ?? ""),
+    followupDecision: followupBranch,
+    questionSource: followupBranch,
+    agentOutputsSnapshot: JSON.stringify({
+      weakness,
+      discrepancy: { conflict: discrepancy.conflict, severity: discrepancy.severity },
+      reasoning,
+    }).slice(0, 8000),
+    timestamp: new Date().toISOString(),
+  };
+  const turnLog = [...(state.turnLog ?? []), turnLogEntry];
 
   const sprintClosing =
     "That wraps up our interview. Well done for getting through all three sprints. Your report is being generated now.";
@@ -503,11 +659,29 @@ export async function processTurn(
     reasoningSignals: newReasoningSignals,
     lastQuestion: isComplete ? "" : followup,
     interviewStartTime: interviewStartedAt,
-    adversarialProbeStreak: nextProbeStreak,
+    consecutiveHighWeaknessCount: consec,
+    lastWeaknessType: lastWT,
+    probedClaims,
+    currentQuestionFollowups,
+    currentQuestionFollowupAsked,
+    turnLog,
   };
 
+  const responseTurnId = options?.clientTurnId?.trim() || userMessage.id;
+
   if (isComplete) {
-    let evaluation = await evaluateFullInterview(newHistory, resume, newWeaknesses, newReasoningSignals);
+    const coverageRatio = computeWeaknessCoverageRatio(newWeaknesses, newQuestionCount);
+    let evaluation = await evaluateFullInterview(
+      newHistory,
+      resume,
+      newWeaknesses,
+      newReasoningSignals,
+      {
+        coverageRatio,
+        experienceLevel: interview.experienceLevel,
+        jobRole: interview.jobRole,
+      }
+    );
     if (!evaluation) {
       evaluation = {
         overall_score: 5,
@@ -516,6 +690,9 @@ export async function processTurn(
         weaknesses: ["Continue practicing structured technical explanations."],
         authenticity_concern: false,
         authenticity_reason: "",
+        claim_credibility_risk: "none",
+        engineering_signal: "inconclusive",
+        confidence_calibrated: false,
       };
     }
 
@@ -536,6 +713,9 @@ export async function processTurn(
             ? "Silver Verified"
             : "Not Verified";
 
+    const claimRisk = String(evaluation.claim_credibility_risk ?? "none").trim() || null;
+    const engSignal = String(evaluation.engineering_signal ?? "").trim() || null;
+
     await prisma.interview.update({
       where: { id: interviewId },
       data: {
@@ -548,6 +728,9 @@ export async function processTurn(
         completedAt: new Date(),
         questionPlan: [newState] as object[],
         questionIndex: newQuestionCount,
+        coverageRatio,
+        claimCredibilityRisk: claimRisk,
+        engineeringSignal: engSignal,
       },
     });
 
@@ -567,7 +750,7 @@ export async function processTurn(
       complete: true,
       weakness,
       questionCount: newQuestionCount,
-      turnId: userMessage.id,
+      turnId: responseTurnId,
       totalScore: overallScore,
       badgeLevel: badge,
       evaluation,
@@ -594,7 +777,8 @@ export async function processTurn(
     complete: false,
     weakness,
     questionCount: newQuestionCount,
-    turnId: userMessage.id,
+    turnId: responseTurnId,
+    pivoting,
     remainingMinutes,
   };
 }

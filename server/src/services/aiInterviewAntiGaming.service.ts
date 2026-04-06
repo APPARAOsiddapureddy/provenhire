@@ -67,6 +67,15 @@ export function analyzeAnswerAntiGaming(rows: UserAnswerRow[]): AntiGamingMessag
       reasons.push("fast_submit");
       pts += 10;
     }
+    const lower = row.message.trim().toLowerCase();
+    if (
+      /^great question\b/.test(lower) ||
+      /^certainly[,.\s]/i.test(row.message) ||
+      /^of course[,.\s]/i.test(row.message)
+    ) {
+      reasons.push("formulaic_opener");
+      pts += 8;
+    }
 
     if (reasons.length) {
       patches[i] = {

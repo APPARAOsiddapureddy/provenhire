@@ -943,6 +943,7 @@ adminRouter.post("/questions", async (req: AuthedRequest, res) => {
     type: z.enum(["conceptual", "scenario", "problem_solving", "behavioral"]),
     prompt: z.string().min(1),
     keyPoints: z.array(z.string()).min(1),
+    followups: z.array(z.string()).optional(),
     difficulty: z.number().int().min(1).max(5).optional(),
     tags: z.array(z.string()).optional(),
   });
@@ -956,6 +957,7 @@ adminRouter.post("/questions", async (req: AuthedRequest, res) => {
       type: d.type,
       prompt: d.prompt,
       keyPoints: d.keyPoints,
+      followups: d.followups ?? [],
       difficulty: d.difficulty ?? 2,
       tags: d.tags ?? [],
       createdBy: req.user?.id ?? null,
@@ -970,6 +972,7 @@ adminRouter.patch("/questions/:id", async (req: AuthedRequest, res) => {
     keyPoints: z.array(z.string()).min(1).optional(),
     difficulty: z.number().int().min(1).max(5).optional(),
     isActive: z.boolean().optional(),
+    followups: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -979,6 +982,7 @@ adminRouter.patch("/questions/:id", async (req: AuthedRequest, res) => {
     const data: Prisma.InterviewQuestionBankUpdateInput = {};
     if (d.prompt !== undefined) data.prompt = d.prompt;
     if (d.keyPoints !== undefined) data.keyPoints = d.keyPoints;
+    if (d.followups !== undefined) data.followups = d.followups;
     if (d.difficulty !== undefined) data.difficulty = d.difficulty;
     if (d.isActive !== undefined) data.isActive = d.isActive;
     if (d.tags !== undefined) data.tags = d.tags;

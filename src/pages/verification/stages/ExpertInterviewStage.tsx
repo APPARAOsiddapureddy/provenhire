@@ -270,8 +270,10 @@ export default function ExpertInterviewStage({
   const aiSpeakRef = useRef<(text: string) => Promise<void>>(async () => {});
   const answerDraftRef = useRef("");
   const interviewIdRef = useRef<string | null>(null);
+  const currentTurnIdRef = useRef("");
   /** Scrollable answer panel: keep viewport near bottom when new text arrives unless user scrolled up. */
   const answerScrollRef = useRef<HTMLDivElement>(null);
+  const [pivotBanner, setPivotBanner] = useState(false);
 
   const inTest = Boolean(interviewId) && !outcome;
 
@@ -377,6 +379,9 @@ export default function ExpertInterviewStage({
     setTurnInFlight(true);
     whisperSession.setCaptureEnabled(false);
 
+    const turnId = crypto.randomUUID();
+    currentTurnIdRef.current = turnId;
+
     let fillerAc = new AbortController();
     try {
       fillerAc = new AbortController();
@@ -399,6 +404,9 @@ export default function ExpertInterviewStage({
         complete: boolean;
         weakness?: Record<string, unknown>;
         questionCount: number;
+        turnId?: string;
+        pivoting?: boolean;
+        fragmentRetry?: boolean;
         totalScore?: number;
         badgeLevel?: string;
         evaluation?: Record<string, unknown>;
@@ -409,9 +417,17 @@ export default function ExpertInterviewStage({
         answer: composed,
         inputMode: "voice",
         timeToSubmitSeconds: timeToSubmit,
+        turnId,
       });
 
       fillerAc.abort();
+
+      if (turnResult.turnId && turnResult.turnId !== currentTurnIdRef.current) {
+        whisperSession.setCaptureEnabled(true);
+        whisperSession.transition("user_speaking");
+        whisperSession.resumeListening();
+        return;
+      }
 
       if (turnResult.remainingMinutes != null) {
         setRemainingMinutes(turnResult.remainingMinutes);
@@ -426,6 +442,11 @@ export default function ExpertInterviewStage({
       questionShownAtRef.current = Date.now();
       setAnswerDraft("");
       setPartial("");
+
+      if (turnResult.pivoting) {
+        setPivotBanner(true);
+        window.setTimeout(() => setPivotBanner(false), 3200);
+      }
 
       if (turnResult.complete) {
         setOutcome({
@@ -691,6 +712,15 @@ export default function ExpertInterviewStage({
                   </div>
                 </div>
               </div>
+
+              {pivotBanner && (
+                <p
+                  className="text-xs text-center rounded-md border border-amber-500/35 bg-amber-500/10 text-amber-900 dark:text-amber-200 px-3 py-2"
+                  role="status"
+                >
+                  Moving to the next focus area…
+                </p>
+              )}
 
               <div className="flex items-center gap-2 text-xs text-muted-foreground rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
                 <div

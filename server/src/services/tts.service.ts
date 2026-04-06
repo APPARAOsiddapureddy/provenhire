@@ -103,7 +103,59 @@ const FILLER_PHRASES = [
   "That makes sense.",
   "Alright.",
   "Let me think about that.",
+  "Fair point.",
+  "Go on.",
 ];
+
+/** Pre-generated MP3 per phrase — populated by `warmInterviewFillerCache()` at startup. */
+const fillerMp3ByPhrase = new Map<string, Buffer>();
+
+async function streamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
+  const reader = stream.getReader();
+  const parts: Buffer[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value?.byteLength) parts.push(Buffer.from(value));
+  }
+  return Buffer.concat(parts);
+}
+
+/**
+ * Pre-cache filler TTS so GET /api/interview/tts-filler can respond instantly without a live API call.
+ * Safe to call multiple times — only runs synthesis for missing entries.
+ */
+export async function warmInterviewFillerCache(): Promise<void> {
+  if (!process.env.CARTESIA_API_KEY?.trim() && !process.env.ELEVENLABS_API_KEY?.trim()) {
+    console.warn("[tts] Skipping filler warm — no CARTESIA_API_KEY or ELEVENLABS_API_KEY");
+    return;
+  }
+  for (const phrase of FILLER_PHRASES) {
+    if (fillerMp3ByPhrase.has(phrase)) continue;
+    const result = await synthesizeSpeech(phrase);
+    if (result.stream) {
+      try {
+        const buf = await streamToBuffer(result.stream);
+        if (buf.length > 0) fillerMp3ByPhrase.set(phrase, buf);
+      } catch (e) {
+        console.warn("[tts] filler warm failed for phrase:", phrase.slice(0, 20), e);
+      }
+    }
+  }
+  if (fillerMp3ByPhrase.size > 0) {
+    console.log(`[tts] Pre-cached ${fillerMp3ByPhrase.size}/${FILLER_PHRASES.length} filler MP3 clips`);
+  }
+}
+
+/** Random pre-cached filler MP3 if warmup succeeded; otherwise null (route falls back to live TTS). */
+export function getPreCachedFillerMp3(): { buffer: Buffer; text: string } | null {
+  if (fillerMp3ByPhrase.size === 0) return null;
+  const phrases = [...fillerMp3ByPhrase.keys()];
+  const text = phrases[Math.floor(Math.random() * phrases.length)]!;
+  const buffer = fillerMp3ByPhrase.get(text);
+  if (!buffer?.length) return null;
+  return { buffer, text };
+}
 
 export function getRandomFiller(): string {
   return FILLER_PHRASES[Math.floor(Math.random() * FILLER_PHRASES.length)]!;
