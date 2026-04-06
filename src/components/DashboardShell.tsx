@@ -4,6 +4,8 @@ import { ReactNode } from "react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface DashboardSidebarItem {
   label: string;
@@ -33,17 +35,31 @@ function SidebarContent({
   isActive,
   onItemClick,
   onSignOut,
+  brandHomeTo,
 }: {
   sidebarSections: DashboardSidebarSection[];
   user: { name: string; role: string; initials: string };
   isActive: (item: DashboardSidebarItem) => boolean;
   onItemClick?: () => void;
   onSignOut?: () => void;
+  brandHomeTo: string;
 }) {
   return (
     <>
-      {/* User at top — single header, no separate box */}
-      <div className="flex items-center gap-[10px] min-w-0 px-6 pt-6 pb-4">
+      <div className="px-6 pt-6 pb-3 shrink-0 border-b border-[var(--dash-navy-border)]">
+        <Link
+          to={brandHomeTo}
+          onClick={onItemClick}
+          className="flex items-center gap-2 rounded-md -mx-1 px-1 py-1 hover:bg-white/5 transition-colors group min-w-0"
+        >
+          <BrandMark variant="icon" className="h-7 w-7 shrink-0" />
+          <span className="font-bebas text-lg tracking-[2px] text-[var(--dash-text-primary)] leading-none truncate group-hover:opacity-90">
+            Proven<span className="text-[var(--dash-gold-light)]">Hire</span>
+          </span>
+        </Link>
+      </div>
+      {/* User below brand — single header, no separate box */}
+      <div className="flex items-center gap-[10px] min-w-0 px-6 pt-4 pb-4">
         <div
           className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-[13px] font-bold shrink-0 border-2 flex-shrink-0"
           style={{
@@ -137,6 +153,8 @@ export default function DashboardShell({
 }: DashboardShellProps) {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { userRole } = useAuth();
+  const brandHomeTo = userRole === "expert_interviewer" ? "/dashboard/expert" : "/";
 
   const isActive = (item: DashboardSidebarItem) => {
     if (item.active !== undefined) return item.active;
@@ -147,7 +165,13 @@ export default function DashboardShell({
   return (
     <div className="dashboard-shell">
       <aside className="dashboard-sidebar hidden lg:block overflow-hidden">
-        <SidebarContent sidebarSections={sidebarSections} user={user} isActive={isActive} onSignOut={onSignOut} />
+        <SidebarContent
+          sidebarSections={sidebarSections}
+          user={user}
+          isActive={isActive}
+          onSignOut={onSignOut}
+          brandHomeTo={brandHomeTo}
+        />
       </aside>
       <div className="dashboard-main-wrapper flex-1 min-w-0 flex flex-col">
         <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-[var(--dash-navy-border)] bg-[var(--dash-navy)] shrink-0">
@@ -161,11 +185,25 @@ export default function DashboardShell({
               <SheetTitle className="sr-only">Dashboard menu</SheetTitle>
               <SheetDescription className="sr-only">Navigation and account links</SheetDescription>
               <div className="pt-8 pb-4 overflow-y-auto h-full">
-                <SidebarContent sidebarSections={sidebarSections} user={user} isActive={isActive} onItemClick={() => setMobileMenuOpen(false)} onSignOut={onSignOut} />
+                <SidebarContent
+                  sidebarSections={sidebarSections}
+                  user={user}
+                  isActive={isActive}
+                  onItemClick={() => setMobileMenuOpen(false)}
+                  onSignOut={onSignOut}
+                  brandHomeTo={brandHomeTo}
+                />
               </div>
             </SheetContent>
           </Sheet>
-          <div className="min-w-0">
+          <Link
+            to={brandHomeTo}
+            className="shrink-0 rounded-md hover:opacity-90 transition-opacity"
+            aria-label="ProvenHire home"
+          >
+            <BrandMark variant="icon" />
+          </Link>
+          <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold truncate" style={{ color: "var(--dash-text-primary)" }}>{user.name}</div>
             <div className="text-xs truncate" style={{ color: "var(--dash-text-muted)" }}>{user.role}</div>
           </div>
