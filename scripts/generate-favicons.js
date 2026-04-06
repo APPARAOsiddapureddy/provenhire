@@ -13,12 +13,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const pub = path.join(root, "public");
 
-/** Self-contained SVG favicon (embedded PNG). External /logo.png refs are unreliable in browser favicon sandboxes. */
-function writeFaviconSvgFromPng32(png32Buffer) {
-  const b64 = png32Buffer.toString("base64");
+/** Self-contained SVG favicon (embedded PNG). Use a larger raster so tabs/bookmarks scale down sharply. */
+function writeFaviconSvgEmbedded(pngBuffer, size) {
+  const b64 = pngBuffer.toString("base64");
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <image width="32" height="32" href="data:image/png;base64,${b64}"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">
+  <image width="${size}" height="${size}" href="data:image/png;base64,${b64}"/>
 </svg>`;
   fs.writeFileSync(path.join(pub, "favicon.svg"), svg.trim() + "\n");
 }
@@ -37,17 +37,26 @@ async function main() {
     process.exit(1);
   }
 
-  await sharp(sourceBuffer).resize(32, 32).png().toFile(path.join(pub, "favicon-32x32.png"));
-  writeFaviconSvgFromPng32(fs.readFileSync(path.join(pub, "favicon-32x32.png")));
-  await sharp(sourceBuffer).resize(16, 16).png().toFile(path.join(pub, "favicon-16x16.png"));
-  await sharp(sourceBuffer).resize(180, 180).png().toFile(path.join(pub, "apple-touch-icon.png"));
+  const png192 = await sharp(sourceBuffer).resize(192, 192).png().toBuffer();
+  const png64 = await sharp(sourceBuffer).resize(64, 64).png().toBuffer();
+  const png48 = await sharp(sourceBuffer).resize(48, 48).png().toBuffer();
+  const png32 = await sharp(sourceBuffer).resize(32, 32).png().toBuffer();
+  const png16 = await sharp(sourceBuffer).resize(16, 16).png().toBuffer();
 
-  const png32 = fs.readFileSync(path.join(pub, "favicon-32x32.png"));
-  const png16 = fs.readFileSync(path.join(pub, "favicon-16x16.png"));
-  const icoBuf = await pngToIco([png16, png32]);
+  // High-res raster inside SVG so the mark stays sharp when the browser scales it to ~16–32px in the tab.
+  writeFaviconSvgEmbedded(png192, 192);
+
+  fs.writeFileSync(path.join(pub, "favicon-16x16.png"), png16);
+  fs.writeFileSync(path.join(pub, "favicon-32x32.png"), png32);
+  fs.writeFileSync(path.join(pub, "favicon-48x48.png"), png48);
+  fs.writeFileSync(path.join(pub, "favicon-64x64.png"), png64);
+  fs.writeFileSync(path.join(pub, "favicon-192x192.png"), png192);
+  fs.writeFileSync(path.join(pub, "apple-touch-icon.png"), png192);
+
+  const icoBuf = await pngToIco([png16, png32, png48, png64, png192]);
   fs.writeFileSync(path.join(pub, "favicon.ico"), icoBuf);
 
-  await sharp(sourceBuffer).resize(32, 32).png().toFile(path.join(pub, "favicon.png"));
+  fs.writeFileSync(path.join(pub, "favicon.png"), png64);
 
   const ogSvg = path.join(pub, "og-image.svg");
   if (fs.existsSync(ogSvg)) {
