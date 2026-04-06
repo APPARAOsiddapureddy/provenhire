@@ -13,11 +13,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const pub = path.join(root, "public");
 
-/** Browser-facing SVG icon: delegates to logo.png so one raster source stays canonical. */
-function writeFaviconSvgWrapper() {
+/** Self-contained SVG favicon (embedded PNG). External /logo.png refs are unreliable in browser favicon sandboxes. */
+function writeFaviconSvgFromPng32(png32Buffer) {
+  const b64 = png32Buffer.toString("base64");
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 2048 2048">
-  <image width="2048" height="2048" xlink:href="/logo.png" href="/logo.png" preserveAspectRatio="xMidYMid meet"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <image width="32" height="32" href="data:image/png;base64,${b64}"/>
 </svg>`;
   fs.writeFileSync(path.join(pub, "favicon.svg"), svg.trim() + "\n");
 }
@@ -36,9 +37,8 @@ async function main() {
     process.exit(1);
   }
 
-  writeFaviconSvgWrapper();
-
   await sharp(sourceBuffer).resize(32, 32).png().toFile(path.join(pub, "favicon-32x32.png"));
+  writeFaviconSvgFromPng32(fs.readFileSync(path.join(pub, "favicon-32x32.png")));
   await sharp(sourceBuffer).resize(16, 16).png().toFile(path.join(pub, "favicon-16x16.png"));
   await sharp(sourceBuffer).resize(180, 180).png().toFile(path.join(pub, "apple-touch-icon.png"));
 

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
 import NotificationInbox from "@/components/NotificationInbox";
-import { BrandMark } from "@/components/BrandMark";
 import { useAuth } from "@/contexts/AuthContext";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
@@ -133,7 +132,6 @@ const Navbar = () => {
     <nav className="fixed top-0 left-0 right-0 z-[100] w-full overflow-x-hidden border-b border-border bg-background/92 backdrop-blur-xl transition-all duration-300">
       <div className="mx-auto flex h-14 sm:h-16 w-full max-w-[100vw] items-center justify-between gap-3 px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12">
         <Link to={userRole === "expert_interviewer" ? "/dashboard/expert" : "/"} className="flex shrink-0 items-center gap-2 sm:gap-3 group">
-          <BrandMark variant="navbar" />
           <span className="font-bebas text-[22px] sm:text-[26px] md:text-[28px] tracking-[2px] text-foreground leading-none truncate">
             Proven<span className="text-primary">Hire</span>
           </span>

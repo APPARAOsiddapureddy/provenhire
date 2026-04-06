@@ -6,8 +6,6 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { BrandMark } from "@/components/BrandMark";
-
 const Footer = () => {
   const { userRole } = useAuth();
   const [email, setEmail] = useState("");
@@ -39,7 +37,6 @@ const Footer = () => {
           {/* Column 1: Brand */}
           <div>
             <Link to="/" className="inline-flex items-center gap-2 mb-4 transition-transform hover:scale-105 duration-200">
-              <BrandMark variant="footer" />
               <span className="font-bebas text-2xl tracking-[2px] text-foreground">Proven<span className="text-primary">Hire</span></span>
             </Link>
             <p className="text-muted-foreground text-sm font-medium">

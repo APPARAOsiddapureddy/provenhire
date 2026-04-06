@@ -25,8 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download, Settings } from "lucide-react";
-import { BrandMark } from "@/components/BrandMark";
+import { Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download, Settings, Shield } from "lucide-react";
 import BroadcastMessageDialog from "@/components/admin/BroadcastMessageDialog";
 import { toast } from "sonner";
 
@@ -497,7 +496,9 @@ const AdminDashboard = () => {
         <div className="container mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 min-w-0">
-              <BrandMark variant="icon" className="h-9 w-9" />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
+                <Shield className="h-5 w-5 text-primary" aria-hidden />
+              </div>
               <div className="min-w-0">
                 <h1 className="text-lg sm:text-xl font-bold truncate">Admin Dashboard</h1>
                 <p className="text-xs sm:text-sm text-muted-foreground">ProvenHire Management</p>
