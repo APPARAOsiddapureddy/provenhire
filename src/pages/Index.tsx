@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { BrandMark } from "@/components/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, CheckCircle, Shield, Sparkles, Users, Lightbulb, Award, Target, Brain, Video, Clock, TrendingUp, Eye, Lock, RefreshCw } from "lucide-react";
@@ -69,7 +70,7 @@ const Index = () => {
                 </span>
                 <span className="font-mono text-[11px] sm:text-[13px] font-semibold text-muted-foreground tracking-wider shrink-0">]</span>
               </div>
-              <img src="/logo.png" alt="" className="h-14 w-14 sm:h-16 sm:w-16 mb-6 opacity-0 animate-fade-in-up animate-fill-forwards object-contain rounded-lg" style={{ animationDelay: "0.15s" }} width={64} height={64} loading="eager" />
+              <BrandMark variant="hero" style={{ animationDelay: "0.15s" }} />
               <h1 id="hero-heading" className="hero-title opacity-0 animate-fade-in-up animate-fill-forwards" style={{ animationDelay: "0.2s" }}>
                 <span className="gradient-text">Hire Verified Talent</span>
                 <span className="block text-white font-bold" style={{ fontFamily: 'var(--font-bebas), sans-serif' }}>with ProvenHire</span>

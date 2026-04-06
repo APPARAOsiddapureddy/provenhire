@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, Lock, Mail } from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
+import { Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -48,8 +49,8 @@ const AdminLogin = () => {
     <div className="min-h-screen bg-gradient-subtle flex items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center space-y-4">
-          <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-            <Shield className="h-8 w-8 text-primary" />
+          <div className="mx-auto flex items-center justify-center">
+            <BrandMark variant="admin" />
           </div>
           <CardTitle className="text-2xl">Admin Portal</CardTitle>
           <CardDescription>
