@@ -8,7 +8,9 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 import { createApp } from "./src/app.js";
 import { initProctorSocket } from "./src/socket/proctor-socket.js";
 import { ensureDefaultFlags } from "./src/services/featureFlag.service.js";
-import { warmInterviewFillerCache } from "./src/services/tts.service.js";
+import { logInterviewTtsStartup, warmInterviewFillerCache } from "./src/services/tts.service.js";
+
+logInterviewTtsStartup();
 
 const app = createApp();
 const httpServer = http.createServer(app);

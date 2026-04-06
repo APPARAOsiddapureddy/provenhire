@@ -1,6 +1,26 @@
 const CARTESIA_API_URL = "https://api.cartesia.ai/tts/bytes";
 /** Cartesia requires this header; HTTP TTS auth is `Authorization: Bearer`, not X-API-Key. */
 const CARTESIA_VERSION = "2024-06-10";
+
+/** One-line boot diagnostics (no secrets). Call after env is loaded. */
+export function logInterviewTtsStartup(): void {
+  const ck = Boolean(process.env.CARTESIA_API_KEY?.trim());
+  const cv = Boolean(process.env.CARTESIA_VOICE_ID?.trim());
+  const cartesiaReady = ck && cv;
+  if (cartesiaReady) {
+    console.log("[tts] Cartesia: ready — primary interview TTS (POST /api/interview/tts, filler warm)");
+  } else if (ck || cv) {
+    console.warn(
+      "[tts] Cartesia: incomplete — set both CARTESIA_API_KEY and CARTESIA_VOICE_ID on the API host (e.g. Render)",
+    );
+  } else {
+    console.warn("[tts] Cartesia: not set — using ElevenLabs or browser TTS fallback only");
+  }
+  const ek = Boolean(process.env.ELEVENLABS_API_KEY?.trim());
+  if (ek) {
+    console.log("[tts] ElevenLabs: configured — fallback if Cartesia errors");
+  }
+}
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 
 export interface TTSResult {
