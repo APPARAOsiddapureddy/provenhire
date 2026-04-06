@@ -18,12 +18,18 @@ Use this page as the **single entry point** when onboarding engineers, product, 
 | [**PRD_VERIFICATION_SCORING.md**](PRD_VERIFICATION_SCORING.md) | Scorecards, floors, shortlist math (Stages 2–4 blend). |
 | [**PRD_DSA_QUESTIONS_STORAGE.md**](PRD_DSA_QUESTIONS_STORAGE.md) | DSA question bank and storage model. |
 
-Supporting / historical:
+Supporting / historical / audits:
 
 | Document | Notes |
 |----------|--------|
 | [VERIFICATION_IDEOLOGY.md](VERIFICATION_IDEOLOGY.md) | Philosophy of verification. |
 | [AI_INTERVIEW_GAP_ANALYSIS.md](AI_INTERVIEW_GAP_ANALYSIS.md) | Gap analysis (may lag current code). |
+| [AUDIT_VERIFICATION_SCORING.md](AUDIT_VERIFICATION_SCORING.md) | Scoring audit notes. |
+| [FULL_AUDIT_REPORT.md](FULL_AUDIT_REPORT.md) | Broad product/tech audit. |
+| [DATA_MIGRATION.md](DATA_MIGRATION.md) | Data migration runbook. |
+| [GOOGLE_AUTH_SETUP.md](GOOGLE_AUTH_SETUP.md) | Firebase / Google OAuth. |
+| [POSTGRES_SETUP.md](POSTGRES_SETUP.md) | Postgres setup. |
+| [SKILL_VALIDITY_SETUP.md](SKILL_VALIDITY_SETUP.md) | Skill expiry cron. |
 
 ---
 
