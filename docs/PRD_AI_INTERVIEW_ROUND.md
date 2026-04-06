@@ -1,6 +1,6 @@
 # PRD: AI Expert Interview Round — Complete Specification
 
-**Version:** 3.0.2  
+**Version:** 3.0.3  
 **Date:** April 2026  
 **Status:** Final (product); repository sync — **§16**  
 **Author:** ProvenHire Product Team  
@@ -727,14 +727,14 @@ This section is the **engineering** view of §§11–15 above. Update when shipp
 |------|----------------|--------|
 | Adversarial orchestrator + agents | §11 | **Shipped** — `server/src/services/interview/orchestrator.ts`, `agents.ts` |
 | Parallel agents per turn | §11.4 | **Shipped** |
-| Prefetch cache on partials | §11.6 | **Shipped** — `handlePartialTranscript`, in-memory cache |
+| Prefetch cache on partials | §11.6 | **Shipped** — `handlePartialTranscript`, in-memory cache; **`v2/turn`** also fires it on the **full** transcript (Whisper path) for warmup |
 | Sprint openers / 15-question flow | §11.2, §11.8 | **Shipped** — `SPRINT_OPENERS`, `MAX_QUESTIONS`, `QUESTIONS_PER_SPRINT` |
 | 30-minute hard stop | §11.8 | **Shipped** — `MAX_INTERVIEW_MINUTES` + `isInterviewComplete()` in `processTurn` |
 | Interviewer utterance sanitization | §12.8 | **Shipped** — `sanitizeAiInterviewQuestionText()` + stricter agent prompts |
 | STT echo / tail mitigation | §12.8 | **Shipped** — post-TTS mic cooldown + `scrubSttEcho` in `ExpertInterviewStage.tsx` |
-| Turn ID stale response discard | §12.5, §13.2 | **Shipped** — client sends `turnId` (UUID); `processTurn` returns `clientTurnId`; UI drops mismatched responses |
+| Turn ID stale response discard | §12.5, §13.2 | **Shipped** — client sends `turnId` (UUID); server echoes `turnId`; UI drops mismatched responses **and** re-checks after acknowledgement TTS, post-gap, and before main question TTS |
 | Floor + TTS abort | §12.2 | **Shipped** — `AbortController` in `ExpertInterviewStage` + `useWhisperSession` discard while AI speaks |
-| Primary STT (Expert Interview UI) | §12.1 | **Shipped** — OpenAI Whisper via **`useWhisperSession`** + **`POST /api/interview/transcribe`** (segmented upload) |
+| Primary STT (Expert Interview UI) | §12.1 | **Shipped** — OpenAI Whisper via **`useWhisperSession`** + **`POST /api/interview/transcribe`** (segmented upload); segment latency passed as **`whisperLatencyMs`** on **`v2/turn`** for server **`turnLog`** |
 | Deepgram **nova-3** / live WS STT | §12.1 | **Alternate path** — **`useDeepgramSession.ts`** + **`/api/interview/deepgram-token`**; not wired into **`ExpertInterviewStage`** today |
 | Cartesia TTS primary | §12.3 | **Shipped** — **`server/src/services/tts.service.ts`** (Cartesia → ElevenLabs); routes stream in `interview.ts` |
 | TTS fallback shape | §13.5 | **Shipped** — `200` + `{ fallback: true }` + browser TTS (differs from spec `503`) |
@@ -742,10 +742,18 @@ This section is the **engineering** view of §§11–15 above. Update when shipp
 | `deepgram-token` JWT | §13.4 | **Shipped** |
 | v2 `/start`, `/turn`, `/partial` | §13 | **Shipped** |
 | Gemini tiers in code | §14.5 | **Shipped** — `gemini-2.0-flash` (fast), `gemini-2.5-flash` (balanced), `gemini-2.5-pro` (deep) in `agents.ts` |
+| Multi-pass final evaluation (3×) | §14 | **Shipped** — `evaluateFullInterviewMultiPass` in `evaluationService.ts`; `Interview.evaluationPassCount`, `evaluationScoreVariance` |
+| v2 integrity merge (proctoring + anti-gaming) | §11 / integrity | **Shipped** — `orchestrator.ts` completion: same flag merge as v1 path; `integrityFlag`, `riskScore` |
+| `turnLog` timing instrumentation | §11 / ops | **Shipped** — `whisperLatencyMs`, `agentPipelineMs`, `questionGenerationMs`, `totalTurnLatencyMs`, plus paste / snapshot fields |
+| `InterviewQuestionResult` on v2 completion | §9 | **Shipped** — from `per_question_scores` in orchestrator finalize |
+| 30-minute cap + `timeExpired` in API + UI | §11.8 | **Shipped** — `isInterviewComplete()` + `ExpertInterviewStage` banner |
+| Candidate `POST /api/interview/:id/request-review` | Product | **Shipped** — 7-day gate, 10–500 char reason, 409 on duplicate; UI on results |
+| Admin question analytics | Product | **Shipped** — `GET /api/admin/questions/analytics` (bank join, discrimination flags) |
+| Admin session replay | Product | **Shipped** — `GET /api/admin/interviews/:id/replay` + `InterviewReplayView.tsx` |
 | Pro Upgrade §§1–10 items | §9 checklist | Mixed — see `docs/PRD.md` §3.4 and task rows §9 |
-| Silence nudge after 5s | §12.2 | **Not shipped** |
+| Silence nudge after 5s | §12.2 | **Shipped** — timer + short TTS while `user_speaking` in `ExpertInterviewStage` |
 
-**Next engineering deltas (priority):** (1) Optional Deepgram **nova-3** in **`ExpertInterviewStage`** if product standardizes on live streaming STT, (2) silence nudge while `user_speaking`, (3) optional strict **`503`** from TTS when all providers fail (vs current browser fallback contract), (4) continue Pro Upgrade checklist (§9) as needed.
+**Next engineering deltas (priority):** (1) Optional Deepgram **nova-3** in **`ExpertInterviewStage`** if product standardizes on live streaming STT, (2) optional strict **`503`** from TTS when all providers fail (vs current browser fallback contract), (3) continue Pro Upgrade checklist (§9) as needed.
 
 ---
 
@@ -772,5 +780,6 @@ Sections **1–15** are the target product spec; **§16** tracks repository drif
 | 3.0 | Sections **11–15**: adversarial engine, voice (Deepgram + Cartesia), v2 APIs, evaluation, migration; **§16** codebase status; header aligns with product board |
 | 3.0.1 | **§16** + §13.4/13.5 **implementation notes** (JWT token shape, ElevenLabs-only TTS until Cartesia) |
 | 3.0.2 | **§12.8** production voice UX (sanitization, STT echo); **§16** refreshed (30m cap, turnId, Cartesia, filler warm, Whisper primary STT); header STT note; §13.5–13.6 aligned with **`tts.service.ts`** |
+| 3.0.3 | **§16** — multi-pass eval, v2 integrity merge, turn timing / `whisperLatencyMs`, v2 per-question rows, `timeExpired`, silence nudge, review-request route + UI, admin analytics & replay; cross-ref **`PRD_AI_INTERVIEW_MASTER.md` v1.3** |
 
-*PRD v3.0.2 — April 2026 | ProvenHire Product Team*
+*PRD v3.0.3 — April 2026 | ProvenHire Product Team*

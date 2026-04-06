@@ -377,6 +377,10 @@ model Interview {
   reviewRequestReason String?   @db.VarChar(500)
   reviewOutcome       String?
   reviewOutcomeNote   String?
+  /// Multi-pass Gemini evaluation: how many of 3 passes returned valid JSON (1–3)
+  evaluationPassCount Int?
+  /// Raw 0–100 scores from each pass, e.g. [72, 78, 74]
+  evaluationScoreVariance Json?
 
   user              User                    @relation(fields: [userId], references: [id])
   messages          InterviewMessage[]

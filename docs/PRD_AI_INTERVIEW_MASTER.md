@@ -1,12 +1,12 @@
 # PRD: AI Expert Interview (Master — Single Source)
 
 **Product:** ProvenHire · **Stage:** Verification **Stage 4** (`expert_interview`)  
-**Version:** 1.2 (STT + integrity accuracy, admin gate) · **April 2026**  
-**Detail spec:** [`PRD_AI_INTERVIEW_ROUND.md`](PRD_AI_INTERVIEW_ROUND.md) (v3.0) · **Scoring:** [`PRD_VERIFICATION_SCORING.md`](PRD_VERIFICATION_SCORING.md)
+**Version:** 1.3 (multi-pass eval, v2 integrity parity, timing, admin analytics & replay) · **April 2026**  
+**Detail spec:** [`PRD_AI_INTERVIEW_ROUND.md`](PRD_AI_INTERVIEW_ROUND.md) (v3.0.3) · **Scoring:** [`PRD_VERIFICATION_SCORING.md`](PRD_VERIFICATION_SCORING.md)
 
 This document is the **efficient, end-to-end** description of what the AI interview is, which AI and third parties are used, and how it fits the pipeline. For legal/board depth, use the long PRD; for engineering tickets, use **§16** in the long PRD plus this file.
 
-**§12** below records **what shipped** in the repository as of the **Professional Upgrade** (orchestrator, agents, TTS fillers, schema). Align `PRD_AI_INTERVIEW_ROUND.md` §16 when doing a full spec audit.
+**§12** below records **what shipped** in the repository as of the **Professional Upgrade** plus the **Antigravity-parity tranche** (integrity on v2, multi-pass scoring, turn instrumentation, UX/admin tooling). **`PRD_AI_INTERVIEW_ROUND.md` §16** is kept in sync for engineering status.
 
 ---
 
@@ -29,7 +29,7 @@ This document is the **efficient, end-to-end** description of what the AI interv
 **Technical scorecard blend:** `aptitude × 0.25 + DSA × 0.35 + AI_interview × 0.40` (each arm 0–100).  
 **Typical unlock to Stage 5:** combined rules + floors (e.g. aptitude ≥ 55, DSA ≥ 60, **AI interview ≥ 60**)—see `buildTechnicalScorecard()` and `PRD_VERIFICATION_SCORING.md`.
 
-**After AI interview (v2):** Completing the session sets `Interview.status` to **`completed`**, runs **`evaluateFullInterview`**, then **`recordAiInterviewSubmittedForAdminReview`** — verification stage **`expert_interview`** is **`pending_review`** until an admin **`POST /api/admin/ai-interview-queue/:id/approve`** (unlocks **`human_expert_interview`**, may waive first paid attempt) or **`.../reject`** (**`failed`**). Learners see this in **`VerificationFlow`**; scoring is visible, but Stage 5 is blocked until approval.
+**After AI interview (v2):** Completing the session sets `Interview.status` to **`completed`**, runs **`evaluateFullInterviewMultiPass`** (three parallel **`evaluateFullInterview`** calls, merged scores and strictest claim-credibility risk), persists **`evaluationPassCount`** and **`evaluationScoreVariance`**, then **`recordAiInterviewSubmittedForAdminReview`** — verification stage **`expert_interview`** is **`pending_review`** until an admin **`POST /api/admin/ai-interview-queue/:id/approve`** (unlocks **`human_expert_interview`**, may waive first paid attempt) or **`.../reject`** (**`failed`**). Learners see this in **`VerificationFlow`**; scoring is visible, but Stage 5 is blocked until approval.
 
 ---
 
@@ -40,7 +40,7 @@ This document is the **efficient, end-to-end** description of what the AI interv
 | **LLM (SDK)** | Google **Gemini** via `@google/genai` | All interview intelligence |
 | **Fast agent calls** | **`gemini-2.0-flash`** | Concept extraction, prefetch question suggestions, cheap JSON |
 | **Balanced agents** | **`gemini-2.5-flash`** | Weakness, discrepancy, reasoning-behavior, sprint questions, rubric follow-ups |
-| **Final interview evaluation (v2)** | **`gemini-2.5-pro`** | Full-session JSON eval in `evaluateFullInterview()` — **deep** tier |
+| **Final interview evaluation (v2)** | **`gemini-2.5-pro`** | Full-session JSON eval in `evaluateFullInterview()` — **deep** tier; completion path calls it **three times in parallel** and merges numerics in **`evaluateFullInterviewMultiPass()`** (`evaluationService.ts`) |
 | **Legacy / v1 path** | **`gemini-2.5-flash`** | `evaluateInterview()` in `ai.service.ts` (transcript + optional per-question rubric) |
 | **Other product AI** | Same `GEMINI_API_KEY` | Resume parsing, assignments, etc. (`ai.service.ts`) |
 
@@ -80,8 +80,9 @@ This document is the **efficient, end-to-end** description of what the AI interv
 **v2 (primary for new sessions):**
 
 - `POST /api/interview/v2/start` — `{ jobRole, experienceLevel? }` → first question + sprint metadata.
-- `POST /api/interview/v2/turn` — body may include **`turnId`** (client UUID); response echoes **`turnId`** for stale-response discard. Optional telemetry: **`inputMode`** (`voice` \| `typed`), **`pasteCount`**, **`timeToSubmitSeconds`**, **`audioUrl`**, **`transcriptionConfidence`** (for future anti-gaming / analytics). Response may include **`pivoting`** (forced sprint breadth) or **`fragmentRetry`** (clarification turn).
+- `POST /api/interview/v2/turn` — body may include **`turnId`** (client UUID); response echoes **`turnId`** for stale-response discard. Optional telemetry: **`inputMode`** (`voice` \| `typed`), **`pasteCount`**, **`timeToSubmitSeconds`**, **`whisperLatencyMs`** (segment STT latency for **`turnLog`**), **`audioUrl`**, **`transcriptionConfidence`**. Fire-and-forget **`handlePartialTranscript`** on the **full** answer (same prefetch warmup as partials). Response may include **`pivoting`**, **`fragmentRetry`**, **`timeExpired`** (when the 30-minute cap triggers completion), and **`acknowledgement`** (split from main **`response`** for sequential TTS).
 - `POST /api/interview/v2/partial` — STT partials for prefetch only.
+- `POST /api/interview/:id/request-review` — candidate dispute / second look (**auth**, **job-seeker**): **`reason`** 10–500 chars; within **7 days** of completion; **409** if already requested; sets **`reviewRequestedAt`**, **`reviewRequestReason`**, **`reviewFlag`**, **`reviewReason: candidate_dispute`**.
 - `GET /api/interview/deepgram-token` — browser STT credential.
 - `POST /api/interview/tts` — AI voice line (ElevenLabs or fallback flag).
 - `GET /api/interview/tts-filler` — filler line.
@@ -89,9 +90,13 @@ This document is the **efficient, end-to-end** description of what the AI interv
 
 **Admin (human gate):** `GET /api/admin/ai-interview-queue/pending`, `POST /api/admin/ai-interview-queue/:id/approve`, `POST .../reject` — see `humanInterviewGate.service.ts`.
 
+**Admin (interview analytics & replay):** `GET /api/admin/questions/analytics` — grouped **`InterviewQuestionResult`** stats joined to **`InterviewQuestionBank`**, **`discriminationFlag`** (`too_hard` / `too_easy` / `good`). `GET /api/admin/interviews/:id/replay` — interview summary, **`messages`**, **`questionResults`**, **`turnLog`** from `questionPlan[0]`, **`ProctoringEvent`** rows (register **`/interviews/pending-review`** before **`:id`** routes). UI: **`AIInterviewReview`** (replay dialog + analytics table) and **`InterviewReplayView.tsx`**.
+
 **v1 (legacy):** `POST /api/interview/start`, `POST /api/interview/respond`, result endpoints—as documented in `PRD_AI_INTERVIEW_ROUND.md` Appendix A.
 
-**Frontend:** `src/pages/verification/stages/ExpertInterviewStage.tsx` (**`useWhisperSession`**, **`useProctoringRiskMonitor`**), `VerificationFlow.tsx` (pending review UX). **`useDeepgramSession.ts`** exists but is **not** mounted on the expert stage today.
+**Frontend:** `src/pages/verification/stages/ExpertInterviewStage.tsx` — **`useWhisperSession`** (passes **`whisperLatencyMs`** into **`onFinal`** for **`/v2/turn`**), **`useProctoringRiskMonitor`**, client **`turnId`** with **stale discard on response and again after acknowledgement TTS / gap / before main question TTS**, **~5s silence nudge** while listening, **`timeExpired`** banner, **request-review** UI after completion. **`useDeepgramSession.ts`** exists but is **not** mounted on the expert stage today.
+
+**Candidate result metadata:** `GET /api/interview/:id/result` includes **`completedAt`**, **`reviewRequestedAt`** (for gating the review CTA).
 
 ---
 
@@ -101,7 +106,8 @@ This document is the **efficient, end-to-end** description of what the AI interv
   - **`claim_credibility_risk`** / **`claim_credibility_detail`** (resume substantiation),
   - **`engineering_signal`** / **`engineering_signal_detail`** (ability separate from claim disputes),
   - **`confidence_calibrated`** (low coverage → conservative wording).
-- **Persisted on `Interview`:** `totalScore`, `badgeLevel`, `finalVerdict`, `scoreBreakdown` (full JSON), plus **`coverageRatio`**, **`claimCredibilityRisk`**, **`engineeringSignal`**.
+- **Persisted on `Interview`:** `totalScore`, `badgeLevel`, `finalVerdict`, `scoreBreakdown` (full JSON), plus **`coverageRatio`**, **`claimCredibilityRisk`**, **`engineeringSignal`**, **`integrityFlag`**, **`riskScore`** (proctoring aggregate on v2 completion), **`evaluationPassCount`**, **`evaluationScoreVariance`** (JSON array of raw pass scores).
+- **Per-question (v2):** On completion, **`InterviewQuestionResult`** rows are created from **`per_question_scores`** in the merged evaluation (aligned to user messages by index).
 - **Thresholds (global):** Elite ≥ 90, Gold ≥ 75, Silver ≥ 60, else Not Verified. Overall score clamped **0–100** in orchestrator.
 - **Failure handling:** If **`evaluateFullInterview`** returns null/empty (v2), orchestrator applies a **canonical low neutral JSON** (score ~50, split-report fields defaulted) before persisting. v1 `evaluateInterview` failures follow long PRD §3 (`pending_review` where applicable).
 - **Authenticity:** Prompt-level `authenticity_concern` + **anti-gaming** (`aiInterviewAntiGaming.service.ts`), including **formulaic opener** heuristic (“Great question…”, “Certainly…”, “Of course…”).
@@ -111,17 +117,18 @@ This document is the **efficient, end-to-end** description of what the AI interv
 ## 8. Integrity: proctoring & anti-gaming
 
 - **Client capture (v2):** **`ExpertInterviewStage`** uses **`useProctoringRiskMonitor`** (tab/visibility + optional lightweight vision on **`proctorVideoRef`**); events POST to **`/api/proctoring/alerts`** with **`testType: "ai_interview"`** and **`sessionId`** = interview id.
-- **v1 completion (`POST /respond`):** Proctoring aggregates + **anti-gaming** points are merged into **`Interview.integrityFlag`** and related fields via `integrityFlagFromViolationAggregate`, `integrityFlagFromAntiGamingPoints`, `mergeIntegrityFlags` in **`interview.ts`** — see `aiInterviewProctoringRisk.service.ts`, `aiInterviewAntiGaming.service.ts`.
-- **v2 completion (`orchestrator.ts`):** Final **`prisma.interview.update`** sets scores, **`scoreBreakdown`**, split-report columns, and **`status: completed`** but **does not** currently merge proctoring / v2 turn telemetry into **`integrityFlag` / `riskScore`** the way v1 does. Events may still exist in **`ProctoringEvent`** for admin review; **product/engineering:** align v2 finalize with v1 integrity merge or document intentional deferral.
-- **Anti-gaming (model + heuristics):** **`authenticity_concern`** in eval JSON; **`formulaic_opener`** and related signals in **`aiInterviewAntiGaming.service.ts`** (strongest wiring on v1 respond path today).
+- **v1 completion (`POST /respond`):** Proctoring aggregates + **anti-gaming** points are merged into **`Interview.integrityFlag`** and **`riskScore`** (and related fields) via `integrityFlagFromViolationAggregate`, `integrityFlagFromAntiGamingPoints`, `mergeIntegrityFlags` in **`interview.ts`** — see `aiInterviewProctoringRisk.service.ts`, `aiInterviewAntiGaming.service.ts`.
+- **v2 completion (`orchestrator.ts`):** Before final **`prisma.interview.update`**, the same merge pattern runs: **`ProctoringEvent`** rows for the interview → proctoring flag; **anti-gaming** from stored user messages + **`authenticity_concern`**; **`mergeIntegrityFlags`**; **`riskScore`** from proctoring violation total. **`turnLog`** rows include telemetry used for traceability (paste, time-to-submit, answer snapshot).
+- **Anti-gaming (model + heuristics):** **`authenticity_concern`** in eval JSON; **`formulaic_opener`** and related signals in **`aiInterviewAntiGaming.service.ts`**; v2 path updates message flags where patches apply and feeds integrity merge.
 
 ---
 
 ## 9. Data & configuration
 
 - **Question bank:** `InterviewQuestionBank` includes **`followups`** JSON (`string[]`) for deepening probes. Static **`ROLE_PLANS`** / **`HR_QUESTIONS`** carry optional **`followups`**; **`questionBankService.ts`** resolves follow-ups by prompt match for v2. **`QUESTION_BANK_SOURCE`**: static (default) or **db**; DB **`buildQuestionPlan`** selects `followups` column; seed **`interviewQuestionBank.seed.ts`** writes follow-ups from static rows. Admin **POST/PATCH `/api/admin/questions`** accepts **`followups`**.
-- **Per-question results:** `InterviewQuestionResult` (v1 / admin analytics path; verify v2 finalize alignment in long PRD §16).
-- **Admin:** Pending review queue, re-evaluate, question CRUD—see main `PRD.md` §3.4 and long PRD.
+- **Per-question results:** `InterviewQuestionResult` — written on **v1** and **v2** completion (when evaluation returns **`per_question_scores`**).
+- **Admin:** Pending review queue, re-evaluate, question CRUD, **question analytics**, **session replay** — see main `PRD.md` §3.4 and long PRD.
+- **Multi-pass metadata (schema):** `Interview.evaluationPassCount`, `Interview.evaluationScoreVariance` — migration **`20260407180000_ai_interview_multipass_metadata`**.
 
 ---
 
@@ -134,23 +141,23 @@ This document is the **efficient, end-to-end** description of what the AI interv
 5. **`DEEPGRAM_API_KEY`** — optional; only needed if product wires **`useDeepgramSession`** for live STT.
 6. Confirm **`QUESTION_BANK_SOURCE`** and run **`npm run seed:interview-bank`** if using DB bank.
 
-**Migration (schema):** apply `server/prisma/migrations/20260407120000_ai_interview_followups_split_report/` (Interview bank `followups`, Interview split-report columns).
+**Migration (schema):** apply `server/prisma/migrations/20260407120000_ai_interview_followups_split_report/` (Interview bank `followups`, Interview split-report columns) and **`20260407180000_ai_interview_multipass_metadata`** (`evaluationPassCount`, `evaluationScoreVariance`).
 
 ---
 
 ## 11. Known gaps (high level)
 
-Remaining vs **`PRD_AI_INTERVIEW_ROUND.md` §16** and product wishlist:
+Remaining vs product wishlist (not blockers for current production path):
 
-- **v2 vs v1 integrity:** Merge **proctoring aggregate + anti-gaming** into **`Interview.integrityFlag` / `riskScore`** on **v2** completion (parity with **`POST /respond`**), or explicitly treat v2 as “eval-only” and surface risk from raw events only.
-- **Silence nudge** after ~5s; richer **ExpertInterviewStage** UX (review countdown, confidence bands on Whisper).
-- **Deepgram live path** unused in expert stage; **Cartesia** missing → fillers skip pre-cache (live fallback).
-- **30-minute** cap: **`isInterviewComplete()`** in `orchestrator.ts`.
-- **Turn-ID** stale handling: server echo + client discard in **`ExpertInterviewStage`**.
+- **Deepgram live path** still unused in **`ExpertInterviewStage`** (Whisper segmented remains default for verification accuracy).
+- Optional stricter **TTS `503`** when all cloud providers fail (today: browser **`speechSynthesis`** fallback contract).
+- Richer **ExpertInterviewStage** polish (e.g. review countdown UI, Whisper confidence UX) as needed.
+
+**Recently closed (v1.3):** v2 **integrity merge**; **multi-pass** evaluation; **30-minute** cap + **`timeExpired`**; **turnId** checks through acknowledgement TTS; **turnLog** timing + **`whisperLatencyMs`**; **speculative warmup** on full turn; **silence nudge**; **candidate review request**; **admin question analytics** + **session replay**.
 
 ---
 
-## 12. Implementation changelog — Professional Upgrade (shipped in repo)
+## 12. Implementation changelog — shipped in repo
 
 | Area | Change |
 |------|--------|
@@ -165,6 +172,11 @@ Remaining vs **`PRD_AI_INTERVIEW_ROUND.md` §16** and product wishlist:
 | **Static data** | Backend **`ROLE_PLANS`** entries include **2 follow-ups** each; sample HR follow-ups. |
 | **Anti-gaming** | **`formulaic_opener`** signal. |
 | **Frontend** | **`ExpertInterviewStage`**: **`useWhisperSession`** STT, client **`turnId`**, stale-response skip, **`pivoting`** banner, **`useProctoringRiskMonitor`**. |
+| **Antigravity parity (v1.3)** | **`evaluationService.ts`**: **`evaluateFullInterviewMultiPass`** (3× parallel, merged scores, strictest claim credibility). **`Interview`**: **`evaluationPassCount`**, **`evaluationScoreVariance`**. |
+| **Orchestrator (v1.3)** | v2 completion: **integrity merge** (proctoring + anti-gaming → **`integrityFlag`**, **`riskScore`**); **`InterviewQuestionResult`** from **`per_question_scores`**; **`turnLog`** timing + snapshot fields; **`timeExpired`** when **`completionReason === time_limit`**. |
+| **Routes (v1.3)** | **`v2/turn`**: **`whisperLatencyMs`**, fire-and-forget **`handlePartialTranscript`** on full answer; **`request-review`** validation (409 duplicate). **`GET /:id/result`**: **`completedAt`**, **`reviewRequestedAt`**. |
+| **Admin (v1.3)** | **`GET /admin/questions/analytics`** (join bank, discrimination flags); **`GET /admin/interviews/:id/replay`**; UI **`InterviewReplayView`** + **`AIInterviewReview`** replay + analytics table. |
+| **Frontend (v1.3)** | Silence nudge; **turnId** re-check after ack / gap / before question TTS; **`whisperLatencyMs`** from last segment; **time-expired** banner; **request-review** form. |
 
 ---
 

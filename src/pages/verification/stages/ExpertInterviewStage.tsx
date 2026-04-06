@@ -9,6 +9,7 @@ import { useWhisperSession } from "@/hooks/useWhisperSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock, Send } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 
 const PERSONA_DESC: Record<string, string> = {
   curious_lead: "Exploring your ownership & decisions",
@@ -33,6 +34,14 @@ const POST_AI_SPEECH_COOLDOWN_MS = 520;
 
 /** Pause after acknowledgement clip before the next question TTS (sequential playback). */
 const ACK_BEFORE_QUESTION_GAP_MS = 400;
+
+const SILENCE_NUDGE_MS = 5000;
+const SILENCE_NUDGES = [
+  "Take your time.",
+  "No rush — think it through.",
+  "Feel free to think out loud.",
+  "Take a moment if you need.",
+];
 
 /** Single-segment STT that is only a politeness echo (common after AI speaks). */
 const POLITENESS_ONLY_TRANSCRIPT = /^(thank you|thanks|thx|ty|okay|ok\.?|got it|gotcha|mhm+|mm+|uh-?huh|sure)\.?$/i;
@@ -264,6 +273,7 @@ export default function ExpertInterviewStage({
     totalScore?: number;
     badgeLevel?: string;
     evaluation?: Record<string, unknown>;
+    timeExpired?: boolean;
   } | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -289,9 +299,18 @@ export default function ExpertInterviewStage({
   const answerDraftRef = useRef("");
   const interviewIdRef = useRef<string | null>(null);
   const currentTurnIdRef = useRef("");
+  /** Last segment Whisper round-trip (ms), sent with v2/turn for turnLog instrumentation. */
+  const lastWhisperLatencyMsRef = useRef<number | undefined>(undefined);
+  const silenceNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Scrollable answer panel: keep viewport near bottom when new text arrives unless user scrolled up. */
   const answerScrollRef = useRef<HTMLDivElement>(null);
   const [pivotBanner, setPivotBanner] = useState(false);
+  const [resultMeta, setResultMeta] = useState<{
+    reviewRequestedAt: string | null;
+    completedAt: string | null;
+  } | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
   const inTest = Boolean(interviewId) && !outcome;
 
@@ -343,17 +362,37 @@ export default function ExpertInterviewStage({
     onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateForProctoring : undefined,
   });
 
-  /** Voice end-of-utterance only extends the local draft; user submits explicitly to advance. */
-  const appendFinalToDraft = useCallback((text: string) => {
-    const t = scrubSttEcho(text);
-    if (!t) return;
-    setAnswerDraft((prev) => (prev ? `${prev} ${t}` : t));
-    setPartial("");
+  const clearSilenceNudgeTimer = useCallback(() => {
+    if (silenceNudgeTimerRef.current) {
+      clearTimeout(silenceNudgeTimerRef.current);
+      silenceNudgeTimerRef.current = null;
+    }
   }, []);
+
+  const onPartialWrapped = useCallback(
+    (p: string) => {
+      if (p.trim()) clearSilenceNudgeTimer();
+      setPartial(p);
+    },
+    [clearSilenceNudgeTimer],
+  );
+
+  /** Voice end-of-utterance only extends the local draft; user submits explicitly to advance. */
+  const appendFinalToDraft = useCallback(
+    (text: string, meta?: { whisperLatencyMs: number }) => {
+      const t = scrubSttEcho(text);
+      if (!t) return;
+      clearSilenceNudgeTimer();
+      if (meta?.whisperLatencyMs != null) lastWhisperLatencyMsRef.current = meta.whisperLatencyMs;
+      setAnswerDraft((prev) => (prev ? `${prev} ${t}` : t));
+      setPartial("");
+    },
+    [clearSilenceNudgeTimer],
+  );
 
   const whisperSession = useWhisperSession({
     interviewId,
-    onPartial: setPartial,
+    onPartial: onPartialWrapped,
     onError: (err) => toast.error(err, { duration: 8000 }),
     onFinal: appendFinalToDraft,
   });
@@ -386,7 +425,13 @@ export default function ExpertInterviewStage({
 
   /** Sequential TTS: optional short acknowledgement fully finishes, gap, then question (barge-in aborts all). */
   const speakAckThenQuestion = useCallback(
-    async (acknowledgement: string | null | undefined, question: string) => {
+    async (expectedTurnId: string, acknowledgement: string | null | undefined, question: string) => {
+      const resumeListeningAfterStale = () => {
+        whisperSession.setCaptureEnabled(true);
+        whisperSession.transition("user_speaking");
+        whisperSession.resumeListening();
+      };
+
       window.speechSynthesis?.cancel();
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -396,11 +441,26 @@ export default function ExpertInterviewStage({
       whisperSession.transition("ai_speaking");
       const ack = acknowledgement?.trim() ?? "";
       try {
+        if (expectedTurnId !== currentTurnIdRef.current) {
+          ac.abort();
+          resumeListeningAfterStale();
+          return;
+        }
         if (ack && !ac.signal.aborted) {
           await speakText(ack, ac.signal);
         }
+        if (expectedTurnId !== currentTurnIdRef.current) {
+          ac.abort();
+          resumeListeningAfterStale();
+          return;
+        }
         if (ack && !ac.signal.aborted) {
           await new Promise<void>((r) => setTimeout(r, ACK_BEFORE_QUESTION_GAP_MS));
+        }
+        if (expectedTurnId !== currentTurnIdRef.current) {
+          ac.abort();
+          resumeListeningAfterStale();
+          return;
         }
         if (!ac.signal.aborted) {
           setCurrentQuestion(question);
@@ -436,6 +496,7 @@ export default function ExpertInterviewStage({
 
     processingRef.current = true;
     setTurnInFlight(true);
+    clearSilenceNudgeTimer();
     whisperSession.setCaptureEnabled(false);
 
     const turnId = crypto.randomUUID();
@@ -466,6 +527,8 @@ export default function ExpertInterviewStage({
         turnId?: string;
         pivoting?: boolean;
         fragmentRetry?: boolean;
+        acknowledgement?: string;
+        timeExpired?: boolean;
         totalScore?: number;
         badgeLevel?: string;
         evaluation?: Record<string, unknown>;
@@ -477,6 +540,7 @@ export default function ExpertInterviewStage({
         inputMode: "voice",
         timeToSubmitSeconds: timeToSubmit,
         turnId,
+        whisperLatencyMs: lastWhisperLatencyMsRef.current,
       });
 
       fillerAc.abort();
@@ -512,13 +576,15 @@ export default function ExpertInterviewStage({
           totalScore: turnResult.totalScore,
           badgeLevel: turnResult.badgeLevel,
           evaluation: turnResult.evaluation,
+          timeExpired: turnResult.timeExpired === true,
         });
         streamRef.current?.getTracks().forEach((t) => t.stop());
         setCameraActive(false);
         whisperSession.stop();
         onInterviewAwaitingReview?.();
       } else {
-        await speakAckThenQuestion(turnResult.acknowledgement, turnResult.response);
+        const expectedTurn = turnResult.turnId ?? turnId;
+        await speakAckThenQuestion(expectedTurn, turnResult.acknowledgement, turnResult.response);
       }
     } catch (e) {
       fillerAc.abort();
@@ -532,7 +598,14 @@ export default function ExpertInterviewStage({
       processingRef.current = false;
       setTurnInFlight(false);
     }
-  }, [whisperSession, partial, turnInFlight, onInterviewAwaitingReview, speakAckThenQuestion]);
+  }, [
+    whisperSession,
+    partial,
+    turnInFlight,
+    onInterviewAwaitingReview,
+    speakAckThenQuestion,
+    clearSilenceNudgeTimer,
+  ]);
 
   const replayQuestion = useCallback(() => {
     unlockInterviewAudioOutput();
@@ -648,6 +721,69 @@ export default function ExpertInterviewStage({
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
+
+  useEffect(() => {
+    if (!started || outcome || whisperSession.floor !== "user_speaking" || turnInFlight) {
+      clearSilenceNudgeTimer();
+      return;
+    }
+    clearSilenceNudgeTimer();
+    silenceNudgeTimerRef.current = setTimeout(() => {
+      if (processingRef.current || turnInFlight) return;
+      if (whisperSessionRef.current.floor !== "user_speaking") return;
+      void (async () => {
+        const w = whisperSessionRef.current;
+        const nudge = SILENCE_NUDGES[Math.floor(Math.random() * SILENCE_NUDGES.length)]!;
+        window.speechSynthesis?.cancel();
+        abortRef.current?.abort();
+        const ac = new AbortController();
+        abortRef.current = ac;
+        w.setAbortController(ac);
+        w.setCaptureEnabled(false);
+        w.transition("ai_speaking");
+        try {
+          await speakText(nudge, ac.signal);
+        } catch {
+          /* speakText handles fallback */
+        }
+        if (!ac.signal.aborted) {
+          await new Promise<void>((r) => setTimeout(r, POST_AI_SPEECH_COOLDOWN_MS));
+        }
+        if (!ac.signal.aborted) {
+          w.setCaptureEnabled(true);
+          w.transition("user_speaking");
+          w.resumeListening();
+        }
+      })();
+    }, SILENCE_NUDGE_MS);
+    return () => clearSilenceNudgeTimer();
+  }, [whisperSession.floor, started, outcome, turnInFlight, clearSilenceNudgeTimer]);
+
+  useEffect(() => {
+    if (!interviewId || !outcome || outcome.terminatedByProctoring) {
+      setResultMeta(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await api.get<{
+          completedAt?: string | null;
+          reviewRequestedAt?: string | null;
+        }>(`/api/interview/${interviewId}/result`);
+        if (cancelled) return;
+        setResultMeta({
+          completedAt: r.completedAt ?? null,
+          reviewRequestedAt: r.reviewRequestedAt ?? null,
+        });
+      } catch {
+        if (!cancelled) setResultMeta(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [interviewId, outcome]);
 
   const progressPct = Math.min((questionCount / 15) * 100, 100);
   const evaluation = outcome?.evaluation;
@@ -1011,6 +1147,14 @@ export default function ExpertInterviewStage({
               ) : (
                 <>
                   <h4 className="font-semibold">Interview complete</h4>
+                  {outcome.timeExpired && (
+                    <p
+                      className="text-sm rounded-md border border-amber-500/35 bg-amber-500/10 text-amber-900 dark:text-amber-200 px-3 py-2"
+                      role="status"
+                    >
+                      Time limit reached — your responses have been recorded. Generating your evaluation…
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-3 items-center">
                     {outcome.totalScore != null && (
                       <span className="text-sm">
@@ -1047,6 +1191,79 @@ export default function ExpertInterviewStage({
                       </ul>
                     </div>
                   )}
+                  {interviewId &&
+                    resultMeta &&
+                    (() => {
+                      const completedMs = resultMeta.completedAt
+                        ? new Date(resultMeta.completedAt).getTime()
+                        : null;
+                      const daysSince =
+                        completedMs != null ? (Date.now() - completedMs) / (86400 * 1000) : null;
+                      const canRequest =
+                        daysSince != null &&
+                        daysSince <= 7 &&
+                        !resultMeta.reviewRequestedAt;
+                      if (!canRequest && !resultMeta.reviewRequestedAt) return null;
+                      return (
+                        <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+                          <p className="text-sm font-medium">Request a review</p>
+                          {resultMeta.reviewRequestedAt ? (
+                            <p className="text-sm text-muted-foreground">
+                              Review requested — we&apos;ll get back to you within 24 hours.
+                            </p>
+                          ) : (
+                            <>
+                              <p className="text-xs text-muted-foreground">
+                                If something went wrong with your session, you can ask our team to take a second look
+                                (within 7 days of completion). Please give a short, specific reason (10–500 characters).
+                              </p>
+                              <Textarea
+                                value={reviewReason}
+                                onChange={(e) => setReviewReason(e.target.value)}
+                                placeholder="Describe what you’d like us to review…"
+                                className="min-h-[88px] text-sm"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={
+                                  reviewSubmitting ||
+                                  reviewReason.trim().length < 10 ||
+                                  reviewReason.length > 500
+                                }
+                                onClick={() => {
+                                  if (!interviewId) return;
+                                  setReviewSubmitting(true);
+                                  void (async () => {
+                                    try {
+                                      await api.post(`/api/interview/${interviewId}/request-review`, {
+                                        reason: reviewReason.trim(),
+                                      });
+                                      toast.success("Review request submitted. You’ll hear back within 24 hours.");
+                                      setReviewReason("");
+                                      setResultMeta((prev) =>
+                                        prev
+                                          ? { ...prev, reviewRequestedAt: new Date().toISOString() }
+                                          : prev,
+                                      );
+                                    } catch (e: unknown) {
+                                      toast.error(
+                                        e instanceof Error ? e.message : "Could not submit review request",
+                                        { duration: 5000 },
+                                      );
+                                    } finally {
+                                      setReviewSubmitting(false);
+                                    }
+                                  })();
+                                }}
+                              >
+                                {reviewSubmitting ? "Submitting…" : "Submit review request"}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   {onReturnToDashboard && (
                     <Button variant="outline" onClick={onReturnToDashboard} className="mt-2">
                       Return to Dashboard

@@ -490,8 +490,21 @@ Return JSON:
   "claim_credibility_risk": "none | low | medium | high",
   "claim_credibility_detail": "<one sentence or empty>",
   "engineering_signal": "strong | moderate | inconclusive | weak",
-  "engineering_signal_detail": "<one sentence>"
+  "engineering_signal_detail": "<one sentence>",
+  "per_question_scores": [
+    {
+      "question_index": 0,
+      "score_conceptual": <0-100>,
+      "score_reasoning": <0-100>,
+      "score_communication": <0-100>,
+      "rationale": "<one line>",
+      "key_points_hit": ["..."],
+      "key_points_missed": ["..."]
+    }
+  ]
 }
+
+Include one per_question_scores object per Q&A turn in the same order as the interview (indices 0..n-1).
 
 ${coverageBlock}
 Experience level for this candidate: ${exp}. ${expBlock}

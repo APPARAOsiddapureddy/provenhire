@@ -265,9 +265,14 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, async (req: Auth
       pasteCount: z.number().int().optional(),
       timeToSubmitSeconds: z.number().int().optional(),
       turnId: z.string().optional(),
+      whisperLatencyMs: z.number().int().min(0).optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    void handlePartialTranscript(parsed.data.interviewId, parsed.data.answer, req.user!.id).catch((err) =>
+      console.warn("[interview/v2/turn] prefetch warmup", err)
+    );
 
     const result = await processTurn(parsed.data.interviewId, parsed.data.answer, req.user!.id, {
       audioUrl: parsed.data.audioUrl,
@@ -276,6 +281,7 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, async (req: Auth
       pasteCount: parsed.data.pasteCount,
       timeToSubmitSeconds: parsed.data.timeToSubmitSeconds,
       clientTurnId: parsed.data.turnId,
+      whisperLatencyMs: parsed.data.whisperLatencyMs,
     });
 
     return res.json(result);
@@ -681,19 +687,24 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
 });
 
 interviewRouter.post("/:id/request-review", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
-  const schema = z.object({ reason: z.string().max(500) });
+  const schema = z.object({ reason: z.string().min(10).max(500) });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid payload",
+      message: "Please provide a reason (10–500 characters).",
+    });
+  }
 
   const interview = await prisma.interview.findUnique({ where: { id: req.params.id } });
   if (!interview || interview.userId !== req.user!.id) {
     return res.status(404).json({ error: "Interview not found" });
   }
   if (interview.status !== "completed") {
-    return res.status(400).json({ error: "Only completed interviews can be disputed" });
+    return res.status(400).json({ error: "Can only request review for completed interviews." });
   }
   if (interview.reviewRequestedAt) {
-    return res.status(400).json({ error: "You have already submitted a review request" });
+    return res.status(409).json({ error: "A review has already been requested for this interview." });
   }
   const completedAt = interview.completedAt;
   if (!completedAt || Date.now() - completedAt.getTime() > 7 * 86400_000) {
@@ -753,6 +764,9 @@ interviewRouter.get("/:id/result", requireAuth, requireJobSeeker, async (req: Au
       candidateMessage: PENDING_REVIEW_MESSAGE,
       expectedWithinHours: 24,
       perQuestionScores: [],
+      completedAt:
+        interview.completedAt?.toISOString() ?? interview.createdAt.toISOString(),
+      reviewRequestedAt: interview.reviewRequestedAt?.toISOString() ?? null,
     });
   }
 
@@ -784,6 +798,8 @@ interviewRouter.get("/:id/result", requireAuth, requireJobSeeker, async (req: Au
     integrityFlag: interview.integrityFlag,
     riskScore: interview.riskScore,
     perQuestionScores,
+    completedAt: interview.completedAt?.toISOString() ?? interview.createdAt.toISOString(),
+    reviewRequestedAt: interview.reviewRequestedAt?.toISOString() ?? null,
     recruiterBenchmarkNote: interview.experienceLevel
       ? `This score reflects performance against a ${
           interview.experienceLevel === "junior"

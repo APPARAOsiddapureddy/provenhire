@@ -18,7 +18,7 @@ export function useWhisperSession({
   onError,
 }: {
   interviewId: string | null;
-  onFinal: (text: string) => void;
+  onFinal: (text: string, meta?: { whisperLatencyMs: number }) => void;
   onPartial: (text: string) => void;
   onError: (err: string) => void;
 }) {
@@ -119,6 +119,7 @@ export function useWhisperSession({
 
     transition("ai_thinking");
 
+    const whisperStartedAt = Date.now();
     try {
       const formData = new FormData();
       formData.append("audio", audioBlob, "answer.webm");
@@ -154,8 +155,9 @@ export function useWhisperSession({
       isTranscribingRef.current = false;
 
       transition("user_speaking");
+      const whisperLatencyMs = Date.now() - whisperStartedAt;
       if (!data.empty && data.transcript.trim()) {
-        onFinal(data.transcript.trim());
+        onFinal(data.transcript.trim(), { whisperLatencyMs });
       }
       if (captureEnabledRef.current && floorRef.current === "user_speaking") {
         startRecordingFnRef.current();

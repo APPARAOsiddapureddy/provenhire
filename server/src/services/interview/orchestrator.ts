@@ -1,5 +1,14 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { recordAiInterviewSubmittedForAdminReview } from "../humanInterviewGate.service.js";
+import { analyzeAnswerAntiGaming } from "../aiInterviewAntiGaming.service.js";
+import {
+  aggregateProctoringViolations,
+  integrityFlagFromAntiGamingPoints,
+  integrityFlagFromViolationAggregate,
+  interviewProctoringViolationTotal,
+  mergeIntegrityFlags,
+} from "../aiInterviewProctoringRisk.service.js";
 import {
   extractConcepts,
   detectWeakness,
@@ -9,12 +18,11 @@ import {
   generateDiscrepancyFollowup,
   generateSprintQuestion,
   prefetchFollowups,
-  evaluateFullInterview,
   adaptFollowup,
   applyReasoningHonestyCap,
 } from "./agents.js";
 import { findFollowupsForQuestionText } from "./questionBankService.js";
-import { computeWeaknessCoverageRatio } from "./evaluationService.js";
+import { computeWeaknessCoverageRatio, evaluateFullInterviewMultiPass } from "./evaluationService.js";
 
 const QUESTIONS_PER_SPRINT = 5;
 const MAX_QUESTIONS = 15;
@@ -168,6 +176,14 @@ type TurnLogEntry = {
   questionSource: string;
   agentOutputsSnapshot: string;
   timestamp: string;
+  whisperLatencyMs?: number | null;
+  agentPipelineMs?: number | null;
+  questionGenerationMs?: number | null;
+  totalTurnLatencyMs?: number | null;
+  answerLengthChars?: number;
+  pasteCount?: number;
+  timeToSubmitSeconds?: number | null;
+  answerSnapshot?: string;
 };
 
 type AdversarialState = {
@@ -393,6 +409,7 @@ export async function processTurn(
     pasteCount?: number;
     timeToSubmitSeconds?: number;
     clientTurnId?: string;
+    whisperLatencyMs?: number;
   }
 ): Promise<{
   response: string;
@@ -412,6 +429,7 @@ export async function processTurn(
   evaluation?: Record<string, unknown>;
   remainingMinutes?: number;
   completionReason?: InterviewCompletionReason;
+  timeExpired?: boolean;
 }> {
   const interview = await prisma.interview.findUnique({
     where: { id: interviewId },
@@ -499,6 +517,7 @@ export async function processTurn(
     [jp?.about, jp?.workExperience, jp?.skills ? JSON.stringify(jp.skills) : ""].filter(Boolean).join("\n") ||
     resumeContext;
 
+  const turnStartMs = Date.now();
   const userMessage = await prisma.interviewMessage.create({
     data: {
       interviewId,
@@ -524,6 +543,7 @@ export async function processTurn(
     extractConcepts(answer),
   ]);
 
+  const agentCompleteMs = Date.now();
   applyReasoningHonestyCap(weakness, reasoning);
 
   let consec = state.consecutiveHighWeaknessCount ?? 0;
@@ -657,6 +677,7 @@ export async function processTurn(
     }
   }
 
+  const questionReadyMs = Date.now();
   const completionCheck = isInterviewComplete({
     questionCount: newQuestionCount,
     sprint: currentSprint,
@@ -670,8 +691,9 @@ export async function processTurn(
     followup = sanitizeAiInterviewQuestionText(followup);
   }
 
+  const logTurnId = options?.clientTurnId?.trim() || userMessage.id;
   const turnLogEntry: TurnLogEntry = {
-    turnId: userMessage.id,
+    turnId: logTurnId,
     questionIndex: prevQCount,
     weaknessSeverity: String(weakness.severity ?? ""),
     followupDecision: followupBranch,
@@ -682,6 +704,14 @@ export async function processTurn(
       reasoning,
     }).slice(0, 8000),
     timestamp: new Date().toISOString(),
+    whisperLatencyMs: options?.whisperLatencyMs ?? null,
+    agentPipelineMs: agentCompleteMs - turnStartMs,
+    questionGenerationMs: questionReadyMs - agentCompleteMs,
+    totalTurnLatencyMs: questionReadyMs - turnStartMs,
+    answerLengthChars: answer.length,
+    pasteCount: options?.pasteCount ?? 0,
+    timeToSubmitSeconds: options?.timeToSubmitSeconds ?? null,
+    answerSnapshot: answer.slice(0, 200),
   };
   const turnLog = [...(state.turnLog ?? []), turnLogEntry];
 
@@ -731,7 +761,7 @@ export async function processTurn(
 
   if (isComplete) {
     const coverageRatio = computeWeaknessCoverageRatio(newWeaknesses, newQuestionCount);
-    let evaluation = await evaluateFullInterview(
+    const multi = await evaluateFullInterviewMultiPass(
       newHistory,
       resume,
       newWeaknesses,
@@ -742,7 +772,8 @@ export async function processTurn(
         jobRole: interview.jobRole,
       }
     );
-    if (!evaluation) {
+    let evaluation = multi.evaluation;
+    if (multi.passCount === 0) {
       evaluation = {
         overall_score: 5,
         final_verdict: "Evaluation completed; detailed scoring unavailable.",
@@ -776,6 +807,77 @@ export async function processTurn(
     const claimRisk = String(evaluation.claim_credibility_risk ?? "none").trim() || null;
     const engSignal = String(evaluation.engineering_signal ?? "").trim() || null;
 
+    const allMessages = await prisma.interviewMessage.findMany({
+      where: { interviewId },
+      orderBy: { createdAt: "asc" },
+    });
+    const userMsgs = allMessages.filter((m) => m.sender === "user");
+    const antiRows = userMsgs.map((m) => ({
+      message: m.message,
+      questionType: m.questionType,
+      timeToSubmitSeconds: m.timeToSubmitSeconds,
+      pasteCount: m.pasteCount,
+    }));
+    const patches = analyzeAnswerAntiGaming(antiRows);
+    for (let i = 0; i < userMsgs.length; i++) {
+      const p = patches[i];
+      if (!p?.flagAntiGaming) continue;
+      await prisma.interviewMessage.update({
+        where: { id: userMsgs[i]!.id },
+        data: { flagAntiGaming: true, flagReason: p.flagReason },
+      });
+    }
+    let antiGamingRisk = patches.reduce((s, p) => s + p.riskPoints, 0);
+    antiGamingRisk = Math.min(100, antiGamingRisk);
+
+    const proctoringEvents = await prisma.proctoringEvent.findMany({
+      where: { sessionId: interviewId, testType: "ai_interview" },
+      select: { type: true },
+    });
+    const proctorAgg = aggregateProctoringViolations(proctoringEvents);
+    const proctorFlag = integrityFlagFromViolationAggregate(proctorAgg);
+    const antiGamingFlag = integrityFlagFromAntiGamingPoints(antiGamingRisk);
+    const integrityFlag = mergeIntegrityFlags(proctorFlag, antiGamingFlag);
+    const riskScoreTotal = interviewProctoringViolationTotal(proctorAgg);
+
+    const perQ = evaluation.per_question_scores;
+    if (Array.isArray(perQ)) {
+      for (const row of perQ as Array<Record<string, unknown>>) {
+        const qi = Number(row.question_index);
+        if (!Number.isFinite(qi) || qi < 0 || qi >= userMsgs.length) continue;
+        const um = userMsgs[qi];
+        if (!um) continue;
+        await prisma.interviewQuestionResult
+          .create({
+            data: {
+              interviewId,
+              messageId: um.id,
+              questionBankId: null,
+              questionIndex: qi,
+              questionType: String(newHistory[qi]?.persona ?? "conceptual"),
+              scoreConceptual: Number(row.score_conceptual) || null,
+              scoreReasoning: Number(row.score_reasoning) || null,
+              scoreCommunication: Number(row.score_communication) || null,
+              rationale: row.rationale != null ? String(row.rationale) : null,
+              keyPointsHit: Array.isArray(row.key_points_hit) ? (row.key_points_hit as string[]).map(String) : [],
+              keyPointsMissed: Array.isArray(row.key_points_missed)
+                ? (row.key_points_missed as string[]).map(String)
+                : Array.isArray(row.key_points_miss)
+                  ? (row.key_points_miss as string[]).map(String)
+                  : [],
+              flagAntiGaming: Boolean(evaluation.authenticity_concern),
+              flagReason:
+                evaluation.authenticity_concern && evaluation.authenticity_reason
+                  ? String(evaluation.authenticity_reason)
+                  : null,
+            },
+          })
+          .catch(() => {
+            /* duplicate messageId — ignore */
+          });
+      }
+    }
+
     await prisma.interview.update({
       where: { id: interviewId },
       data: {
@@ -791,6 +893,12 @@ export async function processTurn(
         coverageRatio,
         claimCredibilityRisk: claimRisk,
         engineeringSignal: engSignal,
+        integrityFlag,
+        riskScore: riskScoreTotal,
+        evaluationPassCount: multi.passCount > 0 ? multi.passCount : null,
+        evaluationScoreVariance: multi.scoreVariance.length
+          ? (multi.scoreVariance as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
       },
     });
 
@@ -816,6 +924,7 @@ export async function processTurn(
       badgeLevel: badge,
       evaluation,
       completionReason: completionCheck.reason,
+      timeExpired: completionCheck.reason === "time_limit",
     };
   }
 

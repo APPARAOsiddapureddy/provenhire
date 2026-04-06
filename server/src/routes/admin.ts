@@ -1010,13 +1010,56 @@ adminRouter.delete("/questions/:id", async (_req, res) => {
 });
 
 adminRouter.get("/questions/analytics", async (_req, res) => {
-  const grouped = await prisma.interviewQuestionResult.groupBy({
-    by: ["questionBankId"],
-    _count: { id: true },
-    _avg: { scoreConceptual: true, scoreReasoning: true, scoreCommunication: true },
-    where: { questionBankId: { not: null } },
-  });
-  res.json({ analytics: grouped });
+  try {
+    const grouped = await prisma.interviewQuestionResult.groupBy({
+      by: ["questionBankId"],
+      _count: { id: true },
+      _avg: { scoreConceptual: true, scoreReasoning: true, scoreCommunication: true },
+      where: { questionBankId: { not: null } },
+    });
+    const questionIds = grouped.map((r) => r.questionBankId!);
+    const bankRows =
+      questionIds.length === 0
+        ? []
+        : await prisma.interviewQuestionBank.findMany({
+            where: { id: { in: questionIds } },
+            select: {
+              id: true,
+              prompt: true,
+              role: true,
+              experienceLevel: true,
+              difficulty: true,
+            },
+          });
+    const bankById = new Map(bankRows.map((q) => [q.id, q]));
+
+    const analytics = grouped.map((r) => {
+      const q = bankById.get(r.questionBankId!);
+      const ac = r._avg.scoreConceptual ?? 0;
+      const ar = r._avg.scoreReasoning ?? 0;
+      const ak = r._avg.scoreCommunication ?? 0;
+      const avgScore = (ac + ar + ak) / 3;
+      return {
+        questionBankId: r.questionBankId,
+        prompt: q?.prompt ?? "Unknown",
+        role: q?.role ?? null,
+        experienceLevel: q?.experienceLevel ?? null,
+        difficulty: q?.difficulty ?? null,
+        usageCount: r._count.id,
+        avgConceptual: Math.round(ac),
+        avgReasoning: Math.round(ar),
+        avgCommunication: Math.round(ak),
+        avgOverall: Math.round(avgScore),
+        discriminationFlag:
+          avgScore < 40 ? "too_hard" : avgScore > 85 ? "too_easy" : ("good" as const),
+      };
+    });
+    analytics.sort((a, b) => b.usageCount - a.usageCount);
+    res.json({ analytics });
+  } catch (e) {
+    console.error("[admin/questions/analytics]", e);
+    res.status(500).json({ error: "Failed to load question analytics" });
+  }
 });
 
 adminRouter.get("/interviews/pending-review", async (_req, res) => {
@@ -1028,6 +1071,56 @@ adminRouter.get("/interviews/pending-review", async (_req, res) => {
     },
   });
   res.json({ interviews: rows });
+});
+
+adminRouter.get("/interviews/:id/replay", async (req, res) => {
+  try {
+    const interview = await prisma.interview.findUnique({
+      where: { id: req.params.id },
+      include: {
+        messages: { orderBy: { createdAt: "asc" } },
+        questionResults: { orderBy: { questionIndex: "asc" } },
+      },
+    });
+    if (!interview) return res.status(404).json({ error: "Not found" });
+
+    const rawPlan = interview.questionPlan;
+    const planHead =
+      Array.isArray(rawPlan) && rawPlan[0] && typeof rawPlan[0] === "object"
+        ? (rawPlan[0] as { turnLog?: unknown[] })
+        : null;
+    const turnLog = Array.isArray(planHead?.turnLog) ? planHead.turnLog : [];
+
+    const proctoringEvents = await prisma.proctoringEvent.findMany({
+      where: { sessionId: interview.id },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return res.json({
+      interview: {
+        id: interview.id,
+        totalScore: interview.totalScore,
+        badgeLevel: interview.badgeLevel,
+        claimCredibilityRisk: interview.claimCredibilityRisk,
+        engineeringSignal: interview.engineeringSignal,
+        coverageRatio: interview.coverageRatio,
+        integrityFlag: interview.integrityFlag,
+        riskScore: interview.riskScore,
+        evaluationPassCount: interview.evaluationPassCount,
+        evaluationScoreVariance: interview.evaluationScoreVariance,
+        status: interview.status,
+        completedAt: interview.completedAt?.toISOString() ?? null,
+        createdAt: interview.createdAt.toISOString(),
+      },
+      messages: interview.messages,
+      questionResults: interview.questionResults,
+      turnLog,
+      proctoringEvents,
+    });
+  } catch (e) {
+    console.error("[admin/interviews/:id/replay]", e);
+    res.status(500).json({ error: "Failed to load interview replay" });
+  }
 });
 
 adminRouter.post("/interviews/:id/re-evaluate", async (_req, res) => {
