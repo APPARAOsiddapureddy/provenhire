@@ -46,14 +46,13 @@ async function main() {
     /* keep original */
   }
 
+  /** Fill the square (center crop): mark reads much larger in tabs than `contain` with letterboxing. */
   const fitMark = (n) =>
     sharp(markBase)
-      .resize(n, n, {
-        fit: "contain",
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      })
+      .resize(n, n, { fit: "cover", position: "centre" })
       .png();
 
+  const png1024 = await fitMark(1024).toBuffer();
   const png512 = await fitMark(512).toBuffer();
   const png256 = await fitMark(256).toBuffer();
   const png192 = await fitMark(192).toBuffer();
@@ -63,8 +62,8 @@ async function main() {
   const png32 = await fitMark(32).toBuffer();
   const png16 = await fitMark(16).toBuffer();
 
-  // 512px inside SVG: maximizes detail when the browser scales down to the tab strip.
-  writeFaviconSvgEmbedded(png512, 512);
+  // 1024px raster in SVG — sharpest scaling in browsers that use SVG favicons.
+  writeFaviconSvgEmbedded(png1024, 1024);
 
   fs.writeFileSync(path.join(pub, "favicon-16x16.png"), png16);
   fs.writeFileSync(path.join(pub, "favicon-32x32.png"), png32);
@@ -74,13 +73,14 @@ async function main() {
   fs.writeFileSync(path.join(pub, "favicon-192x192.png"), png192);
   fs.writeFileSync(path.join(pub, "favicon-256x256.png"), png256);
   fs.writeFileSync(path.join(pub, "favicon-512x512.png"), png512);
-  fs.writeFileSync(path.join(pub, "apple-touch-icon.png"), png512);
+  fs.writeFileSync(path.join(pub, "favicon-1024x1024.png"), png1024);
+  fs.writeFileSync(path.join(pub, "apple-touch-icon.png"), png1024);
 
   // ICO caps around 256px; omit 512 here to keep favicon.ico small (browsers use the PNG links for large sizes).
   const icoBuf = await pngToIco([png16, png32, png48, png64, png128, png256]);
   fs.writeFileSync(path.join(pub, "favicon.ico"), icoBuf);
 
-  fs.writeFileSync(path.join(pub, "favicon.png"), png256);
+  fs.writeFileSync(path.join(pub, "favicon.png"), png512);
 
   const ogSvg = path.join(pub, "og-image.svg");
   if (fs.existsSync(ogSvg)) {

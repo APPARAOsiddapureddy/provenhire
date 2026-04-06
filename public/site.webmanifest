@@ -4,6 +4,12 @@
   "description": "India's first skill-certified hiring platform",
   "icons": [
     {
+      "src": "/favicon-1024x1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/favicon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
@@ -27,7 +33,7 @@
     },
     {
       "src": "/apple-touch-icon.png",
-      "sizes": "512x512",
+      "sizes": "1024x1024",
       "type": "image/png"
     }
   ],
