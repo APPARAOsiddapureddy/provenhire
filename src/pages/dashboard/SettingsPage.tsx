@@ -15,7 +15,7 @@ import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
 
 export default function SettingsPage() {
-  const { user, userRole, signOut } = useAuth();
+  const { user, userRole } = useAuth();
   const navigate = useNavigate();
   const { isVerified } = useVerificationGate();
   const [jobSeekerProfile, setJobSeekerProfile] = useState<{ fullName?: string; full_name?: string } | null>(null);
@@ -101,7 +101,7 @@ export default function SettingsPage() {
       <DashboardShell
         sidebarSections={sidebarSections}
         user={shellUser}
-        onSignOut={userRole === "jobseeker" ? undefined : signOut}
+        onSignOut={undefined}
       >
         <div className="p-6 max-w-3xl">
           <div className="mb-6">

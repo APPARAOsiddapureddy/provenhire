@@ -191,6 +191,43 @@ function normalizeQuestionLine(q: string): string {
     .replace(/[?.!,;:]+$/g, "");
 }
 
+/**
+ * Models often prepend acknowledgements despite "question only" prompts — that breaks TTS + confuses the UI.
+ * Strip leading/trailing pleasantries while keeping the actual interview question.
+ */
+export function sanitizeAiInterviewQuestionText(raw: string): string {
+  const input = raw.replace(/\r\n/g, "\n").trim();
+  if (!input) return input;
+
+  const leadingAck = new RegExp(
+    "^(" +
+      "(?:thank you|thanks|thx)(?:\\s+so much)?(?:\\s+for\\s+(?:that|sharing|the\\s+answer|your\\s+answer|clarifying))?\\s*[.,!?…]*\\s*" +
+      "|(?:thank you|thanks|thx)(?:\\s+so much)?\\s*[—–-]\\s*" +
+      "|(?:i\\s+)?appreciate\\s+(?:that|it)\\s*[.,!?…]*\\s*" +
+      "|(?:that'?s|that\\s+is)\\s+(?:great|good|helpful|clear|useful|interesting)\\s*[.,!?…]*\\s*" +
+      "|(?:got it|understood|makes sense|fair enough|right|okay|ok)\\s*[.,!?…]*\\s*" +
+      "|(?:good|nice|interesting)\\s+(?:to know|point)\\s*[.,!?…]*\\s*" +
+      ")+",
+    "i"
+  );
+
+  let s = input;
+  for (let i = 0; i < 4; i++) {
+    const next = s.replace(leadingAck, "").trim();
+    if (next === s) break;
+    s = next;
+  }
+
+  s = s
+    .replace(/\s+(?:thank you|thanks)\s*[!.…]*\s*$/i, "")
+    .replace(/^[—–-]\s*/, "")
+    .trim();
+
+  if (s.length >= 8) return s;
+  if (input.length >= 12) return input;
+  return s || input;
+}
+
 /** True if candidate is essentially the same as something we already asked (common LLM collapse on short prompts). */
 function isStillRelevant(prefetchQuestion: string, answer: string, concepts: string[]): boolean {
   const a = answer.toLowerCase();
@@ -609,6 +646,10 @@ export async function processTurn(
   });
 
   const isComplete = completionCheck.complete;
+
+  if (!isComplete) {
+    followup = sanitizeAiInterviewQuestionText(followup);
+  }
 
   const turnLogEntry: TurnLogEntry = {
     turnId: userMessage.id,

@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 
 const CERT_LEVELS = [
   { value: 0, label: "Any" },
@@ -245,6 +246,17 @@ export function RecruiterSettings() {
             <Switch checked={weeklyReports} onCheckedChange={setWeeklyReports} />
           </div>
         </div>
+      </SettingsCard>
+
+      <SettingsCard title="Account" description="Sign out ends your session on this device.">
+        <Button
+          type="button"
+          variant="outline"
+          className="border-[var(--dash-navy-border)] text-white hover:bg-white/10"
+          onClick={() => signOut()}
+        >
+          Sign out
+        </Button>
       </SettingsCard>
     </div>
   );

@@ -126,7 +126,7 @@ function recruiterCertDisplay(c: TalentCandidate): { lvl: number; line: string }
 }
 
 const RecruiterDashboard = () => {
-  const { user, signOut, changePassword } = useAuth();
+  const { user, changePassword } = useAuth();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -418,7 +418,7 @@ const RecruiterDashboard = () => {
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{ name: userName, role: profile?.company_name || 'Recruiter', initials: userInitials }}
-        onSignOut={signOut}
+        onSignOut={undefined}
       >
         {loading && (
           <div className="dashboard-section-content space-y-6">

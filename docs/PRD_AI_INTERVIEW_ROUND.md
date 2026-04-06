@@ -1,13 +1,13 @@
 # PRD: AI Expert Interview Round — Complete Specification
 
-**Version:** 3.0  
+**Version:** 3.0.2  
 **Date:** April 2026  
 **Status:** Final (product); repository sync — **§16**  
 **Author:** ProvenHire Product Team  
 **Scope:** Verification stage `expert_interview` — adversarial voice interview engine  
 **Model:** Gemini 2.5 Flash (agents) + Gemini 2.5 Pro (final evaluation); see **`server/src/services/interview/agents.ts`** for tier mapping.  
 **TTS (target):** Cartesia (primary) → ElevenLabs (fallback) → browser `speechSynthesis` (final).  
-**STT (target):** Deepgram **nova-3** (browser WebSocket); see §12.1 and §16 for current repo default.  
+**STT (production default in repo):** OpenAI **Whisper** via segmented browser `MediaRecorder` + `POST /api/interview/transcribe` — see **`src/hooks/useWhisperSession.ts`**. Deepgram **nova-3** (browser WebSocket) remains the long-term target in **§12.1**; see **§16** for the alternate Deepgram hook and drift.  
 **Weight in final technical score:** 40% (`server/src/services/verificationScoring.service.ts`)
 
 **Team index:** [docs/README.md](README.md) · **Main PRD (Stage 4 summary):** [PRD.md](PRD.md) §3.4
@@ -530,7 +530,7 @@ The interview probes **failure boundaries of understanding**, not flash-card cor
 | 2 | Foundations | `socratic_mentor` | Conceptual depth — reasoning, not trivia |
 | 3 | System Design | `senior_peer` | Trade-offs, scaling, failure modes, alternatives |
 
-**Openers (fixed when each sprint begins):**
+**Openers (fixed when each sprint begins):** Marketing copy below; **canonical strings** deployed in code are `SPRINT_OPENERS` in **`server/src/services/interview/orchestrator.ts`** (may differ slightly in wording).
 
 1. *Tell me about a project from your background that you're genuinely proud of — what problem were you trying to solve, and why did it matter?*
 2. *Let's talk about the technical concepts behind your work. Pick one idea at the core of what you've built — how would you explain it to someone encountering it for the first time?*
@@ -649,6 +649,18 @@ GEMINI_API_KEY=
 | Agent pipeline | < 2000 ms |
 | Stop speaking → AI audio starts | < 2500 ms (filler covers gap) |
 
+## 12.8 Production voice UX — utterance hygiene and STT echo control
+
+Problems addressed in **April 2026** ship:
+
+| Issue | Mitigation |
+|-------|-------------|
+| LLM adds acknowledgements (“Thank you for sharing…”) before the real question | **Server:** `sanitizeAiInterviewQuestionText()` in **`server/src/services/interview/orchestrator.ts`** strips leading/trailing pleasantries before persistence, API `response`, and TTS source text. Closing messages when `complete: true` are not modified. |
+| Same acknowledgement noise in agent outputs | **Server:** Persona and follow-up prompts in **`server/src/services/interview/agents.ts`** explicitly forbid thanks, praise, and filler before the question. |
+| Speaker tail / room pick-up transcribed as the candidate’s answer (“thank you” in the answer panel) | **Client:** After AI TTS ends, **`POST_AI_SPEECH_COOLDOWN_MS`** (~520 ms) delay before re-enabling the mic (**`ExpertInterviewStage.tsx`**). Final Whisper segments are run through **`scrubSttEcho()`** to drop politeness-only lines and strip a leading “thank you / thanks …”. |
+
+These behaviors are **production defaults** alongside Cartesia/ElevenLabs TTS and optional filler audio (**§12.4**).
+
 ---
 
 # Section 13 — v2 API routes
@@ -679,11 +691,13 @@ Response includes `response`, `sprint`, `persona`, `complete`, `weakness?`, `que
 
 **Spec:** stream MP3; Cartesia first, then ElevenLabs; `503` if both fail.
 
-**As implemented:** ElevenLabs only today; if missing key returns **`200` JSON** `{ "fallback": true }` so the client uses `speechSynthesis` (no hard 503 for “no provider”). **Cartesia** — §16.
+**As implemented:** **`server/src/services/tts.service.ts`** — Cartesia (when `CARTESIA_API_KEY` + `CARTESIA_VOICE_ID` set) → ElevenLabs → **`200` JSON** `{ "fallback": true, "text": "..." }` for browser `speechSynthesis` (no hard 503).
 
 ## 13.6 `GET /api/interview/tts-filler`
 
-Returns `{ text }` — random filler phrase.
+**Spec:** low-latency filler audio.
+
+**As implemented:** Pre-cached MP3 from **`warmInterviewFillerCache()`** at API startup when a TTS provider is configured; response is **`audio/mpeg`** with optional header **`X-Filler-Text`** (URL-encoded phrase). Otherwise synthesizes a random phrase from the filler list.
 
 ---
 
@@ -714,21 +728,24 @@ This section is the **engineering** view of §§11–15 above. Update when shipp
 | Adversarial orchestrator + agents | §11 | **Shipped** — `server/src/services/interview/orchestrator.ts`, `agents.ts` |
 | Parallel agents per turn | §11.4 | **Shipped** |
 | Prefetch cache on partials | §11.6 | **Shipped** — `handlePartialTranscript`, in-memory cache |
-| Sprint openers / 15-question flow | §11.2, §11.8 | **Shipped** (orchestrator constants) |
-| 30-minute hard stop | §11.8–11.9 | **Not shipped** — completion is by question/sprint count only (`processTurn`) |
-| Turn ID × barge-in stale drop | §12.5 | **Partial** — API returns `turnId` (= user `InterviewMessage.id`); frontend does not yet use UUID turn invalidation as in spec |
-| Floor + TTS abort on barge-in | §12.2 | **Partial** — AbortController + `SpeechStarted` clears thinking; verify all edge cases |
-| Silence nudge after 5s | §12.2 | **Not shipped** |
-| Deepgram **nova-3** | §12.1 | **Not yet** — client uses **nova-2** (`src/hooks/useDeepgramSession.ts`); JWT grant + `sample_rate` match AudioContext; Web Speech API fallback |
-| Cartesia TTS primary | §12.3 | **Not shipped** — **ElevenLabs** only in `server/src/routes/interview.ts` |
+| Sprint openers / 15-question flow | §11.2, §11.8 | **Shipped** — `SPRINT_OPENERS`, `MAX_QUESTIONS`, `QUESTIONS_PER_SPRINT` |
+| 30-minute hard stop | §11.8 | **Shipped** — `MAX_INTERVIEW_MINUTES` + `isInterviewComplete()` in `processTurn` |
+| Interviewer utterance sanitization | §12.8 | **Shipped** — `sanitizeAiInterviewQuestionText()` + stricter agent prompts |
+| STT echo / tail mitigation | §12.8 | **Shipped** — post-TTS mic cooldown + `scrubSttEcho` in `ExpertInterviewStage.tsx` |
+| Turn ID stale response discard | §12.5, §13.2 | **Shipped** — client sends `turnId` (UUID); `processTurn` returns `clientTurnId`; UI drops mismatched responses |
+| Floor + TTS abort | §12.2 | **Shipped** — `AbortController` in `ExpertInterviewStage` + `useWhisperSession` discard while AI speaks |
+| Primary STT (Expert Interview UI) | §12.1 | **Shipped** — OpenAI Whisper via **`useWhisperSession`** + **`POST /api/interview/transcribe`** (segmented upload) |
+| Deepgram **nova-3** / live WS STT | §12.1 | **Alternate path** — **`useDeepgramSession.ts`** + **`/api/interview/deepgram-token`**; not wired into **`ExpertInterviewStage`** today |
+| Cartesia TTS primary | §12.3 | **Shipped** — **`server/src/services/tts.service.ts`** (Cartesia → ElevenLabs); routes stream in `interview.ts` |
 | TTS fallback shape | §13.5 | **Shipped** — `200` + `{ fallback: true }` + browser TTS (differs from spec `503`) |
-| Filler TTS “pre-cached at startup” | §12.4 | **Not shipped** — random filler per request |
+| Filler TTS pre-cached at startup | §12.4 | **Shipped** — `warmInterviewFillerCache()` in server bootstrap; **`GET /api/interview/tts-filler`** |
 | `deepgram-token` JWT | §13.4 | **Shipped** |
 | v2 `/start`, `/turn`, `/partial` | §13 | **Shipped** |
-| Gemini tiers in code | §14.5 | **Partial** — `gemini-2.0-flash` (fast), `gemini-2.5-flash` (balanced), `gemini-2.5-pro` (deep) |
+| Gemini tiers in code | §14.5 | **Shipped** — `gemini-2.0-flash` (fast), `gemini-2.5-flash` (balanced), `gemini-2.5-pro` (deep) in `agents.ts` |
 | Pro Upgrade §§1–10 items | §9 checklist | Mixed — see `docs/PRD.md` §3.4 and task rows §9 |
+| Silence nudge after 5s | §12.2 | **Not shipped** |
 
-**Next engineering deltas (priority):** (1) `nova-3` + confirm params vs Deepgram docs, (2) Cartesia in `/api/interview/tts` with ElevenLabs fallback, (3) optional `503` or keep `200` fallback contract, (4) 30m interview cap, (5) turn UUID + client discard, (6) silence nudge.
+**Next engineering deltas (priority):** (1) Optional Deepgram **nova-3** in **`ExpertInterviewStage`** if product standardizes on live streaming STT, (2) silence nudge while `user_speaking`, (3) optional strict **`503`** from TTS when all providers fail (vs current browser fallback contract), (4) continue Pro Upgrade checklist (§9) as needed.
 
 ---
 
@@ -754,5 +771,6 @@ Sections **1–15** are the target product spec; **§16** tracks repository drif
 | 2.1 | Appendix A: scorecard / aptitude clarity |
 | 3.0 | Sections **11–15**: adversarial engine, voice (Deepgram + Cartesia), v2 APIs, evaluation, migration; **§16** codebase status; header aligns with product board |
 | 3.0.1 | **§16** + §13.4/13.5 **implementation notes** (JWT token shape, ElevenLabs-only TTS until Cartesia) |
+| 3.0.2 | **§12.8** production voice UX (sanitization, STT echo); **§16** refreshed (30m cap, turnId, Cartesia, filler warm, Whisper primary STT); header STT note; §13.5–13.6 aligned with **`tts.service.ts`** |
 
-*PRD v3.0 — April 2026 | ProvenHire Product Team*
+*PRD v3.0.2 — April 2026 | ProvenHire Product Team*

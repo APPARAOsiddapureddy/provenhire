@@ -228,16 +228,19 @@ const PERSONA_PROMPTS: Record<string, string> = {
   curious_lead: `You are a Curious Lead interviewer.
 Ask ONE question only. Maximum 15 words. Conversational, specific, curious.
 Reference something from their background. No yes/no questions.
+Never start with thanks, thank you, "great answer", "I appreciate", or any acknowledgement — jump straight to the question.
 Output only the question — nothing else.`,
 
   socratic_mentor: `You are a Socratic Mentor interviewer.
 Ask ONE question only. Maximum 15 words. Clear, focused on reasoning.
 Ask for understanding not facts. Make them think out loud.
+Never start with thanks, thank you, or praise — only the question.
 Output only the question — nothing else.`,
 
   senior_peer: `You are a Senior Peer interviewer.
 Ask ONE question only. Maximum 15 words. Real engineering trade-offs.
 Treat them as a peer. Ground it in realistic scenarios.
+Never start with thanks, thank you, "good point", or filler — only the question.
 Output only the question — nothing else.`,
 };
 
@@ -288,7 +291,7 @@ Weakness detected: ${weakness.weakness ?? ""}
 Attack strategy: ${attackInstruction}
 Generate ONE follow-up executing this strategy; ground it in something specific from their answer.
 ${formatAskedQuestionsBlock(recentAsked)}
-Maximum 15 words. Output only the question.`,
+Maximum 15 words. No pleasantries or thanks — output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -313,7 +316,7 @@ Candidate's answer: ${answer}
 Discrepancy: ${discrepancy.description ?? ""}
 Generate ONE question that surfaces this inconsistency — curious and direct, not accusatory. Give them a chance to explain.
 ${formatAskedQuestionsBlock(recentAsked)}
-Generate ONE question. Maximum 15 words. Curious not accusatory. Output only the question.`,
+Generate ONE question. Maximum 15 words. Curious not accusatory. No thanks or preamble — output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -326,7 +329,7 @@ export async function adaptFollowup(template: string, answer: string, persona: s
     system,
     `Bank follow-up template: ${template}
 Candidate just said: ${answer.slice(0, 1200)}
-Rewrite into ONE short spoken question (max 18 words). Same intent as the template. Output only the question.`,
+Rewrite into ONE short spoken question (max 18 words). Same intent as the template. No thanks or filler — output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -356,7 +359,7 @@ Questions already asked — do NOT repeat or ask the same angle again:
 - ${covered}
 Your next question must open a meaningfully different line of inquiry (new sub-topic, trade-off, or concrete detail), not a minor rewording of any line above.
 
-Generate ONE question. Maximum 15 words. Output only the question.`,
+Generate ONE question. Maximum 15 words. No acknowledgements — output only the question.`,
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
@@ -378,6 +381,7 @@ export async function prefetchFollowups(
 Candidate background: ${resumeContext.slice(0, 600)}
 The candidate is currently talking about: ${concepts.slice(0, 3).join(", ")}.
 Generate 2 distinct follow-up questions (different angles; not paraphrases of each other). Maximum 10 words each.
+No "thank you" or praise — questions only.
 Return JSON: {"questions": ["...", "..."]}`,
     "fast"
   )) as { questions?: string[] } | null;

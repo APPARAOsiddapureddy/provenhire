@@ -3,22 +3,6 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
 /** In dev only: replace Vite proxy connection errors with one friendly line. Production does not use Vite proxy. */
-// Serve favicon.png for /favicon.ico requests to avoid 404 (browsers often request .ico by default).
-const faviconIcoFallback = () => ({
-  name: "favicon-ico-fallback",
-  configureServer(server: any) {
-    server.middlewares.use((req: any, res: any, next: () => void) => {
-      const url = req.url?.split("?")[0] ?? "";
-      if (url === "/favicon.ico") {
-        res.writeHead(302, { Location: "/favicon.png" });
-        res.end();
-        return;
-      }
-      next();
-    });
-  },
-});
-
 const quietProxyErrors = () => {
   const originalError = console.error;
   let lastLog = 0;
@@ -181,7 +165,7 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-  plugins: [faviconIcoFallback(), quietProxyErrors(), coopHeader(), apiHealthProxy(), react()],
+  plugins: [quietProxyErrors(), coopHeader(), apiHealthProxy(), react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

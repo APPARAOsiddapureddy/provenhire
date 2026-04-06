@@ -23,7 +23,6 @@ import {
 import {
   Calendar,
   Video,
-  LogOut,
   Award,
   User,
   Plus,
@@ -40,7 +39,7 @@ import PhoneCollectGate from "@/components/PhoneCollectGate";
 import { toast } from "sonner";
 
 export default function ExpertDashboard() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<any>(null);
   const [slots, setSlots] = useState<any[]>([]);
@@ -239,10 +238,6 @@ export default function ExpertDashboard() {
                 <Settings className="h-4 w-4 mr-2" />
                 Settings
               </Link>
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => signOut()}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Sign out
             </Button>
           </div>
         </div>

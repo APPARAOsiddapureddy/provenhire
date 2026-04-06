@@ -28,6 +28,21 @@ const SPRINT_STEPS = [
   { num: 3, short: "Systems" },
 ] as const;
 
+/** Let room audio / speaker tail decay so Whisper does not pick up TTS as the user's answer. */
+const POST_AI_SPEECH_COOLDOWN_MS = 520;
+
+/** Single-segment STT that is only a politeness echo (common after AI speaks). */
+const POLITENESS_ONLY_TRANSCRIPT = /^(thank you|thanks|thx|ty|okay|ok\.?|got it|gotcha|mhm+|mm+|uh-?huh|sure)\.?$/i;
+
+function scrubSttEcho(text: string): string {
+  let s = text.trim();
+  if (!s) return "";
+  if (POLITENESS_ONLY_TRANSCRIPT.test(s)) return "";
+  s = s.replace(/^(thank you|thanks)(?:\s+so much)?\s*[,.!?]?\s+/i, "").trim();
+  if (POLITENESS_ONLY_TRANSCRIPT.test(s)) return "";
+  return s;
+}
+
 /** Tiny silent WAV — call synchronously from a click/tap before awaits so later `Audio.play()` is not blocked by autoplay policy. */
 function unlockInterviewAudioOutput(): void {
   try {
@@ -327,7 +342,7 @@ export default function ExpertInterviewStage({
 
   /** Voice end-of-utterance only extends the local draft; user submits explicitly to advance. */
   const appendFinalToDraft = useCallback((text: string) => {
-    const t = text.trim();
+    const t = scrubSttEcho(text);
     if (!t) return;
     setAnswerDraft((prev) => (prev ? `${prev} ${t}` : t));
     setPartial("");
@@ -353,6 +368,9 @@ export default function ExpertInterviewStage({
         await speakText(text, ac.signal);
       } catch {
         /* fallback inside speakText */
+      }
+      if (!ac.signal.aborted) {
+        await new Promise<void>((r) => setTimeout(r, POST_AI_SPEECH_COOLDOWN_MS));
       }
       if (!ac.signal.aborted) {
         whisperSession.setCaptureEnabled(true);

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 
 const EXPERTISE_OPTIONS = ["Backend development", "Frontend development", "System design", "Data engineering", "DevOps", "Mobile development"];
 const TOPIC_OPTIONS = ["DSA", "System design", "Architecture", "Backend APIs", "Frontend", "Database"];
@@ -226,6 +227,17 @@ export function InterviewerSettings() {
             <Switch checked={interviewReminders} onCheckedChange={setInterviewReminders} />
           </div>
         </div>
+      </SettingsCard>
+
+      <SettingsCard title="Account" description="Sign out ends your session on this device.">
+        <Button
+          type="button"
+          variant="outline"
+          className="border-[var(--dash-navy-border)] text-white hover:bg-white/10"
+          onClick={() => signOut()}
+        >
+          Sign out
+        </Button>
       </SettingsCard>
     </div>
   );
