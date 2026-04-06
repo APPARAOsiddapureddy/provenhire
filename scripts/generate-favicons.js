@@ -37,26 +37,50 @@ async function main() {
     process.exit(1);
   }
 
-  const png192 = await sharp(sourceBuffer).resize(192, 192).png().toBuffer();
-  const png64 = await sharp(sourceBuffer).resize(64, 64).png().toBuffer();
-  const png48 = await sharp(sourceBuffer).resize(48, 48).png().toBuffer();
-  const png32 = await sharp(sourceBuffer).resize(32, 32).png().toBuffer();
-  const png16 = await sharp(sourceBuffer).resize(16, 16).png().toBuffer();
+  // Drop empty transparency so the glyph uses the full square (tabs stay the same size but the mark reads larger).
+  let markBase = sourceBuffer;
+  try {
+    const trimmed = await sharp(sourceBuffer).trim().png().toBuffer();
+    if (trimmed.length > 0) markBase = trimmed;
+  } catch {
+    /* keep original */
+  }
 
-  // High-res raster inside SVG so the mark stays sharp when the browser scales it to ~16–32px in the tab.
-  writeFaviconSvgEmbedded(png192, 192);
+  const fitMark = (n) =>
+    sharp(markBase)
+      .resize(n, n, {
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png();
+
+  const png512 = await fitMark(512).toBuffer();
+  const png256 = await fitMark(256).toBuffer();
+  const png192 = await fitMark(192).toBuffer();
+  const png128 = await fitMark(128).toBuffer();
+  const png64 = await fitMark(64).toBuffer();
+  const png48 = await fitMark(48).toBuffer();
+  const png32 = await fitMark(32).toBuffer();
+  const png16 = await fitMark(16).toBuffer();
+
+  // 512px inside SVG: maximizes detail when the browser scales down to the tab strip.
+  writeFaviconSvgEmbedded(png512, 512);
 
   fs.writeFileSync(path.join(pub, "favicon-16x16.png"), png16);
   fs.writeFileSync(path.join(pub, "favicon-32x32.png"), png32);
   fs.writeFileSync(path.join(pub, "favicon-48x48.png"), png48);
   fs.writeFileSync(path.join(pub, "favicon-64x64.png"), png64);
+  fs.writeFileSync(path.join(pub, "favicon-128x128.png"), png128);
   fs.writeFileSync(path.join(pub, "favicon-192x192.png"), png192);
-  fs.writeFileSync(path.join(pub, "apple-touch-icon.png"), png192);
+  fs.writeFileSync(path.join(pub, "favicon-256x256.png"), png256);
+  fs.writeFileSync(path.join(pub, "favicon-512x512.png"), png512);
+  fs.writeFileSync(path.join(pub, "apple-touch-icon.png"), png512);
 
-  const icoBuf = await pngToIco([png16, png32, png48, png64, png192]);
+  // ICO caps around 256px; omit 512 here to keep favicon.ico small (browsers use the PNG links for large sizes).
+  const icoBuf = await pngToIco([png16, png32, png48, png64, png128, png256]);
   fs.writeFileSync(path.join(pub, "favicon.ico"), icoBuf);
 
-  fs.writeFileSync(path.join(pub, "favicon.png"), png64);
+  fs.writeFileSync(path.join(pub, "favicon.png"), png256);
 
   const ogSvg = path.join(pub, "og-image.svg");
   if (fs.existsSync(ogSvg)) {
