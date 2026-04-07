@@ -46,11 +46,19 @@ async function main() {
     /* keep original */
   }
 
-  /** Fill the square (center crop): mark reads much larger in tabs than `contain` with letterboxing. */
-  const fitMark = (n) =>
-    sharp(markBase)
-      .resize(n, n, { fit: "cover", position: "centre" })
+  /**
+   * Fill the square (center crop), then zoom in slightly: the tab slot is always ~16–32px, so extra
+   * margin inside the artwork reads as “tiny favicon”. Zoom >1 crops the outer rim and makes PH/shield bolder.
+   */
+  const FAVICON_ZOOM = Number(process.env.FAVICON_ZOOM || 1.26);
+  const fitMark = (n) => {
+    const side = Math.max(2, Math.ceil(n * FAVICON_ZOOM));
+    const off = Math.max(0, Math.floor((side - n) / 2));
+    return sharp(markBase)
+      .resize(side, side, { fit: "cover", position: "centre" })
+      .extract({ left: off, top: off, width: n, height: n })
       .png();
+  };
 
   const png1024 = await fitMark(1024).toBuffer();
   const png512 = await fitMark(512).toBuffer();
