@@ -1,7 +1,8 @@
 /**
  * Generates favicon PNGs, favicon.ico, og-image.png from **public/logo.png** (preferred) or public/favicon.svg.
- * **public/logo.png** is the official brand mark (transparent RGBA) — replace that file to refresh all icons.
- * Run from repo root: npm run generate:favicons
+ * **public/logo.png** should be transparent RGBA. For a flat logo on white, run first:
+ *   node scripts/make-transparent-logo.mjs path/to/export.png public/logo.png
+ * Then: npm run generate:favicons
  */
 import fs from "fs";
 import path from "path";

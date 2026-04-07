@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import BrandMark from "@/components/BrandMark";
 const Footer = () => {
   const { userRole } = useAuth();
   const [email, setEmail] = useState("");
@@ -36,9 +37,12 @@ const Footer = () => {
         <div className={isInterviewer ? "flex flex-col items-center text-center gap-4" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-6"}>
           {/* Column 1: Brand */}
           <div>
-            <Link to="/" className="inline-flex items-center gap-2 mb-4 transition-transform hover:scale-105 duration-200">
-              <span className="font-bebas text-2xl tracking-[2px] text-foreground">Proven<span className="text-primary">Hire</span></span>
-            </Link>
+            <BrandMark
+              to="/"
+              className="mb-4 transition-transform hover:scale-105 duration-200"
+              logoClassName="h-10 w-10 object-contain shrink-0"
+              showWordmark
+            />
             <p className="text-muted-foreground text-sm font-medium">
               Skill-verified hiring. One platform for job seekers and employers.
             </p>
