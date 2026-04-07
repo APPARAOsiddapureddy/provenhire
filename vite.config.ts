@@ -67,6 +67,16 @@ const apiHealthProxy = () => ({
 
 const COOP_VALUE = "same-origin-allow-popups";
 
+/** Inject Search Console verification from env at build time (keep placeholder in index.html for local dev). */
+const googleSiteVerificationHtml = () => ({
+  name: "google-site-verification",
+  transformIndexHtml(html: string) {
+    const token = process.env.VITE_GOOGLE_SITE_VERIFICATION?.trim();
+    if (!token) return html;
+    return html.replace(/content="ADD_VERIFICATION_CODE"/, `content="${token}"`);
+  },
+});
+
 // Force COOP on every response so Firebase signInWithPopup can use window.closed (avoids COOP warning).
 // Patch res so COOP is always set before any response is sent (writeHead/end).
 const coopHeader = () => ({
@@ -165,7 +175,7 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-  plugins: [quietProxyErrors(), coopHeader(), apiHealthProxy(), react()],
+  plugins: [quietProxyErrors(), coopHeader(), apiHealthProxy(), googleSiteVerificationHtml(), react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

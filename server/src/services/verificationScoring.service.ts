@@ -241,7 +241,7 @@ export async function buildTechnicalScorecard(userId: string): Promise<Technical
   const aiSignals = extractAiSignals(interviewLatest);
   const integritySignals = extractIntegritySignals(proctoringEvents);
 
-  // PRD: Stage 4→5 shortlist = combined score (Stage 2: 25%, Stage 3: 35%, Stage 4: 40%), threshold 65%.
+  /** Formula v2.0 — final_score = aptitude×0.25 + DSA×0.35 + AI×0.40 (integrity handled via confidence + gates; not blended here). */
   const finalScore = round2(
     aptitudeSignals.aptitudeScore * 0.25 +
       dsaSignals.dsaScore * 0.35 +

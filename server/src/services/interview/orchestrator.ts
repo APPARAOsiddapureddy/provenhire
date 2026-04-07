@@ -430,6 +430,9 @@ export async function processTurn(
   remainingMinutes?: number;
   completionReason?: InterviewCompletionReason;
   timeExpired?: boolean;
+  /** True when interview.status is evaluating and scoring runs in the background. */
+  evaluating?: boolean;
+  message?: string;
 }> {
   const interview = await prisma.interview.findUnique({
     where: { id: interviewId },
@@ -760,155 +763,66 @@ export async function processTurn(
   const responseTurnId = options?.clientTurnId?.trim() || userMessage.id;
 
   if (isComplete) {
-    const coverageRatio = computeWeaknessCoverageRatio(newWeaknesses, newQuestionCount);
-    const multi = await evaluateFullInterviewMultiPass(
+    const finalizePayload: FinalizeAiInterviewParams = {
+      interviewId,
+      userId: interview.userId,
       newHistory,
       resume,
       newWeaknesses,
       newReasoningSignals,
-      {
-        coverageRatio,
-        experienceLevel: interview.experienceLevel,
-        jobRole: interview.jobRole,
-      }
-    );
-    let evaluation = multi.evaluation;
-    if (multi.passCount === 0) {
-      evaluation = {
-        overall_score: 5,
-        final_verdict: "Evaluation completed; detailed scoring unavailable.",
-        strengths: [],
-        weaknesses: ["Continue practicing structured technical explanations."],
-        authenticity_concern: false,
-        authenticity_reason: "",
-        claim_credibility_risk: "none",
-        engineering_signal: "inconclusive",
-        confidence_calibrated: false,
+      newQuestionCount,
+      newState,
+      jobRole: interview.jobRole,
+      experienceLevel: interview.experienceLevel,
+    };
+
+    const useSyncEval =
+      process.env.INTERVIEW_SYNC_EVAL === "1" || process.env.INTERVIEW_SYNC_EVAL === "true";
+
+    if (!useSyncEval) {
+      await prisma.interview.update({
+        where: { id: interviewId },
+        data: {
+          status: "evaluating",
+          questionPlan: [newState] as object[],
+          questionIndex: newQuestionCount,
+        },
+      });
+      prefetchCache.delete(interviewId);
+      void finalizeAiInterviewInBackground(finalizePayload).catch((err) => {
+        console.error("[interview] finalizeAiInterviewInBackground", err);
+        void prisma.interview
+          .update({
+            where: { id: interviewId },
+            data: {
+              status: "pending_review",
+              reviewFlag: true,
+              reviewReason: "evaluation_failure",
+            },
+          })
+          .catch(() => {});
+      });
+
+      return {
+        response: closingMessage,
+        acknowledgement: "",
+        sprint: currentSprint,
+        sprintName: currentSprintName,
+        persona: currentPersona,
+        complete: true,
+        evaluating: true,
+        weakness,
+        questionCount: newQuestionCount,
+        turnId: responseTurnId,
+        completionReason: completionCheck.reason,
+        timeExpired: completionCheck.reason === "time_limit",
+        message:
+          "Your interview is being evaluated. Your results will appear shortly — please keep this page open.",
       };
     }
 
-    const overallRaw = Number(evaluation.overall_score);
-    let overallScore = 50;
-    if (Number.isFinite(overallRaw)) {
-      overallScore =
-        overallRaw <= 10.5 ? Math.round(overallRaw * 10) : Math.round(Math.min(100, overallRaw));
-    }
-    overallScore = Math.min(100, Math.max(0, overallScore));
-
-    const badge =
-      overallScore >= 90
-        ? "Elite Verified"
-        : overallScore >= 75
-          ? "Gold Verified"
-          : overallScore >= 60
-            ? "Silver Verified"
-            : "Not Verified";
-
-    const claimRisk = String(evaluation.claim_credibility_risk ?? "none").trim() || null;
-    const engSignal = String(evaluation.engineering_signal ?? "").trim() || null;
-
-    const allMessages = await prisma.interviewMessage.findMany({
-      where: { interviewId },
-      orderBy: { createdAt: "asc" },
-    });
-    const userMsgs = allMessages.filter((m) => m.sender === "user");
-    const antiRows = userMsgs.map((m) => ({
-      message: m.message,
-      questionType: m.questionType,
-      timeToSubmitSeconds: m.timeToSubmitSeconds,
-      pasteCount: m.pasteCount,
-    }));
-    const patches = analyzeAnswerAntiGaming(antiRows);
-    for (let i = 0; i < userMsgs.length; i++) {
-      const p = patches[i];
-      if (!p?.flagAntiGaming) continue;
-      await prisma.interviewMessage.update({
-        where: { id: userMsgs[i]!.id },
-        data: { flagAntiGaming: true, flagReason: p.flagReason },
-      });
-    }
-    let antiGamingRisk = patches.reduce((s, p) => s + p.riskPoints, 0);
-    antiGamingRisk = Math.min(100, antiGamingRisk);
-
-    const proctoringEvents = await prisma.proctoringEvent.findMany({
-      where: { sessionId: interviewId, testType: "ai_interview" },
-      select: { type: true },
-    });
-    const proctorAgg = aggregateProctoringViolations(proctoringEvents);
-    const proctorFlag = integrityFlagFromViolationAggregate(proctorAgg);
-    const antiGamingFlag = integrityFlagFromAntiGamingPoints(antiGamingRisk);
-    const integrityFlag = mergeIntegrityFlags(proctorFlag, antiGamingFlag);
-    const riskScoreTotal = interviewProctoringViolationTotal(proctorAgg);
-
-    const perQ = evaluation.per_question_scores;
-    if (Array.isArray(perQ)) {
-      for (const row of perQ as Array<Record<string, unknown>>) {
-        const qi = Number(row.question_index);
-        if (!Number.isFinite(qi) || qi < 0 || qi >= userMsgs.length) continue;
-        const um = userMsgs[qi];
-        if (!um) continue;
-        await prisma.interviewQuestionResult
-          .create({
-            data: {
-              interviewId,
-              messageId: um.id,
-              questionBankId: null,
-              questionIndex: qi,
-              questionType: String(newHistory[qi]?.persona ?? "conceptual"),
-              scoreConceptual: Number(row.score_conceptual) || null,
-              scoreReasoning: Number(row.score_reasoning) || null,
-              scoreCommunication: Number(row.score_communication) || null,
-              rationale: row.rationale != null ? String(row.rationale) : null,
-              keyPointsHit: Array.isArray(row.key_points_hit) ? (row.key_points_hit as string[]).map(String) : [],
-              keyPointsMissed: Array.isArray(row.key_points_missed)
-                ? (row.key_points_missed as string[]).map(String)
-                : Array.isArray(row.key_points_miss)
-                  ? (row.key_points_miss as string[]).map(String)
-                  : [],
-              flagAntiGaming: Boolean(evaluation.authenticity_concern),
-              flagReason:
-                evaluation.authenticity_concern && evaluation.authenticity_reason
-                  ? String(evaluation.authenticity_reason)
-                  : null,
-            },
-          })
-          .catch(() => {
-            /* duplicate messageId — ignore */
-          });
-      }
-    }
-
-    await prisma.interview.update({
-      where: { id: interviewId },
-      data: {
-        totalScore: overallScore,
-        badgeLevel: badge,
-        finalVerdict:
-          evaluation.final_verdict != null ? String(evaluation.final_verdict) : null,
-        scoreBreakdown: evaluation as object,
-        status: "completed",
-        completedAt: new Date(),
-        questionPlan: [newState] as object[],
-        questionIndex: newQuestionCount,
-        coverageRatio,
-        claimCredibilityRisk: claimRisk,
-        engineeringSignal: engSignal,
-        integrityFlag,
-        riskScore: riskScoreTotal,
-        evaluationPassCount: multi.passCount > 0 ? multi.passCount : null,
-        evaluationScoreVariance: multi.scoreVariance.length
-          ? (multi.scoreVariance as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
-      },
-    });
-
-    prefetchCache.delete(interviewId);
-
-    await recordAiInterviewSubmittedForAdminReview({
-      userId: interview.userId,
-      interviewId,
-      score: overallScore,
-    });
+    const { overallScore, badgeLevel: badge, evaluation } =
+      await finalizeAiInterviewInBackground(finalizePayload);
 
     return {
       response: closingMessage,
@@ -952,6 +866,194 @@ export async function processTurn(
     pivoting,
     remainingMinutes,
   };
+}
+
+export type FinalizeAiInterviewParams = {
+  interviewId: string;
+  userId: string;
+  newHistory: AdversarialState["history"];
+  resume: string;
+  newWeaknesses: AdversarialState["weaknesses"];
+  newReasoningSignals: AdversarialState["reasoningSignals"];
+  newQuestionCount: number;
+  newState: AdversarialState;
+  jobRole: string;
+  experienceLevel: string | null;
+};
+
+export type FinalizeAiInterviewResult = {
+  overallScore: number;
+  badgeLevel: string;
+  evaluation: Record<string, unknown>;
+};
+
+/** Runs multi-pass eval, integrity merge, per-question rows, completed status, admin queue. */
+export async function finalizeAiInterviewInBackground(
+  p: FinalizeAiInterviewParams
+): Promise<FinalizeAiInterviewResult> {
+  const {
+    interviewId,
+    userId,
+    newHistory,
+    resume,
+    newWeaknesses,
+    newReasoningSignals,
+    newQuestionCount,
+    newState,
+    jobRole,
+    experienceLevel,
+  } = p;
+
+  const coverageRatio = computeWeaknessCoverageRatio(newWeaknesses, newQuestionCount);
+  const multi = await evaluateFullInterviewMultiPass(
+    newHistory,
+    resume,
+    newWeaknesses,
+    newReasoningSignals,
+    {
+      coverageRatio,
+      experienceLevel,
+      jobRole,
+    }
+  );
+  let evaluation = multi.evaluation as Record<string, unknown>;
+  if (multi.passCount === 0) {
+    evaluation = {
+      overall_score: 5,
+      final_verdict: "Evaluation completed; detailed scoring unavailable.",
+      strengths: [],
+      weaknesses: ["Continue practicing structured technical explanations."],
+      authenticity_concern: false,
+      authenticity_reason: "",
+      claim_credibility_risk: "none",
+      engineering_signal: "inconclusive",
+      confidence_calibrated: false,
+    };
+  }
+
+  const overallRaw = Number(evaluation.overall_score);
+  let overallScore = 50;
+  if (Number.isFinite(overallRaw)) {
+    overallScore =
+      overallRaw <= 10.5 ? Math.round(overallRaw * 10) : Math.round(Math.min(100, overallRaw));
+  }
+  overallScore = Math.min(100, Math.max(0, overallScore));
+
+  const badge =
+    overallScore >= 90
+      ? "Elite Verified"
+      : overallScore >= 75
+        ? "Gold Verified"
+        : overallScore >= 60
+          ? "Silver Verified"
+          : "Not Verified";
+
+  const claimRisk = String(evaluation.claim_credibility_risk ?? "none").trim() || null;
+  const engSignal = String(evaluation.engineering_signal ?? "").trim() || null;
+
+  const allMessages = await prisma.interviewMessage.findMany({
+    where: { interviewId },
+    orderBy: { createdAt: "asc" },
+  });
+  const userMsgs = allMessages.filter((m) => m.sender === "user");
+  const antiRows = userMsgs.map((m) => ({
+    message: m.message,
+    questionType: m.questionType,
+    timeToSubmitSeconds: m.timeToSubmitSeconds,
+    pasteCount: m.pasteCount,
+  }));
+  const patches = analyzeAnswerAntiGaming(antiRows);
+  for (let i = 0; i < userMsgs.length; i++) {
+    const patch = patches[i];
+    if (!patch?.flagAntiGaming) continue;
+    await prisma.interviewMessage.update({
+      where: { id: userMsgs[i]!.id },
+      data: { flagAntiGaming: true, flagReason: patch.flagReason },
+    });
+  }
+  let antiGamingRisk = patches.reduce((s, p) => s + p.riskPoints, 0);
+  antiGamingRisk = Math.min(100, antiGamingRisk);
+
+  const proctoringEvents = await prisma.proctoringEvent.findMany({
+    where: { sessionId: interviewId, testType: "ai_interview" },
+    select: { type: true },
+  });
+  const proctorAgg = aggregateProctoringViolations(proctoringEvents);
+  const proctorFlag = integrityFlagFromViolationAggregate(proctorAgg);
+  const antiGamingFlag = integrityFlagFromAntiGamingPoints(antiGamingRisk);
+  const integrityFlag = mergeIntegrityFlags(proctorFlag, antiGamingFlag);
+  const riskScoreTotal = interviewProctoringViolationTotal(proctorAgg);
+
+  const perQ = evaluation.per_question_scores;
+  if (Array.isArray(perQ)) {
+    for (const row of perQ as Array<Record<string, unknown>>) {
+      const qi = Number(row.question_index);
+      if (!Number.isFinite(qi) || qi < 0 || qi >= userMsgs.length) continue;
+      const um = userMsgs[qi];
+      if (!um) continue;
+      await prisma.interviewQuestionResult
+        .create({
+          data: {
+            interviewId,
+            messageId: um.id,
+            questionBankId: null,
+            questionIndex: qi,
+            questionType: String(newHistory[qi]?.persona ?? "conceptual"),
+            scoreConceptual: Number(row.score_conceptual) || null,
+            scoreReasoning: Number(row.score_reasoning) || null,
+            scoreCommunication: Number(row.score_communication) || null,
+            rationale: row.rationale != null ? String(row.rationale) : null,
+            keyPointsHit: Array.isArray(row.key_points_hit) ? (row.key_points_hit as string[]).map(String) : [],
+            keyPointsMissed: Array.isArray(row.key_points_missed)
+              ? (row.key_points_missed as string[]).map(String)
+              : Array.isArray(row.key_points_miss)
+                ? (row.key_points_miss as string[]).map(String)
+                : [],
+            flagAntiGaming: Boolean(evaluation.authenticity_concern),
+            flagReason:
+              evaluation.authenticity_concern && evaluation.authenticity_reason
+                ? String(evaluation.authenticity_reason)
+                : null,
+          },
+        })
+        .catch(() => {
+          /* duplicate messageId */
+        });
+    }
+  }
+
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: {
+      totalScore: overallScore,
+      badgeLevel: badge,
+      finalVerdict: evaluation.final_verdict != null ? String(evaluation.final_verdict) : null,
+      scoreBreakdown: evaluation as object,
+      status: "completed",
+      completedAt: new Date(),
+      questionPlan: [newState] as object[],
+      questionIndex: newQuestionCount,
+      coverageRatio,
+      claimCredibilityRisk: claimRisk,
+      engineeringSignal: engSignal,
+      integrityFlag,
+      riskScore: riskScoreTotal,
+      evaluationPassCount: multi.passCount > 0 ? multi.passCount : null,
+      evaluationScoreVariance: multi.scoreVariance.length
+        ? (multi.scoreVariance as unknown as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+    },
+  });
+
+  prefetchCache.delete(interviewId);
+
+  await recordAiInterviewSubmittedForAdminReview({
+    userId,
+    interviewId,
+    score: overallScore,
+  });
+
+  return { overallScore, badgeLevel: badge, evaluation };
 }
 
 export async function handlePartialTranscript(interviewId: string, text: string, userId: string): Promise<void> {

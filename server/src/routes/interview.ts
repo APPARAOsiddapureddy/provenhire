@@ -32,6 +32,7 @@ import {
 } from "../services/interview/orchestrator.js";
 import { getPreCachedFillerMp3, getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
 import { transcribeAudio, whisperOpenAIErrorMessage } from "../services/whisper.service.js";
+import { interviewTurnLimiter, interviewTranscribeLimiter } from "../middleware/interviewRateLimit.js";
 
 export const interviewRouter = Router();
 
@@ -84,6 +85,7 @@ interviewRouter.post(
   "/transcribe",
   requireAuth,
   requireJobSeeker,
+  interviewTranscribeLimiter,
   (req: AuthedRequest, res: Response, next: NextFunction) => {
     audioUpload.single("audio")(req, res, (err: unknown) => {
       if (!err) return next();
@@ -254,7 +256,7 @@ interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: Aut
   }
 });
 
-interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, interviewTurnLimiter, async (req: AuthedRequest, res) => {
   try {
     const schema = z.object({
       interviewId: z.string().min(1),
@@ -727,9 +729,9 @@ interviewRouter.get("/latest", requireAuth, requireJobSeeker, async (req: Authed
   const interview = await prisma.interview.findFirst({
     where: {
       userId: req.user!.id,
-      status: { in: ["completed", "pending_review"] },
+      status: { in: ["completed", "pending_review", "evaluating"] },
     },
-    orderBy: { completedAt: "desc" },
+    orderBy: { createdAt: "desc" },
   });
   if (!interview) return res.json({ interview: null });
   return res.json({
@@ -743,10 +745,64 @@ interviewRouter.get("/latest", requireAuth, requireJobSeeker, async (req: Authed
   });
 });
 
+/** Poll while async multi-pass evaluation runs after last v2/turn (avoids HTTP timeout on Render). */
+interviewRouter.get("/:id/evaluation-progress", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  const interview = await prisma.interview.findUnique({
+    where: { id: req.params.id },
+    select: {
+      userId: true,
+      status: true,
+      totalScore: true,
+      badgeLevel: true,
+      scoreBreakdown: true,
+      finalVerdict: true,
+    },
+  });
+  if (!interview || interview.userId !== req.user!.id) {
+    return res.status(404).json({ error: "Interview not found" });
+  }
+  if (interview.status === "evaluating") {
+    return res.json({ status: "evaluating", evaluating: true });
+  }
+  if (interview.status === "pending_review") {
+    return res.json({
+      status: "pending_review",
+      evaluating: false,
+      pendingReview: true,
+      badgeLevel: interview.badgeLevel,
+    });
+  }
+  if (interview.status === "completed") {
+    return res.json({
+      status: "completed",
+      evaluating: false,
+      totalScore: interview.totalScore,
+      badgeLevel: interview.badgeLevel,
+      evaluation: interview.scoreBreakdown,
+      finalVerdict: interview.finalVerdict,
+    });
+  }
+  return res.json({ status: interview.status, evaluating: false });
+});
+
 interviewRouter.get("/:id/result", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   const interview = await prisma.interview.findUnique({ where: { id: req.params.id } });
   if (!interview || interview.userId !== req.user!.id) {
     return res.status(404).json({ error: "Interview not found" });
+  }
+
+  if (interview.status === "evaluating") {
+    return res.json({
+      status: "evaluating",
+      evaluating: true,
+      totalScore: null,
+      badgeLevel: null,
+      finalVerdict: null,
+      scoreBreakdown: null,
+      pendingReview: false,
+      perQuestionScores: [],
+      message: "Your interview is still being scored. This usually takes under a minute.",
+    });
   }
 
   const plan: QuestionPlanItem[] = Array.isArray(interview.questionPlan)

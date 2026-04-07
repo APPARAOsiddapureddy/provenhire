@@ -270,6 +270,10 @@ export default function ExpertInterviewStage({
   const [started, setStarted] = useState(false);
   const [outcome, setOutcome] = useState<{
     terminatedByProctoring?: boolean;
+    /** Server is running multi-pass scoring after the final turn (async path). */
+    evaluating?: boolean;
+    evaluatingTimedOut?: boolean;
+    pendingReview?: boolean;
     totalScore?: number;
     badgeLevel?: string;
     evaluation?: Record<string, unknown>;
@@ -311,6 +315,14 @@ export default function ExpertInterviewStage({
   } | null>(null);
   const [reviewReason, setReviewReason] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  /** Cleared on unmount — in-flight evaluation polling stops updating state after navigate away. */
+  const interviewStageAliveRef = useRef(true);
+  useEffect(() => {
+    interviewStageAliveRef.current = true;
+    return () => {
+      interviewStageAliveRef.current = false;
+    };
+  }, []);
 
   const inTest = Boolean(interviewId) && !outcome;
 
@@ -522,6 +534,7 @@ export default function ExpertInterviewStage({
         sprintName: string;
         persona: string;
         complete: boolean;
+        evaluating?: boolean;
         weakness?: Record<string, unknown>;
         questionCount: number;
         turnId?: string;
@@ -534,6 +547,7 @@ export default function ExpertInterviewStage({
         evaluation?: Record<string, unknown>;
         remainingMinutes?: number;
         completionReason?: string | null;
+        message?: string;
       }>("/api/interview/v2/turn", {
         interviewId: id,
         answer: composed,
@@ -572,16 +586,91 @@ export default function ExpertInterviewStage({
       if (turnResult.complete) {
         setCurrentQuestion(turnResult.response);
         questionShownAtRef.current = Date.now();
-        setOutcome({
-          totalScore: turnResult.totalScore,
-          badgeLevel: turnResult.badgeLevel,
-          evaluation: turnResult.evaluation,
-          timeExpired: turnResult.timeExpired === true,
-        });
         streamRef.current?.getTracks().forEach((t) => t.stop());
         setCameraActive(false);
         whisperSession.stop();
-        onInterviewAwaitingReview?.();
+
+        const timeExpired = turnResult.timeExpired === true;
+
+        if (turnResult.evaluating) {
+          setOutcome({
+            evaluating: true,
+            timeExpired,
+            badgeLevel: "Scoring…",
+          });
+
+          const idPoll = interviewIdRef.current;
+          if (idPoll) {
+            void (async () => {
+              const maxWaitMs = 12 * 60 * 1000;
+              const started = Date.now();
+              let delayMs = 2500;
+
+              while (Date.now() - started < maxWaitMs && interviewStageAliveRef.current) {
+                await new Promise<void>((r) => setTimeout(r, delayMs));
+                delayMs = 10_000;
+                if (!interviewStageAliveRef.current) return;
+
+                try {
+                  const progress = await api.get<{
+                    status: string;
+                    evaluating?: boolean;
+                    pendingReview?: boolean;
+                    totalScore?: number | null;
+                    badgeLevel?: string | null;
+                    evaluation?: Record<string, unknown> | null;
+                  }>(`/api/interview/${idPoll}/evaluation-progress`);
+
+                  if (progress.status === "evaluating") continue;
+
+                  if (progress.status === "completed") {
+                    if (!interviewStageAliveRef.current) return;
+                    setOutcome({
+                      totalScore: progress.totalScore ?? undefined,
+                      badgeLevel: progress.badgeLevel ?? undefined,
+                      evaluation: progress.evaluation ?? undefined,
+                      timeExpired,
+                    });
+                    onInterviewAwaitingReview?.();
+                    return;
+                  }
+
+                  if (progress.status === "pending_review") {
+                    if (!interviewStageAliveRef.current) return;
+                    setOutcome({
+                      pendingReview: true,
+                      badgeLevel: progress.badgeLevel ?? "Pending review",
+                      timeExpired,
+                    });
+                    onInterviewAwaitingReview?.();
+                    return;
+                  }
+                } catch {
+                  /* transient errors — keep polling until timeout */
+                }
+              }
+
+              if (interviewStageAliveRef.current) {
+                setOutcome({
+                  evaluatingTimedOut: true,
+                  timeExpired,
+                  badgeLevel: "Score pending",
+                });
+                toast.error("Scoring is taking longer than expected. You can refresh this page or check your dashboard shortly.", {
+                  duration: 5200,
+                });
+              }
+            })();
+          }
+        } else {
+          setOutcome({
+            totalScore: turnResult.totalScore,
+            badgeLevel: turnResult.badgeLevel,
+            evaluation: turnResult.evaluation,
+            timeExpired,
+          });
+          onInterviewAwaitingReview?.();
+        }
       } else {
         const expectedTurn = turnResult.turnId ?? turnId;
         await speakAckThenQuestion(expectedTurn, turnResult.acknowledgement, turnResult.response);
@@ -1147,7 +1236,27 @@ export default function ExpertInterviewStage({
               ) : (
                 <>
                   <h4 className="font-semibold">Interview complete</h4>
-                  {outcome.timeExpired && (
+                  {outcome.evaluating && (
+                    <p className="text-sm text-muted-foreground flex items-center gap-2" role="status">
+                      <span
+                        className="inline-block size-4 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0"
+                        aria-hidden
+                      />
+                      Scoring your interview — this usually finishes in under a minute. Please keep this tab open.
+                    </p>
+                  )}
+                  {outcome.evaluatingTimedOut && (
+                    <p className="text-sm rounded-md border border-border bg-muted/40 px-3 py-2 text-muted-foreground" role="status">
+                      Results are still being generated. Refresh this page in a moment, or open your dashboard — scores appear when
+                      ready.
+                    </p>
+                  )}
+                  {outcome.pendingReview && (
+                    <p className="text-sm rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-muted-foreground" role="status">
+                      Your session is queued for a quick human review. You&apos;ll be notified when your badge is finalized.
+                    </p>
+                  )}
+                  {outcome.timeExpired && !outcome.evaluating && (
                     <p
                       className="text-sm rounded-md border border-amber-500/35 bg-amber-500/10 text-amber-900 dark:text-amber-200 px-3 py-2"
                       role="status"

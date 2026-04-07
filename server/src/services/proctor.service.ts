@@ -3,7 +3,7 @@
  */
 import fs from "fs";
 import path from "path";
-import { randomUUID } from "crypto";
+import { isObjectStorageConfigured, uploadObject } from "./storage.service.js";
 
 const AI_PROCTOR_URL = process.env.AI_PROCTOR_URL || "http://127.0.0.1:8001";
 
@@ -48,29 +48,30 @@ export async function analyzeFrame(base64Frame: string): Promise<VisionAnalysis 
   }
 }
 
-/** Save screenshot to filesystem, return relative path. */
-export function saveScreenshot(
+/** Save screenshot to R2 (if configured) or local filesystem; return public URL or relative path. */
+export async function saveScreenshot(
   sessionId: string,
   eventType: string,
   base64Frame: string
-): string {
+): Promise<string> {
+  const b64 = stripBase64Prefix(base64Frame);
+  const buf = Buffer.from(b64, "base64");
+  const ext = ".jpg";
+  const prefix = eventType.toLowerCase().replace(/_/g, "_");
+  const filename = `${prefix}_${Date.now()}${ext}`;
+  const key = `proctoring/screenshots/session_${sessionId}/${filename}`;
+
+  if (isObjectStorageConfigured()) {
+    return uploadObject(buf, key, "image/jpeg");
+  }
+
   const root = process.env.PROCTOR_SCREENSHOTS_DIR || path.join(process.cwd(), "..", "proctoring", "screenshots");
   const sessionDir = path.join(root, `session_${sessionId}`);
   if (!fs.existsSync(sessionDir)) {
     fs.mkdirSync(sessionDir, { recursive: true });
   }
-
-  const ext = ".jpg";
-  const prefix = eventType.toLowerCase().replace(/_/g, "_");
-  const files = fs.readdirSync(sessionDir).filter((f) => f.startsWith(prefix));
-  const idx = files.length + 1;
-  const filename = `${eventType.toLowerCase()}_${idx}${ext}`;
   const fullPath = path.join(sessionDir, filename);
-
-  const b64 = stripBase64Prefix(base64Frame);
-  const buf = Buffer.from(b64, "base64");
   fs.writeFileSync(fullPath, buf);
-
   return path.join("/proctoring", "screenshots", `session_${sessionId}`, filename);
 }
 

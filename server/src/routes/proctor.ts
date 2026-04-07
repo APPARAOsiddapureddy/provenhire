@@ -101,7 +101,7 @@ proctorRouter.post("/frame", requireAuth, async (req: AuthedRequest, res: Respon
   const violations = checkViolations(sessionId, effectiveAnalysis, base64Frame, userId, testType);
 
   for (const v of violations) {
-    const screenshotPath = saveScreenshot(sessionId, v.type, base64Frame);
+    const screenshotPath = await saveScreenshot(sessionId, v.type, base64Frame);
     const violationIndex = await nextViolationIndexForSession(sessionId, v.type);
     await prisma.proctoringEvent.create({
       data: {

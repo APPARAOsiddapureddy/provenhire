@@ -311,7 +311,7 @@ Score object includes:
 
 ### Composite formula
 
-`final = aptitude*0.25 + dsa*0.35 + ai*0.30 + integrity*0.10`
+`final_score = aptitude×0.25 + DSA×0.35 + AI×0.40` (integrity is tracked separately: it influences confidence, risk flags, and shortlist gates — see `docs/PRD_VERIFICATION_SCORING.md`).
 
 ### Gate model
 

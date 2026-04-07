@@ -620,6 +620,95 @@ jobsRouter.get("/recruiter/applications", requireAuth, async (req: AuthedRequest
   res.json({ applications });
 });
 
+/** Hiring funnel metrics — paid recruiters only (see RecruiterUsage.planType). */
+jobsRouter.get("/recruiter/analytics/summary", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "recruiter") {
+    return res.status(403).json({ error: "Recruiter access required" });
+  }
+  const recruiter = await prisma.recruiterProfile.findUnique({
+    where: { userId: req.user!.id },
+    include: { usage: true },
+  });
+  if (!recruiter) {
+    return res.status(403).json({ error: "Recruiter profile required" });
+  }
+  if (recruiter.usage?.planType !== "paid") {
+    return res.status(403).json({
+      error: "Analytics is available on the paid recruiter plan.",
+      code: "RECRUITER_PLAN_ANALYTICS",
+      planType: recruiter.usage?.planType ?? "free",
+    });
+  }
+
+  const jobs = await prisma.job.findMany({
+    where: { postedById: recruiter.id },
+    select: { id: true, title: true, status: true, createdAt: true },
+  });
+  const jobIds = jobs.map((j) => j.id);
+  const applications =
+    jobIds.length === 0
+      ? []
+      : await prisma.jobApplication.findMany({
+          where: { jobId: { in: jobIds } },
+          select: { id: true, status: true, appliedAt: true, jobId: true },
+        });
+
+  const applicationsByStatus: Record<string, number> = {};
+  for (const a of applications) {
+    applicationsByStatus[a.status] = (applicationsByStatus[a.status] ?? 0) + 1;
+  }
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000);
+  const applicationsLast30Days = applications.filter((a) => a.appliedAt >= thirtyDaysAgo).length;
+
+  res.json({
+    job_count: jobs.length,
+    published_job_count: jobs.filter((j) => normalizeJobStatus(j.status) === "published").length,
+    application_count: applications.length,
+    applications_last_30_days: applicationsLast30Days,
+    applications_by_status: applicationsByStatus,
+  });
+});
+
+jobsRouter.post("/recruiter/upgrade-request", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "recruiter") {
+    return res.status(403).json({ error: "Recruiter access required" });
+  }
+  const recruiter = await prisma.recruiterProfile.findUnique({
+    where: { userId: req.user!.id },
+    include: { user: { select: { name: true, email: true } } },
+  });
+  if (!recruiter) {
+    return res.status(403).json({ error: "Recruiter profile required" });
+  }
+
+  const schema = z.object({ message: z.string().max(2000).optional() });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+  const admins = await prisma.user.findMany({
+    where: { role: "admin" },
+    select: { id: true },
+  });
+
+  const who = recruiter.user?.email ?? recruiter.user?.name ?? "recruiter";
+  const note = parsed.data.message?.trim();
+  const detail = note ? `Message: ${note}` : "No message provided.";
+
+  if (admins.length) {
+    await prisma.notification.createMany({
+      data: admins.map((a) => ({
+        userId: a.id,
+        title: "Recruiter upgrade request",
+        message: `${who} requested a paid plan / analytics upgrade. ${detail}`,
+        targetRole: "admin",
+      })),
+    });
+  }
+
+  res.json({ ok: true, notified_admin_count: admins.length });
+});
+
 jobsRouter.post("/applications/:id/status", requireAuth, async (req: AuthedRequest, res) => {
   const schema = z.object({ status: z.string().min(1) });
   const parsed = schema.safeParse(req.body);

@@ -8,6 +8,48 @@ import { getAptitudeScoreZeroToHundred, getAptitudeScoresZeroToHundredBatch } fr
 
 export const usersRouter = Router();
 
+const ANON_CANDIDATE_NAME = "Verified candidate";
+
+async function revealedJobSeekerIdsForRecruiter(recruiterProfileId: string): Promise<Set<string>> {
+  const rows = await prisma.jobApplication.findMany({
+    where: {
+      NOT: { status: "applied" },
+      job: { postedById: recruiterProfileId },
+    },
+    select: { jobSeekerId: true },
+  });
+  return new Set(rows.map((r) => r.jobSeekerId));
+}
+
+function anonymizeRecruiterCandidateListRow(row: {
+  full_name: string | null;
+  bio: string | null;
+  phone: string | null;
+  location: string | null;
+  college: string | null;
+  graduation_year: string | null;
+  resume_url: string | null;
+  notice_period: string | null;
+  current_salary: string | null;
+  expected_salary: string | null;
+  current_role: string | null;
+}) {
+  return {
+    ...row,
+    full_name: ANON_CANDIDATE_NAME,
+    current_role: null,
+    bio: null,
+    phone: null,
+    location: null,
+    college: null,
+    graduation_year: null,
+    resume_url: null,
+    notice_period: null,
+    current_salary: null,
+    expected_salary: null,
+  };
+}
+
 usersRouter.get("/me", requireAuth, async (req: AuthedRequest, res) => {
   const [user, certification] = await Promise.all([
     prisma.user.findUnique({
@@ -489,40 +531,67 @@ usersRouter.get("/candidates/:profileId", requireAuth, async (req: AuthedRequest
     interview: toFreshness(skillVerifications.find((s) => s.skillType === "INTERVIEW")),
   };
 
-  res.json({
-    profile: {
-      id: profile.id,
-      user_id: profile.userId,
-      full_name: profile.fullName,
-      email: profile.user?.email,
-      current_role: profile.currentRole,
-      experience_years: profile.experienceYears,
-      verification_status: profile.verificationStatus,
-      skills,
-      target_job_title: profile.targetJobTitle,
-      about: profile.about,
-      phone: profile.phone,
-      location: profile.location,
-      college: profile.college,
-      graduation_year: profile.graduationYear,
-      resume_url: profile.resumeUrl,
-      education,
-      work_experience: workExperience,
-      certification_level: cert.level,
-      certification_label: cert.label,
-      certificationLevel: cert.certificationLevel ?? null,
-      certificationLabelShort: cert.certificationLabel ?? null,
-      aptitude_score: aptitudeScoreSingle,
-      dsa_score: stageScore("dsa_round"),
-      ai_interview_score: stageScore("expert_interview"),
-      human_expert_interview_score: humanExpert,
-      assignment_score: stageScore("non_tech_assignment"),
-      integrity_score: integrityScore,
-      skill_freshness: skillFreshness,
-      notice_period: profile.noticePeriod,
-      current_salary: profile.currentSalary,
-      expected_salary: profile.expectedSalary,
-      proctoring_events: proctoringEvents.length,
-    },
-  });
+  let payload: Record<string, unknown> = {
+    id: profile.id,
+    user_id: profile.userId,
+    full_name: profile.fullName,
+    email: profile.user?.email,
+    current_role: profile.currentRole,
+    experience_years: profile.experienceYears,
+    verification_status: profile.verificationStatus,
+    skills,
+    target_job_title: profile.targetJobTitle,
+    about: profile.about,
+    phone: profile.phone,
+    location: profile.location,
+    college: profile.college,
+    graduation_year: profile.graduationYear,
+    resume_url: profile.resumeUrl,
+    education,
+    work_experience: workExperience,
+    certification_level: cert.level,
+    certification_label: cert.label,
+    certificationLevel: cert.certificationLevel ?? null,
+    certificationLabelShort: cert.certificationLabel ?? null,
+    aptitude_score: aptitudeScoreSingle,
+    dsa_score: stageScore("dsa_round"),
+    ai_interview_score: stageScore("expert_interview"),
+    human_expert_interview_score: humanExpert,
+    assignment_score: stageScore("non_tech_assignment"),
+    integrity_score: integrityScore,
+    skill_freshness: skillFreshness,
+    notice_period: profile.noticePeriod,
+    current_salary: profile.currentSalary,
+    expected_salary: profile.expectedSalary,
+    proctoring_events: proctoringEvents.length,
+  };
+
+  if (req.user!.role === "recruiter") {
+    const recruiter = await prisma.recruiterProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { id: true },
+    });
+    const revealed = recruiter ? await revealedJobSeekerIdsForRecruiter(recruiter.id) : new Set<string>();
+    if (!revealed.has(profile.userId)) {
+      payload = {
+        ...payload,
+        full_name: ANON_CANDIDATE_NAME,
+        email: null,
+        current_role: null,
+        about: null,
+        phone: null,
+        location: null,
+        college: null,
+        graduation_year: null,
+        resume_url: null,
+        education: [],
+        work_experience: [],
+        notice_period: null,
+        current_salary: null,
+        expected_salary: null,
+      };
+    }
+  }
+
+  res.json({ profile: payload });
 });

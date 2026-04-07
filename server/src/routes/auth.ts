@@ -14,7 +14,13 @@ import {
   logout,
 } from "../controllers/auth.controller.js";
 import { requireAuth } from "../middleware/auth.js";
-import { authLoginLimiter, authRegisterLimiter, authRefreshLimiter } from "../middleware/authRateLimit.js";
+import {
+  authLoginLimiter,
+  authRegisterLimiter,
+  authRefreshLimiter,
+  authForgotPasswordLimiter,
+  authResetPasswordLimiter,
+} from "../middleware/authRateLimit.js";
 
 const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) =>
   (req: Request, res: Response, next: NextFunction) => {
@@ -35,6 +41,6 @@ authRouter.post("/email-verification/verify", verifyEmailVerificationCode);
 authRouter.post("/refresh", authRefreshLimiter, refresh);
 authRouter.post("/logout", requireAuth, logout);
 authRouter.get("/me", requireAuth, me);
-authRouter.post("/forgot-password", forgotPassword);
-authRouter.post("/reset-password", resetPassword);
+authRouter.post("/forgot-password", authForgotPasswordLimiter, forgotPassword);
+authRouter.post("/reset-password", authResetPasswordLimiter, resetPassword);
 authRouter.post("/change-password", requireAuth, changePassword);
