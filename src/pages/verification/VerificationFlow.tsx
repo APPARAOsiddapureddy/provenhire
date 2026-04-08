@@ -19,6 +19,7 @@ const ProfileSetupStage = lazy(() => import("./stages/ProfileSetupStage"));
 const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
 const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
 const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"));
+const AISkillsInterviewStage = lazy(() => import("./stages/AISkillsInterviewStage"));
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
@@ -647,15 +648,46 @@ const VerificationFlow = () => {
         );
       case "ai_skills_interview":
         return (
-          <PipelineStagePlaceholder
-            title="AI Skills Interview"
-            description="DSA walk-through of your submissions plus resume skill checkups. Mid/senior depth adjusts by experience band."
-            bulletPoints={[
-              "Fresher: pass when DSA understanding ≥ 50 and at least 2 skills verified.",
-              "Later: payment + retake cooldowns per PRD (₹399 / bundle).",
-            ]}
-            onBackToDashboard={handleReturnToDashboard}
-          />
+          <div className="space-y-6">
+            {!testStageStarted.ai_skills_interview ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Skills Interview</h3>
+                  <p className="text-muted-foreground mb-4">
+                    DSA walkthrough of your submissions, then AI-led depth checks on skills from your resume. Allow
+                    about 30 minutes in one sitting.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await api.post("/api/verification/stages/update", {
+                            stageName: "ai_skills_interview",
+                            status: "in_progress",
+                          });
+                        } catch {
+                          /* gate/cooldown handled by API */
+                        }
+                        setTestStageStarted((p) => ({ ...p, ai_skills_interview: true }));
+                      }}
+                    >
+                      Start AI Skills Interview
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <AISkillsInterviewStage
+                targetJobTitle={targetJobTitle || undefined}
+                experienceYears={experienceYears}
+                onSessionComplete={() => void loadVerificationStages()}
+                onReturnToDashboard={handleReturnToDashboard}
+              />
+            )}
+          </div>
         );
       case "system_design_interview":
         return (
@@ -865,7 +897,8 @@ const VerificationFlow = () => {
     (currentStage === "aptitude_test" && testStageStarted.aptitude_test) ||
     (currentStage === "cs_fundamentals" && testStageStarted.cs_fundamentals) ||
     (currentStage === "dsa_round" && testStageStarted.dsa_round) ||
-    (currentStage === "expert_interview" && testStageStarted.expert_interview);
+    (currentStage === "expert_interview" && testStageStarted.expert_interview) ||
+    (currentStage === "ai_skills_interview" && testStageStarted.ai_skills_interview);
 
   return (
     <div className={`min-h-screen bg-gradient-subtle ${isInActiveTest ? "p-0 sm:p-2" : "p-4"}`}>

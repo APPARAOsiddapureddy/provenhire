@@ -34,6 +34,13 @@ import { getPreCachedFillerMp3, getRandomFiller, synthesizeSpeech } from "../ser
 import { transcribeAudio, whisperOpenAIErrorMessage } from "../services/whisper.service.js";
 import { interviewTurnLimiter, interviewTranscribeLimiter } from "../middleware/interviewRateLimit.js";
 import { gateExpertInterviewStart } from "../services/candidateRetake.service.js";
+import {
+  startAiSkillsInterview,
+  processAiSkillsTurn,
+  getAiSkillsStatus,
+} from "../services/interview/aiSkillsOrchestrator.js";
+import { experienceTierFromYears } from "../utils/experienceTier.js";
+import type { ExperienceTier } from "../utils/experienceTier.js";
 
 export const interviewRouter = Router();
 
@@ -315,6 +322,71 @@ interviewRouter.post("/v2/partial", requireAuth, requireJobSeeker, async (req: A
     return res.json({ ok: true });
   } catch {
     return res.json({ ok: true });
+  }
+});
+
+interviewRouter.post("/ai-skills/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const schema = z.object({
+      jobRole: z.string().min(1),
+      experienceLevel: z.enum(["fresher", "mid", "senior"]).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { experienceYears: true },
+    });
+    const profileTier = experienceTierFromYears(profile?.experienceYears);
+    const track = (parsed.data.experienceLevel ?? profileTier) as ExperienceTier;
+
+    const result = await startAiSkillsInterview(req.user!.id, parsed.data.jobRole, track);
+    return res.json(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to start";
+    if (msg.includes("must be in progress")) return res.status(403).json({ error: msg });
+    if (msg.includes("Complete the DSA")) return res.status(400).json({ error: msg });
+    console.error("[interview/ai-skills/start]", e);
+    return res.status(500).json({ error: "Failed to start AI Skills interview" });
+  }
+});
+
+interviewRouter.post("/ai-skills/turn", requireAuth, requireJobSeeker, interviewTurnLimiter, async (req: AuthedRequest, res) => {
+  try {
+    const schema = z.object({
+      interviewId: z.string().min(1),
+      answer: z.string().min(1),
+      turnId: z.string().optional(),
+      inputMode: z.enum(["voice", "typed"]).optional(),
+      whisperLatencyMs: z.number().int().min(0).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    const result = await processAiSkillsTurn(parsed.data.interviewId, req.user!.id, parsed.data.answer);
+    return res.json({ ...result, turnId: parsed.data.turnId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to process turn";
+    if (msg === "Interview not found") return res.status(404).json({ error: msg });
+    if (msg.includes("Invalid interview") || msg.includes("already finished") || msg.includes("Answer required")) {
+      return res.status(400).json({ error: msg });
+    }
+    console.error("[interview/ai-skills/turn]", e);
+    return res.status(500).json({ error: "Failed to process AI Skills turn" });
+  }
+});
+
+interviewRouter.get("/ai-skills/status", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const interviewId = typeof req.query.interviewId === "string" ? req.query.interviewId.trim() : "";
+    if (!interviewId) return res.status(400).json({ error: "interviewId query required" });
+    const row = await getAiSkillsStatus(interviewId, req.user!.id);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    return res.json(row);
+  } catch (e) {
+    console.error("[interview/ai-skills/status]", e);
+    return res.status(500).json({ error: "Failed to load status" });
   }
 });
 

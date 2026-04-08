@@ -407,10 +407,20 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
       return res.status(400).json({ error: "Your latest DSA score passes; use Continue instead of failing." });
     }
     updateData.score = s;
-  } else if (
-    (stageName === "ai_skills_interview" || stageName === "system_design_interview") &&
-    status === "completed"
-  ) {
+  } else if (stageName === "ai_skills_interview" && status === "completed") {
+    const iv = await prisma.interview.findFirst({
+      where: { userId, interviewType: "ai_skills", status: "completed" },
+      orderBy: { completedAt: "desc" },
+      select: { totalScore: true },
+    });
+    if (!iv) {
+      if (!allowPlaceholderVerificationCompletion()) {
+        return res.status(400).json({ error: "Complete the AI Skills interview in-platform before marking this step complete." });
+      }
+    } else {
+      updateData.score = iv.totalScore != null ? Math.round(iv.totalScore) : null;
+    }
+  } else if (stageName === "system_design_interview" && status === "completed") {
     if (!allowPlaceholderVerificationCompletion()) {
       return res.status(503).json({
         error: "This verification step is not available yet. Complete the official assessment flow when it is released.",

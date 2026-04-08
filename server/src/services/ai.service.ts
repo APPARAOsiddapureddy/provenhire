@@ -18,6 +18,27 @@ async function geminiChat(messages: ChatMessage[]): Promise<string> {
   return (response as { text?: string })?.text ?? "";
 }
 
+/** Structured JSON from Gemini; returns null if API unavailable or parse fails. */
+export async function runGeminiJson<T>(system: string, user: string): Promise<T | null> {
+  if (!gemini) return null;
+  try {
+    const response = await gemini.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `${system}\n\n${user}`,
+      config: { responseMimeType: "application/json", temperature: 0.2 },
+    });
+    const raw = ((response as { text?: string })?.text ?? "")
+      .trim()
+      .replace(/^```\w*\n?|\n?```$/g, "")
+      .trim();
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch (e) {
+    console.warn("[runGeminiJson]", e);
+    return null;
+  }
+}
+
 /** Structured profile fields extracted from resume for auto-fill */
 export type ParsedResumeProfile = {
   fullName: string;
