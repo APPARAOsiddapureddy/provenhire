@@ -4,8 +4,20 @@ import { Link, useLocation } from "react-router-dom";
 import NotificationInbox from "@/components/NotificationInbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Menu } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown, Menu } from "lucide-react";
 import BrandMark from "@/components/BrandMark";
+
+const linkTone =
+  "font-mono text-[13px] font-semibold text-muted-foreground tracking-wider uppercase hover:text-foreground transition-colors";
+
+const dropdownItemClass =
+  "font-mono text-xs font-semibold uppercase tracking-wider cursor-pointer";
 
 const Navbar = () => {
   const { user, userRole, signOut } = useAuth();
@@ -16,28 +28,26 @@ const Navbar = () => {
   const isOnSignupView = authMode === "signup";
   const signOutOnlyInSettings = userRole === "recruiter" || userRole === "expert_interviewer";
 
-  const navLinks = userRole !== "expert_interviewer" && (
-    <>
-      {userRole !== "recruiter" && <Link to="/jobs" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Find Jobs</Link>}
-      <Link to="/for-job-seekers" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Job Seekers</Link>
-      {userRole !== "jobseeker" && <Link to="/for-employers" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">For Employers</Link>}
-      {userRole !== "jobseeker" && <Link to="/for-recruiters" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Recruiters</Link>}
-      <Link to="/resources" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Resources</Link>
-      {userRole !== "jobseeker" && <Link to="/careers/interviewer" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">Careers</Link>}
-      <Link to="/about" onClick={() => setMenuOpen(false)} className="hover:text-foreground transition-colors">About</Link>
-    </>
-  );
-
+  const showPublicNav = userRole !== "expert_interviewer";
+  const showFindJobs = userRole !== "recruiter";
+  const showHireMenu = userRole !== "jobseeker";
+  const showCareersLink = userRole !== "jobseeker";
 
   const authButtons = user ? (
     <>
       <NotificationInbox />
       <Button variant="ghost" asChild className="font-bold text-sm sm:text-base text-muted-foreground border-2 border-border/80 rounded-md hover:text-foreground hover:border-white/25 transition-all duration-200 hover:scale-[1.02] shrink-0">
-        <Link to={
-          userRole === "admin" ? "/admin/dashboard" :
-          userRole === "recruiter" ? "/dashboard/recruiter" :
-          userRole === "expert_interviewer" ? "/dashboard/expert" : "/dashboard/jobseeker"
-        }>
+        <Link
+          to={
+            userRole === "admin"
+              ? "/admin/dashboard"
+              : userRole === "recruiter"
+                ? "/dashboard/recruiter"
+                : userRole === "expert_interviewer"
+                  ? "/dashboard/expert"
+                  : "/dashboard/jobseeker"
+          }
+        >
           <span className="hidden sm:inline">Dashboard</span>
           <span className="sm:hidden">Dashboard</span>
         </Link>
@@ -76,6 +86,98 @@ const Navbar = () => {
     </>
   );
 
+  const desktopPublicNav = showPublicNav && (
+    <div className="hidden min-w-0 shrink md:flex md:items-center md:gap-3 lg:gap-4">
+      {showFindJobs && (
+        <Link to="/jobs" className={linkTone}>
+          Find Jobs
+        </Link>
+      )}
+      <Link to="/for-job-seekers" className={linkTone}>
+        Job Seekers
+      </Link>
+      {showHireMenu && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className={`${linkTone} inline-flex items-center gap-0.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background`}
+          >
+            Hire talent
+            <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" className="min-w-[11rem]">
+            <DropdownMenuItem asChild className={dropdownItemClass}>
+              <Link to="/for-employers">For employers</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild className={dropdownItemClass}>
+              <Link to="/for-recruiters">For recruiters</Link>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className={`${linkTone} inline-flex items-center gap-0.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background`}
+        >
+          Company
+          <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="center" className="min-w-[11rem]">
+          <DropdownMenuItem asChild className={dropdownItemClass}>
+            <Link to="/resources">Resources</Link>
+          </DropdownMenuItem>
+          {showCareersLink && (
+            <DropdownMenuItem asChild className={dropdownItemClass}>
+              <Link to="/careers/interviewer">Careers</Link>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem asChild className={dropdownItemClass}>
+            <Link to="/about">About</Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const mobilePublicNav = showPublicNav && (
+    <nav className="flex flex-col gap-6 font-mono text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+      <div className="flex flex-col gap-3">
+        {showFindJobs && (
+          <Link to="/jobs" onClick={() => setMenuOpen(false)} className="hover:text-foreground">
+            Find Jobs
+          </Link>
+        )}
+        <Link to="/for-job-seekers" onClick={() => setMenuOpen(false)} className="hover:text-foreground">
+          Job Seekers
+        </Link>
+      </div>
+      {showHireMenu && (
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/70">Hire talent</p>
+          <Link to="/for-employers" onClick={() => setMenuOpen(false)} className="hover:text-foreground pl-1">
+            For employers
+          </Link>
+          <Link to="/for-recruiters" onClick={() => setMenuOpen(false)} className="hover:text-foreground pl-1">
+            For recruiters
+          </Link>
+        </div>
+      )}
+      <div className="flex flex-col gap-2 border-t border-border pt-4">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/70">Company</p>
+        <Link to="/resources" onClick={() => setMenuOpen(false)} className="hover:text-foreground pl-1">
+          Resources
+        </Link>
+        {showCareersLink && (
+          <Link to="/careers/interviewer" onClick={() => setMenuOpen(false)} className="hover:text-foreground pl-1">
+            Careers
+          </Link>
+        )}
+        <Link to="/about" onClick={() => setMenuOpen(false)} className="hover:text-foreground pl-1">
+          About
+        </Link>
+      </div>
+    </nav>
+  );
+
   const mobileMenu = (
     <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
       <SheetTrigger asChild>
@@ -86,40 +188,46 @@ const Navbar = () => {
       <SheetContent side="right" className="w-[280px] sm:w-[320px] pt-12">
         <SheetTitle className="sr-only">Navigation menu</SheetTitle>
         <SheetDescription className="sr-only">Site navigation and account links</SheetDescription>
-        <nav className="flex flex-col gap-6 font-mono text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-          {navLinks && (
-            <div className="flex flex-col gap-4">
-              {navLinks}
-            </div>
-          )}
-          <div className="border-t border-border pt-6 flex flex-col gap-3">
-            {user ? (
-              <>
-                <Link to={
-                  userRole === "admin" ? "/admin/dashboard" :
-                  userRole === "recruiter" ? "/dashboard/recruiter" :
-                  userRole === "expert_interviewer" ? "/dashboard/expert" : "/dashboard/jobseeker"
-                } onClick={() => setMenuOpen(false)} className="hover:text-foreground">
-                  Dashboard
+        {mobilePublicNav}
+        <div className="mt-6 border-t border-border pt-6 flex flex-col gap-3 font-mono text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          {user ? (
+            <>
+              <Link
+                to={
+                  userRole === "admin"
+                    ? "/admin/dashboard"
+                    : userRole === "recruiter"
+                      ? "/dashboard/recruiter"
+                      : userRole === "expert_interviewer"
+                        ? "/dashboard/expert"
+                        : "/dashboard/jobseeker"
+                }
+                onClick={() => setMenuOpen(false)}
+                className="hover:text-foreground"
+              >
+                Dashboard
+              </Link>
+              {signOutOnlyInSettings ? (
+                <Link to="/dashboard/settings" onClick={() => setMenuOpen(false)} className="hover:text-foreground">
+                  Settings
                 </Link>
-                {signOutOnlyInSettings ? (
-                  <Link to="/dashboard/settings" onClick={() => setMenuOpen(false)} className="hover:text-foreground">
-                    Settings
-                  </Link>
-                ) : (
-                  <button type="button" onClick={() => { signOut(); setMenuOpen(false); }} className="text-left hover:text-foreground">
-                    Sign Out
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                <Link to="/auth?mode=login" onClick={() => setMenuOpen(false)} className="hover:text-foreground">Log In</Link>
-                <Link to="/auth?mode=signup" onClick={() => setMenuOpen(false)} className="hover:text-primary">Get Verified →</Link>
-              </>
-            )}
-          </div>
-        </nav>
+              ) : (
+                <button type="button" onClick={() => { signOut(); setMenuOpen(false); }} className="text-left hover:text-foreground">
+                  Sign Out
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <Link to="/auth?mode=login" onClick={() => setMenuOpen(false)} className="hover:text-foreground">
+                Log In
+              </Link>
+              <Link to="/auth?mode=signup" onClick={() => setMenuOpen(false)} className="hover:text-primary">
+                Get Verified →
+              </Link>
+            </>
+          )}
+        </div>
         {user && (
           <div className="mt-6 pt-6 border-t border-border">
             <NotificationInbox />
@@ -134,11 +242,7 @@ const Navbar = () => {
       <div className="mx-auto flex h-14 sm:h-16 w-full max-w-[100vw] items-center justify-between gap-3 px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12">
         <BrandMark to={userRole === "expert_interviewer" ? "/dashboard/expert" : "/"} />
 
-        {navLinks && (
-          <div className="hidden min-w-0 shrink md:flex md:items-center md:gap-4 lg:gap-5 font-mono text-[13px] font-semibold text-muted-foreground tracking-wider uppercase">
-            {navLinks}
-          </div>
-        )}
+        {desktopPublicNav}
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
           {user && <div className="md:hidden shrink-0"><NotificationInbox /></div>}
@@ -158,11 +262,17 @@ const Navbar = () => {
             )}
             {user && (
               <Button variant="ghost" size="sm" asChild className="font-semibold text-muted-foreground text-sm px-2">
-                <Link to={
-                  userRole === "admin" ? "/admin/dashboard" :
-                  userRole === "recruiter" ? "/dashboard/recruiter" :
-                  userRole === "expert_interviewer" ? "/dashboard/expert" : "/dashboard/jobseeker"
-                }>
+                <Link
+                  to={
+                    userRole === "admin"
+                      ? "/admin/dashboard"
+                      : userRole === "recruiter"
+                        ? "/dashboard/recruiter"
+                        : userRole === "expert_interviewer"
+                          ? "/dashboard/expert"
+                          : "/dashboard/jobseeker"
+                  }
+                >
                   Dashboard
                 </Link>
               </Button>
