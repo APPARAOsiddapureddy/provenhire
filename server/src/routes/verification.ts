@@ -36,7 +36,7 @@ import { checkRateLimit } from "../middleware/dsaRateLimit.js";
 import { evaluateDsaAgainstTestCases, persistDsaSubmission } from "../services/dsaEvaluation.js";
 import { getHumanInterviewEligibility } from "../services/humanInterviewGate.service.js";
 import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
-import { COOLDOWN_CS_FUNDAMENTALS_MS, COOLDOWN_DSA_MS } from "../constants/revenue.js";
+import { COOLDOWN_DSA_MS } from "../constants/revenue.js";
 import { gatePaidVerificationStageInProgress } from "../services/verificationStageRetakeGate.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
@@ -817,18 +817,6 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
       await clearAptitudeSession(req.user!.id);
     } else {
       return res.status(400).json({ error: "Submit answers from the test session, or use the invalidation flag when required." });
-    }
-
-    const lastApt = await prisma.aptitudeTestResult.findFirst({
-      where: { userId: req.user!.id },
-      orderBy: { completedAt: "desc" },
-    });
-    if (lastApt && Date.now() - lastApt.completedAt.getTime() < COOLDOWN_CS_FUNDAMENTALS_MS) {
-      return res.status(402).json({
-        code: "COOLDOWN",
-        message: "Wait 24 hours between cognitive assessment attempts.",
-        nextAvailableAt: new Date(lastApt.completedAt.getTime() + COOLDOWN_CS_FUNDAMENTALS_MS).toISOString(),
-      });
     }
 
     const answersToStore = answersPayload ?? (parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : undefined);

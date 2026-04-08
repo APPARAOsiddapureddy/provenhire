@@ -531,6 +531,16 @@ const AptitudeTestStage = ({
       } else if (status === 503) {
         setBackendUnavailable(false);
         toast.error(msg);
+      } else if (status === 402) {
+        const apiErr = error as { response?: { data?: { code?: string; message?: string; nextAvailableAt?: string } } };
+        const code = apiErr?.response?.data?.code;
+        const serverMsg = apiErr?.response?.data?.message;
+        if (code === "COOLDOWN" && apiErr?.response?.data?.nextAvailableAt) {
+          const until = new Date(apiErr.response.data.nextAvailableAt);
+          toast.error(serverMsg ?? `Please wait until ${until.toLocaleDateString()} to retry.`, { duration: 6000 });
+        } else {
+          toast.error(serverMsg ?? msg);
+        }
       } else if (status === 400) {
         toast.error(msg);
         if (msg.toLowerCase().includes("session") && msg.toLowerCase().includes("expired")) {
