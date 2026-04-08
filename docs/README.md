@@ -4,6 +4,8 @@
 
 Use this page as the **single entry point** when onboarding engineers, product, or design. Source of truth for product behavior is the PRD set below; operational runbooks are under **Deployment & local setup**.
 
+**What changed in code recently (wordmark, job seeker dashboard, auth, verification UI, routes):** [IMPLEMENTATION_CHANGELOG.md](IMPLEMENTATION_CHANGELOG.md)
+
 ---
 
 ## Product requirements (PRDs)
@@ -85,8 +87,10 @@ Password for seeded QA users (see `server/prisma/seed-*.ts`): **`PhE2E_Apr2026!x
 
 ---
 
-## Changelog (docs only)
+## Changelog (docs + implementation index)
 
 | When | Change |
 |------|--------|
+| Apr 2026 | **Implementation changelog** added: [IMPLEMENTATION_CHANGELOG.md](IMPLEMENTATION_CHANGELOG.md) (brand wordmark, dashboard `stage_order`, auth copy, verification components, route pointers). |
+| Apr 2026 | PRD set expanded: **PRD 4** revenue ([PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md)), pipeline v2 cross-links, recruiter tier docs refresh, `PRD.md` v6.4. |
 | Apr 2026 | Added this index; aligned PRD test credentials; refreshed SEO + deployment seeding notes. |

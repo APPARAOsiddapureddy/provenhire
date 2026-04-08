@@ -1,6 +1,6 @@
 # ProvenHire - Complete Project Documentation
 
-> **For your team:** the maintained **document map** (PRDs, deploy, SEO) is **[docs/README.md](docs/README.md)**. The **authoritative product spec** is **[docs/PRD.md](docs/PRD.md)**. This file is a long UI/feature walkthrough and may lag the codebase in places—when in doubt, trust **PRD + code**.
+> **For your team:** the maintained **document map** (PRDs, deploy, SEO) is **[docs/README.md](docs/README.md)**. The **authoritative product spec** is **[docs/PRD.md](docs/PRD.md)**. **What changed in the app recently** (wordmark-only brand in chrome, job seeker dashboard using API `stage_order`, auth messaging, verification cards) is tracked in **[docs/IMPLEMENTATION_CHANGELOG.md](docs/IMPLEMENTATION_CHANGELOG.md)**. This file is a long UI/feature walkthrough and may lag the codebase in places—when in doubt, trust **PRD + code + implementation changelog**.
 
 ## 📋 Table of Contents
 

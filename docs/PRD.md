@@ -3,7 +3,7 @@
 **Version:** 6.4  
 **Last Updated:** April 2026  
 **Status:** Current  
-**Revenue & limits:** [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) · **Verification v2 track:** [PRD_VERIFICATION_PIPELINE_V2.md](PRD_VERIFICATION_PIPELINE_V2.md)
+**Revenue & limits:** [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) · **Verification v2 track:** [PRD_VERIFICATION_PIPELINE_V2.md](PRD_VERIFICATION_PIPELINE_V2.md) · **Code/UI drift log:** [IMPLEMENTATION_CHANGELOG.md](IMPLEMENTATION_CHANGELOG.md)
 
 ---
 
