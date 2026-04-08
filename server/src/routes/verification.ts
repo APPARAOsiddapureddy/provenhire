@@ -10,6 +10,14 @@ import {
   getMemoryAptitudeSubmitContext,
 } from "../data/aptitude-loader.js";
 import { experienceTierFromYears, questionSetForTier, dsaTierConfig } from "../utils/experienceTier.js";
+import {
+  ALL_TECHNICAL_STAGE_NAMES,
+  LEGACY_TECHNICAL_STAGES_V1,
+  allowPlaceholderVerificationCompletion,
+  isVerificationPipelineV2,
+  technicalStagesForProfile,
+  verificationStagesNeededTechnical,
+} from "../constants/verificationPipeline.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
@@ -23,17 +31,13 @@ import {
   cooldownPayloadFromLockout,
   getAptitudeLockoutStatus,
 } from "../services/aptitudeLockout.service.js";
-import {
-  DSA_API_LANGUAGES,
-  DSA_PASS_THRESHOLD,
-  DSA_PRACTICE_COUNT,
-  DSA_QUESTIONS_COUNT,
-  type DsaApiLanguage,
-} from "../constants/dsa.js";
+import { DSA_API_LANGUAGES, DSA_PRACTICE_COUNT, DSA_QUESTIONS_COUNT, type DsaApiLanguage } from "../constants/dsa.js";
 import { checkRateLimit } from "../middleware/dsaRateLimit.js";
 import { evaluateDsaAgainstTestCases, persistDsaSubmission } from "../services/dsaEvaluation.js";
 import { getHumanInterviewEligibility } from "../services/humanInterviewGate.service.js";
 import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
+import { COOLDOWN_CS_FUNDAMENTALS_MS, COOLDOWN_DSA_MS } from "../constants/revenue.js";
+import { gatePaidVerificationStageInProgress } from "../services/verificationStageRetakeGate.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -72,12 +76,37 @@ async function resolveAptitudeSubmitSession(userId: string): Promise<{
   return getMemoryAptitudeSubmitContext(userId);
 }
 
-const technicalStages = ["profile_setup", "aptitude_test", "dsa_round", "expert_interview"];
 const nonTechnicalStages = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
+
+function verificationStagesNeededForRole(roleType: string, experienceYears: number | null): string[] {
+  if (roleType === "non_technical") return [...nonTechnicalStages];
+  if (!isVerificationPipelineV2()) {
+    return [...LEGACY_TECHNICAL_STAGES_V1];
+  }
+  return verificationStagesNeededTechnical({ experienceYears, roleType: "technical" });
+}
 
 function allowedVerificationStageNames(roleType: string): Set<string> {
   if (roleType === "non_technical") return new Set(nonTechnicalStages);
-  return new Set([...technicalStages, "human_expert_interview"]);
+  return ALL_TECHNICAL_STAGE_NAMES;
+}
+
+async function syncLegacyAptitudeToCsFundamentals(userId: string): Promise<void> {
+  if (!isVerificationPipelineV2()) return;
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { experienceYears: true },
+  });
+  if (experienceTierFromYears(profile?.experienceYears) !== "fresher") return;
+  const apt = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "aptitude_test", status: "completed" },
+  });
+  if (!apt) return;
+  await prisma.verificationStage.upsert({
+    where: { userId_stageName: { userId, stageName: "cs_fundamentals" } },
+    create: { userId, stageName: "cs_fundamentals", status: "completed", score: apt.score },
+    update: { status: "completed", score: apt.score },
+  });
 }
 
 function toStageResponse(rows: { stageName: string; status: string; score?: number | null }[]) {
@@ -95,59 +124,134 @@ function toStageResponse(rows: { stageName: string; status: string; score?: numb
  * This reconciliation is NOT tied to integrity / proctoring feature flags.
  */
 async function reconcileTechnicalVerificationStages(userId: string): Promise<void> {
-  let rows = await prisma.verificationStage.findMany({ where: { userId } });
-  const st = (name: string) => rows.find((r) => r.stageName === name)?.status;
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { experienceYears: true, roleType: true },
+  });
+  if ((profile?.roleType ?? "technical") === "non_technical") return;
 
-  if (st("aptitude_test") === "completed" && st("dsa_round") === "locked") {
-    await prisma.verificationStage.updateMany({
-      where: { userId, stageName: "dsa_round" },
-      data: { status: "in_progress" },
-    });
-    rows = await prisma.verificationStage.findMany({ where: { userId } });
+  const reload = () => prisma.verificationStage.findMany({ where: { userId } });
+
+  if (!isVerificationPipelineV2()) {
+    let rows = await reload();
+    const st = (name: string) => rows.find((r) => r.stageName === name)?.status;
+    if (st("aptitude_test") === "completed" && st("dsa_round") === "locked") {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: "dsa_round" },
+        data: { status: "in_progress" },
+      });
+      rows = await reload();
+    }
+    const st245 = (name: string) => rows.find((r) => r.stageName === name)?.status;
+    if (st245("dsa_round") === "completed" && st245("expert_interview") === "locked") {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: "expert_interview" },
+        data: { status: "in_progress" },
+      });
+      rows = await reload();
+    }
+    const st3 = (name: string) => rows.find((r) => r.stageName === name)?.status;
+    if (st3("expert_interview") === "completed" && st3("human_expert_interview") === "locked") {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: "human_expert_interview" },
+        data: { status: "in_progress" },
+      });
+    }
+    return;
   }
 
-  const st2 = (name: string) => rows.find((r) => r.stageName === name)?.status;
-  if (st2("dsa_round") === "completed" && st2("expert_interview") === "locked") {
-    await prisma.verificationStage.updateMany({
-      where: { userId, stageName: "expert_interview" },
-      data: { status: "in_progress" },
-    });
+  const order = technicalStagesForProfile(profile?.experienceYears);
+  let rows = await reload();
+  const statusOf = (name: string) => rows.find((r) => r.stageName === name)?.status;
+
+  for (let i = 1; i < order.length; i++) {
+    const prev = order[i - 1]!;
+    const cur = order[i]!;
+    const prevDone = (() => {
+      if (prev === "cs_fundamentals") {
+        return (
+          statusOf("cs_fundamentals") === "completed" || statusOf("aptitude_test") === "completed"
+        );
+      }
+      return statusOf(prev) === "completed";
+    })();
+    if (prevDone && statusOf(cur) === "locked") {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: cur },
+        data: { status: "in_progress" },
+      });
+      rows = await reload();
+    }
   }
 }
 
-/** Ensure DSA round is in_progress when aptitude is done but stage row was never advanced (same as reconcile). */
+/** Ensure DSA round is in_progress when prerequisites are completed (aptitude/cs fund or profile for mid/senior). */
 async function ensureDsaRoundActiveForOfficialApis(userId: string): Promise<boolean> {
   const already = await prisma.verificationStage.findFirst({
     where: { userId, stageName: "dsa_round", status: "in_progress" },
   });
   if (already) return true;
 
-  const apt = await prisma.verificationStage.findFirst({
-    where: { userId, stageName: "aptitude_test", status: "completed" },
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { experienceYears: true, roleType: true },
   });
-  const dsa = await prisma.verificationStage.findFirst({
-    where: { userId, stageName: "dsa_round" },
-  });
-  if (apt && dsa?.status === "locked") {
-    await prisma.verificationStage.updateMany({
-      where: { userId, stageName: "dsa_round" },
-      data: { status: "in_progress" },
+  if ((profile?.roleType ?? "technical") === "non_technical") return false;
+
+  const dsa = await prisma.verificationStage.findFirst({ where: { userId, stageName: "dsa_round" } });
+  if (!dsa || dsa.status !== "locked") return false;
+
+  if (!isVerificationPipelineV2()) {
+    const apt = await prisma.verificationStage.findFirst({
+      where: { userId, stageName: "aptitude_test", status: "completed" },
     });
-    return true;
+    if (apt) {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: "dsa_round" },
+        data: { status: "in_progress" },
+      });
+      return true;
+    }
+    return false;
+  }
+
+  const tier = experienceTierFromYears(profile?.experienceYears);
+  if (tier === "fresher") {
+    const ok =
+      (await prisma.verificationStage.findFirst({
+        where: { userId, stageName: "cs_fundamentals", status: "completed" },
+      })) ||
+      (await prisma.verificationStage.findFirst({
+        where: { userId, stageName: "aptitude_test", status: "completed" },
+      }));
+    if (ok) {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: "dsa_round" },
+        data: { status: "in_progress" },
+      });
+      return true;
+    }
+  } else {
+    const profDone = await prisma.verificationStage.findFirst({
+      where: { userId, stageName: "profile_setup", status: "completed" },
+    });
+    if (profDone) {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: "dsa_round" },
+        data: { status: "in_progress" },
+      });
+      return true;
+    }
   }
   return false;
-}
-
-function verificationStagesNeededForRole(roleType: string): string[] {
-  if (roleType === "non_technical") return [...nonTechnicalStages];
-  return [...technicalStages, "human_expert_interview"];
 }
 
 verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const roleType = (profile?.roleType as string) || "technical";
-    const neededStages = verificationStagesNeededForRole(roleType);
+    const experienceYears = profile?.experienceYears ?? null;
+    const neededStages = verificationStagesNeededForRole(roleType, experienceYears);
 
     let existing = await prisma.verificationStage.findMany({ where: { userId: req.user!.id } });
     if (existing.length === 0) {
@@ -174,15 +278,21 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
       });
     }
     if (roleType !== "non_technical") {
+      await syncLegacyAptitudeToCsFundamentals(req.user!.id);
       await reconcileTechnicalVerificationStages(req.user!.id);
     }
     const [stages, certification] = await Promise.all([
       prisma.verificationStage.findMany({ where: { userId: req.user!.id } }),
       calculateCertificationLevel(req.user!.id),
     ]);
+    const track =
+      roleType === "non_technical" ? null : experienceTierFromYears(profile?.experienceYears);
     return res.json({
       stages: toStageResponse(stages),
       roleType,
+      verification_pipeline_v2: isVerificationPipelineV2(),
+      verification_track: track,
+      stage_order: roleType === "non_technical" ? nonTechnicalStages : neededStages,
       certification_level: certification.level,
       certification_label: certification.label,
       certificationLevel: certification.certificationLevel ?? null,
@@ -244,6 +354,13 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     return res.status(404).json({ error: "Unknown verification stage" });
   }
 
+  if (status === "in_progress" && existing.status !== "in_progress") {
+    const gate = await gatePaidVerificationStageInProgress(userId, stageName, existing.status);
+    if (!gate.ok) {
+      return res.status(gate.status).json(gate.body);
+    }
+  }
+
   if (stageName === "human_expert_interview" && (status === "completed" || status === "failed")) {
     return res.status(403).json({
       error: "This stage is finalized only when your expert interviewer submits your evaluation.",
@@ -252,7 +369,10 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
 
   const updateData: { status: string; score?: number | null } = { status };
 
-  if (stageName === "aptitude_test" && (status === "completed" || status === "failed")) {
+  if (
+    (stageName === "aptitude_test" || stageName === "cs_fundamentals") &&
+    (status === "completed" || status === "failed")
+  ) {
     const row = await prisma.aptitudeTestResult.findFirst({
       where: { userId },
       orderBy: { completedAt: "desc" },
@@ -261,7 +381,9 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     const built = buildAptitudeLatestResult(row);
     const passed = built.percentage >= 60;
     if (status === "completed" && !passed) {
-      return res.status(400).json({ error: "Cognitive Assessment pass is required to mark this step complete." });
+      return res.status(400).json({
+        error: "Pass the assessment (60% or higher) to mark this step complete.",
+      });
     }
     if (status === "failed" && passed) {
       return res.status(400).json({ error: "Your latest attempt passed; you cannot mark this step as failed." });
@@ -276,13 +398,24 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
       return res.status(400).json({ error: "Finish and submit the DSA round first." });
     }
     const s = Math.round(row.score);
-    if (status === "completed" && s < DSA_PASS_THRESHOLD) {
-      return res.status(400).json({ error: `Minimum score ${DSA_PASS_THRESHOLD} required to complete this step.` });
+    const tier = experienceTierFromYears(profile?.experienceYears);
+    const dsaMin = dsaTierConfig(tier).passThresholdPercent;
+    if (status === "completed" && s < dsaMin) {
+      return res.status(400).json({ error: `Minimum score ${dsaMin} required to complete this step.` });
     }
-    if (status === "failed" && s >= DSA_PASS_THRESHOLD) {
+    if (status === "failed" && s >= dsaMin) {
       return res.status(400).json({ error: "Your latest DSA score passes; use Continue instead of failing." });
     }
     updateData.score = s;
+  } else if (
+    (stageName === "ai_skills_interview" || stageName === "system_design_interview") &&
+    status === "completed"
+  ) {
+    if (!allowPlaceholderVerificationCompletion()) {
+      return res.status(503).json({
+        error: "This verification step is not available yet. Complete the official assessment flow when it is released.",
+      });
+    }
   } else if (stageName === "expert_interview" && status === "completed") {
     const interview = await prisma.interview.findFirst({
       where: { userId, status: "completed" },
@@ -373,7 +506,7 @@ verificationRouter.post("/stages/bulk", requireAuth, requireJobSeeker, async (re
       return res.json({ ok: true });
     }
 
-    const stagesForPath = verificationStagesNeededForRole(roleType);
+    const stagesForPath = verificationStagesNeededForRole(roleType, profile?.experienceYears ?? null);
     await prisma.verificationStage.createMany({
       data: stagesForPath.map((stage, index) => ({
         userId,
@@ -395,10 +528,13 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
   const roleType = (profile?.roleType as string) || "technical";
-  const stageOrder = roleType === "non_technical" ? nonTechnicalStages : [...technicalStages, "human_expert_interview"];
+  const stageOrder =
+    roleType === "non_technical"
+      ? nonTechnicalStages
+      : verificationStagesNeededForRole(roleType, profile?.experienceYears ?? null);
   const currentIndex = stageOrder.indexOf(parsed.data.stageName);
   if (currentIndex < 0) return res.status(400).json({ error: "Invalid stage for this path" });
-  if (parsed.data.stageName === "aptitude_test") {
+  if (parsed.data.stageName === "aptitude_test" || parsed.data.stageName === "cs_fundamentals") {
     if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     await clearAptitudeSession(req.user!.id);
   }
@@ -611,6 +747,18 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
       return res.status(400).json({ error: "Submit answers from the test session, or use the invalidation flag when required." });
     }
 
+    const lastApt = await prisma.aptitudeTestResult.findFirst({
+      where: { userId: req.user!.id },
+      orderBy: { completedAt: "desc" },
+    });
+    if (lastApt && Date.now() - lastApt.completedAt.getTime() < COOLDOWN_CS_FUNDAMENTALS_MS) {
+      return res.status(402).json({
+        code: "COOLDOWN",
+        message: "Wait 24 hours between cognitive assessment attempts.",
+        nextAvailableAt: new Date(lastApt.completedAt.getTime() + COOLDOWN_CS_FUNDAMENTALS_MS).toISOString(),
+      });
+    }
+
     const answersToStore = answersPayload ?? (parsed.data.answers && typeof parsed.data.answers === "object" ? parsed.data.answers : undefined);
     const completedAt = new Date();
     const result = await prisma.aptitudeTestResult.create({
@@ -781,6 +929,28 @@ function pickDsaOfficialSet<T extends { id: string; difficulty: string }>(
   tier: ReturnType<typeof experienceTierFromYears>,
 ): T[] {
   const cfg = dsaTierConfig(tier);
+  const slots = cfg.difficultySlots;
+  if (slots?.length) {
+    const used = new Set<string>();
+    const out: T[] = [];
+    for (const d of slots) {
+      const candidates = shuffleDsaPool(pool.filter((q) => q.difficulty === d && !used.has(q.id)));
+      const pick = candidates[0];
+      if (pick) {
+        out.push(pick);
+        used.add(pick.id);
+      }
+    }
+    if (out.length >= cfg.questionCount) return out.slice(0, cfg.questionCount);
+    const allowed = new Set(cfg.difficulties);
+    const filler = shuffleDsaPool(pool.filter((q) => allowed.has(q.difficulty as "Easy" | "Medium" | "Hard") && !used.has(q.id)));
+    for (const q of filler) {
+      out.push(q);
+      used.add(q.id);
+      if (out.length >= cfg.questionCount) break;
+    }
+    return out.slice(0, cfg.questionCount);
+  }
   const allowed = new Set(cfg.difficulties);
   let candidates = pool.filter((q) => allowed.has(q.difficulty as "Easy" | "Medium" | "Hard"));
   if (candidates.length < cfg.questionCount) {
@@ -860,6 +1030,18 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
   if (parsed.data.invalidated) passed = false;
   else if (isWaiverPayload) passed = true;
   else if (dsaScore != null) passed = dsaScore >= cfgSubmit.passThresholdPercent;
+
+  const lastDsa = await prisma.dsaRoundResult.findFirst({
+    where: { userId },
+    orderBy: { completedAt: "desc" },
+  });
+  if (lastDsa && Date.now() - lastDsa.completedAt.getTime() < COOLDOWN_DSA_MS) {
+    return res.status(402).json({
+      code: "COOLDOWN",
+      message: "Wait 48 hours between DSA round submissions.",
+      nextAvailableAt: new Date(lastDsa.completedAt.getTime() + COOLDOWN_DSA_MS).toISOString(),
+    });
+  }
 
   const result = await prisma.dsaRoundResult.create({
     data: {

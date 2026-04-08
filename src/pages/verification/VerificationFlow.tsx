@@ -22,6 +22,7 @@ const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"))
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
+import PipelineStagePlaceholder from "./stages/PipelineStagePlaceholder";
 import { checkInvalidatedTests, checkCooldownStatus } from "@/utils/recordingUpload";
 
 type StageStatus = 'locked' | 'in_progress' | 'completed' | 'failed' | 'pending_review';
@@ -60,18 +61,29 @@ const VerificationFlow = () => {
   const [certificationLevel, setCertificationLevel] = useState(0);
   const [certificationLabel, setCertificationLabel] = useState("Level 0 - Not Yet Certified");
 
-  const technicalStageOrder = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'];
-  const nonTechnicalStageOrder = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'];
-  const stageOrder = roleType === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+  /** Default until GET /verification/stages returns `stage_order` (v2 track-based). */
+  const legacyTechnicalOrder = [
+    "profile_setup",
+    "aptitude_test",
+    "dsa_round",
+    "expert_interview",
+    "human_expert_interview",
+  ];
+  const [technicalOrderFromApi, setTechnicalOrderFromApi] = useState<string[]>(legacyTechnicalOrder);
+  const nonTechnicalStageOrder = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
+  const stageOrder = roleType === "non_technical" ? nonTechnicalStageOrder : technicalOrderFromApi;
   const LOAD_TIMEOUT_MS = 30000;
 
   const STAGE_LABELS: Record<string, string> = {
-    profile_setup: 'Profile & Resume',
-    aptitude_test: 'Cognitive Assessment',
-    dsa_round: 'DSA Round',
-    expert_interview: 'AI Expert Interview',
-    human_expert_interview: 'Human Expert Interview (5+ years experienced)',
-    non_tech_assignment: 'Assignment',
+    profile_setup: "Profile & Resume",
+    aptitude_test: "Cognitive Assessment",
+    cs_fundamentals: "CS Fundamentals + Aptitude",
+    dsa_round: "DSA Round",
+    ai_skills_interview: "AI Skills Interview",
+    system_design_interview: "System Design Interview",
+    expert_interview: "AI Expert Interview",
+    human_expert_interview: "Human Expert Interview (legacy)",
+    non_tech_assignment: "Assignment",
   };
   const getStageLabel = (stageName: string) => STAGE_LABELS[stageName] ?? stageName.split('_').join(' ');
 
@@ -117,6 +129,7 @@ const VerificationFlow = () => {
           roleType?: string;
           certification_level?: number;
           certification_label?: string;
+          stage_order?: string[];
         }>("/api/verification/stages");
         let data = res.stages;
         const rt = (res.roleType as "technical" | "non_technical") || "technical";
@@ -131,7 +144,15 @@ const VerificationFlow = () => {
               : s
           );
         }
-        let orderEff = rt === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+        let orderEff: string[] =
+          rt === "non_technical"
+            ? nonTechnicalStageOrder
+            : Array.isArray(res.stage_order) && res.stage_order.length > 0
+              ? res.stage_order
+              : legacyTechnicalOrder;
+        if (rt === "technical") {
+          setTechnicalOrderFromApi(orderEff);
+        }
         // Fetch job-title context and experience in background so stage pipeline can render immediately.
         void api
           .get<{ profile: { targetJobTitle?: string; experienceYears?: number } }>("/api/users/job-seeker-profile")
@@ -157,6 +178,7 @@ const VerificationFlow = () => {
             roleType?: string;
             certification_level?: number;
             certification_label?: string;
+            stage_order?: string[];
           }>("/api/verification/stages");
           data = resRefresh.stages ?? [];
           setCertificationLevel(resRefresh.certification_level ?? 0);
@@ -172,7 +194,15 @@ const VerificationFlow = () => {
                 : s
             );
           }
-          orderEff = rtEff === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+          orderEff =
+            rtEff === "non_technical"
+              ? nonTechnicalStageOrder
+              : Array.isArray(resRefresh.stage_order) && resRefresh.stage_order.length > 0
+                ? resRefresh.stage_order
+                : legacyTechnicalOrder;
+          if (rtEff === "technical") {
+            setTechnicalOrderFromApi(orderEff);
+          }
         }
 
         const stagesList = mergeStagesWithOrder(data as VerificationStage[], orderEff);
@@ -186,10 +216,10 @@ const VerificationFlow = () => {
         else if (firstPendingReview) setCurrentStage(firstPendingReview.stage_name);
         else if (firstLocked) setCurrentStage(firstLocked.stage_name);
         else {
-          const lastCompleted = stagesList.filter((s) => s.status === 'completed').pop();
+          const lastCompleted = stagesList.filter((s) => s.status === "completed").pop();
           if (lastCompleted) {
-            const nextIndex = order.indexOf(lastCompleted.stage_name) + 1;
-            if (nextIndex < order.length) setCurrentStage(order[nextIndex]);
+            const nextIndex = orderEff.indexOf(lastCompleted.stage_name) + 1;
+            if (nextIndex < orderEff.length) setCurrentStage(orderEff[nextIndex]!);
           }
         }
 
@@ -219,6 +249,7 @@ const VerificationFlow = () => {
         roleType?: string;
         certification_level?: number;
         certification_label?: string;
+        stage_order?: string[];
       }>("/api/verification/stages");
       let data = res.stages ?? [];
       const rtEff = (res.roleType as "technical" | "non_technical") || rt || roleType;
@@ -232,7 +263,15 @@ const VerificationFlow = () => {
       setRoleType(rtEff);
       setCertificationLevel(res.certification_level ?? 0);
       setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
-      const orderEff = rtEff === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+      const orderEff =
+        rtEff === "non_technical"
+          ? nonTechnicalStageOrder
+          : Array.isArray(res.stage_order) && res.stage_order.length > 0
+            ? res.stage_order
+            : legacyTechnicalOrder;
+      if (rtEff === "technical") {
+        setTechnicalOrderFromApi(orderEff);
+      }
       setStages(mergeStagesWithOrder(data, orderEff));
       setCurrentStage("profile_setup");
     } catch (error: any) {
@@ -276,9 +315,10 @@ const VerificationFlow = () => {
 
   const canRetryStage = (stageName: string) => {
     const status = getStageStatus(stageName);
-    if (status === 'completed' || status === 'failed') return true;
-    if (stageName === 'aptitude_test' && invalidatedTests.aptitude) return true;
-    if (stageName === 'dsa_round' && invalidatedTests.dsa) return true;
+    if (status === "completed" || status === "failed") return true;
+    if ((stageName === "aptitude_test" || stageName === "cs_fundamentals") && invalidatedTests.aptitude)
+      return true;
+    if (stageName === "dsa_round" && invalidatedTests.dsa) return true;
     return false;
   };
 
@@ -320,6 +360,21 @@ const VerificationFlow = () => {
       setCurrentStage("aptitude_test");
       setTestStageStarted((p) => ({ ...p, aptitude_test: true }));
       toast({ title: "Retry enabled", description: "Starting fresh Cognitive Assessment." });
+    } catch (error: any) {
+      toast({ title: "Unable to retry", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const retryCsFundamentalsAndRestart = async () => {
+    try {
+      if (!user || cooldownInfo.aptitude.inCooldown) return;
+      await api.post("/api/verification/stages/reset", { stageName: "cs_fundamentals" });
+      setTestStageStarted((p) => ({ ...p, cs_fundamentals: false }));
+      setRetryingStage("cs_fundamentals");
+      await loadVerificationStages();
+      setCurrentStage("cs_fundamentals");
+      setTestStageStarted((p) => ({ ...p, cs_fundamentals: true }));
+      toast({ title: "Retry enabled", description: "Starting fresh CS Fundamentals assessment." });
     } catch (error: any) {
       toast({ title: "Unable to retry", description: error.message, variant: "destructive" });
     }
@@ -377,8 +432,7 @@ const VerificationFlow = () => {
             roleType={roleType}
             onComplete={() => loadVerificationStages()}
             onContinueToVerification={() => {
-              loadVerificationStages();
-              setCurrentStage(roleType === "non_technical" ? "non_tech_assignment" : "aptitude_test");
+              void loadVerificationStages();
             }}
           />
         );
@@ -513,6 +567,107 @@ const VerificationFlow = () => {
               />
             ) : null}
           </div>
+        );
+      case "cs_fundamentals":
+        return (
+          <div className="space-y-6">
+            {cooldownInfo.aptitude.inCooldown && (
+              <Alert className="border-amber-500/50 bg-amber-500/10">
+                <Timer className="h-4 w-4 text-amber-500" />
+                <AlertTitle className="text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                  Retake unavailable
+                </AlertTitle>
+                <AlertDescription className="text-amber-700 dark:text-amber-300 space-y-3">
+                  <p>
+                    Cooldown active for assessment retakes. See the timer above or return to the dashboard.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/jobseeker")}>
+                    Return to dashboard
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+            {invalidatedTests.aptitude && !cooldownInfo.aptitude.inCooldown && (
+              <Alert variant="destructive" className="border-destructive/50 bg-destructive/10">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle className="flex items-center gap-2">
+                  <RotateCcw className="h-4 w-4" />
+                  Test invalidation
+                </AlertTitle>
+                <AlertDescription>
+                  Your previous attempt was invalidated due to proctoring violations. Retake following all guidelines.
+                </AlertDescription>
+              </Alert>
+            )}
+            {!cooldownInfo.aptitude.inCooldown && !testStageStarted.cs_fundamentals ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: CS Fundamentals + Aptitude</h3>
+                  <p className="text-muted-foreground mb-4">
+                    MCQs covering reasoning, verbal, and CS basics (early-career track). Start when ready.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button variant="secondary" onClick={() => setPracticeDialog("aptitude")}>
+                      <GraduationCap className="h-4 w-4 mr-2" />
+                      Practice
+                    </Button>
+                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, cs_fundamentals: true }))}>
+                      Start CS Fundamentals
+                    </Button>
+                  </div>
+                  <PracticeStageDialog
+                    open={practiceDialog === "aptitude"}
+                    onOpenChange={(o) => !o && setPracticeDialog(null)}
+                    type="aptitude"
+                    testName="CS Fundamentals + Aptitude"
+                  />
+                </CardContent>
+              </Card>
+            ) : !cooldownInfo.aptitude.inCooldown ? (
+              <AptitudeTestStage
+                key={retryingStage === "cs_fundamentals" ? "cs-retry" : "cs-first"}
+                stageStatus={getStageStatus("cs_fundamentals")}
+                stageScore={stages.find((s) => s.stage_name === "cs_fundamentals")?.score}
+                onComplete={() => {
+                  setRetryingStage(null);
+                  void completeAndAdvanceStage("cs_fundamentals");
+                }}
+                onSessionExpired={() => setTestStageStarted((p) => ({ ...p, cs_fundamentals: false }))}
+                onRetry={retryCsFundamentalsAndRestart}
+                isRetry={retryingStage === "cs_fundamentals"}
+                onAfterAptitudeSubmit={() => {
+                  void checkCooldowns();
+                }}
+              />
+            ) : null}
+          </div>
+        );
+      case "ai_skills_interview":
+        return (
+          <PipelineStagePlaceholder
+            title="AI Skills Interview"
+            description="DSA walk-through of your submissions plus resume skill checkups. Mid/senior depth adjusts by experience band."
+            bulletPoints={[
+              "Fresher: pass when DSA understanding ≥ 50 and at least 2 skills verified.",
+              "Later: payment + retake cooldowns per PRD (₹399 / bundle).",
+            ]}
+            onBackToDashboard={handleReturnToDashboard}
+          />
+        );
+      case "system_design_interview":
+        return (
+          <PipelineStagePlaceholder
+            title="System Design Interview"
+            description="30 minutes: 15m LLD and 15m HLD. Required for Level 2 on mid and senior tracks (with AI Skills pass)."
+            bulletPoints={[
+              "LLD: entities, relationships, API contracts, schema.",
+              "HLD: scale, caching, failure modes — calibrated to mid vs senior.",
+            ]}
+            onBackToDashboard={handleReturnToDashboard}
+          />
         );
       case 'dsa_round':
         return (
@@ -708,6 +863,7 @@ const VerificationFlow = () => {
 
   const isInActiveTest =
     (currentStage === "aptitude_test" && testStageStarted.aptitude_test) ||
+    (currentStage === "cs_fundamentals" && testStageStarted.cs_fundamentals) ||
     (currentStage === "dsa_round" && testStageStarted.dsa_round) ||
     (currentStage === "expert_interview" && testStageStarted.expert_interview);
 
@@ -742,12 +898,13 @@ const VerificationFlow = () => {
                 </p>
                 {roleType === "technical" && certificationLevel === 1 && (
                   <p className="text-xs font-medium text-primary mt-2">
-                    You have earned Level 1 (Cognitive Verified). Next: complete the AI Interview for Level 2, then the Human Expert Interview for Level 3.
+                    You have earned Level 1 (Cognitive Verified). Continue with the next stages in order for Level 2 (Skill
+                    Passport) and Level 3 (Elite Verified).
                   </p>
                 )}
               </div>
               <Progress value={calculateProgress()} className="h-3 mb-6" />
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                 {stageOrder.map((stage) => (
                   <div
                     key={stage}

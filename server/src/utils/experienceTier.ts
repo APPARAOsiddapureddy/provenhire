@@ -26,28 +26,33 @@ export function dsaTierConfig(tier: ExperienceTier): {
   passThresholdPercent: number;
   timeLimitMinutes: number;
   difficulties: ("Easy" | "Medium" | "Hard")[];
+  /** When set, pick one official question per slot in order (PRD §7 difficulty mix). */
+  difficultySlots?: ("Easy" | "Medium" | "Hard")[];
 } {
   switch (tier) {
     case "fresher":
       return {
-        questionCount: 3,
+        questionCount: 2,
         passThresholdPercent: 50,
         timeLimitMinutes: 60,
         difficulties: ["Easy", "Medium"],
+        difficultySlots: ["Easy", "Medium"],
       };
     case "mid":
       return {
         questionCount: 3,
-        passThresholdPercent: 60,
+        passThresholdPercent: 55,
         timeLimitMinutes: 75,
-        difficulties: ["Medium", "Hard"],
+        difficulties: ["Easy", "Medium", "Hard"],
+        difficultySlots: ["Easy", "Medium", "Hard"],
       };
     default:
       return {
-        questionCount: 2,
-        passThresholdPercent: 65,
+        questionCount: 3,
+        passThresholdPercent: 60,
         timeLimitMinutes: 90,
-        difficulties: ["Hard"],
+        difficulties: ["Medium", "Hard"],
+        difficultySlots: ["Medium", "Hard", "Hard"],
       };
   }
 }

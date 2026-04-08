@@ -1,10 +1,24 @@
 import { Router } from "express";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
 import { integrityScoreFromViolationStats } from "../services/proctoringViolationCount.service.js";
 import { getAptitudeScoreZeroToHundred, getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
+import {
+  filterResumeForRecruiter,
+  getFullProvenhireResumeForCandidate,
+  syncProvenhireResumeFromSources,
+} from "../services/provenhireResume.service.js";
+import {
+  activePublishedJobLimit,
+  contactLimit,
+  ensureRecruiterUsageRow,
+  jdInterviewMonthlyAllowance,
+  normalizeSubscriptionTier,
+  profileViewLimit,
+} from "../utils/recruiterSubscription.js";
 
 export const usersRouter = Router();
 
@@ -182,6 +196,59 @@ usersRouter.get("/me/candidate-profile", requireAuth, async (req: AuthedRequest,
   });
 });
 
+usersRouter.get("/me/provenhire-resume", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "jobseeker") {
+    return res.status(403).json({ error: "Only job seekers have a ProvenHire resume." });
+  }
+  const full = await getFullProvenhireResumeForCandidate(req.user!.id);
+  if (!full) return res.status(404).json({ error: "Profile not found" });
+  res.json({ resume: full });
+});
+
+usersRouter.post("/me/provenhire-resume/review/approve", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "jobseeker") {
+    return res.status(403).json({ error: "Only job seekers can approve project review." });
+  }
+  await syncProvenhireResumeFromSources(req.user!.id);
+  const row = await prisma.provenHireResume.findUnique({ where: { userId: req.user!.id } });
+  if (!row) return res.status(404).json({ error: "Resume not found" });
+  const projects = Array.isArray(row.projects) ? [...(row.projects as object[])] : [];
+  for (const p of projects) {
+    if (p && typeof p === "object" && !Array.isArray(p)) {
+      (p as Record<string, unknown>).pendingReview = false;
+    }
+  }
+  await prisma.provenHireResume.update({
+    where: { userId: req.user!.id },
+    data: {
+      projects: projects as Prisma.InputJsonValue,
+      pendingCandidateReview: false,
+    },
+  });
+  res.json({ ok: true });
+});
+
+usersRouter.post("/me/provenhire-resume/change-request", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "jobseeker") {
+    return res.status(403).json({ error: "Only job seekers can submit change requests." });
+  }
+  const schema = z.object({
+    section: z.string().min(1),
+    note: z.string().min(1).max(4000),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const request = await prisma.resumeChangeRequest.create({
+    data: {
+      userId: req.user!.id,
+      section: parsed.data.section,
+      note: parsed.data.note,
+      status: "pending",
+    },
+  });
+  res.json({ request });
+});
+
 usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, res) => {
   try {
   const schema = z.object({
@@ -274,6 +341,7 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
       create: { userId: req.user!.id, email: user?.email ?? null, ...data },
       update: data,
     });
+    void syncProvenhireResumeFromSources(req.user!.id).catch(() => {});
     return res.json({ profile });
   } catch (e) {
     console.error("[job-seeker-profile]", e);
@@ -285,6 +353,36 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
 usersRouter.get("/recruiter-profile", requireAuth, async (req: AuthedRequest, res) => {
   const profile = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
   res.json({ profile });
+});
+
+/** PRD §3 — limits + month-to-date usage for recruiter dashboard / upgrade prompts */
+usersRouter.get("/me/recruiter-subscription", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "recruiter") {
+    return res.status(403).json({ error: "Recruiters only" });
+  }
+  const profile = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
+  if (!profile) {
+    return res.status(404).json({ error: "Recruiter profile not found" });
+  }
+  const usage = await ensureRecruiterUsageRow(profile.id);
+  const tier = normalizeSubscriptionTier(usage);
+  res.json({
+    subscriptionTier: tier,
+    limits: {
+      activePublishedJobLimit: activePublishedJobLimit(tier),
+      profileViewLimit: profileViewLimit(tier),
+      contactLimit: contactLimit(tier),
+      jdInterviewMonthlyAllowance: jdInterviewMonthlyAllowance(tier),
+    },
+    used: {
+      profileViewCountMonth: usage.profileViewCountMonth,
+      contactCountMonth: usage.contactCountMonth,
+      jdInterviewCountMonth: usage.jdInterviewCountMonth,
+      shortlistCountMonth: usage.shortlistCountMonth,
+      activeJobCount: usage.activeJobCount,
+    },
+    periodStart: usage.periodStart.toISOString(),
+  });
 });
 
 const GENERIC_EMAIL_DOMAINS = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "live.com", "ymail.com", "rediffmail.com"];
@@ -467,6 +565,69 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
     profiles = profiles.filter((p) => (p.certification_level ?? 0) >= 3);
   }
   res.json({ profiles });
+});
+
+/** ProvenHire Resume for recruiters (tier-filtered). Consumes one profile view credit (PRD §5). */
+usersRouter.get("/candidates/:profileId/resume", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "recruiter" && req.user!.role !== "admin") {
+    return res.status(403).json({ error: "Recruiters only" });
+  }
+  const profileId = req.params.profileId;
+  const profile = await prisma.jobSeekerProfile.findUnique({ where: { id: profileId } });
+  if (!profile) return res.status(404).json({ error: "Candidate not found" });
+
+  let resumeTier: "free" | "paid" = "paid";
+  let recruiterIdForUsage: string | null = null;
+  let consumeProfileViewCredit = false;
+
+  if (req.user!.role === "recruiter") {
+    const recruiter = await prisma.recruiterProfile.findUnique({
+      where: { userId: req.user!.id },
+      include: { usage: true },
+    });
+    if (!recruiter) return res.status(403).json({ error: "Complete your recruiter profile first." });
+    recruiterIdForUsage = recruiter.id;
+    const usageRow = recruiter.usage ?? (await ensureRecruiterUsageRow(recruiter.id));
+    const sub = normalizeSubscriptionTier(usageRow);
+    resumeTier = sub === "free" ? "free" : "paid";
+    const limit = profileViewLimit(sub);
+
+    const priorView = await prisma.recruiterCandidateResumeView.findUnique({
+      where: {
+        recruiterId_candidateUserId: { recruiterId: recruiter.id, candidateUserId: profile.userId },
+      },
+    });
+
+    if (!priorView) {
+      if (limit !== Number.MAX_SAFE_INTEGER && usageRow.profileViewCountMonth >= limit) {
+        return res.status(402).json({
+          error:
+            "You have used all ProvenHire full-profile views for this period. Upgrade your recruiter plan for more views.",
+          code: "PROFILE_VIEW_LIMIT",
+          used: usageRow.profileViewCountMonth,
+          limit,
+        });
+      }
+      consumeProfileViewCredit = true;
+    }
+  }
+
+  const full = await getFullProvenhireResumeForCandidate(profile.userId);
+  if (!full) return res.status(404).json({ error: "Resume not available" });
+
+  if (recruiterIdForUsage && consumeProfileViewCredit) {
+    await prisma.$transaction([
+      prisma.recruiterCandidateResumeView.create({
+        data: { recruiterId: recruiterIdForUsage, candidateUserId: profile.userId },
+      }),
+      prisma.recruiterUsage.update({
+        where: { recruiterId: recruiterIdForUsage },
+        data: { profileViewCountMonth: { increment: 1 } },
+      }),
+    ]);
+  }
+
+  res.json({ resume: filterResumeForRecruiter(full, resumeTier) });
 });
 
 /** Single candidate profile for recruiter detail view */

@@ -21,6 +21,7 @@ import { expertRouter } from "./routes/expert.js";
 import { cronRouter } from "./routes/cron.js";
 import { settingsRouter } from "./routes/settings.js";
 import { humanInterviewRouter } from "./routes/humanInterview.js";
+import { publicApiRouter } from "./routes/public.js";
 
 export function createApp() {
   const app = express();
@@ -164,6 +165,7 @@ export function createApp() {
         "/api/expert",
         "/api/settings",
         "/api/human-interview",
+        "/api/public",
       ],
     });
   });
@@ -187,6 +189,7 @@ export function createApp() {
   app.use("/api/expert", expertRouter);
   app.use("/api/cron", cronRouter);
   app.use("/api/settings", settingsRouter);
+  app.use("/api/public", publicApiRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Route not found" });

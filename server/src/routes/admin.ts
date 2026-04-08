@@ -31,6 +31,8 @@ import {
   sendHumanInterviewApprovedEmail,
   sendHumanInterviewRejectedEmail,
 } from "../services/resend.js";
+import { grantRetakeCredits } from "../services/candidateRetake.service.js";
+import { ensureRecruiterUsageRow } from "../utils/recruiterSubscription.js";
 
 function csvEscape(s: string | null | undefined): string {
   if (s == null || s === "") return "";
@@ -188,6 +190,54 @@ adminRouter.patch("/recruiters/:id/verification", async (req: AuthedRequest, res
     },
   });
   res.json({ ok: true, verificationStatus: parsed.data.status });
+});
+
+/** PRD §7 — manual UPI: grant candidate retake ledger credits after admin verification */
+adminRouter.post("/users/:id/grant-retake", async (req: AuthedRequest, res) => {
+  const schema = z.object({ packageType: z.enum(["single", "bundle"]) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", expected: { packageType: "single | bundle" } });
+  }
+  const { id: userId } = req.params;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+  try {
+    await grantRetakeCredits(userId, parsed.data.packageType);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[admin/users/grant-retake]", e);
+    res.status(500).json({ error: "Failed to grant retake credits" });
+  }
+});
+
+/** PRD §7 — set recruiter subscription tier after manual payment verification */
+adminRouter.patch("/recruiters/:id/plan", async (req: AuthedRequest, res) => {
+  const schema = z.object({ subscriptionTier: z.enum(["free", "starter", "growth"]) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid payload",
+      expected: { subscriptionTier: "free | starter | growth" },
+    });
+  }
+  const { id: recruiterProfileId } = req.params;
+  const profile = await prisma.recruiterProfile.findUnique({ where: { id: recruiterProfileId } });
+  if (!profile) {
+    return res.status(404).json({ error: "Recruiter profile not found" });
+  }
+  const tier = parsed.data.subscriptionTier;
+  await ensureRecruiterUsageRow(recruiterProfileId);
+  await prisma.recruiterUsage.update({
+    where: { recruiterId: recruiterProfileId },
+    data: {
+      subscriptionTier: tier,
+      planType: tier === "free" ? "free" : "paid",
+    },
+  });
+  res.json({ ok: true, subscriptionTier: tier });
 });
 
 /** All jobs (draft + published) with poster user — `createdAt` is the job posted timestamp */

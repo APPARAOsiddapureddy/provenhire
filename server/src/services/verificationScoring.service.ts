@@ -1,4 +1,6 @@
 import { prisma } from "../config/prisma.js";
+import { isVerificationPipelineV2 } from "../constants/verificationPipeline.js";
+import { experienceTierFromYears } from "../utils/experienceTier.js";
 
 export type QualificationBand =
   | "Exceptional"
@@ -323,7 +325,7 @@ export async function computeProvenhireCertification(userId: string): Promise<{
 }> {
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
-    select: { roleType: true },
+    select: { roleType: true, experienceYears: true },
   });
   const roleType = profile?.roleType === "non_technical" ? "non_technical" : "technical";
 
@@ -352,26 +354,60 @@ export async function computeProvenhireCertification(userId: string): Promise<{
   });
   const done = (n: string) => stages.some((s) => s.stageName === n && s.status === "completed");
 
-  if (done("human_expert_interview")) {
-    const ok = await prisma.humanInterviewSession.findFirst({
-      where: { userId, evaluationPass: true },
-      select: { id: true },
-    });
-    if (ok) return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
+  if (!isVerificationPipelineV2()) {
+    if (done("human_expert_interview")) {
+      const ok = await prisma.humanInterviewSession.findFirst({
+        where: { userId, evaluationPass: true },
+        select: { id: true },
+      });
+      if (ok) return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
+    }
+
+    if (done("expert_interview")) {
+      try {
+        const card = await buildTechnicalScorecard(userId);
+        if (card.shortlisted) {
+          return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (done("profile_setup") && done("aptitude_test") && done("dsa_round")) {
+      return { certificationLevel: "L1", certificationLabel: "Cognitive Verified" };
+    }
+
+    return { certificationLevel: null, certificationLabel: null };
   }
 
+  /** v2.0 pipeline — PRD 1 (April 2026): L1 DSA, L2 AI Skills (+ System Design for mid/senior), L3 AI Expert when interview row is completed. */
+  const tier = experienceTierFromYears(profile?.experienceYears);
+
   if (done("expert_interview")) {
-    try {
-      const card = await buildTechnicalScorecard(userId);
-      if (card.shortlisted) {
-        return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
-      }
-    } catch {
-      /* ignore */
+    const latest = await prisma.interview.findFirst({
+      where: {
+        userId,
+        status: "completed",
+        interviewType: { in: ["ai_expert", "jd_interview"] },
+      },
+      orderBy: { completedAt: "desc" },
+      select: { id: true },
+    });
+    if (latest) {
+      return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
     }
   }
 
-  if (done("profile_setup") && done("aptitude_test") && done("dsa_round")) {
+  if (tier === "fresher") {
+    if (done("ai_skills_interview")) {
+      return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
+    }
+  } else if (done("ai_skills_interview") && done("system_design_interview")) {
+    return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
+  }
+
+  if (done("dsa_round")) {
     return { certificationLevel: "L1", certificationLabel: "Cognitive Verified" };
   }
 

@@ -12,8 +12,47 @@ import { getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
 import { integrityScoreFromViolationStats } from "../services/proctoringViolationCount.service.js";
 import { computeProvenhireCertification } from "../services/verificationScoring.service.js";
 import { experienceTierFromYears, salaryCapLpaForTier } from "../utils/experienceTier.js";
+import { computeJobRecommendations } from "../services/jobRecommendations.service.js";
+import {
+  activePublishedJobLimit,
+  ensureRecruiterUsageRow,
+  normalizeSubscriptionTier,
+  profileViewLimit,
+} from "../utils/recruiterSubscription.js";
 
 export const jobsRouter = Router();
+
+const PUBLISH_EMPLOYMENT_TYPES = new Set(["full-time", "part-time", "contract", "internship"]);
+
+function publishedJobFieldErrors(input: {
+  description: string;
+  location: string | null | undefined;
+  requiredSkills: string[];
+  experienceRequired: string | null | undefined;
+  jobType: string | null | undefined;
+}): Record<string, string> | null {
+  const fieldErrors: Record<string, string> = {};
+  if (input.description.trim().length < 200) {
+    fieldErrors.description = "Job description must be at least 200 characters when publishing.";
+  }
+  if (input.requiredSkills.length < 2) {
+    fieldErrors.requiredSkills = "Add at least 2 required skills (max 10).";
+  }
+  if (input.requiredSkills.length > 10) {
+    fieldErrors.requiredSkills = "Maximum 10 required skills.";
+  }
+  if (!input.experienceRequired?.trim()) {
+    fieldErrors.experienceRequired = "Select experience level required for this role.";
+  }
+  if (!input.location?.trim()) {
+    fieldErrors.location = "Location is required when publishing (city or Remote).";
+  }
+  const jt = (input.jobType ?? "").trim().toLowerCase();
+  if (!jt || !PUBLISH_EMPLOYMENT_TYPES.has(jt)) {
+    fieldErrors.jobType = "Select employment type (Full-time, Part-time, Contract, or Internship).";
+  }
+  return Object.keys(fieldErrors).length ? fieldErrors : null;
+}
 
 function normalizeJobStatus(status: string | null | undefined): string {
   // New semantics: "draft" | "published"
@@ -185,6 +224,8 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
     companyContext: z.string().nullish(),
     status: z.enum(["draft", "published", "active", "closed"]).optional(),
     minimumCertificationLevel: z.number().int().min(1).max(3).optional(),
+    requiredSkills: z.array(z.string()).max(10).optional(),
+    experienceRequired: z.enum(["fresher", "mid", "senior"]).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -200,8 +241,11 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
   }
 
   const normalizedTrack = (parsed.data.jobTrack ?? "tech") as "tech" | "non_technical";
-  const effectiveMinLevel = getEffectiveMinimumCertificationLevel(normalizedTrack, parsed.data.salaryRange ?? null);
+  const salaryGate = getEffectiveMinimumCertificationLevel(normalizedTrack, parsed.data.salaryRange ?? null);
+  const requestedMin = parsed.data.minimumCertificationLevel ?? 1;
+  const effectiveMinLevel = Math.max(requestedMin, salaryGate);
   const normalizedStatus = normalizeJobStatus(parsed.data.status);
+  const requiredSkillList = (parsed.data.requiredSkills ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
 
   const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
   if (!recruiter) {
@@ -220,19 +264,86 @@ jobsRouter.post("/", requireAuth, async (req: AuthedRequest, res) => {
       verificationStatus: recruiter.verificationStatus,
     });
   }
+
+  if (normalizedStatus === "published") {
+    const pe = publishedJobFieldErrors({
+      description: parsed.data.description,
+      location: parsed.data.location ?? null,
+      requiredSkills: requiredSkillList,
+      experienceRequired: parsed.data.experienceRequired ?? null,
+      jobType: parsed.data.jobType ?? null,
+    });
+    if (pe) {
+      const firstMsg = Object.values(pe)[0] || "Invalid job for publishing.";
+      return res.status(400).json({ error: firstMsg, fieldErrors: pe });
+    }
+    const usage = await ensureRecruiterUsageRow(recruiter.id);
+    const tier = normalizeSubscriptionTier(usage);
+    const publishedCount = await prisma.job.count({
+      where: { postedById: recruiter.id, status: { in: ["published", "active"] } },
+    });
+    const lim = activePublishedJobLimit(tier);
+    if (publishedCount >= lim) {
+      return res.status(403).json({
+        error: `Your plan allows ${lim === Number.MAX_SAFE_INTEGER ? "unlimited" : lim} active job listing(s). Upgrade to post more.`,
+        code: "JOB_LIMIT",
+        tier,
+      });
+    }
+  }
+
+  const { requiredSkills: _rs, experienceRequired: _er, minimumCertificationLevel: _min, ...restCreate } = parsed.data;
   const job = await prisma.job.create({
     data: {
-      ...parsed.data,
+      ...restCreate,
       jobTrack: normalizedTrack,
       assignment: parsed.data.assignment ?? null,
       roleCategory: parsed.data.roleCategory ?? null,
       companyContext: parsed.data.companyContext ?? null,
       minimumCertificationLevel: effectiveMinLevel,
+      requiredSkills: requiredSkillList.length ? requiredSkillList : undefined,
+      experienceRequired: parsed.data.experienceRequired ?? null,
       status: normalizedStatus,
       postedById: recruiter?.id ?? null,
     },
   });
   res.json({ job });
+});
+
+jobsRouter.get("/:id/recommendations", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "recruiter" && req.user!.role !== "admin") {
+    return res.status(403).json({ error: "Recruiters only" });
+  }
+  const job = await prisma.job.findUnique({ where: { id: req.params.id } });
+  if (!job) return res.status(404).json({ error: "Job not found" });
+
+  if (req.user!.role === "recruiter") {
+    const recruiter = await prisma.recruiterProfile.findUnique({
+      where: { userId: req.user!.id },
+      include: { usage: true },
+    });
+    if (!recruiter) return res.status(403).json({ error: "Recruiter profile required" });
+    if (job.postedById && job.postedById !== recruiter.id) {
+      return res.status(403).json({ error: "You can only view recommendations for your own jobs." });
+    }
+    const usageRow = recruiter.usage ?? (await ensureRecruiterUsageRow(recruiter.id));
+    const subscriptionTier = normalizeSubscriptionTier(usageRow);
+    const result = await computeJobRecommendations({ jobId: job.id, subscriptionTier });
+    if ("error" in result) return res.status(404).json({ error: result.error });
+    const pvLimit = profileViewLimit(subscriptionTier);
+    return res.json({
+      ...result,
+      subscriptionTier,
+      limits: {
+        profileViewsUsed: usageRow.profileViewCountMonth,
+        profileViewsMonthly: pvLimit === Number.MAX_SAFE_INTEGER ? null : pvLimit,
+      },
+    });
+  }
+
+  const result = await computeJobRecommendations({ jobId: job.id, subscriptionTier: "growth" });
+  if ("error" in result) return res.status(404).json({ error: result.error });
+  return res.json(result);
 });
 
 jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
@@ -478,8 +589,52 @@ jobsRouter.post("/:id/status", requireAuth, async (req: AuthedRequest, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const normalizedStatus = normalizeJobStatus(parsed.data.status);
+  const jobId = req.params.id;
+  const existing = await prisma.job.findUnique({ where: { id: jobId } });
+  if (!existing) return res.status(404).json({ error: "Job not found" });
+
+  if (req.user!.role === "recruiter") {
+    const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
+    if (!recruiter || existing.postedById !== recruiter.id) {
+      return res.status(403).json({ error: "Not authorized to update this job" });
+    }
+    const prevStatus = normalizeJobStatus(existing.status);
+    if (normalizedStatus === "published") {
+      const skillList = Array.isArray(existing.requiredSkills)
+        ? (existing.requiredSkills as unknown[]).map((s) => String(s).trim()).filter((s) => s.length > 0)
+        : [];
+      const pe = publishedJobFieldErrors({
+        description: existing.description ?? "",
+        location: existing.location,
+        requiredSkills: skillList,
+        experienceRequired: existing.experienceRequired,
+        jobType: existing.jobType ?? null,
+      });
+      if (pe) {
+        return res.status(400).json({ error: Object.values(pe)[0], fieldErrors: pe });
+      }
+      if (prevStatus !== "published") {
+        const usage = await ensureRecruiterUsageRow(recruiter.id);
+        const tier = normalizeSubscriptionTier(usage);
+        const publishedCount = await prisma.job.count({
+          where: { postedById: recruiter.id, status: { in: ["published", "active"] } },
+        });
+        const lim = activePublishedJobLimit(tier);
+        if (publishedCount >= lim) {
+          return res.status(403).json({
+            error: `Your plan allows ${lim === Number.MAX_SAFE_INTEGER ? "unlimited" : lim} active job listing(s). Upgrade to post more.`,
+            code: "JOB_LIMIT",
+            tier,
+          });
+        }
+      }
+    }
+  } else if (req.user!.role !== "admin") {
+    return res.status(403).json({ error: "Not authorized" });
+  }
+
   const job = await prisma.job.update({
-    where: { id: req.params.id },
+    where: { id: jobId },
     data: { status: normalizedStatus } as any,
   });
   res.json({ job });
@@ -498,6 +653,9 @@ jobsRouter.patch("/:id", requireAuth, async (req: AuthedRequest, res) => {
     roleCategory: z.string().nullish().optional(),
     companyContext: z.string().nullish().optional(),
     status: z.enum(["draft", "published", "active", "closed"]).optional(),
+    minimumCertificationLevel: z.number().int().min(1).max(3).optional(),
+    requiredSkills: z.array(z.string()).max(10).optional(),
+    experienceRequired: z.enum(["fresher", "mid", "senior"]).optional(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -528,7 +686,56 @@ jobsRouter.patch("/:id", requireAuth, async (req: AuthedRequest, res) => {
 
   const nextJobTrack = (parsed.data.jobTrack ?? job.jobTrack ?? "tech") as "tech" | "non_technical";
   const nextSalaryRange = (parsed.data.salaryRange ?? job.salaryRange ?? null) as string | null;
-  const effectiveMinLevel = getEffectiveMinimumCertificationLevel(nextJobTrack, nextSalaryRange);
+  const salaryGate = getEffectiveMinimumCertificationLevel(nextJobTrack, nextSalaryRange);
+  const requestedMin = parsed.data.minimumCertificationLevel ?? job.minimumCertificationLevel ?? 1;
+  const effectiveMinLevel = Math.max(requestedMin, salaryGate);
+
+  const nextDescription = parsed.data.description ?? job.description ?? "";
+  const nextLocation = parsed.data.location !== undefined ? parsed.data.location : job.location;
+  let nextSkillList: string[];
+  if (parsed.data.requiredSkills !== undefined) {
+    nextSkillList = parsed.data.requiredSkills.map((s) => s.trim()).filter((s) => s.length > 0);
+  } else if (Array.isArray(job.requiredSkills)) {
+    nextSkillList = (job.requiredSkills as unknown[]).map((s) => String(s).trim()).filter((s) => s.length > 0);
+  } else {
+    nextSkillList = [];
+  }
+  const nextExperienceRequired =
+    parsed.data.experienceRequired !== undefined ? parsed.data.experienceRequired : job.experienceRequired;
+  const nextJobType = parsed.data.jobType !== undefined ? parsed.data.jobType : job.jobType;
+
+  const prevStatus = normalizeJobStatus(job.status);
+  const nextStatus =
+    parsed.data.status !== undefined ? normalizeJobStatus(parsed.data.status) : prevStatus;
+
+  if (nextStatus === "published") {
+    const pe = publishedJobFieldErrors({
+      description: nextDescription,
+      location: nextLocation,
+      requiredSkills: nextSkillList,
+      experienceRequired: nextExperienceRequired,
+      jobType: nextJobType ?? null,
+    });
+    if (pe) {
+      const firstMsg = Object.values(pe)[0] || "Invalid job for publishing.";
+      return res.status(400).json({ error: firstMsg, fieldErrors: pe });
+    }
+    if (prevStatus !== "published") {
+      const usage = await ensureRecruiterUsageRow(recruiter.id);
+      const tier = normalizeSubscriptionTier(usage);
+      const publishedCount = await prisma.job.count({
+        where: { postedById: recruiter.id, status: { in: ["published", "active"] } },
+      });
+      const lim = activePublishedJobLimit(tier);
+      if (publishedCount >= lim) {
+        return res.status(403).json({
+          error: `Your plan allows ${lim === Number.MAX_SAFE_INTEGER ? "unlimited" : lim} active job listing(s). Upgrade to post more.`,
+          code: "JOB_LIMIT",
+          tier,
+        });
+      }
+    }
+  }
 
   const data: Record<string, unknown> = {};
 
@@ -542,10 +749,15 @@ jobsRouter.patch("/:id", requireAuth, async (req: AuthedRequest, res) => {
   if (parsed.data.assignment !== undefined) data.assignment = parsed.data.assignment;
   if (parsed.data.roleCategory !== undefined) data.roleCategory = parsed.data.roleCategory;
   if (parsed.data.companyContext !== undefined) data.companyContext = parsed.data.companyContext;
+  if (parsed.data.requiredSkills !== undefined) {
+    data.requiredSkills = nextSkillList.length ? nextSkillList : null;
+  }
+  if (parsed.data.experienceRequired !== undefined) {
+    data.experienceRequired = parsed.data.experienceRequired;
+  }
 
-  // Policy-controlled field: always recompute minimumCertificationLevel for the updated track.
   data.minimumCertificationLevel = effectiveMinLevel;
-  if (parsed.data.status !== undefined) data.status = normalizeJobStatus(parsed.data.status);
+  if (parsed.data.status !== undefined) data.status = nextStatus;
 
   const updated = await prisma.job.update({
     where: { id: jobId },
@@ -632,11 +844,13 @@ jobsRouter.get("/recruiter/analytics/summary", requireAuth, async (req: AuthedRe
   if (!recruiter) {
     return res.status(403).json({ error: "Recruiter profile required" });
   }
-  if (recruiter.usage?.planType !== "paid") {
+  const usageRow = recruiter.usage ?? (await ensureRecruiterUsageRow(recruiter.id));
+  const subTier = normalizeSubscriptionTier(usageRow);
+  if (subTier !== "growth") {
     return res.status(403).json({
-      error: "Analytics is available on the paid recruiter plan.",
+      error: "Analytics is available on the Growth recruiter plan.",
       code: "RECRUITER_PLAN_ANALYTICS",
-      planType: recruiter.usage?.planType ?? "free",
+      subscriptionTier: subTier,
     });
   }
 

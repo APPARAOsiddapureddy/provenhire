@@ -33,6 +33,7 @@ import {
 import { getPreCachedFillerMp3, getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
 import { transcribeAudio, whisperOpenAIErrorMessage } from "../services/whisper.service.js";
 import { interviewTurnLimiter, interviewTranscribeLimiter } from "../middleware/interviewRateLimit.js";
+import { gateExpertInterviewStart } from "../services/candidateRetake.service.js";
 
 export const interviewRouter = Router();
 
@@ -228,11 +229,17 @@ interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: Aut
 
     const { jobRole, experienceLevel = "mid" } = parsed.data;
 
+    const retakeGate = await gateExpertInterviewStart(req.user!.id);
+    if (!retakeGate.ok) {
+      return res.status(retakeGate.status).json(retakeGate.body);
+    }
+
     const interview = await prisma.interview.create({
       data: {
         userId: req.user!.id,
         jobRole,
         experienceLevel,
+        interviewType: "ai_expert",
         questionPlan: [],
         questionIndex: 0,
         status: "in_progress",
@@ -408,12 +415,18 @@ interviewRouter.post("/start", requireAuth, requireJobSeeker, async (req: Authed
     const { jobRole } = parsed.data;
     const experienceLevel = parsed.data.experienceLevel ?? "mid";
 
+    const retakeGate = await gateExpertInterviewStart(req.user!.id);
+    if (!retakeGate.ok) {
+      return res.status(retakeGate.status).json(retakeGate.body);
+    }
+
     const plan = await buildQuestionPlan(jobRole, experienceLevel);
     const interview = await prisma.interview.create({
       data: {
         userId: req.user!.id,
         jobRole,
         experienceLevel,
+        interviewType: "ai_expert",
         questionPlan: plan as object[],
         questionIndex: 0,
         status: "in_progress",

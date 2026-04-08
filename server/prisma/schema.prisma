@@ -49,6 +49,9 @@ model User {
   interviewerProfile  Interviewer?
   skillVerifications  CandidateSkillVerification[]
   preferences         UserPreferences?
+  provenHireResume    ProvenHireResume?
+  resumeChangeRequests ResumeChangeRequest[]
+  retakeCredits        CandidateRetakeLedger[]
 }
 
 model JobSeekerProfile {
@@ -143,21 +146,57 @@ model RecruiterProfile {
   user User @relation(fields: [userId], references: [id])
   jobs Job[]
   usage RecruiterUsage?
+  candidateResumeViews RecruiterCandidateResumeView[]
 }
 
 /// Freemium / plan usage (PRD §9). Set `periodEnd` in app when opening or rolling a monthly window.
 model RecruiterUsage {
   id                    String   @id @default(uuid())
   recruiterId           String   @unique
-  planType              String   @default("free") // free | paid
+  planType              String   @default("free") // free | paid (legacy)
+  /// free | starter | growth — controls discovery locks + profile view caps (PRD v2.0)
+  subscriptionTier      String   @default("free")
   shortlistCountMonth   Int      @default(0)
   profileViewCountMonth Int      @default(0)
+  /// PRD §3 — Express Interest sends per calendar month.
+  contactCountMonth     Int      @default(0)
+  /// PRD §3 — JD AI interviews approved+started per month (when wired).
+  jdInterviewCountMonth Int      @default(0)
   activeJobCount        Int      @default(0)
   periodStart           DateTime @default(now())
   periodEnd             DateTime?
   updatedAt             DateTime @updatedAt
 
   recruiter RecruiterProfile @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+}
+
+/// Paid retake credits (₹399 single / ₹649 bundle). Admin grants until Razorpay (PRD §7).
+model CandidateRetakeLedger {
+  id           String    @id @default(uuid())
+  userId       String
+  packageType  String // single | bundle (audit)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  consumedFor  String? // e.g. expert_interview
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, consumedAt])
+}
+
+/// First full ProvenHire Resume view per recruiter–candidate pair consumes a profile view credit (PRD §5 / §9).
+model RecruiterCandidateResumeView {
+  id              String   @id @default(uuid())
+  recruiterId     String
+  candidateUserId String
+  createdAt       DateTime @default(now())
+
+  recruiter RecruiterProfile @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+
+  @@unique([recruiterId, candidateUserId])
+  @@index([recruiterId])
 }
 
 model Job {
@@ -176,6 +215,10 @@ model Job {
   roleCategory   String?  // e.g. Marketing, Sales, HR
   companyContext String?  // Brief company description for assignment context
   minimumCertificationLevel Int @default(1)
+  /// Required skills for matching + JD interview (PRD v2.0): string[], min 2 max 10 when published
+  requiredSkills Json?
+  /// fresher | mid | senior (PRD recruiter discovery)
+  experienceRequired String?
   createdAt      DateTime @default(now())
   postedById     String?
 
@@ -247,6 +290,10 @@ model CandidateSkillVerification {
   skillType   SkillType
   status      SkillVerificationStatus
   score       Int?
+  /// 0–100 model confidence for verified skills (AI Skills Interview).
+  confidenceScore Float?
+  /// Stage that produced verification, e.g. ai_skills_interview.
+  verifiedInStage   String?
   completedAt DateTime?
   expiresAt   DateTime?
   createdAt   DateTime               @default(now())
@@ -348,6 +395,14 @@ model Interview {
   id            String   @id @default(uuid())
   userId        String
   jobRole       String
+  /// ai_skills | system_design | ai_expert | jd_interview
+  interviewType String   @default("ai_expert")
+  /// True once DSA submissions were loaded as context (AI Skills Interview).
+  dsaContextLoaded Boolean @default(false)
+  /// System design session only — low-level design score (0–100).
+  lldScore      Float?
+  /// System design session only — high-level design score (0–100).
+  hldScore      Float?
   /// junior | mid | senior — AI interview calibration + DB question selection
   experienceLevel String?
   totalScore    Int?
@@ -746,6 +801,46 @@ model ProctoringEventCount {
   @@unique([sessionId, eventType])
   @@index([sessionId])
   @@index([userId])
+}
+
+/// Evidence-based ProvenHire Resume (PRD v2). Synced from verification + interviews; not freely editable by candidates.
+model ProvenHireResume {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  /// L0 | L1 | L2 | L3 (string for badge display)
+  certificationLevel      String   @default("L0")
+  certificationDate       DateTime?
+  verifiedSkills          Json     @default("[]")
+  /// [{ skill, source: 'resume' | ... }]
+  claimedSkills           Json     @default("[]")
+  projects                Json     @default("[]")
+  assessmentScores        Json     @default("{}")
+  createdAt               DateTime @default(now())
+  lastUpdatedAt           DateTime @updatedAt
+  isPublic                Boolean  @default(false)
+  pendingCandidateReview  Boolean  @default(false)
+  /// Auto-generated share slug: firstname-last4ofId (unique).
+  shareableHandle         String   @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([shareableHandle])
+}
+
+/// Candidate requests edits to restricted resume sections; admin reviews (PRD v2).
+model ResumeChangeRequest {
+  id        String   @id @default(uuid())
+  userId    String
+  section   String
+  note      String   @db.Text
+  status    String   @default("pending") // pending | approved | rejected
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
 }
 
 /// Cross-role settings: notifications, email alerts, etc.

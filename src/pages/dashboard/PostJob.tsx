@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Briefcase, ArrowLeft, Upload, Sparkles, FileText, Loader2, X, Eye, MapPin, Clock, DollarSign, Calendar, Wand2 } from "lucide-react";
+import { PROVENHIRE_SKILL_TAGS, isProvenhireSkillTag } from "@/data/provenhireSkillTags";
 
 const PostJob = () => {
   const { user } = useAuth();
@@ -47,6 +48,7 @@ const PostJob = () => {
     job_type: "",
     salary_range: "",
     experience_required: 0,
+    experience_band: "" as "" | "fresher" | "mid" | "senior",
     required_skills: [] as string[],
     job_track: "tech" as "tech" | "non_technical",
     role_category: "",
@@ -77,19 +79,37 @@ const PostJob = () => {
         setEditingStatus(normalizedStatus);
         statusToSubmitRef.current = normalizedStatus;
 
+        const rs = Array.isArray(job.requiredSkills)
+          ? (job.requiredSkills as string[])
+          : Array.isArray(job.required_skills)
+            ? job.required_skills
+            : [];
+        const expBand =
+          job.experienceRequired === "fresher" ||
+          job.experienceRequired === "mid" ||
+          job.experienceRequired === "senior"
+            ? job.experienceRequired
+            : "";
+        const rawJt = String(job.jobType ?? "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "-");
+        const jobTypeNorm = ["full-time", "part-time", "contract", "internship"].includes(rawJt) ? rawJt : "";
         setFormData((prev) => ({
           ...prev,
           title: job.title ?? "",
           company: job.company ?? "",
           description: job.description ?? "",
           location: job.location ?? "",
-          job_type: job.jobType ?? "",
+          job_type: jobTypeNorm,
           salary_range: job.salaryRange ?? "",
           job_track: (job.jobTrack ?? "tech") as "tech" | "non_technical",
           role_category: job.roleCategory ?? "",
           company_context: job.companyContext ?? "",
           assignment: job.assignment ?? "",
           minimum_certification_level: job.minimumCertificationLevel ?? 1,
+          required_skills: rs,
+          experience_band: expBand,
         }));
       })
       .catch((err: any) => {
@@ -261,6 +281,32 @@ const PostJob = () => {
       errors.company_context = 'Company context is required for non-technical jobs (used for assignment generation).';
     }
 
+    const desiredStatus = statusToSubmitRef.current;
+    if (desiredStatus === 'published') {
+      if (formData.description.trim().length < 200) {
+        errors.description = 'Job description must be at least 200 characters when publishing.';
+      }
+      if (formData.required_skills.length < 2) {
+        errors.required_skills = 'Add at least 2 required skills from the ProvenHire list (max 10).';
+      }
+      if (formData.required_skills.length > 10) {
+        errors.required_skills = 'Maximum 10 required skills.';
+      }
+      if (!formData.experience_band) {
+        errors.experience_band = 'Select experience required (Fresher / Mid / Senior).';
+      }
+      if (!formData.job_type?.trim()) {
+        errors.job_type = 'Select employment type (Full-time, Part-time, Contract, or Internship).';
+      }
+      if (!formData.location?.trim()) {
+        errors.location = 'Location is required when publishing (city or Remote).';
+      }
+      const badSkill = formData.required_skills.find((s) => !isProvenhireSkillTag(s));
+      if (badSkill) {
+        errors.required_skills = `"${badSkill}" is not in the ProvenHire skill list. Pick a tag from suggestions.`;
+      }
+    }
+
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       const first = Object.values(errors)[0];
@@ -284,6 +330,8 @@ const PostJob = () => {
         roleCategory: formData.role_category || null,
         companyContext: formData.company_context || null,
         minimumCertificationLevel: formData.minimum_certification_level,
+        requiredSkills: formData.required_skills,
+        experienceRequired: formData.experience_band || undefined,
         status: desiredStatus,
       };
 
@@ -298,14 +346,25 @@ const PostJob = () => {
       }
 
       toast.success(desiredStatus === "draft" ? "Draft saved successfully!" : "Job published successfully!");
-      navigate("/dashboard/recruiter");
+      if (desiredStatus === "published" && job?.id) {
+        toast.message(`We found matching verified candidates — opening your discovery grid.`);
+        navigate(`/dashboard/recruiter/jobs/${job.id}/matches`);
+      } else {
+        navigate("/dashboard/recruiter");
+      }
     } catch (error: any) {
       console.error('Error posting job:', error);
       const friendlyMessage = getSubmitErrorMessage(error);
       const apiFieldErrors = error?.response?.data?.fieldErrors as Record<string, string> | undefined;
       const mapped: Record<string, string> = {};
       if (apiFieldErrors) {
-        const keyMap: Record<string, string> = { companyContext: "company_context", roleCategory: "role_category" };
+        const keyMap: Record<string, string> = {
+          companyContext: "company_context",
+          roleCategory: "role_category",
+          requiredSkills: "required_skills",
+          experienceRequired: "experience_band",
+          jobType: "job_type",
+        };
         for (const [k, v] of Object.entries(apiFieldErrors)) {
           mapped[keyMap[k] ?? k] = v;
         }
@@ -318,13 +377,22 @@ const PostJob = () => {
   };
 
   const addSkill = () => {
-    if (skillInput.trim() && !formData.required_skills.includes(skillInput.trim())) {
-      setFormData({
-        ...formData,
-        required_skills: [...formData.required_skills, skillInput.trim()]
-      });
-      setSkillInput("");
+    const t = skillInput.trim();
+    if (!t || formData.required_skills.includes(t)) return;
+    if (!isProvenhireSkillTag(t)) {
+      toast.error(`"${t}" is not in the ProvenHire skill list. Pick a suggestion or check spelling.`);
+      return;
     }
+    if (formData.required_skills.length >= 10) {
+      toast.error("Maximum 10 required skills.");
+      return;
+    }
+    setFormData({
+      ...formData,
+      required_skills: [...formData.required_skills, PROVENHIRE_SKILL_TAGS.find((s) => s.toLowerCase() === t.toLowerCase()) || t],
+    });
+    setSkillInput("");
+    setFieldErrors((prev) => ({ ...prev, required_skills: "", form: "" }));
   };
 
   const removeSkill = (skill: string) => {
@@ -517,6 +585,28 @@ const PostJob = () => {
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <Label>Minimum certification for candidates</Label>
+                <Select
+                  value={String(formData.minimum_certification_level)}
+                  onValueChange={(v) =>
+                    setFormData((prev) => ({ ...prev, minimum_certification_level: parseInt(v, 10) }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">L1 — Cognitive verified</SelectItem>
+                    <SelectItem value="2">L2 — Skill passport</SelectItem>
+                    <SelectItem value="3">L3 — Elite verified</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Who can apply and appear in discovery. High-package (≥ ₹25L) technical jobs still enforce L3 minimum.
+                </p>
+              </div>
+
               {formData.job_track === 'non_technical' && (
                 <>
                   <div className="space-y-2">
@@ -568,7 +658,14 @@ const PostJob = () => {
                               jobDescription: formData.description.trim() || undefined,
                               roleCategory: formData.role_category || undefined,
                               industry: formData.role_category || undefined,
-                              experienceYears: formData.experience_required || 3,
+                              experienceYears:
+                                formData.experience_band === "fresher"
+                                  ? 0
+                                  : formData.experience_band === "mid"
+                                    ? 2
+                                    : formData.experience_band === "senior"
+                                      ? 5
+                                      : formData.experience_required || 3,
                             });
                             setFormData((prev) => ({ ...prev, assignment: assignment || "" }));
                             toast.success('Assignment generated! Review and edit if needed.');
@@ -629,15 +726,26 @@ const PostJob = () => {
                     id="location"
                     placeholder="e.g. Bangalore or Gurugram or Remote"
                     value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, location: e.target.value });
+                      setFieldErrors((prev) => ({ ...prev, location: "", form: "" }));
+                    }}
+                    className={fieldErrors.location ? "border-destructive focus-visible:ring-destructive" : ""}
                   />
+                  {fieldErrors.location && <p className="text-sm text-destructive">{fieldErrors.location}</p>}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="job_type">Job Type</Label>
-                  <Select value={formData.job_type} onValueChange={(value) => setFormData({ ...formData, job_type: value })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
+                  <Label htmlFor="job_type">Employment type</Label>
+                  <Select
+                    value={formData.job_type || undefined}
+                    onValueChange={(value) => {
+                      setFormData({ ...formData, job_type: value });
+                      setFieldErrors((prev) => ({ ...prev, job_type: "", form: "" }));
+                    }}
+                  >
+                    <SelectTrigger className={fieldErrors.job_type ? "border-destructive" : ""}>
+                      <SelectValue placeholder="Full-time / Part-time / …" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="full-time">Full-time</SelectItem>
@@ -646,6 +754,8 @@ const PostJob = () => {
                       <SelectItem value="internship">Internship</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.job_type && <p className="text-sm text-destructive">{fieldErrors.job_type}</p>}
+                  <p className="text-xs text-muted-foreground">Required when you publish the job.</p>
                 </div>
               </div>
 
@@ -661,32 +771,77 @@ const PostJob = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="experience">Years of Experience Required</Label>
-                  <Input
-                    id="experience"
-                    type="number"
-                    min="0"
-                    placeholder="e.g. 3"
-                    value={formData.experience_required}
-                    onChange={(e) => setFormData({ ...formData, experience_required: parseInt(e.target.value) || 0 })}
-                  />
+                  <Label>Experience required (for discovery)</Label>
+                  <Select
+                    value={formData.experience_band || undefined}
+                    onValueChange={(v: "fresher" | "mid" | "senior") =>
+                      setFormData((prev) => ({ ...prev, experience_band: v }))
+                    }
+                  >
+                    <SelectTrigger className={fieldErrors.experience_band ? "border-destructive" : ""}>
+                      <SelectValue placeholder="Fresher / Mid / Senior" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fresher">Fresher (early career)</SelectItem>
+                      <SelectItem value="mid">Mid level</SelectItem>
+                      <SelectItem value="senior">Senior</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {fieldErrors.experience_band && (
+                    <p className="text-sm text-destructive">{fieldErrors.experience_band}</p>
+                  )}
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="skills">Required Skills</Label>
+                <Label htmlFor="skills">Required skills (ProvenHire list, 2–10)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Type to filter suggestions, or pick from chips below. Only listed tags can be published.
+                </p>
                 <div className="flex gap-2">
                   <Input
                     id="skills"
-                    placeholder="Add a skill"
+                    placeholder="e.g. React"
                     value={skillInput}
                     onChange={(e) => setSkillInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
+                    onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addSkill())}
+                    className={fieldErrors.required_skills ? "border-destructive" : ""}
                   />
                   <Button type="button" onClick={addSkill} variant="outline">
                     Add
                   </Button>
                 </div>
+                {skillInput.trim().length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2 max-h-28 overflow-y-auto">
+                    {PROVENHIRE_SKILL_TAGS.filter(
+                      (t) =>
+                        t.toLowerCase().includes(skillInput.toLowerCase()) &&
+                        !formData.required_skills.some((s) => s.toLowerCase() === t.toLowerCase())
+                    )
+                      .slice(0, 14)
+                      .map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className="text-xs px-2 py-1 rounded-md bg-secondary hover:bg-secondary/80"
+                          onClick={() => {
+                            if (formData.required_skills.length >= 10) return;
+                            setFormData((prev) => ({
+                              ...prev,
+                              required_skills: [...prev.required_skills, t],
+                            }));
+                            setSkillInput("");
+                            setFieldErrors((prev) => ({ ...prev, required_skills: "", form: "" }));
+                          }}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                  </div>
+                )}
+                {fieldErrors.required_skills && (
+                  <p className="text-sm text-destructive">{fieldErrors.required_skills}</p>
+                )}
                 {formData.required_skills.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {formData.required_skills.map((skill) => (

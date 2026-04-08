@@ -4,6 +4,7 @@
  */
 import { prisma } from "../config/prisma.js";
 import { computeProvenhireCertification } from "./verificationScoring.service.js";
+import { syncProvenhireResumeFromSources } from "./provenhireResume.service.js";
 
 /** Sync DB verificationStatus so admin and legacy queries match certification ladder. */
 export async function syncJobSeekerVerificationStatus(userId: string): Promise<void> {
@@ -22,12 +23,16 @@ export async function syncJobSeekerVerificationStatus(userId: string): Promise<v
     next = "verified";
   }
 
-  if (!next) return;
+  if (next && prof.verificationStatus !== next) {
+    await prisma.jobSeekerProfile.updateMany({
+      where: { userId },
+      data: { verificationStatus: next },
+    });
+  }
 
-  if (prof.verificationStatus === next) return;
-
-  await prisma.jobSeekerProfile.updateMany({
-    where: { userId },
-    data: { verificationStatus: next },
-  });
+  try {
+    await syncProvenhireResumeFromSources(userId);
+  } catch (e) {
+    console.warn("[certification] syncProvenhireResumeFromSources", e);
+  }
 }
