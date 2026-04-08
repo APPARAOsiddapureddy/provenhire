@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
 import NotificationInbox from "@/components/NotificationInbox";
@@ -107,7 +108,7 @@ const Navbar = () => {
             Hire talent
             <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="center" className="min-w-[14rem]">
+          <DropdownMenuContent align="center" className={cn(navDropdownContentClass, "min-w-[14rem]")}>
             <DropdownMenuItem asChild className={dropdownItemClass}>
               <Link to="/for-recruiters">Employers &amp; recruiters</Link>
             </DropdownMenuItem>
