@@ -39,8 +39,8 @@ const Footer = () => {
           <div>
             <BrandMark
               to="/"
-              className="mb-4 transition-transform hover:scale-105 duration-200"
-              logoClassName="h-10 w-10 object-contain shrink-0"
+              className="mb-4 transition-opacity hover:opacity-90 duration-200"
+              wordmarkClassName="font-bebas text-[26px] sm:text-[30px] tracking-[2px] text-foreground leading-none"
               showWordmark
             />
             <p className="text-muted-foreground text-sm font-medium">

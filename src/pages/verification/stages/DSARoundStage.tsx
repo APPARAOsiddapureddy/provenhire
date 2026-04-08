@@ -454,9 +454,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     onProctoringTerminated: terminateDsaForProctoring,
     onMaxTabSwitches:
       strikeTerminationMode !== "STRICT" && tabSwitchMode === "STRICT"
-        ? () => {
-            if (questions.length > 0 && !submitting) {
-              toast.error("Test terminated. Maximum 3 tab switches allowed.");
+      ? () => {
+          if (questions.length > 0 && !submitting) {
+            toast.error("Test terminated. Maximum 3 tab switches allowed.");
               void (async () => {
                 try {
                   await api.post("/api/verification/dsa", { answers: {}, invalidated: true });
@@ -465,11 +465,11 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   /* non-blocking */
                 }
               })();
-              setHasFailed(true);
-              setLocalFinalScore(0);
-            }
+            setHasFailed(true);
+            setLocalFinalScore(0);
           }
-        : undefined,
+        }
+      : undefined,
   });
 
   useSoundDetection({
@@ -792,7 +792,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         }>;
       }>("/api/verification/dsa/run-tests", {
         questionId: selectedQuestion.id,
-        code: currentCode,
+            code: currentCode,
         language,
       });
 
@@ -856,8 +856,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               : "You're running tests too frequently. Please slow down."
           );
         } else {
-          const msg = err instanceof Error ? err.message : "Execution failed";
-          toast.error(msg);
+      const msg = err instanceof Error ? err.message : "Execution failed";
+      toast.error(msg);
           setResults([{ passed: false, status: "internal_error", actual: msg }]);
           setConsoleText(msg);
           setOutputTab("console");
@@ -1032,9 +1032,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       if (isDsaApi403(error)) {
         setDsaSession403Recovery(true);
       } else {
-        const err = error as Error & { response?: { data?: { error?: string; code?: string } } };
-        const msg = err.response?.data?.error ?? (error instanceof Error ? error.message : "Failed to submit DSA round.");
-        toast.error(msg);
+      const err = error as Error & { response?: { data?: { error?: string; code?: string } } };
+      const msg = err.response?.data?.error ?? (error instanceof Error ? error.message : "Failed to submit DSA round.");
+      toast.error(msg);
       }
     } finally {
       setSubmitting(false);
@@ -1169,7 +1169,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         if (isDsaApi403(e)) {
           setDsaSession403Recovery(true);
         } else {
-          toast.error(e instanceof Error ? e.message : "Failed to complete DSA step.");
+        toast.error(e instanceof Error ? e.message : "Failed to complete DSA step.");
         }
       } finally {
         setNoDsaSubmitting(false);
@@ -1525,20 +1525,20 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                       <h4 className="text-sm font-medium text-foreground">
                         {selectedQuestion.examples.length > 1 ? `Example ${exIdx + 1}` : "Example"}
                       </h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="rounded-md border border-border bg-background p-3">
-                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Input</span>
-                          <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Input</span>
+                      <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
                             {ex.input}
-                          </pre>
-                        </div>
-                        <div className="rounded-md border border-border bg-background p-3">
-                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Output</span>
-                          <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
+                      </pre>
+                    </div>
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Output</span>
+                      <pre className="mt-1 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
                             {ex.output}
-                          </pre>
-                        </div>
-                      </div>
+                      </pre>
+                    </div>
+                  </div>
                     </div>
                   ))}
                 </div>
@@ -1779,8 +1779,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                             const hidden = r.input == null && r.expected == null;
                             const st = r.status;
                             return (
-                              <div
-                                key={i}
+                  <div
+                    key={i}
                                 className={`text-sm p-3 rounded-lg border ${
                                   r.passed
                                     ? "bg-green-500/10 border-green-600/20"
@@ -1788,7 +1788,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                                 }`}
                               >
                                 <div className="flex flex-wrap items-center gap-2 mb-2">
-                                  {r.passed ? (
+                    {r.passed ? (
                                     <CheckCircle2 className="h-5 w-5 text-green-600" />
                                   ) : (
                                     <XCircle className="h-5 w-5 text-red-600" />
@@ -1798,7 +1798,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                                       ? `Test case ${i + 1}`
                                       : `Case ${i + 1}`}: {statusLabel(st) || (r.passed ? "Passed" : "Failed")}
                                   </Badge>
-                                </div>
+                    </div>
                                 {hidden ? (
                                   <p className="text-xs text-muted-foreground">
                                     Hidden test — only status is shown (no input / expected).
@@ -1808,7 +1808,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                                     <div className="rounded-md border bg-background p-2">
                                       <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                                         Input
-                                      </div>
+                  </div>
                                       <pre className="font-mono whitespace-pre-wrap break-words">{r.input}</pre>
                                     </div>
                                     <div className="rounded-md border bg-background p-2">
@@ -1831,8 +1831,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                                 ) : (
                                   <div className="space-y-1 text-xs">
                                     {r.actual != null && <div className="text-amber-800">Output: {r.actual}</div>}
-                                  </div>
-                                )}
+              </div>
+            )}
                               </div>
                             );
                           })}

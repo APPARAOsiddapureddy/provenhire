@@ -422,27 +422,27 @@ interviewRouter.post("/start", requireAuth, requireJobSeeker, async (req: Authed
 
     const plan = await buildQuestionPlan(jobRole, experienceLevel);
     const interview = await prisma.interview.create({
-      data: {
-        userId: req.user!.id,
-        jobRole,
+    data: {
+      userId: req.user!.id,
+      jobRole,
         experienceLevel,
         interviewType: "ai_expert",
         questionPlan: plan as object[],
-        questionIndex: 0,
-        status: "in_progress",
-      },
-    });
+      questionIndex: 0,
+      status: "in_progress",
+    },
+  });
 
-    const question = plan[0].prompt;
-    await prisma.interviewMessage.create({
-      data: {
-        interviewId: interview.id,
-        sender: "ai",
-        message: question,
-        questionType: plan[0].type,
-        isFollowup: false,
-      },
-    });
+  const question = plan[0].prompt;
+  await prisma.interviewMessage.create({
+    data: {
+      interviewId: interview.id,
+      sender: "ai",
+      message: question,
+      questionType: plan[0].type,
+      isFollowup: false,
+    },
+  });
 
     return res.json({
       interviewId: interview.id,
@@ -497,30 +497,30 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
     const currentQuestion = plan[currentIndex];
 
     await prisma.interviewMessage.create({
-      data: {
-        interviewId,
-        sender: "user",
-        message: answer,
-        questionType: currentQuestion?.type ?? null,
+    data: {
+      interviewId,
+      sender: "user",
+      message: answer,
+      questionType: currentQuestion?.type ?? null,
         questionIndex: currentIndex,
-        audioUrl: audioUrl ?? null,
+      audioUrl: audioUrl ?? null,
         transcriptionConfidence: transcriptionConfidence ?? null,
         inputMode: inputMode ?? "typed",
         rawTranscript: rawTranscript?.trim() || null,
         answerLengthChars: answerLengthChars ?? answer.length,
         pasteCount: pasteCount ?? 0,
         timeToSubmitSeconds: timeToSubmitSeconds ?? null,
-      },
+    },
+  });
+
+  const nextIndex = currentIndex + 1;
+    if (nextIndex >= plan.length) {
+    const transcript = await prisma.interviewMessage.findMany({
+      where: { interviewId },
+      orderBy: { createdAt: "asc" },
     });
 
-    const nextIndex = currentIndex + 1;
-    if (nextIndex >= plan.length) {
-      const transcript = await prisma.interviewMessage.findMany({
-        where: { interviewId },
-        orderBy: { createdAt: "asc" },
-      });
-
-      const userMessages = transcript.filter((m) => m.sender === "user");
+    const userMessages = transcript.filter((m) => m.sender === "user");
       const antiRows = userMessages.map((m) => ({
         message: m.message,
         questionType: m.questionType,
@@ -551,10 +551,10 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
 
       const transcriptText = transcript.map((m) => `${m.sender.toUpperCase()}: ${m.message}`).join("\n");
       const questionAnswerPairs: QuestionAnswerPair[] = userMessages.map((msg, i) => ({
-        question: plan[i]?.prompt ?? "",
+      question: plan[i]?.prompt ?? "",
         keyPoints: plan[i]?.keyPoints ?? [],
-        answer: msg.message,
-      }));
+      answer: msg.message,
+    }));
 
       const evaluationRaw = await evaluateInterview(transcriptText, questionAnswerPairs, {
         experienceLevel: interview.experienceLevel ?? "mid",
@@ -600,19 +600,19 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
       }
 
       const { total, badge } = computeAiInterviewAggregateScore(evaluation);
-      await prisma.interview.update({
-        where: { id: interviewId },
-        data: {
-          totalScore: total,
-          badgeLevel: badge,
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        totalScore: total,
+        badgeLevel: badge,
           finalVerdict: evaluation.final_verdict != null ? String(evaluation.final_verdict) : null,
           scoreBreakdown: evaluation as object,
-          status: "completed",
-          completedAt: new Date(),
+        status: "completed",
+        completedAt: new Date(),
           riskScore: interviewProctoringTotal,
           integrityFlag,
-        },
-      });
+      },
+    });
 
       const perQ = evaluation.per_question_scores;
       if (Array.isArray(perQ)) {
@@ -662,27 +662,27 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
         integrityFlag,
         experienceLevel: interview.experienceLevel,
       });
-    }
+  }
 
-    const nextItem = plan[nextIndex];
-    if (!nextItem?.prompt) {
-      return res.status(400).json({ error: "Invalid question plan" });
-    }
-    const nextQuestion = nextItem.prompt;
+  const nextItem = plan[nextIndex];
+  if (!nextItem?.prompt) {
+    return res.status(400).json({ error: "Invalid question plan" });
+  }
+  const nextQuestion = nextItem.prompt;
 
-    await prisma.interview.update({
-      where: { id: interviewId },
-      data: { questionIndex: nextIndex },
-    });
-    await prisma.interviewMessage.create({
-      data: {
-        interviewId,
-        sender: "ai",
-        message: nextQuestion,
-        questionType: nextItem.type ?? null,
-        isFollowup: false,
-      },
-    });
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: { questionIndex: nextIndex },
+  });
+  await prisma.interviewMessage.create({
+    data: {
+      interviewId,
+      sender: "ai",
+      message: nextQuestion,
+      questionType: nextItem.type ?? null,
+      isFollowup: false,
+    },
+  });
 
     return res.json({
       question: nextQuestion,

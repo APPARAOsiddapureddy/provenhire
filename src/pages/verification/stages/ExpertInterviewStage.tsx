@@ -662,7 +662,7 @@ export default function ExpertInterviewStage({
               }
             })();
           }
-        } else {
+      } else {
           setOutcome({
             totalScore: turnResult.totalScore,
             badgeLevel: turnResult.badgeLevel,
@@ -671,7 +671,7 @@ export default function ExpertInterviewStage({
           });
           onInterviewAwaitingReview?.();
         }
-      } else {
+    } else {
         const expectedTurn = turnResult.turnId ?? turnId;
         await speakAckThenQuestion(expectedTurn, turnResult.acknowledgement, turnResult.response);
       }
@@ -959,15 +959,15 @@ export default function ExpertInterviewStage({
                                 : "border-muted bg-muted/20 text-muted-foreground"
                           }`}
                         >
-                          <span
+                      <span
                             className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] tabular-nums ${
                               active ? "bg-primary text-primary-foreground" : done ? "bg-primary/30 text-primary" : "bg-muted"
                             }`}
                           >
                             {step.num}
-                          </span>
+                      </span>
                           <span>{step.short}</span>
-                        </div>
+                    </div>
                       );
                     })}
                   </div>
@@ -995,7 +995,7 @@ export default function ExpertInterviewStage({
                     )}
                   </div>
                 </div>
-              </div>
+                  </div>
 
               {pivotBanner && (
                 <p
@@ -1024,7 +1024,7 @@ export default function ExpertInterviewStage({
                       : "Proctoring baseline"}
                 </span>
                 <span className="tabular-nums">({totalLoggedViolations} alerts)</span>
-              </div>
+                    </div>
 
               <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
                 <div className="lg:col-span-5 space-y-3">
@@ -1071,10 +1071,10 @@ export default function ExpertInterviewStage({
                     <div className="rounded-xl border-2 border-primary/25 bg-gradient-to-br from-primary/8 to-background p-5 md:p-6 shadow-sm">
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
                         <p className="text-xs text-primary font-semibold uppercase tracking-wide">AI is asking</p>
-                        <Button
+                          <Button
                           type="button"
                           variant="outline"
-                          size="sm"
+                            size="sm"
                           className="shrink-0 gap-1.5"
                           onClick={() => replayQuestion()}
                           disabled={
@@ -1086,11 +1086,11 @@ export default function ExpertInterviewStage({
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
                           Replay audio
-                        </Button>
+                          </Button>
                       </div>
                       <p className="text-base md:text-lg font-medium leading-relaxed text-foreground">{currentQuestion}</p>
-                    </div>
-                  )}
+                        </div>
+                      )}
 
                   <div className="rounded-xl border bg-card p-4 space-y-4 shadow-sm">
                     <div className="flex items-center gap-2">
@@ -1137,7 +1137,7 @@ export default function ExpertInterviewStage({
                           Probing weakness
                         </span>
                       )}
-                    </div>
+                  </div>
 
                     <div className="space-y-1">
                       <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Input level</p>
@@ -1187,14 +1187,14 @@ export default function ExpertInterviewStage({
                           ) : (
                             <span className="text-muted-foreground italic text-[13px]">
                               Your speech is transcribed here after each pause. Scroll inside this box to read longer answers; only this area updates as you speak.
-                            </span>
+                      </span>
                           )}
+                    </div>
                         </div>
-                      </div>
                     )}
 
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
-                      <Button
+                        <Button
                         type="button"
                         size="default"
                         className="gap-2 shrink-0"
@@ -1208,11 +1208,11 @@ export default function ExpertInterviewStage({
                       >
                         <Send className="h-4 w-4" />
                         {questionCount >= 14 ? "Submit & complete round" : "Submit answer"}
-                      </Button>
+                        </Button>
                       <p className="text-[11px] text-muted-foreground">
                         Submit when your full answer is ready. Short pauses send each segment to transcription; they do not submit automatically.
                       </p>
-                    </div>
+                      </div>
                   </div>
                 </div>
               </div>
@@ -1266,17 +1266,17 @@ export default function ExpertInterviewStage({
                   )}
                   <div className="flex flex-wrap gap-3 items-center">
                     {outcome.totalScore != null && (
-                      <span className="text-sm">
+                <span className="text-sm">
                         Score:{" "}
                         <strong className="text-lg">
                           {outcome.totalScore}/100
                         </strong>
-                      </span>
+                </span>
                     )}
                     <span className="px-2 py-0.5 rounded bg-primary/20 text-primary text-sm">
                       {outcome.badgeLevel || "Processing..."}
                     </span>
-                  </div>
+                    </div>
                   {evaluation?.final_verdict != null && (
                     <p className="text-sm text-muted-foreground">{String(evaluation.final_verdict)}</p>
                   )}
@@ -1370,7 +1370,7 @@ export default function ExpertInterviewStage({
                               </Button>
                             </>
                           )}
-                        </div>
+                </div>
                       );
                     })()}
                   {onReturnToDashboard && (

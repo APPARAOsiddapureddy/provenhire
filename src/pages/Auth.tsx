@@ -563,7 +563,7 @@ const Auth = () => {
                     >
                       <div className="text-left">
                         <div className="text-sm font-semibold">Technical</div>
-                        <div className="text-[10px] text-muted-foreground">5 stages</div>
+                        <div className="text-[10px] text-muted-foreground">Progressive path</div>
                       </div>
                     </button>
                     <button
@@ -626,8 +626,8 @@ const Auth = () => {
     );
   }
 
-  const TICKER_SIGNIN = ["Skill-Certified Hiring", "Not Resume-Approved", "5-Stage Verification", "Expert Interviews", "Skill Passport", "India's First"];
-  const TICKER_SIGNUP = ["Get Verified Free", "Cognitive Assessment", "DSA Round", "AI Interview", "Human Expert Interview", "Earn Skill Passport"];
+  const TICKER_SIGNIN = ["Skill-Certified Hiring", "Evidence Over Claims", "Progressive Verification", "ProvenHire Resume", "Skill Passport", "India's First"];
+  const TICKER_SIGNUP = ["Start Free", "Level 1 Early Access", "Live Coding", "AI-Verified Skills", "Elite Path", "One Trusted Profile"];
 
   const SignInBenefits = () => (
     <div className="auth-panel-benefits">
@@ -648,19 +648,21 @@ const Auth = () => {
           <span className="block">Résumés are <span className="dd">claims.</span></span>
           <span className="block gg">We deal in proof.</span>
         </h2>
-        <p className="auth-benefits-desc">Only 18% of candidates make it through our 5-stage verification. Your skills get proven, not assumed.</p>
+        <p className="auth-benefits-desc">
+          We hire on proof. Complete fundamentals and you can already browse roles; every further stage adds a stronger Skill Passport and a richer ProvenHire Resume.
+        </p>
         <div className="auth-stat-row">
           <div className="auth-stat-cell">
-            <div className="auth-stat-num">18%</div>
-            <div className="auth-stat-label">Pass Rate</div>
+            <div className="auth-stat-num">L1</div>
+            <div className="auth-stat-label">Early access</div>
           </div>
           <div className="auth-stat-cell">
-            <div className="auth-stat-num">24H</div>
-            <div className="auth-stat-label">To Certify</div>
+            <div className="auth-stat-num">AI</div>
+            <div className="auth-stat-label">Verified depth</div>
           </div>
           <div className="auth-stat-cell">
-            <div className="auth-stat-num">5</div>
-            <div className="auth-stat-label">Stages</div>
+            <div className="auth-stat-num">₹0</div>
+            <div className="auth-stat-label">First attempts</div>
           </div>
         </div>
       </div>
@@ -687,19 +689,21 @@ const Auth = () => {
           <span className="block">won't get you hired.</span>
           <span className="block dd">Your skills will.</span>
         </h2>
-        <p className="auth-benefits-desc">Prove them. Once. Forever. Stage 1 → 5: Profile → Cognitive Assessment → DSA → AI Interview → Human Expert Interview.</p>
+        <p className="auth-benefits-desc">
+          One account, progressive verification: profile and fundamentals first, then live coding and AI-led interviews that match your experience. First attempts on core stages are free — you earn trust step by step.
+        </p>
         <div className="auth-stat-row">
           <div className="auth-stat-cell">
-            <div className="auth-stat-num">5</div>
-            <div className="auth-stat-label">Stages</div>
+            <div className="auth-stat-num">3</div>
+            <div className="auth-stat-label">Cert levels</div>
           </div>
           <div className="auth-stat-cell">
-            <div className="auth-stat-num">65%</div>
-            <div className="auth-stat-label">To Advance</div>
+            <div className="auth-stat-num">Live</div>
+            <div className="auth-stat-label">Proctored</div>
           </div>
           <div className="auth-stat-cell">
             <div className="auth-stat-num">₹0</div>
-            <div className="auth-stat-label">Cost</div>
+            <div className="auth-stat-label">Start</div>
           </div>
         </div>
       </div>
@@ -710,7 +714,7 @@ const Auth = () => {
   const authSeoDesc = isLogin
     ? "Log in to ProvenHire to access your verified profile, job applications, and skill passport."
     : isSignup
-      ? "Create your ProvenHire account and start skill verification to unlock verified hiring opportunities."
+      ? "Create your ProvenHire account and start progressive verification—early job access after Level 1, Skill Passport as you advance."
       : "ProvenHire – verified talent hiring platform.";
 
   return (
@@ -726,7 +730,7 @@ const Auth = () => {
             <div className="auth-panel-form flex-shrink-0">
               <div className="auth-form-eyebrow">Sign In</div>
               <h1 className="auth-form-title">Welcome<br /><span className="gold">Back.</span></h1>
-              <p className="auth-form-sub">Your verified profile is waiting. Pick up where you left off.</p>
+              <p className="auth-form-sub">Your verification path and ProvenHire Resume are waiting—continue where you left off.</p>
 
               <form onSubmit={handleSignIn} className="space-y-6" noValidate>
                 <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
@@ -798,7 +802,7 @@ const Auth = () => {
             <div className="auth-panel-form auth-panel-form-right flex-shrink-0">
               <div className="auth-form-eyebrow">Create Account</div>
               <h1 className="auth-form-title">Start Your<br /><span className="gold">Verification.</span></h1>
-              <p className="auth-form-sub">Join free. Prove your skills. Get hired by companies that trust evidence.</p>
+              <p className="auth-form-sub">Create your account free. Build proof employers can rely on—not another inbox-only résumé.</p>
 
               <form onSubmit={handleSignUp} className="space-y-6" noValidate>
                 <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
@@ -867,13 +871,13 @@ const Auth = () => {
                       <button type="button" onClick={() => setJobSeekerTrack("tech")} className={`auth-role-tile ${jobSeekerTrack === "tech" ? "on" : ""}`}>
                         <div className="text-left w-full">
                           <div className="text-sm font-semibold">Technical</div>
-                          <div className="text-[10px] text-muted-foreground">5 stages</div>
+                          <div className="text-[10px] text-muted-foreground">Progressive path</div>
                         </div>
                       </button>
                       <button type="button" onClick={() => setJobSeekerTrack("non_tech")} className={`auth-role-tile ${jobSeekerTrack === "non_tech" ? "on" : ""}`}>
                         <div className="text-left w-full">
                           <div className="text-sm font-semibold">Non-Technical</div>
-                          <div className="text-[10px] text-muted-foreground">3 stages</div>
+                          <div className="text-[10px] text-muted-foreground">Shorter track</div>
                         </div>
                       </button>
                     </div>
@@ -1101,10 +1105,10 @@ const Auth = () => {
                     <label className="block text-sm font-medium mb-1">Track</label>
                     <div className="grid grid-cols-2 gap-2">
                       <button type="button" onClick={() => setJobSeekerTrack("tech")} className={`p-3 rounded-lg border-2 ${jobSeekerTrack === "tech" ? "border-primary bg-primary/10" : "border-border bg-white/5"}`}>
-                        Technical (5 stages)
+                        Technical — progressive
                       </button>
                       <button type="button" onClick={() => setJobSeekerTrack("non_tech")} className={`p-3 rounded-lg border-2 ${jobSeekerTrack === "non_tech" ? "border-primary bg-primary/10" : "border-border bg-white/5"}`}>
-                        Non-Technical
+                        Non-technical
                       </button>
                     </div>
                   </div>

@@ -7,25 +7,30 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Lock } from "lucide-react";
 
-const TECHNICAL_PIPELINE_STAGES = [
+const DEFAULT_TECHNICAL_PIPELINE_STAGES = [
   "aptitude_test",
   "dsa_round",
   "expert_interview",
-  "human_expert_interview",
 ] as const;
 
 const PIPELINE_LABELS: Record<string, string> = {
   aptitude_test: "Cognitive Assessment",
-  dsa_round: "Live Coding Verification",
-  expert_interview: "AI Interview",
-  human_expert_interview: "Human Interview",
+  cs_fundamentals: "CS Fundamentals",
+  dsa_round: "Live Coding (DSA)",
+  ai_skills_interview: "AI Skills Interview",
+  system_design_interview: "System Design",
+  expert_interview: "AI Expert Interview",
+  human_expert_interview: "Human Expert Interview",
 };
 
 const LOCKED_STATUS_TEXT: Record<string, string> = {
   aptitude_test: "Complete profile to start",
-  dsa_round: "Unlocks after Cognitive Assessment",
-  expert_interview: "Unlocks after coding",
-  human_expert_interview: "Unlocks at L2",
+  cs_fundamentals: "Complete previous steps",
+  dsa_round: "Unlocks after fundamentals / cognitive",
+  ai_skills_interview: "Unlocks after live coding",
+  system_design_interview: "Unlocks after AI Skills",
+  expert_interview: "Unlocks after prior AI stages",
+  human_expert_interview: "Unlocks at Skill Passport (L2)",
 };
 
 export type VerificationStageLike = { stage_name?: string; status?: string };
@@ -39,6 +44,8 @@ type VerificationPipelineCardProps = {
   profile?: { currentRole?: string; current_role?: string; verificationStatus?: string } | null;
   getStageStatus: (stageName: string) => "done" | "active" | "locked";
   nextStageLabel: string;
+  /** Excludes profile_setup and human_expert_interview — from API `stage_order` when v2 is on. */
+  technicalPipelineSteps?: string[];
 };
 
 function getPipelineStepStatus(
@@ -58,12 +65,18 @@ export function VerificationPipelineCard({
   profile,
   getStageStatus,
   nextStageLabel,
+  technicalPipelineSteps,
 }: VerificationPipelineCardProps) {
   const navigate = useNavigate();
 
   if (roleType !== "technical") {
     return null;
   }
+
+  const pipelineSteps =
+    technicalPipelineSteps && technicalPipelineSteps.length > 0
+      ? technicalPipelineSteps
+      : [...DEFAULT_TECHNICAL_PIPELINE_STAGES];
 
   const stages = Array.isArray(verificationStages) ? verificationStages : [];
   const initials = userName
@@ -86,7 +99,7 @@ export function VerificationPipelineCard({
           ? "Cognitive Verified"
           : "In progress";
 
-  const firstIncompleteStage = TECHNICAL_PIPELINE_STAGES.find(
+  const firstIncompleteStage = pipelineSteps.find(
     (name) => getPipelineStepStatus(stages, name, getStageStatus) !== "done"
   );
   const ctaLabel = firstIncompleteStage
@@ -116,11 +129,13 @@ export function VerificationPipelineCard({
       <div className="vpc-pipeline">
         <div className="vpc-section-label">Verification pipeline</div>
         <div className="vpc-steps">
-          {TECHNICAL_PIPELINE_STAGES.map((stageName) => {
+          {pipelineSteps.map((stageName) => {
             const status = getPipelineStepStatus(stages, stageName, getStageStatus);
-            const label = PIPELINE_LABELS[stageName] ?? stageName;
+            const label = PIPELINE_LABELS[stageName] ?? stageName.replace(/_/g, " ");
             const stageData = stages.find((s) => (s.stage_name ?? "") === stageName);
             const isFailed = stageData?.status === "failed";
+            const lockedHint =
+              LOCKED_STATUS_TEXT[stageName] ?? "Complete previous steps";
 
             return (
               <div key={stageName} className={`vpc-step vpc-step--${status}`}>
@@ -134,7 +149,7 @@ export function VerificationPipelineCard({
                   <div className="vpc-step-status">
                     {status === "done" && "Completed"}
                     {status === "active" && (isFailed ? "Retry available" : "In progress")}
-                    {status === "locked" && LOCKED_STATUS_TEXT[stageName]}
+                    {status === "locked" && lockedHint}
                   </div>
                 </div>
                 {status === "active" && (
@@ -158,12 +173,12 @@ export function VerificationPipelineCard({
           <div className={`vpc-lvl ${certificationLevelNumber >= 1 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber >= 1 ? "L1 · Now" : "L1"}</div>
             <div className="vpc-lvl-name">Cognitive Verified</div>
-            <div className="vpc-lvl-reqs">Profile + Cognitive ✓</div>
+            <div className="vpc-lvl-reqs">Foundations: profile, reasoning, live coding</div>
           </div>
           <div className={`vpc-lvl ${certificationLevelNumber === 2 ? "vpc-lvl--current" : certificationLevelNumber > 2 ? "vpc-lvl--past" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber === 2 ? "L2 · Now" : "L2"}</div>
             <div className="vpc-lvl-name">Skill Passport</div>
-            <div className="vpc-lvl-reqs">DSA + AI Interview</div>
+            <div className="vpc-lvl-reqs">AI skills, design (senior), AI Expert</div>
           </div>
           <div className={`vpc-lvl ${certificationLevelNumber >= 3 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber >= 3 ? "L3 · Now" : "L3"}</div>

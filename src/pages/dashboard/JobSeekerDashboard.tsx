@@ -6,7 +6,7 @@ import { Briefcase, CheckCircle, Clock, Settings, TrendingUp, Award, Eye, FileTe
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { api, BACKEND_DOWN_MSG, hasAuthToken } from "@/lib/api";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import SkillPassport from "@/components/SkillPassport";
 import CandidateProfileView, { type CandidateProfileViewProfile } from "@/components/CandidateProfileView";
@@ -25,8 +25,11 @@ const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'huma
 const STAGE_LABELS: Record<string, string> = {
   profile_setup: 'Profile Setup',
   aptitude_test: 'Cognitive Assessment',
+  cs_fundamentals: 'CS Fundamentals',
   dsa_round: 'DSA Round',
   non_tech_assignment: 'Assignment',
+  ai_skills_interview: 'AI Skills Interview',
+  system_design_interview: 'System Design',
   expert_interview: 'AI Expert Interview',
   human_expert_interview: 'Human Expert Interview',
 };
@@ -47,7 +50,9 @@ const deriveCertificationFromStages = (
   }
   if (completed.has("human_expert_interview")) return { level: 3, label: "Level 3 - Elite ProvenHire Candidate" };
   if (completed.has("dsa_round") && completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
-  if (completed.has("profile_setup") && completed.has("aptitude_test") && completed.has("dsa_round")) {
+  const cognitiveDone =
+    (completed.has("aptitude_test") || completed.has("cs_fundamentals")) && completed.has("dsa_round");
+  if (completed.has("profile_setup") && cognitiveDone) {
     return { level: 1, label: "Level 1 - Cognitive Verified" };
   }
   return { level: 0, label: "Level 0 - Not Yet Certified" };
@@ -61,6 +66,8 @@ const JobSeekerDashboard = () => {
   const [applications, setApplications] = useState<any[]>([]);
   const [savedJobs, setSavedJobs] = useState<any[]>([]);
   const [verificationStages, setVerificationStages] = useState<any[]>([]);
+  /** From GET /api/verification/stages — matches server pipeline (legacy vs v2, fresher vs mid/senior). */
+  const [apiStageOrder, setApiStageOrder] = useState<string[] | null>(null);
   const [certificationLevelNumber, setCertificationLevelNumber] = useState<number>(0);
   const [certificationLabel, setCertificationLabel] = useState<string>("Level 0 - Not Yet Certified");
   const [testResults, setTestResults] = useState<{ aptitude: any; dsa: any }>({ aptitude: null, dsa: null });
@@ -97,7 +104,20 @@ const JobSeekerDashboard = () => {
     !(profile.targetJobTitle ?? profile.target_job_title)?.trim()
   );
   const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
-  const stageOrder = roleType === "non_technical" ? [...NON_TECHNICAL_STAGE_ORDER] : [...TECHNICAL_STAGE_ORDER];
+  const stageOrder = useMemo(() => {
+    if (roleType === "non_technical") return [...NON_TECHNICAL_STAGE_ORDER];
+    if (apiStageOrder && apiStageOrder.length > 0) return [...apiStageOrder];
+    return [...TECHNICAL_STAGE_ORDER];
+  }, [roleType, apiStageOrder]);
+
+  const technicalStepsBeforeHuman = useMemo(
+    () => stageOrder.filter((s) => s !== "human_expert_interview"),
+    [stageOrder]
+  );
+  const humanStageStepNumber = useMemo(() => {
+    const i = stageOrder.indexOf("human_expert_interview");
+    return i >= 0 ? i + 1 : technicalStepsBeforeHuman.length + 1;
+  }, [stageOrder, technicalStepsBeforeHuman.length]);
 
   /** Highest completed stage for Skill Passport progressive display */
   const completedUpToStage = (() => {
@@ -106,8 +126,14 @@ const JobSeekerDashboard = () => {
     if (roleType === "technical") {
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "human_expert_interview")) return "expert";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "ai_interview";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "system_design_interview")) return "system_design";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "ai_skills_interview")) return "ai_skills";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "dsa_round")) return "dsa";
-      if (completed.some((s: { stage_name?: string }) => s.stage_name === "aptitude_test")) return "aptitude";
+      if (
+        completed.some((s: { stage_name?: string }) => s.stage_name === "aptitude_test") ||
+        completed.some((s: { stage_name?: string }) => s.stage_name === "cs_fundamentals")
+      )
+        return "aptitude";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "profile_setup")) return "profile";
     } else {
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "expert";
@@ -156,7 +182,7 @@ const JobSeekerDashboard = () => {
           {
             level: 1,
             label: "Level 1 - Cognitive Verified",
-            stages: ["profile_setup", "aptitude_test", "dsa_round"],
+            stages: ["profile_setup", "cognitive_or_fundamentals", "dsa_round"],
           },
           {
             level: 2,
@@ -213,6 +239,7 @@ const JobSeekerDashboard = () => {
         setApplications([]);
         setSavedJobs([]);
         setVerificationStages([]);
+        setApiStageOrder(null);
         setTestResults({ aptitude: null, dsa: null });
       }
       return;
@@ -294,6 +321,8 @@ const JobSeekerDashboard = () => {
           certification_label?: string;
           certificationLevel?: "L1" | "L2" | "L3" | null;
           certificationLabelShort?: string | null;
+          stage_order?: string[];
+          verification_pipeline_v2?: boolean;
         }>("/api/verification/stages"),
       ]);
 
@@ -303,6 +332,8 @@ const JobSeekerDashboard = () => {
       const stagesData = stagesRes.status === "fulfilled" ? stagesRes.value : null;
       const profile = profileData?.profile ?? null;
       const stagesList = Array.isArray(stagesData?.stages) ? stagesData.stages : [];
+      const order = Array.isArray(stagesData?.stage_order) ? stagesData!.stage_order! : null;
+      setApiStageOrder(order && order.length > 0 ? order : null);
       const role = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
       const derivedCertification = deriveCertificationFromStages(role, stagesList);
       const apiLevel = stagesData?.certification_level ?? 0;
@@ -379,10 +410,15 @@ const JobSeekerDashboard = () => {
       }
 
       if (stagesList.length > 0) {
-        const completed = stagesList.filter((s: { status?: string }) => s.status === 'completed').length;
+        const completed = stagesList.filter((s: { status?: string }) => s.status === "completed").length;
         const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
-        const total = role === "non_technical" ? 3 : 5;
-        setVerificationProgress((completed / total) * 100);
+        const totalStages =
+          role === "non_technical"
+            ? 3
+            : order && order.length > 0
+              ? order.length
+              : TECHNICAL_STAGE_ORDER.length;
+        setVerificationProgress(totalStages > 0 ? (completed / totalStages) * 100 : 0);
       }
 
       if (stale()) return;
@@ -532,7 +568,11 @@ const JobSeekerDashboard = () => {
       />
       <DashboardShell
         sidebarSections={sidebarSections}
-        user={{ name: shellDisplayName, role: isVerified ? "Expert Verified ✦" : "Verification in progress", initials: userInitials }}
+        user={{
+          name: shellDisplayName,
+          role: isVerified ? "Elite verified ✦" : "Building verified proof",
+          initials: userInitials,
+        }}
         onSignOut={undefined}
       >
         {loadError && (
@@ -562,7 +602,7 @@ const JobSeekerDashboard = () => {
             <div className="dashboard-section-header">
               <div>
                 <h1>My Resume</h1>
-                <p>Your full verified profile — same view recruiters see. Share on LinkedIn or use in job applications.</p>
+                <p>Your ProvenHire Resume — verified signals, scores, and spotlight projects recruiters open when they trust the platform.</p>
               </div>
             </div>
             {resumeProfileLoading ? (
@@ -587,7 +627,7 @@ const JobSeekerDashboard = () => {
             <div className="dashboard-section-header">
               <div>
                 <h1>Skill Passport</h1>
-                <p>Your verified, portable credential — accepted by all ProvenHire partner companies</p>
+                <p>Portable proof of what you can do — Level 1 gets you in the door; higher levels unlock stronger roles and a fuller ProvenHire Resume.</p>
               </div>
             </div>
             {profile && (
@@ -746,11 +786,11 @@ const JobSeekerDashboard = () => {
           <div className="dashboard-candidate-section">
             <div className="dashboard-section-header flex-wrap gap-4">
               <div className="section-header-left">
-                <h1>Verification Pipeline</h1>
+                <h1>Verification pipeline</h1>
                 <p>
                   {roleType === "non_technical"
-                    ? "Complete all 3 stages to unlock your Skill Passport and access premium opportunities"
-                    : "Complete all 5 stages to unlock your Skill Passport and access premium opportunities"}
+                    ? "Progressive proof, not paperwork. Finish each stage to grow your ProvenHire Resume and unlock better-matched roles."
+                    : "Evidence over claims. You earn Early Access after Level 1; Skill Passport and ProvenHire Resume unlock as you complete AI-verified stages—your path adapts to your experience band."}
                 </p>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -761,7 +801,7 @@ const JobSeekerDashboard = () => {
                 {certificationLevelNumber >= 1 && (
                   <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
                     <Award className="h-3.5 w-3.5 mr-1.5" />
-                    {roleType === "technical" ? "Cognitive Verified Badge Earned" : "Assignment Verified Badge Earned"}
+                    {roleType === "technical" ? "Level 1 — Cognitive verified" : "Level 1 — Assignment verified"}
                   </Badge>
                 )}
                 <Button className="dashboard-btn-gold" onClick={() => navigate('/verification')}>
@@ -799,10 +839,10 @@ const JobSeekerDashboard = () => {
                         <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">
                           {roleType === "technical"
                             ? code === "L1"
-                              ? "Profile + Cognitive + DSA"
+                              ? "Profile, fundamentals & live coding — then browse entry-friendly roles"
                               : code === "L2"
-                                ? "DSA + AI Interview"
-                                : "Human Expert Interview"
+                                ? "AI Skills, System Design (mid/senior), AI Expert — Skill Passport"
+                                : "Human expert interview — highest trust tier"
                             : code === "L1"
                               ? "Profile + Assignment"
                               : "Human Expert Interview"}
@@ -821,16 +861,18 @@ const JobSeekerDashboard = () => {
                         <div className="dashboard-stage-name">{userName.split(' ')[0]} <span>{userName.split(' ').slice(1).join(' ') || ''}</span></div>
                         <div className="flex items-center gap-2 mt-2 text-base font-medium text-white/60">
                           <span>{profile?.currentRole ?? profile?.current_role ?? profile?.current_company ?? 'Candidate'}</span>
-                          {isVerified && <><span style={{ width: 4, height: 4, background: 'var(--dash-gold)', borderRadius: '50%', display: 'inline-block' }} /><span>Expert Verified Path</span></>}
+                          {isVerified && <><span style={{ width: 4, height: 4, background: 'var(--dash-gold)', borderRadius: '50%', display: 'inline-block' }} /><span>Elite verified path</span></>}
                         </div>
                       </>
                     )}
                   </div>
                   <div className="dashboard-stage-time-badge">
-                    <div className="dashboard-stage-time-label">Time to full verify</div>
-                    <div className="dashboard-stage-time-value">≤ 48h</div>
+                    <div className="dashboard-stage-time-label">Typical time to full verify</div>
+                    <div className="dashboard-stage-time-value">2–5 days</div>
                     <div className="dashboard-stage-time-label mt-1">
-                      Complete all {roleType === "non_technical" ? 3 : 5} stages
+                      {roleType === "non_technical"
+                        ? "3 stages on this track"
+                        : `${technicalStepsBeforeHuman.length} steps + human expert`}
                     </div>
                   </div>
                 </div>
@@ -875,13 +917,22 @@ const JobSeekerDashboard = () => {
                   const dsaSolved = testResults.dsa ? `${testResults.dsa.problems_solved || 0}/${testResults.dsa.total_problems || 3}` : null;
                   const dsaPct = testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : null;
                   const stageDesc: Record<string, string> = {
-                    profile_setup: 'AI-assisted profile creation with resume parsing and consistency checks.',
+                    profile_setup:
+                      'Build your target role and evidence base — resume-aware setup so later stages stay relevant to you.',
                     aptitude_test:
-                      'Proctored Cognitive Assessment: reasoning, quantitative, and verbal items; CS fundamentals for mid/senior bands.',
-                    dsa_round: 'Proctored coding round with 2–4 algorithmic problems of increasing difficulty.',
+                      'Proctored cognitive assessment: reasoning, quantitative, and verbal items timed on the server.',
+                    cs_fundamentals:
+                      'Same rigour as our cognitive band — timed, proctored fundamentals before live coding (early-career path).',
+                    dsa_round: 'Proctored live coding: algorithmic problems matched to your experience tier.',
                     non_tech_assignment: 'Role-based written assignment tailored to your target job title.',
-                    expert_interview: 'Adaptive AI video interview. Questions generated from your resume, role, and experience level.',
-                    human_expert_interview: 'Live interview with a domain expert. Final stage for role verification and approval.',
+                    ai_skills_interview:
+                      'AI-led deep dive on your stack and decisions — adaptive, proctored, feeds your ProvenHire Resume.',
+                    system_design_interview:
+                      'Structured system design conversation for mid/senior tracks — trade-offs, scaling, and clarity.',
+                    expert_interview:
+                      'Capstone AI technical interview — adversarial follow-ups on depth and reasoning (voice-first).',
+                    human_expert_interview:
+                      'Live conversation with a vetted domain expert — final trust layer when you pursue Elite verification.',
                   };
                   return (
                     <div
@@ -901,14 +952,25 @@ const JobSeekerDashboard = () => {
                       <p className="dashboard-stage-card-desc">{stageDesc[stageName] ?? ''}</p>
                       <div className="flex flex-wrap gap-1">
                         {stageName === 'profile_setup' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> AI Parsed</span>}
-                        {stageName === 'aptitude_test' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Webcam Active</span></>}
+                        {(stageName === 'aptitude_test' || stageName === 'cs_fundamentals') && (
+                          <>
+                            <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span>
+                            <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Timed attempt</span>
+                          </>
+                        )}
                         {stageName === 'dsa_round' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Sandbox Executed</span></>}
                         {stageName === 'non_tech_assignment' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Job-Specific</span>}
+                        {(stageName === 'ai_skills_interview' || stageName === 'system_design_interview') && (
+                          <>
+                            <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span>
+                            <span className="dashboard-trust-chip"><span style={{ background: 'var(--dash-gold)' }} className="w-1.5 h-1.5 rounded-full" /> AI adaptive</span>
+                          </>
+                        )}
                         {stageName === 'expert_interview' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Recording Active</span><span className="dashboard-trust-chip"><span style={{ background: 'var(--dash-gold)' }} className="w-1.5 h-1.5 rounded-full" /> AI Adaptive</span></>}
                         {stageName === 'human_expert_interview' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Live Recorded</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Expert Panel</span></>}
                       </div>
                       {isCompleted && stageName === 'profile_setup' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
-                      {isCompleted && stageName === 'aptitude_test' && aptitudeDisplay && (
+                      {isCompleted && (stageName === 'aptitude_test' || stageName === 'cs_fundamentals') && aptitudeDisplay && (
                         <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${aptitudePct ?? 0}%` }} /></div><div className="dashboard-score-text">Score: {aptitudeDisplay}</div></>
                       )}
                       {isCompleted && stageName === 'dsa_round' && dsaSolved && (
@@ -938,7 +1000,9 @@ const JobSeekerDashboard = () => {
                   return (
                 <div className={`dashboard-stage-card full-width ${humanPillActive ? 'active-stage' : 'locked-stage'}`}>
                   <div className="flex items-start justify-between mb-4">
-                    <div className={`dashboard-stage-num ${humanPillActive ? 'active-num' : 'locked-num'}`}>05</div>
+                    <div className={`dashboard-stage-num ${humanPillActive ? 'active-num' : 'locked-num'}`}>
+                      {String(humanStageStepNumber).padStart(2, '0')}
+                    </div>
                     <div className={`flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px] ${humanPillActive ? 'dashboard-pill-active' : 'dashboard-pill-locked'}`}>
                       <span style={{ width: 5, height: 5, borderRadius: '50%', background: humanPillActive ? 'var(--dash-gold)' : 'var(--dash-text-muted)' }} />
                       {humanInterviewGate?.admin_review_status === 'pending'
@@ -952,9 +1016,9 @@ const JobSeekerDashboard = () => {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-5 items-start">
                     <div>
-                      <h3 className="dashboard-stage-card-title">Human Expert Interview</h3>
+                      <h3 className="dashboard-stage-card-title">Human expert interview</h3>
                       <p className="dashboard-stage-card-desc">
-                        30–45 min live video interview with a domain expert (5+ yrs experience). NDA signed. Cannot be gamed by coaching or scripted answers.
+                        30–45 minutes with a vetted domain expert. Structured rubric, recorded session, and neutral evaluation — the trust layer employers respect on top of your AI-verified ProvenHire Resume.
                       </p>
                       <div className="flex flex-wrap gap-1">
                         <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Live Recorded</span>
@@ -987,7 +1051,7 @@ const JobSeekerDashboard = () => {
                       )}
                     </div>
                     <div className="rounded-xl p-4 bg-white/5 border border-[var(--dash-navy-border)]">
-                      <div className="text-sm font-semibold uppercase tracking-wide text-[var(--dash-text-muted)] mb-2">Slot availability (after Stage 4)</div>
+                      <div className="text-sm font-semibold uppercase tracking-wide text-[var(--dash-text-muted)] mb-2">After AI expert step clears</div>
                       <div className="text-base font-bold text-[var(--dash-gold)]">Within 4–12 hours</div>
                       <div className="text-sm text-[var(--dash-text-muted)] mt-1">8 active experts · Morning, Evening & Weekend slots</div>
                     </div>
@@ -1006,6 +1070,9 @@ const JobSeekerDashboard = () => {
                   profile={profile}
                   getStageStatus={getStageStatus}
                   nextStageLabel={nextStageLabel}
+                  technicalPipelineSteps={technicalStepsBeforeHuman.filter(
+                    (s) => s !== "profile_setup"
+                  )}
                 />
               )}
             </div>

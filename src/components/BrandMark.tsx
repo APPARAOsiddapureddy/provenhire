@@ -1,46 +1,39 @@
 import { Link } from "react-router-dom";
 
 type BrandMarkProps = {
-  /** Home path; use empty string and `as="div"` styling via className only when link not desired */
   to?: string;
   className?: string;
-  /** Tailwind classes for the raster mark (transparent PNG) */
-  logoClassName?: string;
+  /** Tailwind classes for the text wordmark (typographic logo — no raster). */
+  wordmarkClassName?: string;
   showWordmark?: boolean;
+  /** @deprecated No image mark; use `wordmarkClassName` only. Ignored. */
+  logoClassName?: string;
 };
 
 /**
- * ProvenHire brand lockup: shield PH mark + wordmark.
- * Raster comes from `public/logo.png` (see `scripts/make-transparent-logo.mjs` + `npm run generate:favicons`).
+ * ProvenHire brand: typographic wordmark only (no logo image in-app).
  */
 export default function BrandMark({
   to = "/",
   className = "",
-  logoClassName = "h-9 w-9 sm:h-10 sm:w-10 shrink-0 object-contain",
+  wordmarkClassName = "font-bebas text-[22px] sm:text-[26px] md:text-[28px] tracking-[2px] text-foreground leading-none truncate",
   showWordmark = true,
 }: BrandMarkProps) {
   const wordmark = showWordmark ? (
-    <span className="font-bebas text-[22px] sm:text-[26px] md:text-[28px] tracking-[2px] text-foreground leading-none truncate">
+    <span className={wordmarkClassName}>
       Proven<span className="text-primary">Hire</span>
     </span>
   ) : null;
-
-  const inner = (
-    <>
-      <img src="/logo.png" alt="" className={logoClassName} width={40} height={40} decoding="async" />
-      {wordmark}
-    </>
-  );
 
   const wrap = `flex items-center gap-2 sm:gap-3 ${className}`;
 
   if (to) {
     return (
       <Link to={to} className={`${wrap} group shrink-0`} aria-label="ProvenHire home">
-        {inner}
+        {wordmark}
       </Link>
     );
   }
 
-  return <span className={wrap}>{inner}</span>;
+  return <span className={wrap}>{wordmark}</span>;
 }

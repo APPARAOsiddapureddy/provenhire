@@ -26,15 +26,19 @@ const VerificationGateDialog = ({
   const navigate = useNavigate();
 
   const getStageName = (stage: string | null) => {
-    if (!stage) return "Profile Setup";
+    if (!stage) return "Profile setup";
     const names: Record<string, string> = {
-      profile_setup: "Profile Setup",
-      aptitude_test: "Cognitive Assessment",
-      dsa_round: "DSA Round",
-      expert_interview: "Expert Interview",
-      completed: "Verification Complete",
+      profile_setup: "Profile setup",
+      aptitude_test: "Cognitive assessment",
+      cs_fundamentals: "CS fundamentals",
+      dsa_round: "Live coding (DSA)",
+      ai_skills_interview: "AI skills interview",
+      system_design_interview: "System design",
+      expert_interview: "AI expert interview",
+      human_expert_interview: "Human expert interview",
+      completed: "Verification complete",
     };
-    return names[stage] || stage.replace("_", " ");
+    return names[stage] || stage.replace(/_/g, " ");
   };
 
   const handleStartVerification = () => {
@@ -57,10 +61,10 @@ const VerificationGateDialog = ({
             </div>
           </div>
           <DialogTitle className="text-center text-xl">
-            Complete Verification First
+            Keep building verified proof
           </DialogTitle>
           <DialogDescription className="text-center">
-            To access this feature, you need to complete the ProvenHire verification process. This helps employers trust your skills and qualifications.
+            ProvenHire is built on evidence, not résumé claims. Finish the next step in your pipeline to unlock this — you get early job access after Level 1, with stronger roles as you level up.
           </DialogDescription>
         </DialogHeader>
 
@@ -87,12 +91,12 @@ const VerificationGateDialog = ({
 
           {/* Benefits */}
           <div className="space-y-2 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">After verification, you can:</p>
+            <p className="font-medium text-foreground">As you progress you can:</p>
             <ul className="space-y-1 ml-4 list-disc">
-              <li>Browse and apply to all job listings</li>
-              <li>Get matched with employers via AI</li>
-              <li>Receive your Skill Passport certification</li>
-              <li>Stand out with a verified profile badge</li>
+              <li>Apply to roles matched to your certification tier</li>
+              <li>Show a living ProvenHire Resume to recruiters</li>
+              <li>Earn Skill Passport and Elite badges as you complete stages</li>
+              <li>Replace “trust me” on your CV with audited scores</li>
             </ul>
           </div>
         </div>

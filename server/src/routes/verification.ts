@@ -470,9 +470,9 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
 });
 
 const bulkAdditiveRowSchema = z.object({
-  stageName: z.string().optional(),
-  stage_name: z.string().optional(),
-  status: z.string(),
+        stageName: z.string().optional(),
+        stage_name: z.string().optional(),
+        status: z.string(),
 });
 
 verificationRouter.post("/stages/bulk", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
@@ -561,7 +561,7 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
     if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     let experienceYears = 0;
     try {
-      const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
+    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
       experienceYears = profile?.experienceYears ?? 0;
     } catch (profileErr) {
       console.warn("[verification/aptitude/questions] profile read failed; using default experience band", profileErr);
@@ -581,11 +581,11 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
           ? Object.values(existing.marksKey as Record<string, number>).reduce((a, b) => a + (Number(b) || 0), 0)
           : questions.length;
       const passThreshold = Math.ceil(totalMarks * 0.6);
-      return res.json({
-        questions,
+    return res.json({
+      questions,
         timeLimitMinutes: 30,
-        totalMarks,
-        passThreshold,
+      totalMarks,
+      passThreshold,
         draft: existing.draft ?? null,
         questionSet: existing.questionSet ?? desiredQuestionSet,
         experienceTier: tier,
@@ -1470,12 +1470,12 @@ verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSe
         userId_stageName: { userId: req.user!.id, stageName: "human_expert_interview" },
       },
       create: {
-        userId: req.user!.id,
-        stageName: "human_expert_interview",
-        status: "in_progress",
-      },
+          userId: req.user!.id,
+          stageName: "human_expert_interview",
+          status: "in_progress",
+        },
       update: { status: "in_progress" },
-    });
+      });
   } else {
     // Keep human interview locked when assignment score is below threshold.
     const existing = await prisma.verificationStage.findFirst({
@@ -1760,12 +1760,12 @@ verificationRouter.post("/book-slot", requireAuth, requireJobSeeker, async (req:
         if (claimed.count === 0) throw new Error("SLOT_TAKEN");
 
         const createdSession = await tx.humanInterviewSession.create({
-          data: {
-            userId: req.user!.id,
-            interviewerId: slot.interviewerId,
-            slotId: slot.id,
-            scheduledAt: slot.startsAt,
-            status: "scheduled",
+      data: {
+        userId: req.user!.id,
+        interviewerId: slot.interviewerId,
+        slotId: slot.id,
+        scheduledAt: slot.startsAt,
+        status: "scheduled",
             attemptNumber: 1,
             paymentStatus: "waived",
           },
@@ -1787,7 +1787,7 @@ verificationRouter.post("/book-slot", requireAuth, requireJobSeeker, async (req:
       session = await prisma.$transaction(async (tx) => {
         const claimed = await tx.interviewerSlot.updateMany({
           where: { id: slotId, status: "available" },
-          data: { status: "booked", bookedUserId: req.user!.id },
+      data: { status: "booked", bookedUserId: req.user!.id },
         });
         if (claimed.count === 0) throw new Error("SLOT_TAKEN");
 
