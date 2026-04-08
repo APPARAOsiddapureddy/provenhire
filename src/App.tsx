@@ -46,6 +46,7 @@ const HumanInterviewPaymentPage = lazy(() => import("./pages/human-interview/Hum
 const HumanInterviewSlotsPage = lazy(() => import("./pages/human-interview/HumanInterviewSlotsPage"));
 const VerifiedPublicPage = lazy(() => import("./pages/VerifiedPublicPage"));
 const JobCandidateDiscovery = lazy(() => import("./pages/dashboard/JobCandidateDiscovery"));
+const ProvenHireResumePage = lazy(() => import("./pages/dashboard/ProvenHireResumePage"));
 
 // Create QueryClient instance outside component to ensure stability
 const queryClient = new QueryClient({
@@ -192,6 +193,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="jobseeker">
                     <JobSeekerSavedJobsPage />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard/jobseeker/resume" 
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <ProvenHireResumePage />
                   </ProtectedRoute>
                 } 
               />

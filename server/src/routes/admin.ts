@@ -33,6 +33,7 @@ import {
 } from "../services/resend.js";
 import { grantRetakeCredits } from "../services/candidateRetake.service.js";
 import { ensureRecruiterUsageRow } from "../utils/recruiterSubscription.js";
+import { syncProvenhireResumeFromSources } from "../services/provenhireResume.service.js";
 
 function csvEscape(s: string | null | undefined): string {
   if (s == null || s === "") return "";
@@ -1383,6 +1384,10 @@ adminRouter.post("/ai-interview-queue/:id/approve", async (req: AuthedRequest, r
     if (user?.email) {
       void sendHumanInterviewApprovedEmail(user.email, user.name).catch(() => {});
     }
+
+    syncProvenhireResumeFromSources(queue.candidateId).catch((err) =>
+      console.error(`[admin/approve] resume sync failed for ${queue.candidateId}:`, err)
+    );
 
     res.json({ ok: true });
   } catch (e) {

@@ -9,7 +9,7 @@ import type { ExperienceTier } from "../../utils/experienceTier.js";
 import { experienceTierFromYears } from "../../utils/experienceTier.js";
 import { runGeminiJson } from "../ai.service.js";
 import { syncJobSeekerVerificationStatus } from "../certification.service.js";
-import { skillVerifiedThresholdForTier } from "../provenhireResume.service.js";
+import { skillVerifiedThresholdForTier, syncProvenhireResumeFromSources } from "../provenhireResume.service.js";
 import { calculateExpiry } from "../skillVerification.service.js";
 
 const SESSION_MS = 30 * 60 * 1000;
@@ -238,12 +238,17 @@ async function finalizeSession(
     .map(([skill, confidence]) => ({ skill, confidence }));
 
   const scoreBreakdown: Record<string, unknown> = {
-    verified_skills: Object.entries(plan.skillsChecked).map(([skill, confidence]) => ({ skill, confidence })),
+    verified_skills: Object.entries(plan.skillsChecked).map(([skill, confidence]) => ({
+      skill,
+      confidence,
+      status: confidence >= threshold ? "verified" : "below_threshold",
+    })),
     dsa_walkthrough_scores: plan.dsaUnderstandingScores,
     composite: { dsaAvg, skillAvg, total },
     pass,
     timeExpired,
     track: plan.track,
+    threshold,
   };
 
   const completedAt = new Date();
@@ -324,6 +329,10 @@ async function finalizeSession(
   } catch (e) {
     console.warn("[ai-skills] syncJobSeekerVerificationStatus", e);
   }
+
+  syncProvenhireResumeFromSources(userId).catch((err) =>
+    console.error("[ai-skills] resume sync after completion:", err)
+  );
 
   const allSkillRows = Object.entries(plan.skillsChecked).map(([skill, confidence]) => ({ skill, confidence }));
   return { totalScore: total, verifiedSkills: allSkillRows };

@@ -249,6 +249,41 @@ usersRouter.post("/me/provenhire-resume/change-request", requireAuth, async (req
   res.json({ request });
 });
 
+usersRouter.post("/me/provenhire-resume/project/:projectId/approve", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "jobseeker") {
+    return res.status(403).json({ error: "Only job seekers can approve projects." });
+  }
+  const { projectId } = req.params;
+  await syncProvenhireResumeFromSources(req.user!.id);
+  const row = await prisma.provenHireResume.findUnique({ where: { userId: req.user!.id } });
+  if (!row) return res.status(404).json({ error: "Resume not found." });
+
+  const projects = Array.isArray(row.projects) ? [...(row.projects as object[])] : [];
+  let found = false;
+  for (const p of projects) {
+    if (p && typeof p === "object" && !Array.isArray(p)) {
+      const proj = p as Record<string, unknown>;
+      if (proj.id === projectId || proj.interviewId === projectId || proj.name === projectId) {
+        proj.pendingReview = false;
+        found = true;
+      }
+    }
+  }
+  if (!found) return res.status(404).json({ error: "Project not found." });
+
+  const anyPending = projects.some(
+    (p) => p && typeof p === "object" && (p as Record<string, unknown>).pendingReview === true
+  );
+  await prisma.provenHireResume.update({
+    where: { userId: req.user!.id },
+    data: {
+      projects: projects as Prisma.InputJsonValue,
+      pendingCandidateReview: anyPending,
+    },
+  });
+  res.json({ ok: true, message: "Project approved. It is now visible to recruiters." });
+});
+
 usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, res) => {
   try {
   const schema = z.object({

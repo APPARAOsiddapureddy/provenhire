@@ -764,8 +764,7 @@ const AptitudeTestStage = ({
             <p className="text-sm text-muted-foreground">
               Strong start. You finished the Cognitive Assessment — the next step is{" "}
               <span className="font-semibold text-foreground">Live Coding (DSA)</span>. After you pass DSA (and with profile + cognitive complete), you earn{" "}
-              <span className="font-semibold text-foreground">Level 1 — Cognitive Verified</span>. Then continue with AI Interview and Human Expert Interview toward{" "}
-              <span className="font-semibold text-foreground">Level 3 — Elite Verified</span>.
+              <span className="font-semibold text-foreground">Level 1 — Cognitive Verified</span>. Later stages on your track (for example AI skills and expert interviews, and a human expert step when it applies) determine Skill Passport and higher certification tiers — exact levels depend on your path and outcomes.
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border bg-background/80 p-3">
@@ -787,7 +786,7 @@ const AptitudeTestStage = ({
                   <Sparkles className="h-4 w-4" />
                   After L1
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">AI Interview → L2 · Human Expert → L3</p>
+                <p className="mt-1 text-xs text-muted-foreground">AI skills and expert interviews unlock higher tiers when you qualify</p>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">

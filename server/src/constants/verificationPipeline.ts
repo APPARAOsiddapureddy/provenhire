@@ -3,11 +3,12 @@ import { experienceTierFromYears } from "../utils/experienceTier.js";
 
 /**
  * ProvenHire v2 verification pipeline (PRD 1 — April 2026).
- * When unset/false, the legacy path (aptitude_test + human expert in chain) stays active.
+ * **Default ON** — set VERIFICATION_PIPELINE_V2=false to revert to legacy.
  */
 export function isVerificationPipelineV2(): boolean {
   const v = process.env.VERIFICATION_PIPELINE_V2?.trim().toLowerCase();
-  return v === "1" || v === "true";
+  if (v === "0" || v === "false") return false;
+  return true;
 }
 
 /** @deprecated Legacy technical order including human expert in-platform */

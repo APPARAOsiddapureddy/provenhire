@@ -2,7 +2,7 @@
 
 **Version:** 6.6 (single consolidated document)  
 **Last Updated:** April 2026  
-**Status:** Current  
+**Status:** Current
 **Implementation drift log:** [IMPLEMENTATION_CHANGELOG.md](IMPLEMENTATION_CHANGELOG.md)
 
 This file is the **only product PRD**: candidate verification, recruiter flows, revenue and limits, engineering backlog, and the full AI Expert Interview specification.

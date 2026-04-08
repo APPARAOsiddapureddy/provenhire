@@ -15,6 +15,7 @@ import {
 import { CheckCircle, Clock, Lock, AlertTriangle, RotateCcw, Timer, GraduationCap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { PaywallModal } from "@/components/PaywallModal";
 const ProfileSetupStage = lazy(() => import("./stages/ProfileSetupStage"));
 const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
 const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
@@ -25,6 +26,11 @@ const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssi
 import PracticeStageDialog from "@/components/PracticeStageDialog";
 import PipelineStagePlaceholder from "./stages/PipelineStagePlaceholder";
 import { checkInvalidatedTests, checkCooldownStatus } from "@/utils/recordingUpload";
+import {
+  normalizeTechnicalStageOrderForDisplay,
+  technicalStageOrderFallback,
+  technicalStagesForTier,
+} from "@/utils/verificationStageOrder";
 
 type StageStatus = 'locked' | 'in_progress' | 'completed' | 'failed' | 'pending_review';
 
@@ -37,6 +43,16 @@ interface VerificationStage {
 interface CooldownInfo {
   aptitude: { inCooldown: boolean; hoursRemaining?: number; daysRemaining?: number; cooldownEndsAt?: Date };
   dsa: { inCooldown: boolean; hoursRemaining?: number; daysRemaining?: number; cooldownEndsAt?: Date };
+}
+
+interface VerificationStagesApiResponse {
+  stages: VerificationStage[];
+  roleType?: string;
+  certification_level?: number;
+  certification_label?: string;
+  stage_order?: string[];
+  verification_pipeline_v2?: boolean;
+  pipeline_pending_profile_setup?: boolean;
 }
 
 const VerificationFlow = () => {
@@ -61,19 +77,42 @@ const VerificationFlow = () => {
   const [retryingStage, setRetryingStage] = useState<string | null>(null);
   const [certificationLevel, setCertificationLevel] = useState(0);
   const [certificationLabel, setCertificationLabel] = useState("Level 0 - Not Yet Certified");
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [paywallStage, setPaywallStage] = useState("");
+  const [paywallCooldown, setPaywallCooldown] = useState<Date | null>(null);
+  const [paywallPricing, setPaywallPricing] = useState({ singleInr: 399, bundleInr: 649 });
 
-  /** Default until GET /verification/stages returns `stage_order` (v2 track-based). */
-  const legacyTechnicalOrder = [
-    "profile_setup",
-    "aptitude_test",
-    "dsa_round",
-    "expert_interview",
-    "human_expert_interview",
-  ];
-  const [technicalOrderFromApi, setTechnicalOrderFromApi] = useState<string[]>(legacyTechnicalOrder);
+  const handlePaywallRequired = useCallback(
+    (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => {
+      setPaywallStage(stage);
+      setPaywallPricing(pricing);
+      setPaywallCooldown(cooldown);
+      setShowPaywall(true);
+    },
+    []
+  );
+
+  const [technicalOrderFromApi, setTechnicalOrderFromApi] = useState<string[]>(() =>
+    technicalStagesForTier("fresher")
+  );
   const nonTechnicalStageOrder = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
   const stageOrder = roleType === "non_technical" ? nonTechnicalStageOrder : technicalOrderFromApi;
   const LOAD_TIMEOUT_MS = 30000;
+
+  const resolveTechnicalOrderForResponse = (
+    rt: "technical" | "non_technical",
+    res: VerificationStagesApiResponse,
+    expYears: number
+  ): string[] => {
+    if (rt === "non_technical") return nonTechnicalStageOrder;
+    const base = technicalStageOrderFallback({
+      stageOrderFromApi: res.stage_order,
+      verificationPipelineV2: res.verification_pipeline_v2,
+      pipelinePendingProfileSetup: res.pipeline_pending_profile_setup,
+      experienceYears: expYears,
+    });
+    return normalizeTechnicalStageOrderForDisplay(base, "technical", res.verification_pipeline_v2 === true);
+  };
 
   const STAGE_LABELS: Record<string, string> = {
     profile_setup: "Profile & Resume",
@@ -82,8 +121,8 @@ const VerificationFlow = () => {
     dsa_round: "DSA Round",
     ai_skills_interview: "AI Skills Interview",
     system_design_interview: "System Design Interview",
-    expert_interview: "AI Expert Interview",
-    human_expert_interview: "Human Expert Interview (legacy)",
+    expert_interview: "Expert Interview",
+    human_expert_interview: "Expert Interview",
     non_tech_assignment: "Assignment",
   };
   const getStageLabel = (stageName: string) => STAGE_LABELS[stageName] ?? stageName.split('_').join(' ');
@@ -125,13 +164,7 @@ const VerificationFlow = () => {
     setLoadError(null);
     try {
       const loadWithTimeout = async () => {
-        const res = await api.get<{
-          stages: VerificationStage[];
-          roleType?: string;
-          certification_level?: number;
-          certification_label?: string;
-          stage_order?: string[];
-        }>("/api/verification/stages");
+        const res = await api.get<VerificationStagesApiResponse>("/api/verification/stages");
         let data = res.stages;
         const rt = (res.roleType as "technical" | "non_technical") || "technical";
         setRoleType(rt);
@@ -145,12 +178,7 @@ const VerificationFlow = () => {
               : s
           );
         }
-        let orderEff: string[] =
-          rt === "non_technical"
-            ? nonTechnicalStageOrder
-            : Array.isArray(res.stage_order) && res.stage_order.length > 0
-              ? res.stage_order
-              : legacyTechnicalOrder;
+        let orderEff: string[] = resolveTechnicalOrderForResponse(rt, res, experienceYears);
         if (rt === "technical") {
           setTechnicalOrderFromApi(orderEff);
         }
@@ -174,13 +202,7 @@ const VerificationFlow = () => {
         const existingStageNames = new Set(data.map((s) => s.stage_name));
         const missingStages = orderEff.filter((s) => !existingStageNames.has(s));
         if (missingStages.length > 0) {
-          const resRefresh = await api.get<{
-            stages: VerificationStage[];
-            roleType?: string;
-            certification_level?: number;
-            certification_label?: string;
-            stage_order?: string[];
-          }>("/api/verification/stages");
+          const resRefresh = await api.get<VerificationStagesApiResponse>("/api/verification/stages");
           data = resRefresh.stages ?? [];
           setCertificationLevel(resRefresh.certification_level ?? 0);
           setCertificationLabel(resRefresh.certification_label ?? "Level 0 - Not Yet Certified");
@@ -195,12 +217,7 @@ const VerificationFlow = () => {
                 : s
             );
           }
-          orderEff =
-            rtEff === "non_technical"
-              ? nonTechnicalStageOrder
-              : Array.isArray(resRefresh.stage_order) && resRefresh.stage_order.length > 0
-                ? resRefresh.stage_order
-                : legacyTechnicalOrder;
+          orderEff = resolveTechnicalOrderForResponse(rtEff, resRefresh, experienceYears);
           if (rtEff === "technical") {
             setTechnicalOrderFromApi(orderEff);
           }
@@ -264,12 +281,7 @@ const VerificationFlow = () => {
       setRoleType(rtEff);
       setCertificationLevel(res.certification_level ?? 0);
       setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
-      const orderEff =
-        rtEff === "non_technical"
-          ? nonTechnicalStageOrder
-          : Array.isArray(res.stage_order) && res.stage_order.length > 0
-            ? res.stage_order
-            : legacyTechnicalOrder;
+      const orderEff = resolveTechnicalOrderForResponse(rtEff as "technical" | "non_technical", res as VerificationStagesApiResponse, experienceYears);
       if (rtEff === "technical") {
         setTechnicalOrderFromApi(orderEff);
       }
@@ -326,7 +338,7 @@ const VerificationFlow = () => {
   const retryStage = async (stageName: string, restartImmediately = false) => {
     try {
       if (!user) return;
-      const order = roleType === "non_technical" ? nonTechnicalStageOrder : technicalStageOrder;
+      const order = stageOrder;
       const currentIndex = order.indexOf(stageName);
       if (currentIndex < 0) return;
 
@@ -406,11 +418,12 @@ const VerificationFlow = () => {
 
       await api.post("/api/verification/stages/update", { stageName, status: "completed" });
 
-      if (nextStage && !(stageName === "expert_interview" && nextStage === "human_expert_interview")) {
+      if (nextStage) {
         await api.post("/api/verification/stages/update", { stageName: nextStage, status: "in_progress" });
       }
 
-      if (stageName === "human_expert_interview") {
+      const isLastStage = !nextStage || currentIndex === stageOrder.length - 1;
+      if (isLastStage) {
         setShowAllCompletePopup(true);
       }
 
@@ -668,10 +681,22 @@ const VerificationFlow = () => {
                             stageName: "ai_skills_interview",
                             status: "in_progress",
                           });
-                        } catch {
-                          /* gate/cooldown handled by API */
+                          setTestStageStarted((p) => ({ ...p, ai_skills_interview: true }));
+                        } catch (err: unknown) {
+                          const apiErr = err as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
+                          const code = apiErr?.response?.data?.code;
+                          if (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") {
+                            handlePaywallRequired(
+                              "ai_skills_interview",
+                              apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
+                              code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
+                                ? new Date(apiErr.response.data.nextAvailableAt)
+                                : null
+                            );
+                          } else {
+                            toast({ title: "Cannot start", description: (err as Error)?.message ?? "Try again later.", variant: "destructive" });
+                          }
                         }
-                        setTestStageStarted((p) => ({ ...p, ai_skills_interview: true }));
                       }}
                     >
                       Start AI Skills Interview
@@ -685,6 +710,7 @@ const VerificationFlow = () => {
                 experienceYears={experienceYears}
                 onSessionComplete={() => void loadVerificationStages()}
                 onReturnToDashboard={handleReturnToDashboard}
+                onPaywallRequired={handlePaywallRequired}
               />
             )}
           </div>
@@ -811,9 +837,9 @@ const VerificationFlow = () => {
             ) : !testStageStarted.expert_interview ? (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="pt-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Expert Interview</h3>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Expert Interview</h3>
                   <p className="text-muted-foreground mb-4">
-                    Start the AI Expert Interview when you're ready, or return to the homepage and come back later.
+                    Start the Expert Interview when you're ready, or return to the homepage and come back later.
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" onClick={() => navigate("/")}>
@@ -827,14 +853,14 @@ const VerificationFlow = () => {
                       Practice
                     </Button>
                     <Button onClick={() => setTestStageStarted((p) => ({ ...p, expert_interview: true }))}>
-                      Start AI Expert Interview
+                      Start Expert Interview
                     </Button>
                   </div>
                   <PracticeStageDialog
                     open={practiceDialog === "interview"}
                     onOpenChange={(o) => !o && setPracticeDialog(null)}
                     type="interview"
-                    testName="AI Expert Interview"
+                    testName="Expert Interview"
                   />
                 </CardContent>
               </Card>
@@ -847,6 +873,7 @@ const VerificationFlow = () => {
                 handleReturnToDashboard();
               }}
               onReturnToDashboard={handleReturnToDashboard}
+              onPaywallRequired={handlePaywallRequired}
             />
               </>
             )}
@@ -993,6 +1020,15 @@ const VerificationFlow = () => {
             </div>
           </DialogContent>
         </Dialog>
+
+        <PaywallModal
+          open={showPaywall}
+          onClose={() => setShowPaywall(false)}
+          stage={paywallStage}
+          cooldownUntil={paywallCooldown}
+          singlePrice={paywallPricing.singleInr}
+          bundlePrice={paywallPricing.bundleInr}
+        />
       </div>
     </div>
   );

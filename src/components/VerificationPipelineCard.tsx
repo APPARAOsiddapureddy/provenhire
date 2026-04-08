@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle, Lock } from "lucide-react";
 
 const DEFAULT_TECHNICAL_PIPELINE_STAGES = [
-  "aptitude_test",
+  "cs_fundamentals",
   "dsa_round",
+  "ai_skills_interview",
   "expert_interview",
 ] as const;
 
@@ -19,8 +20,8 @@ const PIPELINE_LABELS: Record<string, string> = {
   dsa_round: "Live Coding (DSA)",
   ai_skills_interview: "AI Skills Interview",
   system_design_interview: "System Design",
-  expert_interview: "AI Expert Interview",
-  human_expert_interview: "Human Expert Interview",
+  expert_interview: "Expert Interview",
+  human_expert_interview: "Expert Interview",
 };
 
 const LOCKED_STATUS_TEXT: Record<string, string> = {

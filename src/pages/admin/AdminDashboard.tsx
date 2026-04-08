@@ -158,6 +158,28 @@ const AdminDashboard = () => {
   } | null>(null);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [messageRecipient, setMessageRecipient] = useState<{ userId: string; label: string } | null>(null);
+  const [grantRetakeUserId, setGrantRetakeUserId] = useState<string | null>(null);
+  const [grantRetakePackage, setGrantRetakePackage] = useState<"single" | "bundle">("single");
+  const [grantingRetake, setGrantingRetake] = useState(false);
+
+  const handleGrantRetake = async () => {
+    if (!grantRetakeUserId) return;
+    setGrantingRetake(true);
+    try {
+      await api.post(`/api/admin/users/${grantRetakeUserId}/grant-retake`, {
+        packageType: grantRetakePackage,
+      });
+      toast.success(
+        `${grantRetakePackage === "single" ? "1 retake credit" : "2 retake credits"} granted.`
+      );
+      setGrantRetakeUserId(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Grant retake failed";
+      toast.error(msg);
+    } finally {
+      setGrantingRetake(false);
+    }
+  };
 
   useEffect(() => {
     if (authUser && userRole === "admin") {
@@ -776,6 +798,46 @@ const AdminDashboard = () => {
             </DialogContent>
           </Dialog>
 
+          <Dialog open={!!grantRetakeUserId} onOpenChange={() => !grantingRetake && setGrantRetakeUserId(null)}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Grant Retake Credit</DialogTitle>
+                <DialogDescription>
+                  Grant retake credit to this candidate after manual payment verification.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Package</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant={grantRetakePackage === "single" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setGrantRetakePackage("single")}
+                    >
+                      Single (₹399)
+                    </Button>
+                    <Button
+                      variant={grantRetakePackage === "bundle" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setGrantRetakePackage("bundle")}
+                    >
+                      Bundle (₹649)
+                    </Button>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setGrantRetakeUserId(null)} disabled={grantingRetake}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleGrantRetake} disabled={grantingRetake}>
+                    {grantingRetake ? "Granting…" : "Confirm Grant"}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <Dialog open={!!bulkDeleteDialog} onOpenChange={() => !deleting && setBulkDeleteDialog(null)}>
             <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
               <DialogHeader>
@@ -988,6 +1050,15 @@ const AdminDashboard = () => {
                                 >
                                   <MessageSquare className="h-4 w-4 mr-2" />
                                   Send Message
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setGrantRetakePackage("single");
+                                    setGrantRetakeUserId(seeker.user_id);
+                                  }}
+                                >
+                                  <RefreshCw className="h-4 w-4 mr-2" />
+                                  Grant Retake
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive"

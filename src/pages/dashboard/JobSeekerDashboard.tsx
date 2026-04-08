@@ -20,7 +20,7 @@ import { preloadVerificationFlow } from "@/preloads";
 import DashboardShell from "@/components/DashboardShell";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 
-const TECHNICAL_STAGE_ORDER = ['profile_setup', 'aptitude_test', 'dsa_round', 'expert_interview', 'human_expert_interview'] as const;
+const TECHNICAL_STAGE_ORDER = ['profile_setup', 'cs_fundamentals', 'dsa_round', 'ai_skills_interview', 'expert_interview'] as const;
 const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'] as const;
 const STAGE_LABELS: Record<string, string> = {
   profile_setup: 'Profile Setup',
@@ -30,8 +30,8 @@ const STAGE_LABELS: Record<string, string> = {
   non_tech_assignment: 'Assignment',
   ai_skills_interview: 'AI Skills Interview',
   system_design_interview: 'System Design',
-  expert_interview: 'AI Expert Interview',
-  human_expert_interview: 'Human Expert Interview',
+  expert_interview: 'Expert Interview',
+  human_expert_interview: 'Expert Interview',
 };
 
 const deriveCertificationFromStages = (
@@ -48,8 +48,7 @@ const deriveCertificationFromStages = (
     }
     return { level: 0, label: "Level 0 - Not Yet Certified" };
   }
-  if (completed.has("human_expert_interview")) return { level: 3, label: "Level 3 - Elite ProvenHire Candidate" };
-  if (completed.has("dsa_round") && completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
+  if (completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
   const cognitiveDone =
     (completed.has("aptitude_test") || completed.has("cs_fundamentals")) && completed.has("dsa_round");
   if (completed.has("profile_setup") && cognitiveDone) {
@@ -603,11 +602,14 @@ const JobSeekerDashboard = () => {
         )}
         {!loading && dashboardSection === 'resume' && (
           <div className="dashboard-section-content">
-            <div className="dashboard-section-header">
+            <div className="dashboard-section-header flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h1>My Resume</h1>
                 <p>Your ProvenHire Resume — verified signals, scores, and spotlight projects recruiters open when they trust the platform.</p>
               </div>
+              <Button asChild className="dashboard-btn-gold shrink-0">
+                <Link to="/dashboard/jobseeker/resume">View ProvenHire Resume</Link>
+              </Button>
             </div>
             {resumeProfileLoading ? (
               <div className="flex items-center justify-center py-12">
@@ -881,7 +883,7 @@ const JobSeekerDashboard = () => {
                     <div className="dashboard-stage-time-label mt-1">
                       {roleType === "non_technical"
                         ? "3 stages on this track"
-                        : `${technicalStepsBeforeHuman.length} steps + human expert`}
+                        : `${stageOrder.length} stages on this track`}
                     </div>
                   </div>
                 </div>

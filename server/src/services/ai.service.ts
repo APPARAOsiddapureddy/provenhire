@@ -1,7 +1,13 @@
 import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+
+const openaiApiKey = process.env.OPENAI_API_KEY?.trim();
+const openaiForResume = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
+/** Chat Completions model for resume JSON extraction (requires billing on platform.openai.com). */
+const RESUME_PARSER_MODEL = process.env.RESUME_PARSER_MODEL?.trim() || "gpt-4o-mini";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -96,19 +102,28 @@ function normalizeParsed(parsed: Partial<ParsedResumeProfile>): ParsedResumeProf
 
 async function parseWithGemini(resumeText: string): Promise<ParsedResumeProfile | null> {
   if (!gemini) return null;
-  const prompt = `${PARSE_RESUME_SYSTEM}\n\nResume text:\n${resumeText.slice(0, 30000)}`;
-  const response = await gemini.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-    config: { responseMimeType: "application/json" },
-  });
-  const content = (response as { text?: string })?.text ?? "";
-  const raw = content.trim().replace(/^```\w*\n?|\n?```$/g, "").trim();
+  try {
+    const prompt = `${PARSE_RESUME_SYSTEM}\n\nResume text:\n${resumeText.slice(0, 30000)}`;
+    const response = await gemini.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: { responseMimeType: "application/json" },
+    });
+    const content = (response as { text?: string })?.text ?? "";
+    return parseJsonToProfile(content);
+  } catch (e) {
+    console.warn("[parseWithGemini]", e);
+    return null;
+  }
+}
+
+function parseJsonToProfile(raw: string): ParsedResumeProfile | null {
+  const cleaned = raw.trim().replace(/^```\w*\n?|\n?```$/g, "").trim();
   let parsed: Partial<ParsedResumeProfile>;
   try {
-    parsed = JSON.parse(raw) as Partial<ParsedResumeProfile>;
+    parsed = JSON.parse(cleaned) as Partial<ParsedResumeProfile>;
   } catch {
-    const match = raw.match(/\{[\s\S]*\}/);
+    const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
       parsed = JSON.parse(match[0]) as Partial<ParsedResumeProfile>;
@@ -119,9 +134,53 @@ async function parseWithGemini(resumeText: string): Promise<ParsedResumeProfile 
   return normalizeParsed(parsed);
 }
 
-/** Parse resume using Gemini */
+async function parseWithOpenAI(resumeText: string): Promise<ParsedResumeProfile | null> {
+  if (!openaiForResume) return null;
+  try {
+    const completion = await openaiForResume.chat.completions.create({
+      model: RESUME_PARSER_MODEL,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: PARSE_RESUME_SYSTEM },
+        { role: "user", content: `Resume text:\n${resumeText.slice(0, 30000)}` },
+      ],
+    });
+    const content = completion.choices[0]?.message?.content?.trim() ?? "";
+    if (!content) return null;
+    return parseJsonToProfile(content);
+  } catch (e) {
+    console.warn("[parseWithOpenAI]", e);
+    return null;
+  }
+}
+
+/**
+ * Structured resume → profile for onboarding.
+ * - `RESUME_PARSER_PROVIDER=openai` | `gemini` | `auto` (default **auto**).
+ * - **auto**: OpenAI first if `OPENAI_API_KEY` is set, else Gemini if `GEMINI_API_KEY` is set; OpenAI failures fall back to Gemini when available.
+ */
 export async function parseResumeForProfile(resumeText: string): Promise<ParsedResumeProfile | null> {
   if (!resumeText?.trim()) return null;
+  const provider = (process.env.RESUME_PARSER_PROVIDER || "auto").toLowerCase();
+
+  if (provider === "gemini") {
+    return gemini ? await parseWithGemini(resumeText) : null;
+  }
+  if (provider === "openai") {
+    return openaiForResume ? await parseWithOpenAI(resumeText) : null;
+  }
+
+  if (openaiForResume) {
+    const fromOa = await parseWithOpenAI(resumeText);
+    if (fromOa) return fromOa;
+    if (gemini) {
+      console.warn("[parseResumeForProfile] OpenAI failed or returned null; falling back to Gemini");
+      return await parseWithGemini(resumeText);
+    }
+    return null;
+  }
+
   return gemini ? await parseWithGemini(resumeText) : null;
 }
 

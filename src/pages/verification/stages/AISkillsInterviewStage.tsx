@@ -202,6 +202,7 @@ export interface AISkillsInterviewStageProps {
   experienceYears: number;
   onSessionComplete: () => void;
   onReturnToDashboard?: () => void;
+  onPaywallRequired?: (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => void;
 }
 
 export default function AISkillsInterviewStage({
@@ -209,6 +210,7 @@ export default function AISkillsInterviewStage({
   experienceYears,
   onSessionComplete,
   onReturnToDashboard,
+  onPaywallRequired,
 }: AISkillsInterviewStageProps) {
   const { user } = useAuth();
   const { getMode } = useFeatureFlags();
@@ -656,9 +658,22 @@ export default function AISkillsInterviewStage({
       streamRef.current = null;
       setCameraActive(false);
       sessionStartRef.current = null;
-      const msg = e instanceof Error ? e.message : "Failed to start.";
-      toast.error(msg, { duration: 4000 });
       setStarted(false);
+
+      const apiErr = e as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
+      const code = apiErr?.response?.data?.code;
+      if ((code === "PAYMENT_REQUIRED" || code === "COOLDOWN") && onPaywallRequired) {
+        onPaywallRequired(
+          "ai_skills_interview",
+          apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
+          code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
+            ? new Date(apiErr.response.data.nextAvailableAt)
+            : null
+        );
+      } else {
+        const msg = e instanceof Error ? e.message : "Failed to start.";
+        toast.error(msg, { duration: 4000 });
+      }
     } finally {
       setLoading(false);
     }

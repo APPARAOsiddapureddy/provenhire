@@ -88,6 +88,7 @@ export interface ExpertInterviewStageProps {
   targetJobTitle?: string;
   onReturnToDashboard?: () => void;
   onInterviewAwaitingReview?: () => void;
+  onPaywallRequired?: (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => void;
 }
 
 async function speakText(text: string, signal?: AbortSignal): Promise<void> {
@@ -257,6 +258,7 @@ export default function ExpertInterviewStage({
   targetJobTitle = "",
   onReturnToDashboard,
   onInterviewAwaitingReview,
+  onPaywallRequired,
 }: ExpertInterviewStageProps) {
   const { user } = useAuth();
   const { getMode } = useFeatureFlags();
@@ -792,9 +794,22 @@ export default function ExpertInterviewStage({
       }
       streamRef.current = null;
       setCameraActive(false);
-      const msg = e instanceof Error ? e.message : "Failed to start interview.";
-      toast.error(msg, { duration: 3200 });
       setStarted(false);
+
+      const apiErr = e as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
+      const code = apiErr?.response?.data?.code;
+      if ((code === "PAYMENT_REQUIRED" || code === "COOLDOWN") && onPaywallRequired) {
+        onPaywallRequired(
+          "expert_interview",
+          apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
+          code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
+            ? new Date(apiErr.response.data.nextAvailableAt)
+            : null
+        );
+      } else {
+        const msg = e instanceof Error ? e.message : "Failed to start interview.";
+        toast.error(msg, { duration: 3200 });
+      }
     } finally {
       setLoading(false);
     }
