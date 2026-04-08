@@ -37,7 +37,7 @@ interface ParsedProfile {
 interface ProfileSetupStageProps {
   onComplete: () => void;
   onContinueToVerification?: () => void;
-  roleType?: "technical" | "non_technical";
+  roleType?: "technical" | "non_technical" | "data";
   nextStageName?: string;
   nextStageLabel?: string;
 }

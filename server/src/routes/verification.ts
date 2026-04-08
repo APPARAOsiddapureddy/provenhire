@@ -9,14 +9,25 @@ import {
   storeMemoryAptitudeSession,
   getMemoryAptitudeSubmitContext,
 } from "../data/aptitude-loader.js";
-import { experienceTierFromYears, questionSetForTier, dsaTierConfig } from "../utils/experienceTier.js";
+import { experienceTierFromYears, questionSetForTier, dataQuestionSetForTier, dsaTierConfig, dataRoundTierConfig } from "../utils/experienceTier.js";
 import {
   ALL_TECHNICAL_STAGE_NAMES,
+  ALL_DATA_STAGE_NAMES,
   LEGACY_TECHNICAL_STAGES_V1,
+  NON_TECHNICAL_STAGES,
   allowPlaceholderVerificationCompletion,
   isVerificationPipelineV2,
   technicalStagesForProfile,
   technicalStagesForTier,
+  dataStagesForProfile,
+  dataStagesForTier,
+  roleTypeToTrack,
+  allowedStageNamesForTrack,
+  verificationStagesForProfile,
+  detectTrack,
+  detectDataSubtrack,
+  type VerificationTrack,
+  type DataSubtrack,
 } from "../constants/verificationPipeline.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
@@ -36,7 +47,7 @@ import { checkRateLimit } from "../middleware/dsaRateLimit.js";
 import { evaluateDsaAgainstTestCases, persistDsaSubmission } from "../services/dsaEvaluation.js";
 import { getHumanInterviewEligibility } from "../services/humanInterviewGate.service.js";
 import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
-import { COOLDOWN_DSA_MS } from "../constants/revenue.js";
+import { COOLDOWN_DSA_MS, COOLDOWN_DATA_ROUND_MS } from "../constants/revenue.js";
 import { gatePaidVerificationStageInProgress } from "../services/verificationStageRetakeGate.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
@@ -76,7 +87,7 @@ async function resolveAptitudeSubmitSession(userId: string): Promise<{
   return getMemoryAptitudeSubmitContext(userId);
 }
 
-const nonTechnicalStages = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
+const nonTechnicalStages = [...NON_TECHNICAL_STAGES];
 
 async function isProfileSetupCompleted(userId: string): Promise<boolean> {
   const row = await prisma.verificationStage.findFirst({
@@ -87,25 +98,32 @@ async function isProfileSetupCompleted(userId: string): Promise<boolean> {
 }
 
 /**
- * v2 technical: show fresher stage order until profile_setup is completed; then use experienceYears.
- * Non-technical and legacy v1 are unchanged.
+ * Resolve needed verification stages for any track (software, data, non_technical).
+ * v2: show fresher stage order until profile_setup is completed; then use experienceYears.
  */
 async function resolveNeededVerificationStages(
   userId: string,
   profile: { roleType?: string | null; experienceYears?: number | null } | null
-): Promise<{ neededStages: string[]; profileSetupCompleted: boolean }> {
-  const roleType = ((profile?.roleType as string) || "technical") as string;
-  if (roleType === "non_technical") {
-    return { neededStages: [...nonTechnicalStages], profileSetupCompleted: true };
+): Promise<{ neededStages: string[]; profileSetupCompleted: boolean; track: VerificationTrack }> {
+  const track = roleTypeToTrack(profile?.roleType);
+  if (track === "non_technical") {
+    return { neededStages: [...nonTechnicalStages], profileSetupCompleted: true, track };
   }
-  if (!isVerificationPipelineV2()) {
-    return { neededStages: [...LEGACY_TECHNICAL_STAGES_V1], profileSetupCompleted: true };
+  if (track === "software" && !isVerificationPipelineV2()) {
+    return { neededStages: [...LEGACY_TECHNICAL_STAGES_V1], profileSetupCompleted: true, track };
   }
   const profileSetupCompleted = await isProfileSetupCompleted(userId);
-  const neededStages = !profileSetupCompleted
-    ? technicalStagesForTier("fresher")
-    : technicalStagesForProfile(profile?.experienceYears);
-  return { neededStages, profileSetupCompleted };
+  let neededStages: string[];
+  if (track === "data") {
+    neededStages = !profileSetupCompleted
+      ? dataStagesForTier("fresher")
+      : dataStagesForProfile(profile?.experienceYears);
+  } else {
+    neededStages = !profileSetupCompleted
+      ? technicalStagesForTier("fresher")
+      : technicalStagesForProfile(profile?.experienceYears);
+  }
+  return { neededStages, profileSetupCompleted, track };
 }
 
 /** Create missing pipeline rows; drop only extra *locked* stages (never human expert) so the path can switch after profile setup. */
@@ -150,8 +168,7 @@ async function ensureVerificationPipelineStages(userId: string, neededStages: st
 }
 
 function allowedVerificationStageNames(roleType: string): Set<string> {
-  if (roleType === "non_technical") return new Set(nonTechnicalStages);
-  return ALL_TECHNICAL_STAGE_NAMES;
+  return allowedStageNamesForTrack(roleTypeToTrack(roleType));
 }
 
 async function syncLegacyAptitudeToCsFundamentals(userId: string): Promise<void> {
@@ -186,16 +203,17 @@ function toStageResponse(rows: { stageName: string; status: string; score?: numb
  * shows DSA as the next step (first "locked" after completed). Official DSA APIs require in_progress.
  * This reconciliation is NOT tied to integrity / proctoring feature flags.
  */
-async function reconcileTechnicalVerificationStages(userId: string): Promise<void> {
+async function reconcileVerificationStages(userId: string): Promise<void> {
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
     select: { experienceYears: true, roleType: true },
   });
-  if ((profile?.roleType ?? "technical") === "non_technical") return;
+  const track = roleTypeToTrack(profile?.roleType);
+  if (track === "non_technical") return;
 
   const reload = () => prisma.verificationStage.findMany({ where: { userId } });
 
-  if (!isVerificationPipelineV2()) {
+  if (track === "software" && !isVerificationPipelineV2()) {
     let rows = await reload();
     const st = (name: string) => rows.find((r) => r.stageName === name)?.status;
     if (st("aptitude_test") === "completed" && st("dsa_round") === "locked") {
@@ -224,9 +242,7 @@ async function reconcileTechnicalVerificationStages(userId: string): Promise<voi
   }
 
   const profileSetupDone = await isProfileSetupCompleted(userId);
-  const order = !profileSetupDone
-    ? technicalStagesForTier("fresher")
-    : technicalStagesForProfile(profile?.experienceYears);
+  const { neededStages: order } = await resolveNeededVerificationStages(userId, profile);
   let rows = await reload();
   const statusOf = (name: string) => rows.find((r) => r.stageName === name)?.status;
 
@@ -238,6 +254,9 @@ async function reconcileTechnicalVerificationStages(userId: string): Promise<voi
         return (
           statusOf("cs_fundamentals") === "completed" || statusOf("aptitude_test") === "completed"
         );
+      }
+      if (prev === "data_fundamentals") {
+        return statusOf("data_fundamentals") === "completed";
       }
       return statusOf(prev) === "completed";
     })();
@@ -322,18 +341,21 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
     );
 
     await ensureVerificationPipelineStages(req.user!.id, neededStages);
-    if (roleType !== "non_technical") {
-      await syncLegacyAptitudeToCsFundamentals(req.user!.id);
-      await reconcileTechnicalVerificationStages(req.user!.id);
+    const canonicalTrack = roleTypeToTrack(roleType);
+    if (canonicalTrack !== "non_technical") {
+      if (canonicalTrack === "software") {
+        await syncLegacyAptitudeToCsFundamentals(req.user!.id);
+      }
+      await reconcileVerificationStages(req.user!.id);
     }
     const [stages, certification] = await Promise.all([
       prisma.verificationStage.findMany({ where: { userId: req.user!.id } }),
       calculateCertificationLevel(req.user!.id),
     ]);
     const track =
-      roleType === "non_technical"
+      canonicalTrack === "non_technical"
         ? null
-        : isVerificationPipelineV2() && !profileSetupDoneForResponse
+        : !profileSetupDoneForResponse
           ? null
           : experienceTierFromYears(profile?.experienceYears);
     return res.json({
@@ -341,8 +363,8 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
       roleType,
       verification_pipeline_v2: isVerificationPipelineV2(),
       verification_track: track,
-      pipeline_pending_profile_setup: roleType === "technical" && isVerificationPipelineV2() && !profileSetupDoneForResponse,
-      stage_order: roleType === "non_technical" ? nonTechnicalStages : neededStages,
+      pipeline_pending_profile_setup: canonicalTrack !== "non_technical" && !profileSetupDoneForResponse,
+      stage_order: canonicalTrack === "non_technical" ? nonTechnicalStages : neededStages,
       certification_level: certification.level,
       certification_label: certification.label,
       certificationLevel: certification.certificationLevel ?? null,
@@ -358,7 +380,8 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
 verificationRouter.get("/skills", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
-    if ((profile?.roleType ?? "technical") !== "technical") {
+    const track = roleTypeToTrack(profile?.roleType);
+    if (track === "non_technical") {
       return res.json({ aptitude: null, live_coding: null, interview: null });
     }
     const skills = await getSkillVerifications(req.user!.id);
@@ -401,6 +424,15 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
   }
 
   if (!existing) {
+    // Auto-create if the stage is in the allowed set (handles race between GET /stages and POST /stages/update)
+    if (allowed.has(stageName)) {
+      await prisma.verificationStage.upsert({
+        where: { userId_stageName: { userId, stageName } },
+        create: { userId, stageName, status: status as string, score: parsed.data.score ?? null },
+        update: { status: status as string },
+      });
+      return res.json({ updated: 1 });
+    }
     return res.status(404).json({ error: "Unknown verification stage" });
   }
 
@@ -420,7 +452,7 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
   const updateData: { status: string; score?: number | null } = { status };
 
   if (
-    (stageName === "aptitude_test" || stageName === "cs_fundamentals") &&
+    (stageName === "aptitude_test" || stageName === "cs_fundamentals" || stageName === "data_fundamentals") &&
     (status === "completed" || status === "failed")
   ) {
     const row = await prisma.aptitudeTestResult.findFirst({
@@ -457,7 +489,28 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
       return res.status(400).json({ error: "Your latest DSA score passes; use Continue instead of failing." });
     }
     updateData.score = s;
-  } else if (stageName === "ai_skills_interview" && status === "completed") {
+  } else if (stageName === "data_round" && (status === "completed" || status === "failed")) {
+    const row = await prisma.dataRoundResult.findFirst({
+      where: { userId },
+      orderBy: { completedAt: "desc" },
+    });
+    if (!row || row.score == null) {
+      return res.status(400).json({ error: "Finish and submit the Data round first." });
+    }
+    const s = Math.round(row.score);
+    const tier = experienceTierFromYears(profile?.experienceYears);
+    const dataMin = dataRoundTierConfig(tier).passThresholdPercent;
+    if (status === "completed" && s < dataMin) {
+      return res.status(400).json({ error: `Minimum score ${dataMin} required to complete this step.` });
+    }
+    if (status === "failed" && s >= dataMin) {
+      return res.status(400).json({ error: "Your latest Data round score passes; use Continue instead of failing." });
+    }
+    updateData.score = s;
+  } else if (
+    (stageName === "ai_skills_interview" || stageName === "data_skills_interview") &&
+    status === "completed"
+  ) {
     const iv = await prisma.interview.findFirst({
       where: { userId, interviewType: "ai_skills", status: "completed" },
       orderBy: { completedAt: "desc" },
@@ -470,7 +523,10 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     } else {
       updateData.score = iv.totalScore != null ? Math.round(iv.totalScore) : null;
     }
-  } else if (stageName === "system_design_interview" && status === "completed") {
+  } else if (
+    (stageName === "system_design_interview" || stageName === "data_system_design") &&
+    status === "completed"
+  ) {
     if (!allowPlaceholderVerificationCompletion()) {
       return res.status(503).json({
         error: "This verification step is not available yet. Complete the official assessment flow when it is released.",
@@ -506,16 +562,21 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     data: updateData,
   });
 
-  if (
-    stageName === "profile_setup" &&
-    status === "completed" &&
-    roleType === "technical" &&
-    isVerificationPipelineV2()
-  ) {
-    const { neededStages } = await resolveNeededVerificationStages(userId, profile);
+  if (stageName === "profile_setup" && status === "completed") {
+    // Auto-detect track from job title when profile_setup completes
+    const freshProfile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
+    const currentRoleType = freshProfile?.roleType ?? "technical";
+    if (currentRoleType === "technical") {
+      const detected = detectTrack(freshProfile?.targetJobTitle);
+      if (detected === "data") {
+        await prisma.jobSeekerProfile.update({ where: { userId }, data: { roleType: "data" } });
+      }
+    }
+    const updatedProfile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
+    const { neededStages } = await resolveNeededVerificationStages(userId, updatedProfile);
     await ensureVerificationPipelineStages(userId, neededStages);
     try {
-      await reconcileTechnicalVerificationStages(userId);
+      await reconcileVerificationStages(userId);
     } catch (e) {
       console.warn("[verification/stages/update] reconcile after profile_setup", e);
     }
@@ -606,7 +667,11 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   const { neededStages: stageOrder } = await resolveNeededVerificationStages(req.user!.id, profile);
   const currentIndex = stageOrder.indexOf(parsed.data.stageName);
   if (currentIndex < 0) return res.status(400).json({ error: "Invalid stage for this path" });
-  if (parsed.data.stageName === "aptitude_test" || parsed.data.stageName === "cs_fundamentals") {
+  if (
+    parsed.data.stageName === "aptitude_test" ||
+    parsed.data.stageName === "cs_fundamentals" ||
+    parsed.data.stageName === "data_fundamentals"
+  ) {
     if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     await clearAptitudeSession(req.user!.id);
   }
@@ -614,6 +679,11 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
     const uid = req.user!.id;
     await prisma.dsaSubmission.deleteMany({ where: { userId: uid } });
     await prisma.dsaRoundResult.deleteMany({ where: { userId: uid } });
+  }
+  if (parsed.data.stageName === "data_round") {
+    const uid = req.user!.id;
+    await prisma.dataRoundSubmission.deleteMany({ where: { userId: uid } });
+    await prisma.dataRoundResult.deleteMany({ where: { userId: uid } });
   }
   await Promise.all(
     stageOrder.slice(currentIndex).map((stage, i) => {
@@ -632,14 +702,17 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
   try {
     if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     let experienceYears = 0;
+    let profileRoleType = "technical";
     try {
-    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
+      const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
       experienceYears = profile?.experienceYears ?? 0;
+      profileRoleType = profile?.roleType ?? "technical";
     } catch (profileErr) {
       console.warn("[verification/aptitude/questions] profile read failed; using default experience band", profileErr);
     }
     const tier = experienceTierFromYears(experienceYears);
-    const desiredQuestionSet = questionSetForTier(tier);
+    const track = roleTypeToTrack(profileRoleType);
+    const desiredQuestionSet = track === "data" ? dataQuestionSetForTier(tier) : questionSetForTier(tier);
     let existing: Awaited<ReturnType<typeof getAptitudeSession>> = null;
     try {
       existing = await getAptitudeSession(req.user!.id);
@@ -838,7 +911,7 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
       ? Math.round((score / totalMarksForPct) * 100)
       : Math.min(100, Math.max(0, Math.round(score)));
     const existingStage = await prisma.verificationStage.findFirst({
-      where: { userId: req.user!.id, stageName: { in: ["cs_fundamentals", "aptitude_test"] } },
+      where: { userId: req.user!.id, stageName: { in: ["cs_fundamentals", "aptitude_test", "data_fundamentals"] } },
       orderBy: { updatedAt: "desc" },
     });
     if (existingStage) {
@@ -1034,8 +1107,9 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
     where: { userId },
     select: { targetJobTitle: true, experienceYears: true, roleType: true },
   });
-  if ((profile?.roleType ?? "technical") !== "technical") {
-    return res.status(400).json({ error: "DSA applies only to the technical verification path." });
+  const profileTrack = roleTypeToTrack(profile?.roleType);
+  if (profileTrack === "non_technical") {
+    return res.status(400).json({ error: "DSA/Data round applies only to technical or data verification paths." });
   }
 
   let dsaScore: number | null = null;
@@ -1916,4 +1990,292 @@ verificationRouter.post("/book-slot", requireAuth, requireJobSeeker, async (req:
   }
 
   res.status(201).json({ session, message: "Slot booked successfully" });
+});
+
+// ---------------------------------------------------------------------------
+// Data Round endpoints (SQL + Python tasks for data track)
+// ---------------------------------------------------------------------------
+
+/** GET /api/verification/data-round/tasks — load data round tasks for the candidate */
+verificationRouter.get("/data-round/tasks", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
+    const track = roleTypeToTrack(profile?.roleType);
+    if (track !== "data") {
+      return res.status(400).json({ error: "Data round is only available for the data verification track." });
+    }
+
+    const stage = await prisma.verificationStage.findFirst({
+      where: { userId, stageName: "data_round" },
+    });
+    if (!stage || (stage.status !== "in_progress" && stage.status !== "completed" && stage.status !== "failed")) {
+      return res.status(400).json({ error: "Data round is not currently active for your account." });
+    }
+
+    const tier = experienceTierFromYears(profile?.experienceYears);
+    const subtrack = detectDataSubtrack(profile?.targetJobTitle);
+    const tierConfig = dataRoundTierConfig(tier);
+
+    const allTasks = await prisma.dataRoundTask.findMany({
+      include: { testCases: { where: { isHidden: false } } },
+    });
+
+    if (!allTasks || allTasks.length === 0) {
+      return res.status(503).json({ error: "Data round task bank is not yet available. Please try again later." });
+    }
+
+    // Select tasks based on tier config
+    const sqlTasks = allTasks.filter((t: any) => t.taskType === "sql" && (!t.subtrack || t.subtrack === subtrack));
+    const pythonTasks = allTasks.filter((t: any) => t.taskType === "python" && (!t.subtrack || t.subtrack === subtrack));
+    const otherTasks = allTasks.filter((t: any) => !["sql", "python"].includes(t.taskType) && (!t.subtrack || t.subtrack === subtrack));
+
+    const selected: any[] = [];
+    const pick = (pool: any[], n: number) => {
+      const shuffled = [...pool].sort(() => Math.random() - 0.5);
+      return shuffled.slice(0, Math.min(n, shuffled.length));
+    };
+
+    selected.push(...pick(sqlTasks, tierConfig.sqlTaskCount));
+    selected.push(...pick(pythonTasks, tierConfig.pythonTaskCount));
+    if (tierConfig.modelingOrStatsTaskCount > 0) {
+      selected.push(...pick(otherTasks, tierConfig.modelingOrStatsTaskCount));
+    }
+
+    // Fill remaining slots if we couldn't find enough subtrack-specific tasks
+    const remaining = tierConfig.taskCount - selected.length;
+    if (remaining > 0) {
+      const used = new Set(selected.map((t: any) => t.id));
+      const fallback = allTasks.filter((t: any) => !used.has(t.id));
+      selected.push(...pick(fallback, remaining));
+    }
+
+    const tasks = selected.map((t: any) => ({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      taskType: t.taskType,
+      difficulty: t.difficulty,
+      sqlSchema: t.sqlSchema,
+      starterCode: t.starterCode,
+      options: t.options,
+      testCases: (t.testCases ?? []).map((tc: any) => ({
+        input: tc.input,
+        expected: tc.expected,
+      })),
+    }));
+
+    return res.json({
+      tasks,
+      timeLimitMinutes: tierConfig.timeLimitMinutes,
+      passThresholdPercent: tierConfig.passThresholdPercent,
+      subtrack,
+      tier,
+    });
+  } catch (e) {
+    console.error("[verification/data-round/tasks]", e);
+    return res.status(500).json({ error: "Failed to load data round tasks" });
+  }
+});
+
+/** POST /api/verification/data-round/submit — submit a single data round task */
+verificationRouter.post("/data-round/submit", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const schema = z.object({
+      taskId: z.string(),
+      code: z.string(),
+      language: z.enum(["python", "sql"]),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    const { taskId, code, language } = parsed.data;
+
+    const task = await prisma.dataRoundTask.findUnique({
+      where: { id: taskId },
+      include: { testCases: true },
+    });
+    if (!task) return res.status(404).json({ error: "Task not found" });
+
+    // For SQL tasks, wrap in Python + sqlite3
+    let execCode = code;
+    if (language === "sql" || task.taskType === "sql") {
+      const schemaEscaped = (task.sqlSchema || "").replace(/'/g, "\\'").replace(/\n/g, "\\n");
+      const sqlEscaped = code.replace(/'/g, "\\'").replace(/\n/g, "\\n");
+      execCode = `import sqlite3, sys
+conn = sqlite3.connect(':memory:')
+cur = conn.cursor()
+schema = '${schemaEscaped}'
+for stmt in schema.split(';'):
+    stmt = stmt.strip()
+    if stmt:
+        cur.execute(stmt)
+conn.commit()
+sql = '${sqlEscaped}'
+try:
+    cur.execute(sql)
+    rows = cur.fetchall()
+    for row in rows:
+        print('|'.join(str(c) for c in row))
+except Exception as e:
+    print(f"ERROR: {e}", file=sys.stderr)
+    sys.exit(1)
+conn.close()
+`;
+    }
+
+    // Execute via Judge0 — submitBatch(code, language, testInputs) returns Judge0Result[]
+    const { submitBatch, extractActualOutput } = await import("../services/judge0.js");
+
+    const testCases = task.testCases || [];
+    let passedCount = 0;
+    const resultList: any[] = [];
+
+    try {
+      const judge0Results = await submitBatch(
+        execCode,
+        "python",
+        testCases.map((tc: any) => ({ input: tc.input || "", timeoutMs: tc.timeoutMs ?? null })),
+      );
+
+      for (let i = 0; i < testCases.length; i++) {
+        const tc = testCases[i];
+        const j0 = judge0Results[i];
+        const stdout = j0 ? extractActualOutput(j0).trim() : "";
+        const expected = (tc.expected || "").trim();
+        const passed = stdout === expected;
+        if (passed) passedCount++;
+        resultList.push({
+          passed,
+          status: passed ? "passed" : j0?.status?.id === 6 ? "compilation_error" : "wrong_answer",
+          actual: !tc.isHidden ? stdout : undefined,
+          expected: !tc.isHidden ? expected : undefined,
+        });
+      }
+    } catch (execErr) {
+      for (const tc of testCases) {
+        resultList.push({
+          passed: false,
+          status: "internal_error",
+          actual: execErr instanceof Error ? execErr.message : "Execution error",
+        });
+      }
+    }
+
+    // Store submission
+    await prisma.dataRoundSubmission.create({
+      data: {
+        userId,
+        taskId,
+        language: language === "sql" ? "sql" : "python",
+        code,
+        passedCount,
+        totalCount: testCases.length,
+        isOfficial: true,
+        results: resultList,
+      },
+    });
+
+    const score = testCases.length > 0 ? Math.round((passedCount / testCases.length) * 100) : 0;
+
+    return res.json({
+      passed: passedCount,
+      total: testCases.length,
+      score,
+      results: resultList.map((r: any) => ({
+        passed: r.passed,
+        status: r.status,
+        actual: r.actual,
+        expected: r.expected,
+      })),
+    });
+  } catch (e) {
+    console.error("[verification/data-round/submit]", e);
+    return res.status(500).json({ error: "Failed to submit data round task" });
+  }
+});
+
+/** POST /api/verification/data-round — finalize the data round (like POST /dsa for software track) */
+verificationRouter.post("/data-round", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId },
+      select: { roleType: true, experienceYears: true },
+    });
+    const track = roleTypeToTrack(profile?.roleType);
+    if (track !== "data") {
+      return res.status(400).json({ error: "Data round is only available for data track." });
+    }
+
+    const tier = experienceTierFromYears(profile?.experienceYears);
+    const tierConfig = dataRoundTierConfig(tier);
+
+    // Get all official submissions
+    const submissions = await prisma.dataRoundSubmission.findMany({
+      where: { userId, isOfficial: true },
+      orderBy: { submittedAt: "desc" },
+    });
+
+    if (!submissions || submissions.length === 0) {
+      return res.status(400).json({ error: "No submissions found. Complete at least one task." });
+    }
+
+    // Get best score per task
+    const bestByTask = new Map<string, number>();
+    for (const sub of submissions) {
+      const score = sub.totalCount > 0 ? Math.round((sub.passedCount / sub.totalCount) * 100) : 0;
+      if (!bestByTask.has(sub.taskId) || score > bestByTask.get(sub.taskId)!) {
+        bestByTask.set(sub.taskId, score);
+      }
+    }
+
+    if (bestByTask.size < tierConfig.taskCount) {
+      return res.status(400).json({
+        error: `Submit official solutions for all ${tierConfig.taskCount} tasks before finishing the round.`,
+      });
+    }
+
+    const scores = Array.from(bestByTask.values());
+    const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const passed = avgScore >= tierConfig.passThresholdPercent;
+
+    const lastDataRound = await prisma.dataRoundResult.findFirst({
+      where: { userId },
+      orderBy: { completedAt: "desc" },
+    });
+    if (lastDataRound && Date.now() - lastDataRound.completedAt.getTime() < COOLDOWN_DATA_ROUND_MS) {
+      return res.status(402).json({
+        code: "COOLDOWN",
+        message: "Wait 48 hours between Data round submissions.",
+        nextAvailableAt: new Date(lastDataRound.completedAt.getTime() + COOLDOWN_DATA_ROUND_MS).toISOString(),
+      });
+    }
+
+    // Store result
+    await prisma.dataRoundResult.create({
+      data: {
+        userId,
+        score: avgScore,
+        answers: { taskScores: Object.fromEntries(bestByTask) },
+      },
+    });
+
+    // Update verification stage
+    await prisma.verificationStage.updateMany({
+      where: { userId, stageName: "data_round" },
+      data: { status: passed ? "completed" : "failed", score: avgScore },
+    });
+
+    return res.json({
+      score: avgScore,
+      passed,
+      passThresholdPercent: tierConfig.passThresholdPercent,
+      taskScores: Object.fromEntries(bestByTask),
+    });
+  } catch (e) {
+    console.error("[verification/data-round]", e);
+    return res.status(500).json({ error: "Failed to finalize data round" });
+  }
 });

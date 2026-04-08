@@ -16,4 +16,6 @@ export const COOLDOWN_AI_EXPERT_MS = 30 * 24 * 60 * 60 * 1000;
 export const COOLDOWN_AI_SKILLS_MS = 7 * 24 * 60 * 60 * 1000;
 export const COOLDOWN_SYSTEM_DESIGN_MS = 7 * 24 * 60 * 60 * 1000;
 export const COOLDOWN_DSA_MS = 48 * 60 * 60 * 1000;
+/** Data round (SQL + Python) — same 48h cadence as DSA per PRD. */
+export const COOLDOWN_DATA_ROUND_MS = 48 * 60 * 60 * 1000;
 export const COOLDOWN_CS_FUNDAMENTALS_MS = 24 * 60 * 60 * 1000;

@@ -17,7 +17,7 @@ const registerSchema = z.object({
   password: z.string().min(6),
   /** Privileged roles must never be self-service; only jobseeker/recruiter via public signup. */
   role: z.enum(["jobseeker", "recruiter"]).optional(),
-  roleType: z.enum(["technical", "non_technical"]).optional(),
+  roleType: z.enum(["technical", "non_technical", "data"]).optional(),
   verificationToken: z.string().optional(), // Optional for now; will add when scaling
 });
 
@@ -46,7 +46,7 @@ const googleSelectRoleSchema = z.object({
   role: z.enum(["jobseeker", "recruiter"]),
   companyName: z.string().optional(),
   companySize: z.string().optional(),
-  roleType: z.enum(["technical", "non_technical"]).optional(),
+  roleType: z.enum(["technical", "non_technical", "data"]).optional(),
 });
 
 const emailVerificationSendSchema = z.object({

@@ -399,15 +399,18 @@ export async function computeProvenhireCertification(userId: string): Promise<{
     }
   }
 
+  const hasSkillsInterview = done("ai_skills_interview") || done("data_skills_interview");
+  const hasSystemDesign = done("system_design_interview") || done("data_system_design");
+
   if (tier === "fresher") {
-    if (done("ai_skills_interview")) {
+    if (hasSkillsInterview) {
       return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
     }
-  } else if (done("ai_skills_interview") && done("system_design_interview")) {
+  } else if (hasSkillsInterview && hasSystemDesign) {
     return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
   }
 
-  if (done("dsa_round")) {
+  if (done("dsa_round") || done("data_round")) {
     return { certificationLevel: "L1", certificationLabel: "Cognitive Verified" };
   }
 

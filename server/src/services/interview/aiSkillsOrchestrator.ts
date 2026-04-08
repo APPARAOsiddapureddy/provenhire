@@ -91,6 +91,51 @@ export async function loadDSAContext(userId: string): Promise<DSAContext> {
   return { problems: problems.filter((p) => p.candidateCode.length > 0 || p.description.length > 0) };
 }
 
+/**
+ * Load data round context (SQL + Python task submissions) for data track candidates.
+ * Returns the same DSAContext shape so the interview flow is unified.
+ */
+export async function loadDataRoundContext(userId: string): Promise<DSAContext> {
+  const result = await prisma.dataRoundResult.findFirst({
+    where: { userId, invalidated: false },
+    orderBy: { completedAt: "desc" },
+  });
+  if (!result?.answers || typeof result.answers !== "object") {
+    return { problems: [] };
+  }
+  const taskScores = (result.answers as any)?.taskScores as Record<string, number> | undefined;
+  if (!taskScores) return { problems: [] };
+
+  const problems = await Promise.all(
+    Object.entries(taskScores).map(async ([taskId, score]) => {
+      const task = await prisma.dataRoundTask.findUnique({ where: { id: taskId } });
+      const submission = await prisma.dataRoundSubmission.findFirst({
+        where: { userId, taskId, isOfficial: true },
+        orderBy: { submittedAt: "desc" },
+      });
+      const code = submission?.code ?? "";
+      const language = submission?.language ?? "python";
+      const passed = submission?.passedCount ?? 0;
+      const total = Math.max(1, submission?.totalCount ?? 1);
+      const fully = passed >= total;
+      const partial = passed > 0 && passed < total;
+      return {
+        problemId: taskId,
+        title: task?.title ?? "Data task",
+        description: task?.description ?? "",
+        difficulty: task?.difficulty ?? "Medium",
+        candidateCode: code.slice(0, 24_000),
+        language,
+        testCasesPassed: passed,
+        testCasesTotal: total,
+        isFullySolved: fully,
+        isPartiallySolved: partial && !fully,
+      };
+    })
+  );
+  return { problems: problems.filter((p) => p.candidateCode.length > 0 || p.description.length > 0) };
+}
+
 async function loadResumeSkills(userId: string): Promise<string[]> {
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
@@ -230,6 +275,7 @@ async function finalizeSession(
   plan: AISkillsPlanV1,
   pass: boolean,
   timeExpired: boolean,
+  overrideStageName?: string,
 ): Promise<{ totalScore: number; verifiedSkills: Array<{ skill: string; confidence: number }> }> {
   const { total, dsaAvg, skillAvg } = computeCompositeScore(plan);
   const threshold = skillVerifiedThresholdForTier(plan.track);
@@ -265,11 +311,13 @@ async function finalizeSession(
     },
   });
 
+  const stageName = overrideStageName || "ai_skills_interview";
+
   await prisma.verificationStage.upsert({
-    where: { userId_stageName: { userId, stageName: "ai_skills_interview" } },
+    where: { userId_stageName: { userId, stageName } },
     create: {
       userId,
-      stageName: "ai_skills_interview",
+      stageName,
       status: pass ? "completed" : "failed",
       score: total,
     },
@@ -285,7 +333,7 @@ async function finalizeSession(
         status: "ACTIVE",
         score: total,
         confidenceScore: plan.resumeSkills.length ? skillAvg : null,
-        verifiedInStage: "ai_skills_interview",
+        verifiedInStage: stageName,
         completedAt,
         expiresAt: calculateExpiry("INTERVIEW", completedAt),
       },
@@ -293,7 +341,7 @@ async function finalizeSession(
         status: "ACTIVE",
         score: total,
         confidenceScore: plan.resumeSkills.length ? skillAvg : null,
-        verifiedInStage: "ai_skills_interview",
+        verifiedInStage: stageName,
         completedAt,
         expiresAt: calculateExpiry("INTERVIEW", completedAt),
         updatedAt: new Date(),
@@ -308,7 +356,7 @@ async function finalizeSession(
         status: "FAILED",
         score: total,
         confidenceScore: plan.resumeSkills.length ? skillAvg : null,
-        verifiedInStage: "ai_skills_interview",
+        verifiedInStage: stageName,
         completedAt,
         expiresAt: null,
       },
@@ -316,7 +364,7 @@ async function finalizeSession(
         status: "FAILED",
         score: total,
         confidenceScore: plan.resumeSkills.length ? skillAvg : null,
-        verifiedInStage: "ai_skills_interview",
+        verifiedInStage: stageName,
         completedAt,
         expiresAt: null,
         updatedAt: new Date(),
@@ -360,6 +408,7 @@ export async function startAiSkillsInterview(
   userId: string,
   jobRole: string,
   track?: ExperienceTier,
+  opts?: { isDataTrack?: boolean },
 ): Promise<{
   interviewId: string;
   firstQuestion: string;
@@ -368,18 +417,22 @@ export async function startAiSkillsInterview(
   questionsTotal: number;
   resumed?: boolean;
 }> {
+  const isData = opts?.isDataTrack === true;
+  const interviewStageName = isData ? "data_skills_interview" : "ai_skills_interview";
+  const prerequisiteStageName = isData ? "data_round" : "dsa_round";
+
   const stage = await prisma.verificationStage.findUnique({
-    where: { userId_stageName: { userId, stageName: "ai_skills_interview" } },
+    where: { userId_stageName: { userId, stageName: interviewStageName } },
   });
   if (!stage || stage.status !== "in_progress") {
     throw new Error("AI Skills stage must be in progress. Open this step from your verification pipeline first.");
   }
 
-  const dsaDone = await prisma.verificationStage.findFirst({
-    where: { userId, stageName: "dsa_round", status: "completed" },
+  const prereqDone = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: prerequisiteStageName, status: "completed" },
   });
-  if (!dsaDone) {
-    throw new Error("Complete the DSA round before starting the AI Skills interview.");
+  if (!prereqDone) {
+    throw new Error(`Complete the ${isData ? "Data Round" : "DSA round"} before starting the AI Skills interview.`);
   }
 
   const existing = await prisma.interview.findFirst({
@@ -411,7 +464,9 @@ export async function startAiSkillsInterview(
   const profileTier = experienceTierFromYears(profile?.experienceYears);
   const useTrack: ExperienceTier = track ?? profileTier;
 
-  const dsaProblems = await loadDSAContext(userId);
+  const dsaProblems = isData
+    ? await loadDataRoundContext(userId)
+    : await loadDSAContext(userId);
   const rawSkills = await loadResumeSkills(userId);
   const slots = skillSlotsForTrack(useTrack);
   const resumeSkills = rawSkills.slice(0, Math.max(1, Math.min(slots, rawSkills.length)));
@@ -467,6 +522,7 @@ export async function processAiSkillsTurn(
   interviewId: string,
   userId: string,
   answer: string,
+  opts?: { overrideStageName?: string },
 ): Promise<{
   response: string;
   acknowledgement: string | null;
@@ -494,7 +550,7 @@ export async function processAiSkillsTurn(
   plan.history.push({ role: "user", content: answerTrim });
 
   if (timedOut) {
-    const { totalScore, verifiedSkills } = await finalizeSession(interviewId, userId, plan, false, true);
+    const { totalScore, verifiedSkills } = await finalizeSession(interviewId, userId, plan, false, true, opts?.overrideStageName);
     return {
       response: "Time is up for this session. Your attempt has been recorded.",
       acknowledgement: null,
@@ -574,7 +630,7 @@ export async function processAiSkillsTurn(
     if (plan.skillIdx >= plan.resumeSkills.length) {
       plan.phase = "complete";
       const pass = evalPass(plan);
-      const { totalScore, verifiedSkills } = await finalizeSession(interviewId, userId, plan, pass, false);
+      const { totalScore, verifiedSkills } = await finalizeSession(interviewId, userId, plan, pass, false, opts?.overrideStageName);
       return {
         response: pass
           ? "Great work — you have completed the AI Skills interview. Results are saved to your verification profile."

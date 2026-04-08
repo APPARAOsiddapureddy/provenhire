@@ -13,8 +13,8 @@ const pricingBody = {
 };
 
 function interviewTypeForStage(stageName: string): "ai_skills" | "system_design" | null {
-  if (stageName === "ai_skills_interview") return "ai_skills";
-  if (stageName === "system_design_interview") return "system_design";
+  if (stageName === "ai_skills_interview" || stageName === "data_skills_interview") return "ai_skills";
+  if (stageName === "system_design_interview" || stageName === "data_system_design") return "system_design";
   return null;
 }
 
@@ -27,7 +27,11 @@ export async function gatePaidVerificationStageInProgress(
   stageName: string,
   previousStatus: string,
 ): Promise<{ ok: true } | { ok: false; status: number; body: Record<string, unknown> }> {
-  if (stageName !== "ai_skills_interview" && stageName !== "system_design_interview") {
+  const PAID_RETAKE_STAGES = new Set([
+    "ai_skills_interview", "system_design_interview",
+    "data_skills_interview", "data_system_design",
+  ]);
+  if (!PAID_RETAKE_STAGES.has(stageName)) {
     return { ok: true };
   }
 

@@ -23,6 +23,7 @@ const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"))
 const AISkillsInterviewStage = lazy(() => import("./stages/AISkillsInterviewStage"));
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
+const DataRoundStage = lazy(() => import("./stages/DataRoundStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
 import PipelineStagePlaceholder from "./stages/PipelineStagePlaceholder";
 import { checkInvalidatedTests, checkCooldownStatus } from "@/utils/recordingUpload";
@@ -68,7 +69,7 @@ const VerificationFlow = () => {
     dsa: { inCooldown: false }
   });
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [roleType, setRoleType] = useState<"technical" | "non_technical">("technical");
+  const [roleType, setRoleType] = useState<"technical" | "non_technical" | "data">("technical");
   const [showAllCompletePopup, setShowAllCompletePopup] = useState(false);
   const [targetJobTitle, setTargetJobTitle] = useState<string>("");
   const [experienceYears, setExperienceYears] = useState<number>(2);
@@ -100,7 +101,7 @@ const VerificationFlow = () => {
   const LOAD_TIMEOUT_MS = 30000;
 
   const resolveTechnicalOrderForResponse = (
-    rt: "technical" | "non_technical",
+    rt: string,
     res: VerificationStagesApiResponse,
     expYears: number
   ): string[] => {
@@ -110,8 +111,9 @@ const VerificationFlow = () => {
       verificationPipelineV2: res.verification_pipeline_v2,
       pipelinePendingProfileSetup: res.pipeline_pending_profile_setup,
       experienceYears: expYears,
+      roleType: rt,
     });
-    return normalizeTechnicalStageOrderForDisplay(base, "technical", res.verification_pipeline_v2 === true);
+    return normalizeTechnicalStageOrderForDisplay(base, rt, res.verification_pipeline_v2 === true);
   };
 
   const STAGE_LABELS: Record<string, string> = {
@@ -124,6 +126,10 @@ const VerificationFlow = () => {
     expert_interview: "Expert Interview",
     human_expert_interview: "Expert Interview",
     non_tech_assignment: "Assignment",
+    data_fundamentals: "Data Fundamentals + Aptitude",
+    data_round: "Data Round (SQL + Python)",
+    data_skills_interview: "AI Skills Interview (Data)",
+    data_system_design: "Data System Design",
   };
   const getStageLabel = (stageName: string) => STAGE_LABELS[stageName] ?? stageName.split('_').join(' ');
 
@@ -173,7 +179,7 @@ const VerificationFlow = () => {
       const loadWithTimeout = async () => {
         const res = await api.get<VerificationStagesApiResponse>("/api/verification/stages");
         let data = res.stages;
-        const rt = (res.roleType as "technical" | "non_technical") || "technical";
+        const rt = (res.roleType as "technical" | "non_technical" | "data") || "technical";
         setRoleType(rt);
         setCertificationLevel(res.certification_level ?? 0);
         setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
@@ -214,9 +220,9 @@ const VerificationFlow = () => {
           setCertificationLevel(resRefresh.certification_level ?? 0);
           setCertificationLabel(resRefresh.certification_label ?? "Level 0 - Not Yet Certified");
           if (resRefresh.roleType) {
-            setRoleType(resRefresh.roleType as "technical" | "non_technical");
+            setRoleType(resRefresh.roleType as "technical" | "non_technical" | "data");
           }
-          const rtEff = (resRefresh.roleType as "technical" | "non_technical") || rt;
+          const rtEff = (resRefresh.roleType as "technical" | "non_technical" | "data") || rt;
           if (rtEff === "non_technical" && data.length) {
             data = data.map((s: VerificationStage) =>
               s.stage_name === "expert_interview"
@@ -277,7 +283,7 @@ const VerificationFlow = () => {
         stage_order?: string[];
       }>("/api/verification/stages");
       let data = res.stages ?? [];
-      const rtEff = (res.roleType as "technical" | "non_technical") || rt || roleType;
+      const rtEff = (res.roleType as "technical" | "non_technical" | "data") || rt || roleType;
       if (rtEff === "non_technical" && data.length) {
         data = data.map((s: VerificationStage) =>
           s.stage_name === "expert_interview"
@@ -288,8 +294,8 @@ const VerificationFlow = () => {
       setRoleType(rtEff);
       setCertificationLevel(res.certification_level ?? 0);
       setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
-      const orderEff = resolveTechnicalOrderForResponse(rtEff as "technical" | "non_technical", res as VerificationStagesApiResponse, experienceYears);
-      if (rtEff === "technical") {
+      const orderEff = resolveTechnicalOrderForResponse(rtEff, res as VerificationStagesApiResponse, experienceYears);
+      if (rtEff !== "non_technical") {
         setTechnicalOrderFromApi(orderEff);
       }
       setStages(mergeStagesWithOrder(data, orderEff));
@@ -903,6 +909,157 @@ const VerificationFlow = () => {
             onReturnToDashboard={handleReturnToDashboard}
           />
         );
+      // ---------------------------------------------------------------
+      // Data track stages — reuse existing components where possible
+      // ---------------------------------------------------------------
+      case "data_fundamentals":
+        return (
+          <div className="space-y-6">
+            {!testStageStarted.data_fundamentals ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Data Fundamentals + Aptitude</h3>
+                  <p className="text-muted-foreground mb-4">
+                    20 MCQs covering aptitude, SQL basics, Python fundamentals, statistics, and core data concepts. You have 30 minutes. Score at least 60% to pass.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, data_fundamentals: true }))}>
+                      Start Data Fundamentals
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <AptitudeTestStage
+                key="data-fundamentals"
+                stageStatus={getStageStatus("data_fundamentals")}
+                stageScore={stages.find((s) => s.stage_name === "data_fundamentals")?.score}
+                pipelineStageName="data_fundamentals"
+                nextStageLabel={getNextStageInfo("data_fundamentals")?.label}
+                onComplete={() => {
+                  void completeAndAdvanceStage("data_fundamentals");
+                }}
+                onSessionExpired={() => setTestStageStarted((p) => ({ ...p, data_fundamentals: false }))}
+                onRetry={() => retryStage("data_fundamentals", true)}
+                isRetry={retryingStage === "data_fundamentals"}
+                onAfterAptitudeSubmit={() => void checkCooldowns()}
+              />
+            )}
+          </div>
+        );
+      case "data_round":
+        return (
+          <div className="space-y-6">
+            {!testStageStarted.data_round ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Data Round (SQL + Python)</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Solve SQL queries and Python data processing tasks under timed conditions. Your solutions will be auto-evaluated against test cases.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await api.post("/api/verification/stages/update", {
+                            stageName: "data_round",
+                            status: "in_progress",
+                          });
+                        } catch { /* non-blocking */ }
+                        setTestStageStarted((p) => ({ ...p, data_round: true }));
+                      }}
+                    >
+                      Start Data Round
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <DataRoundStage
+                stageStatus={getStageStatus("data_round")}
+                stageScore={stages.find((s) => s.stage_name === "data_round")?.score}
+                onComplete={() => completeAndAdvanceStage("data_round")}
+                onRetry={() => retryStage("data_round", true)}
+                isRetry={retryingStage === "data_round"}
+                nextStageLabel={getNextStageInfo("data_round")?.label}
+              />
+            )}
+          </div>
+        );
+      case "data_skills_interview":
+        return (
+          <div className="space-y-6">
+            {!testStageStarted.data_skills_interview ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Skills Interview (Data)</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Walkthrough of your Data Round submissions followed by AI-led depth checks on your data skills. Allow about 30 minutes.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await api.post("/api/verification/stages/update", {
+                            stageName: "data_skills_interview",
+                            status: "in_progress",
+                          });
+                          setTestStageStarted((p) => ({ ...p, data_skills_interview: true }));
+                        } catch (err: unknown) {
+                          const apiErr = err as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
+                          const code = apiErr?.response?.data?.code;
+                          if (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") {
+                            handlePaywallRequired(
+                              "data_skills_interview",
+                              apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
+                              code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
+                                ? new Date(apiErr.response.data.nextAvailableAt)
+                                : null
+                            );
+                          } else {
+                            toast({ title: "Cannot start", description: (err as Error)?.message ?? "Try again later.", variant: "destructive" });
+                          }
+                        }
+                      }}
+                    >
+                      Start AI Skills Interview
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <AISkillsInterviewStage
+                targetJobTitle={targetJobTitle || undefined}
+                experienceYears={experienceYears}
+                onSessionComplete={() => void loadVerificationStages()}
+                onReturnToDashboard={handleReturnToDashboard}
+                onPaywallRequired={handlePaywallRequired}
+                nextStageLabel={getNextStageInfo("data_skills_interview")?.label}
+              />
+            )}
+          </div>
+        );
+      case "data_system_design":
+        return (
+          <PipelineStagePlaceholder
+            title="Data System Design"
+            description="30 minutes: 15m data architecture LLD and 15m HLD. Design data pipelines, storage strategies, and end-to-end data platform architecture."
+            bulletPoints={[
+              "LLD: Schema design, partitioning, ingestion format, data model.",
+              "HLD: Pipeline architecture, orchestration, monitoring, data quality.",
+            ]}
+            onBackToDashboard={handleReturnToDashboard}
+          />
+        );
       case 'verification_complete':
       default:
         return null;
@@ -940,9 +1097,12 @@ const VerificationFlow = () => {
   const isInActiveTest =
     (currentStage === "aptitude_test" && testStageStarted.aptitude_test) ||
     (currentStage === "cs_fundamentals" && testStageStarted.cs_fundamentals) ||
+    (currentStage === "data_fundamentals" && testStageStarted.data_fundamentals) ||
     (currentStage === "dsa_round" && testStageStarted.dsa_round) ||
+    (currentStage === "data_round" && testStageStarted.data_round) ||
     (currentStage === "expert_interview" && testStageStarted.expert_interview) ||
-    (currentStage === "ai_skills_interview" && testStageStarted.ai_skills_interview);
+    (currentStage === "ai_skills_interview" && testStageStarted.ai_skills_interview) ||
+    (currentStage === "data_skills_interview" && testStageStarted.data_skills_interview);
 
   return (
     <div className={`min-h-screen bg-gradient-subtle ${isInActiveTest ? "p-0 sm:p-2" : "p-4"}`}>
@@ -973,7 +1133,7 @@ const VerificationFlow = () => {
                 <p className="text-xs text-muted-foreground mt-1">
                   Complete the remaining stages to unlock higher-level opportunities.
                 </p>
-                {roleType === "technical" && certificationLevel === 1 && (
+                {(roleType === "technical" || roleType === "data") && certificationLevel === 1 && (
                   <p className="text-xs font-medium text-primary mt-2">
                     You have earned Level 1 (Cognitive Verified). Continue with the next stages in order for Level 2 (Skill
                     Passport) and Level 3 (Elite Verified).

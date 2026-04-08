@@ -8,7 +8,13 @@ export function experienceTierFromYears(years: number | null | undefined): Exper
   return "senior";
 }
 
-export type AptitudeQuestionSetId = "aptitude_mixed" | "cs_fundamentals_medium" | "cs_fundamentals_advanced";
+export type AptitudeQuestionSetId =
+  | "aptitude_mixed"
+  | "cs_fundamentals_medium"
+  | "cs_fundamentals_advanced"
+  | "data_fundamentals_fresher"
+  | "data_fundamentals_medium"
+  | "data_fundamentals_advanced";
 
 export function questionSetForTier(tier: ExperienceTier): AptitudeQuestionSetId {
   switch (tier) {
@@ -18,6 +24,17 @@ export function questionSetForTier(tier: ExperienceTier): AptitudeQuestionSetId 
       return "cs_fundamentals_medium";
     default:
       return "cs_fundamentals_advanced";
+  }
+}
+
+export function dataQuestionSetForTier(tier: ExperienceTier): AptitudeQuestionSetId {
+  switch (tier) {
+    case "fresher":
+      return "data_fundamentals_fresher";
+    case "mid":
+      return "data_fundamentals_medium";
+    default:
+      return "data_fundamentals_advanced";
   }
 }
 
@@ -53,6 +70,49 @@ export function dsaTierConfig(tier: ExperienceTier): {
         timeLimitMinutes: 90,
         difficulties: ["Medium", "Hard"],
         difficultySlots: ["Medium", "Hard", "Hard"],
+      };
+  }
+}
+
+/**
+ * Data Round tier config — SQL + Python tasks via Judge0.
+ * Task count, thresholds, and time vary by experience.
+ */
+export function dataRoundTierConfig(tier: ExperienceTier): {
+  taskCount: number;
+  passThresholdPercent: number;
+  timeLimitMinutes: number;
+  sqlTaskCount: number;
+  pythonTaskCount: number;
+  modelingOrStatsTaskCount: number;
+} {
+  switch (tier) {
+    case "fresher":
+      return {
+        taskCount: 2,
+        passThresholdPercent: 50,
+        timeLimitMinutes: 60,
+        sqlTaskCount: 1,
+        pythonTaskCount: 1,
+        modelingOrStatsTaskCount: 0,
+      };
+    case "mid":
+      return {
+        taskCount: 3,
+        passThresholdPercent: 55,
+        timeLimitMinutes: 75,
+        sqlTaskCount: 1,
+        pythonTaskCount: 1,
+        modelingOrStatsTaskCount: 1,
+      };
+    default:
+      return {
+        taskCount: 3,
+        passThresholdPercent: 60,
+        timeLimitMinutes: 90,
+        sqlTaskCount: 1,
+        pythonTaskCount: 1,
+        modelingOrStatsTaskCount: 1,
       };
   }
 }

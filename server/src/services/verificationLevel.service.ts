@@ -43,15 +43,17 @@ export function calculateCertificationLevelFromCompletedStages(
     return 0;
   }
 
-  if (completedStageNames.has("human_expert_interview")) return 3;
-  if (completedStageNames.has("dsa_round") && completedStageNames.has("expert_interview")) return 2;
-  if (
-    completedStageNames.has("profile_setup") &&
-    completedStageNames.has("aptitude_test") &&
-    completedStageNames.has("dsa_round")
-  ) {
-    return 1;
+  if (completedStageNames.has("expert_interview") || completedStageNames.has("human_expert_interview")) {
+    return 3;
   }
+
+  const hasSkillsInterview =
+    completedStageNames.has("ai_skills_interview") || completedStageNames.has("data_skills_interview");
+  if (hasSkillsInterview) return 2;
+
+  const hasCodingRound = completedStageNames.has("dsa_round") || completedStageNames.has("data_round");
+  if (hasCodingRound) return 1;
+
   return 0;
 }
 

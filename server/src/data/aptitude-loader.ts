@@ -126,7 +126,10 @@ function isVerbal(q: McqQuestionRaw): boolean {
 export type AptitudeQuestionSetId =
   | "aptitude_mixed"
   | "cs_fundamentals_medium"
-  | "cs_fundamentals_advanced";
+  | "cs_fundamentals_advanced"
+  | "data_fundamentals_fresher"
+  | "data_fundamentals_medium"
+  | "data_fundamentals_advanced";
 
 let cachedCsQuestions: McqQuestionRaw[] | null = null;
 
@@ -152,6 +155,32 @@ function loadCsQuestions(): McqQuestionRaw[] {
   const parsed = JSON.parse(raw) as McqQuestionRaw[];
   cachedCsQuestions = parsed.filter(isValidMcqQuestionRaw);
   return cachedCsQuestions;
+}
+
+let cachedDataFundamentalsQuestions: McqQuestionRaw[] | null = null;
+
+function resolveDataFundamentalsPath(): string {
+  const name = "data-fundamentals-questions.json";
+  const candidates = [
+    join(__dirname, name),
+    join(process.cwd(), "dist", "src", "data", name),
+    join(process.cwd(), "src", "data", name),
+    join(process.cwd(), "server", "src", "data", name),
+    join(process.cwd(), "server", "dist", "src", "data", name),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  throw new Error(`data-fundamentals-questions.json not found (tried: ${candidates.join("; ")})`);
+}
+
+function loadDataFundamentalsQuestions(): McqQuestionRaw[] {
+  if (cachedDataFundamentalsQuestions) return cachedDataFundamentalsQuestions;
+  const p = resolveDataFundamentalsPath();
+  const raw = readFileSync(p, "utf-8");
+  const parsed = JSON.parse(raw) as McqQuestionRaw[];
+  cachedDataFundamentalsQuestions = parsed.filter(isValidMcqQuestionRaw);
+  return cachedDataFundamentalsQuestions;
 }
 
 function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSession {
@@ -335,6 +364,36 @@ export function createAptitudeSessionByQuestionSet(
     }
     return buildAptitudeSessionFromMcqs([...pMed, ...pHard].slice(0, 20));
   }
+  if (questionSet === "data_fundamentals_fresher") {
+    const aptMain = selectMainBankMcqs(experienceYears, 10);
+    const df = loadDataFundamentalsQuestions();
+    const dfEasy = df.filter((q) => (q.difficultyLevel || "").toLowerCase() === "easy");
+    const dfPick = shuffleArray(dfEasy.length >= 10 ? dfEasy : df).slice(0, 10);
+    return buildAptitudeSessionFromMcqs([...aptMain, ...dfPick].slice(0, 20));
+  }
+  if (questionSet === "data_fundamentals_medium") {
+    const df = loadDataFundamentalsQuestions();
+    const med = df.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium");
+    const hard = df.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard");
+    let pMed = shuffleArray(med).slice(0, 15);
+    let pHard = shuffleArray(hard).slice(0, 5);
+    if (pMed.length + pHard.length < 20) {
+      const fill = shuffleArray(df.filter((q) => !pMed.includes(q) && !pHard.includes(q)));
+      pMed = [...pMed, ...fill.slice(0, 20 - pMed.length - pHard.length)];
+    }
+    return buildAptitudeSessionFromMcqs([...pMed, ...pHard].slice(0, 20));
+  }
+  if (questionSet === "data_fundamentals_advanced") {
+    const df = loadDataFundamentalsQuestions();
+    const hard = df.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard");
+    const med = df.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium");
+    const hardPick = shuffleArray(hard).slice(0, 15);
+    const medPick = shuffleArray(med.filter((q) => !hardPick.includes(q))).slice(0, 5);
+    const fill = shuffleArray(df.filter((q) => !hardPick.includes(q) && !medPick.includes(q)));
+    return buildAptitudeSessionFromMcqs([...hardPick, ...medPick, ...fill.slice(0, Math.max(0, 20 - hardPick.length - medPick.length))].slice(0, 20));
+  }
+
+  // cs_fundamentals_advanced (default fallback)
   const hard = cs.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard");
   const medium = cs.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium");
   const hardPick = shuffleArray(hard.length >= 10 ? hard : cs).slice(0, 15);

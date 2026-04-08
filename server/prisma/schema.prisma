@@ -18,7 +18,7 @@ model User {
   id            String   @id @default(uuid())
   name          String?
   email         String   @unique
-  passwordHash  String   // Placeholder hash for OAuth users (never used for login)
+  passwordHash  String // Placeholder hash for OAuth users (never used for login)
   role          UserRole @default(jobseeker)
   emailVerified Boolean  @default(false)
   authProvider  String?  @default("EMAIL") // EMAIL | GOOGLE
@@ -26,75 +26,76 @@ model User {
   profileImage  String?
   createdAt     DateTime @default(now())
 
-  jobSeekerProfile JobSeekerProfile?
-  recruiterProfile RecruiterProfile?
-  interviews       Interview[]
-  resumeAnalyses   ResumeAnalysis[]
-  jobApplications  JobApplication[] @relation("JobApplicationsByUser")
-  savedJobs        SavedJob[]
-  verificationStages VerificationStage[]
-  aptitudeResults    AptitudeTestResult[]
-  aptitudeSessions   AptitudeSession[]
-  dsaResults          DsaRoundResult[]
-  notifications       Notification[]
-  appeals             Appeal[]
-  humanInterviewSessions HumanInterviewSession[]
-  humanInterviewAttempts HumanInterviewAttempt[]
-  humanInterviewBookings HumanInterviewBooking[]
-  adminReviewQueuesCandidate AdminReviewQueue[] @relation("AdminReviewCandidate")
-  adminReviewQueuesReviewer  AdminReviewQueue[] @relation("AdminReviewReviewer")
-  bookedSlots         InterviewerSlot[]
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  interviewerProfile  Interviewer?
-  skillVerifications  CandidateSkillVerification[]
-  preferences         UserPreferences?
-  provenHireResume    ProvenHireResume?
-  resumeChangeRequests ResumeChangeRequest[]
-  retakeCredits        CandidateRetakeLedger[]
+  jobSeekerProfile           JobSeekerProfile?
+  recruiterProfile           RecruiterProfile?
+  interviews                 Interview[]
+  resumeAnalyses             ResumeAnalysis[]
+  jobApplications            JobApplication[]             @relation("JobApplicationsByUser")
+  savedJobs                  SavedJob[]
+  verificationStages         VerificationStage[]
+  aptitudeResults            AptitudeTestResult[]
+  aptitudeSessions           AptitudeSession[]
+  dsaResults                 DsaRoundResult[]
+  dataRoundResults           DataRoundResult[]
+  notifications              Notification[]
+  appeals                    Appeal[]
+  humanInterviewSessions     HumanInterviewSession[]
+  humanInterviewAttempts     HumanInterviewAttempt[]
+  humanInterviewBookings     HumanInterviewBooking[]
+  adminReviewQueuesCandidate AdminReviewQueue[]           @relation("AdminReviewCandidate")
+  adminReviewQueuesReviewer  AdminReviewQueue[]           @relation("AdminReviewReviewer")
+  bookedSlots                InterviewerSlot[]
+  refreshTokens              RefreshToken[]
+  passwordResetTokens        PasswordResetToken[]
+  interviewerProfile         Interviewer?
+  skillVerifications         CandidateSkillVerification[]
+  preferences                UserPreferences?
+  provenHireResume           ProvenHireResume?
+  resumeChangeRequests       ResumeChangeRequest[]
+  retakeCredits              CandidateRetakeLedger[]
 }
 
 model JobSeekerProfile {
-  id                   String   @id @default(uuid())
-  userId               String   @unique
-  fullName             String?
-  email                String?
-  currentRole          String?
-  experienceYears      Int?
-  resumeUrl            String?
-  about                String?
-  phone                String?
-  location             String?
-  college              String?
-  graduationYear       String?
-  verificationStatus   String?
-  skills               Json?
-  education            Json?
-  workExperience       Json?
-  roleType             String?  @default("technical")
-  targetJobTitle       String?
-  noticePeriod         String?  // e.g. "15 days", "1 month", "Immediate"
-  currentSalary        String?  // e.g. "10 LPA", "15-20 L"
-  expectedSalary       String?  // e.g. "20 LPA", "25-30 L"
+  id                         String    @id @default(uuid())
+  userId                     String    @unique
+  fullName                   String?
+  email                      String?
+  currentRole                String?
+  experienceYears            Int?
+  resumeUrl                  String?
+  about                      String?
+  phone                      String?
+  location                   String?
+  college                    String?
+  graduationYear             String?
+  verificationStatus         String?
+  skills                     Json?
+  education                  Json?
+  workExperience             Json?
+  roleType                   String?   @default("technical")
+  targetJobTitle             String?
+  noticePeriod               String? // e.g. "15 days", "1 month", "Immediate"
+  currentSalary              String? // e.g. "10 LPA", "15-20 L"
+  expectedSalary             String? // e.g. "20 LPA", "25-30 L"
   // Settings: Career preferences & portfolio
-  githubUrl            String?
-  linkedInUrl          String?
-  portfolioUrl         String?
-  preferredTechStack   Json?    // string[]
-  experienceLevel      String?  // Entry Level | Mid Level | Senior Level
-  preferredLocations   Json?    // string[]
-  workModePreference   String?  // Remote | Hybrid | Onsite
+  githubUrl                  String?
+  linkedInUrl                String?
+  portfolioUrl               String?
+  preferredTechStack         Json? // string[]
+  experienceLevel            String? // Entry Level | Mid Level | Senior Level
+  preferredLocations         Json? // string[]
+  workModePreference         String? // Remote | Hybrid | Onsite
   /// Set when the user fails 3 consecutive aptitude attempts; cleared implicitly once date passes (checked at request time).
-  aptitudeLockedUntil  DateTime?
+  aptitudeLockedUntil        DateTime?
   /// Latest non-technical verification assignment (prompt + submission); used by GET /assignment/current.
-  nonTechAssignmentPrompt   String?   @db.Text
-  nonTechAssignmentResponse   String?   @db.Text
+  nonTechAssignmentPrompt    String?   @db.Text
+  nonTechAssignmentResponse  String?   @db.Text
   /// Window for assignment freshness (e.g. set to submittedAt + 36h on each submit).
-  nonTechAssignmentExpiresAt  DateTime?
+  nonTechAssignmentExpiresAt DateTime?
   /// After a failed Human Expert Interview, candidate cannot re-book until this time (PRD: 30 days).
-  humanExpertRetryAfter       DateTime?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  humanExpertRetryAfter      DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -106,79 +107,79 @@ enum RecruiterVerificationStatus {
 }
 
 model RecruiterProfile {
-  id                     String   @id @default(uuid())
-  userId                 String   @unique
-  companyName            String?
-  companySize            String?
-  designation            String?
-  phone                  String?
-  companyWebsite         String?
-  industry               String?
-  hiringFor              String?
-  onboardingCompleted    Boolean  @default(false)
+  id                         String                      @id @default(uuid())
+  userId                     String                      @unique
+  companyName                String?
+  companySize                String?
+  designation                String?
+  phone                      String?
+  companyWebsite             String?
+  industry                   String?
+  hiringFor                  String?
+  onboardingCompleted        Boolean                     @default(false)
   // Recruiter verification (required for job posting)
-  fullName               String?
-  workEmail              String?
-  linkedInProfile        String?
-  companyLinkedin        String?
-  verificationDocumentUrl String?
-  verificationStatus     RecruiterVerificationStatus @default(pending)
-  emailDomainVerified    Boolean  @default(false)
-  verificationRejectedReason String?  // Admin message when rejected
+  fullName                   String?
+  workEmail                  String?
+  linkedInProfile            String?
+  companyLinkedin            String?
+  verificationDocumentUrl    String?
+  verificationStatus         RecruiterVerificationStatus @default(pending)
+  emailDomainVerified        Boolean                     @default(false)
+  verificationRejectedReason String? // Admin message when rejected
   // Settings: Company profile
-  companyLogo            String?
-  headquarters           String?
-  companyDescription     String?
+  companyLogo                String?
+  headquarters               String?
+  companyDescription         String?
   // Settings: Hiring preferences
-  preferredRoles         Json?    // string[]
-  preferredExperienceMin  Int?
-  preferredExperienceMax  Int?
-  preferredSkills        Json?    // string[]
-  minimumCertificationLevel Int?  @default(1) // 0-3: Cognitive, Skill Passport, Elite
-  cultureAndBenefits        Json?    // string[] — culture, benefits (PRD recruiter)
-  hiringForRoles            Json?    // string[] — multi-select roles
-  preferredExperienceLevels Json?    // string[] — e.g. fresher | mid | senior
-  verifiedAt                DateTime?
-  rejectedAt                DateTime?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  preferredRoles             Json? // string[]
+  preferredExperienceMin     Int?
+  preferredExperienceMax     Int?
+  preferredSkills            Json? // string[]
+  minimumCertificationLevel  Int?                        @default(1) // 0-3: Cognitive, Skill Passport, Elite
+  cultureAndBenefits         Json? // string[] — culture, benefits (PRD recruiter)
+  hiringForRoles             Json? // string[] — multi-select roles
+  preferredExperienceLevels  Json? // string[] — e.g. fresher | mid | senior
+  verifiedAt                 DateTime?
+  rejectedAt                 DateTime?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
-  jobs Job[]
-  usage RecruiterUsage?
+  user                 User                           @relation(fields: [userId], references: [id])
+  jobs                 Job[]
+  usage                RecruiterUsage?
   candidateResumeViews RecruiterCandidateResumeView[]
 }
 
 /// Freemium / plan usage (PRD §9). Set `periodEnd` in app when opening or rolling a monthly window.
 model RecruiterUsage {
-  id                    String   @id @default(uuid())
-  recruiterId           String   @unique
-  planType              String   @default("free") // free | paid (legacy)
+  id                    String    @id @default(uuid())
+  recruiterId           String    @unique
+  planType              String    @default("free") // free | paid (legacy)
   /// free | starter | growth — controls discovery locks + profile view caps (PRD v2.0)
-  subscriptionTier      String   @default("free")
-  shortlistCountMonth   Int      @default(0)
-  profileViewCountMonth Int      @default(0)
+  subscriptionTier      String    @default("free")
+  shortlistCountMonth   Int       @default(0)
+  profileViewCountMonth Int       @default(0)
   /// PRD §3 — Express Interest sends per calendar month.
-  contactCountMonth     Int      @default(0)
+  contactCountMonth     Int       @default(0)
   /// PRD §3 — JD AI interviews approved+started per month (when wired).
-  jdInterviewCountMonth Int      @default(0)
-  activeJobCount        Int      @default(0)
-  periodStart           DateTime @default(now())
+  jdInterviewCountMonth Int       @default(0)
+  activeJobCount        Int       @default(0)
+  periodStart           DateTime  @default(now())
   periodEnd             DateTime?
-  updatedAt             DateTime @updatedAt
+  updatedAt             DateTime  @updatedAt
 
   recruiter RecruiterProfile @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
 }
 
 /// Paid retake credits (₹399 single / ₹649 bundle). Admin grants until Razorpay (PRD §7).
 model CandidateRetakeLedger {
-  id           String    @id @default(uuid())
-  userId       String
-  packageType  String // single | bundle (audit)
-  expiresAt    DateTime
-  consumedAt   DateTime?
-  consumedFor  String? // e.g. expert_interview
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(uuid())
+  userId      String
+  packageType String // single | bundle (audit)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  consumedFor String? // e.g. expert_interview
+  createdAt   DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -200,54 +201,54 @@ model RecruiterCandidateResumeView {
 }
 
 model Job {
-  id             String   @id @default(uuid())
-  title          String
-  company        String
-  location       String?
+  id                        String   @id @default(uuid())
+  title                     String
+  company                   String
+  location                  String?
   // "draft" | "published"
   // Legacy values: "active" treated as "published"; "closed" treated as "draft".
-  status         String   @default("published")
-  salaryRange    String?
-  jobType        String?
-  description    String?
-  jobTrack       String?  @default("tech")
-  assignment     String?  // Non-technical: AI-generated assignment for applicants
-  roleCategory   String?  // e.g. Marketing, Sales, HR
-  companyContext String?  // Brief company description for assignment context
-  minimumCertificationLevel Int @default(1)
+  status                    String   @default("published")
+  salaryRange               String?
+  jobType                   String?
+  description               String?
+  jobTrack                  String?  @default("tech")
+  assignment                String? // Non-technical: AI-generated assignment for applicants
+  roleCategory              String? // e.g. Marketing, Sales, HR
+  companyContext            String? // Brief company description for assignment context
+  minimumCertificationLevel Int      @default(1)
   /// Required skills for matching + JD interview (PRD v2.0): string[], min 2 max 10 when published
-  requiredSkills Json?
+  requiredSkills            Json?
   /// fresher | mid | senior (PRD recruiter discovery)
-  experienceRequired String?
-  createdAt      DateTime @default(now())
-  postedById     String?
+  experienceRequired        String?
+  createdAt                 DateTime @default(now())
+  postedById                String?
 
-  postedBy RecruiterProfile? @relation(fields: [postedById], references: [id])
+  postedBy     RecruiterProfile? @relation(fields: [postedById], references: [id])
   applications JobApplication[]
-  savedBy       SavedJob[]
+  savedBy      SavedJob[]
 }
 
 model JobApplication {
-  id                 String   @id @default(uuid())
+  id                 String    @id @default(uuid())
   jobId              String
   jobSeekerId        String
-  status             String   @default("applied")
-  appliedAt          DateTime @default(now())
+  status             String    @default("applied")
+  appliedAt          DateTime  @default(now())
   resumeUrl          String?
-  assignmentResponse String?  // Applicant's submission for non-technical job assignment
-  recruiterNote      String?  @db.Text
+  assignmentResponse String? // Applicant's submission for non-technical job assignment
+  recruiterNote      String?   @db.Text
   stageChangedAt     DateTime?
-  stageHistory       Json?    // [{ stage, changedAt, changedBy? }]
+  stageHistory       Json? // [{ stage, changedAt, changedBy? }]
 
   job       Job  @relation(fields: [jobId], references: [id])
   jobSeeker User @relation("JobApplicationsByUser", fields: [jobSeekerId], references: [id])
 }
 
 model SavedJob {
-  id        String   @id @default(uuid())
-  jobId     String
-  userId    String
-  savedAt   DateTime @default(now())
+  id      String   @id @default(uuid())
+  jobId   String
+  userId  String
+  savedAt DateTime @default(now())
 
   job  Job  @relation(fields: [jobId], references: [id])
   user User @relation(fields: [userId], references: [id])
@@ -285,19 +286,19 @@ enum SkillType {
 /// Skill validity and expiry - each verification has completed_at + expires_at.
 /// Used for "Skill Freshness Verification System" - candidates must re-attempt after expiry.
 model CandidateSkillVerification {
-  id          String                 @id @default(uuid())
-  userId      String
-  skillType   SkillType
-  status      SkillVerificationStatus
-  score       Int?
+  id              String                  @id @default(uuid())
+  userId          String
+  skillType       SkillType
+  status          SkillVerificationStatus
+  score           Int?
   /// 0–100 model confidence for verified skills (AI Skills Interview).
   confidenceScore Float?
   /// Stage that produced verification, e.g. ai_skills_interview.
-  verifiedInStage   String?
-  completedAt DateTime?
-  expiresAt   DateTime?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  verifiedInStage String?
+  completedAt     DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -308,42 +309,42 @@ model CandidateSkillVerification {
 }
 
 model AptitudeTestResult {
-  id         String   @id @default(uuid())
-  userId     String
-  score      Int?
-  answers    Json?
+  id          String   @id @default(uuid())
+  userId      String
+  score       Int?
+  answers     Json?
   completedAt DateTime @default(now())
-  invalidated Boolean @default(false)
+  invalidated Boolean  @default(false)
 
   user User @relation(fields: [userId], references: [id])
 }
 
 /// Stores answer key + marks key for scoring aptitude submissions. Persisted so retries work across server restarts/instances.
 model AptitudeSession {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  questions Json     @default(dbgenerated("'[]'::jsonb")) // AptitudeQuestionForClient[] (persisted to allow resume with same question set)
-  answerKey Json     // Record<string, string>
-  marksKey  Json     // Record<string, number>
-  draft     Json?    // { answers?: Record<string,string>, reviewed?: string[], visited?: string[], currentIndex?: number, secondsRemaining?: number }
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  questions     Json      @default(dbgenerated("'[]'::jsonb")) // AptitudeQuestionForClient[] (persisted to allow resume with same question set)
+  answerKey     Json // Record<string, string>
+  marksKey      Json // Record<string, number>
+  draft         Json? // { answers?: Record<string,string>, reviewed?: string[], visited?: string[], currentIndex?: number, secondsRemaining?: number }
   /// Server time when this question set was issued (enforced on submit).
   testStartedAt DateTime?
   /// aptitude_mixed | cs_fundamentals_medium | cs_fundamentals_advanced
-  questionSet String?
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  questionSet   String?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model DsaRoundResult {
-  id         String   @id @default(uuid())
-  userId     String
-  score      Int?
-  answers    Json?
+  id          String   @id @default(uuid())
+  userId      String
+  score       Int?
+  answers     Json?
   completedAt DateTime @default(now())
-  invalidated Boolean @default(false)
+  invalidated Boolean  @default(false)
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -362,12 +363,12 @@ model DsaQuestion {
 }
 
 model DsaTestCase {
-  id         String   @id @default(cuid())
-  questionId String
-  input      String
-  expected   String
-  isHidden   Boolean  @default(false)
-  expectedType String @default("exact") // "exact" | "numeric" | "array" | "set"
+  id           String  @id @default(cuid())
+  questionId   String
+  input        String
+  expected     String
+  isHidden     Boolean @default(false)
+  expectedType String  @default("exact") // "exact" | "numeric" | "array" | "set"
   timeoutMs    Int? // Per-test timeout override in ms; null => use global default
 
   question DsaQuestion @relation(fields: [questionId], references: [id])
@@ -378,7 +379,7 @@ model DsaTestCase {
 model DsaSubmission {
   id          String   @id @default(cuid())
   userId      String
-  questionId String
+  questionId  String
   language    String
   code        String   @db.Text
   passedCount Int
@@ -391,53 +392,116 @@ model DsaSubmission {
   @@index([userId, isOfficial])
 }
 
+// ---------------------------------------------------------------------------
+// Data Round — SQL + Python tasks (data track equivalent of DSA round)
+// ---------------------------------------------------------------------------
+
+model DataRoundTask {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  taskType    String // "sql" | "python" | "modeling" | "statistics"
+  difficulty  String // "Easy" | "Medium" | "Hard"
+  subtrack    String? // "engineering" | "science" | "analysis" | null (any)
+  /// For SQL tasks: the CREATE TABLE / INSERT statements that set up the DB
+  sqlSchema   String?  @db.Text
+  /// Starter code / template shown to the candidate
+  starterCode Json? // { python: string } or { sql: string }
+  /// For MCQ-style stats tasks: options array
+  options     Json? // string[] | null
+  createdAt   DateTime @default(now())
+
+  testCases DataRoundTestCase[]
+}
+
+model DataRoundTestCase {
+  id           String  @id @default(cuid())
+  taskId       String
+  input        String  @db.Text
+  expected     String  @db.Text
+  isHidden     Boolean @default(false)
+  expectedType String  @default("exact") // "exact" | "csv_match" | "numeric" | "set"
+  timeoutMs    Int?
+
+  task DataRoundTask @relation(fields: [taskId], references: [id])
+
+  @@index([taskId])
+}
+
+model DataRoundSubmission {
+  id          String   @id @default(cuid())
+  userId      String
+  taskId      String
+  language    String // "python" | "sql"
+  code        String   @db.Text
+  passedCount Int
+  totalCount  Int
+  isOfficial  Boolean  @default(false)
+  results     Json
+  submittedAt DateTime @default(now())
+
+  @@index([userId, taskId])
+  @@index([userId, isOfficial])
+}
+
+model DataRoundResult {
+  id          String   @id @default(uuid())
+  userId      String
+  score       Int?
+  answers     Json?
+  completedAt DateTime @default(now())
+  invalidated Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+}
+
 model Interview {
-  id            String   @id @default(uuid())
-  userId        String
-  jobRole       String
+  id                      String    @id @default(uuid())
+  userId                  String
+  jobRole                 String
   /// ai_skills | system_design | ai_expert | jd_interview
-  interviewType String   @default("ai_expert")
+  interviewType           String    @default("ai_expert")
   /// True once DSA submissions were loaded as context (AI Skills Interview).
-  dsaContextLoaded Boolean @default(false)
+  dsaContextLoaded        Boolean   @default(false)
   /// System design session only — low-level design score (0–100).
-  lldScore      Float?
+  lldScore                Float?
   /// System design session only — high-level design score (0–100).
-  hldScore      Float?
+  hldScore                Float?
   /// junior | mid | senior — AI interview calibration + DB question selection
-  experienceLevel String?
-  totalScore    Int?
-  badgeLevel    String?
-  finalVerdict  String?
-  scoreBreakdown Json?
+  experienceLevel         String?
+  totalScore              Int?
+  badgeLevel              String?
+  finalVerdict            String?
+  scoreBreakdown          Json?
   /// in_progress | completed | pending_review
-  status        String   @default("in_progress")
-  questionIndex Int      @default(0)
-  questionPlan  Json?
-  createdAt     DateTime @default(now())
-  completedAt   DateTime?
-  reviewFlag          Boolean   @default(false)
-  reviewReason        String?
+  status                  String    @default("in_progress")
+  questionIndex           Int       @default(0)
+  questionPlan            Json?
+  createdAt               DateTime  @default(now())
+  completedAt             DateTime?
+  reviewFlag              Boolean   @default(false)
+  reviewReason            String?
   /// Count of proctoring alert rows for this interview session (not a 0–100 risk score).
-  riskScore           Float?
+  riskScore               Float?
   /// Total proctoring alert rows (denormalized; optional).
-  proctoringEventCount Int?
-  integrityFlag       String?
+  proctoringEventCount    Int?
+  integrityFlag           String?
   /// Unique weakness types covered / question turns — for evaluation calibration
-  coverageRatio       Float?
+  coverageRatio           Float?
   /// none | low | medium | high — resume claim substantiation (split from engineering signal)
-  claimCredibilityRisk String?
+  claimCredibilityRisk    String?
   /// strong | moderate | inconclusive | weak — overall engineering ability independent of claim disputes
-  engineeringSignal   String?
-  reviewRequestedAt   DateTime?
-  reviewRequestReason String?   @db.VarChar(500)
-  reviewOutcome       String?
-  reviewOutcomeNote   String?
+  engineeringSignal       String?
+  reviewRequestedAt       DateTime?
+  reviewRequestReason     String?   @db.VarChar(500)
+  reviewOutcome           String?
+  reviewOutcomeNote       String?
   /// Multi-pass Gemini evaluation: how many of 3 passes returned valid JSON (1–3)
-  evaluationPassCount Int?
+  evaluationPassCount     Int?
   /// Raw 0–100 scores from each pass, e.g. [72, 78, 74]
   evaluationScoreVariance Json?
 
-  user              User                    @relation(fields: [userId], references: [id])
+  user              User                      @relation(fields: [userId], references: [id])
   messages          InterviewMessage[]
   questionResults   InterviewQuestionResult[]
   proctoringReviews ProctoringReviewLog[]
@@ -451,12 +515,12 @@ model AdminReviewQueue {
   aiInterviewId String    @unique
   status        String    @default("pending")
   createdAt     DateTime  @default(now())
-  reviewedAt  DateTime?
-  reviewerId  String?
+  reviewedAt    DateTime?
+  reviewerId    String?
 
-  candidate   User      @relation("AdminReviewCandidate", fields: [candidateId], references: [id], onDelete: Cascade)
-  aiInterview Interview @relation(fields: [aiInterviewId], references: [id], onDelete: Cascade)
-  reviewer    User?     @relation("AdminReviewReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  candidate   User                    @relation("AdminReviewCandidate", fields: [candidateId], references: [id], onDelete: Cascade)
+  aiInterview Interview               @relation(fields: [aiInterviewId], references: [id], onDelete: Cascade)
+  reviewer    User?                   @relation("AdminReviewReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   attempts    HumanInterviewAttempt[]
 
   @@index([candidateId])
@@ -465,21 +529,21 @@ model AdminReviewQueue {
 
 /// One row per admin approval cycle: tracks payment (₹399 retries) and links to booking.
 model HumanInterviewAttempt {
-  id                  String    @id @default(uuid())
-  candidateId         String
-  adminReviewQueueId  String
-  attemptNumber       Int
-  paymentStatus       String    @default("pending")
-  slotId              String?
-  amountPaise         Int?
-  razorpayOrderId     String?   @unique
-  razorpayPaymentId   String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                 String   @id @default(uuid())
+  candidateId        String
+  adminReviewQueueId String
+  attemptNumber      Int
+  paymentStatus      String   @default("pending")
+  slotId             String?
+  amountPaise        Int?
+  razorpayOrderId    String?  @unique
+  razorpayPaymentId  String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  candidate User             @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  queue     AdminReviewQueue @relation(fields: [adminReviewQueueId], references: [id], onDelete: Cascade)
-  slot      InterviewerSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  candidate User                    @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  queue     AdminReviewQueue        @relation(fields: [adminReviewQueueId], references: [id], onDelete: Cascade)
+  slot      InterviewerSlot?        @relation(fields: [slotId], references: [id], onDelete: SetNull)
   session   HumanInterviewSession?
   bookings  HumanInterviewBooking[]
 
@@ -488,27 +552,27 @@ model HumanInterviewAttempt {
 }
 
 model InterviewMessage {
-  id          String   @id @default(uuid())
-  interviewId String
-  sender      String
-  message     String
-  questionType String?
-  isFollowup  Boolean @default(false)
-  audioUrl    String?  // Stored audio for user answers (no video storage)
-  createdAt   DateTime @default(now())
+  id                      String   @id @default(uuid())
+  interviewId             String
+  sender                  String
+  message                 String
+  questionType            String?
+  isFollowup              Boolean  @default(false)
+  audioUrl                String? // Stored audio for user answers (no video storage)
+  createdAt               DateTime @default(now())
   /// 0-based index of the question this user message answers (Pro Upgrade)
   questionIndex           Int?
   transcriptionConfidence Float?
-  inputMode               String  @default("typed") // voice | typed
+  inputMode               String   @default("typed") // voice | typed
   rawTranscript           String?  @db.Text
   answerLengthChars       Int?
-  pasteCount              Int     @default(0)
+  pasteCount              Int      @default(0)
   timeToSubmitSeconds     Int?
-  flagAntiGaming          Boolean @default(false)
+  flagAntiGaming          Boolean  @default(false)
   flagReason              String?
 
-  interview       Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  questionResult  InterviewQuestionResult?
+  interview      Interview                @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  questionResult InterviewQuestionResult?
 }
 
 /// Admin-managed AI interview questions (optional; static fallback when QUESTION_BANK_SOURCE=static)
@@ -549,8 +613,8 @@ model InterviewQuestionResult {
   flagAntiGaming     Boolean  @default(false)
   flagReason         String?
 
-  interview    Interview             @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  message      InterviewMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  interview    Interview              @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  message      InterviewMessage       @relation(fields: [messageId], references: [id], onDelete: Cascade)
   questionBank InterviewQuestionBank? @relation(fields: [questionBankId], references: [id], onDelete: SetNull)
 }
 
@@ -583,8 +647,8 @@ model Notification {
   title      String
   message    String
   read       Boolean  @default(false)
-  targetRole String?  // jobseeker | recruiter | expert_interviewer | all (for broadcast tracking)
-  sentBy     String?  // admin userId who sent
+  targetRole String? // jobseeker | recruiter | expert_interviewer | all (for broadcast tracking)
+  sentBy     String? // admin userId who sent
   createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
@@ -614,58 +678,58 @@ model Appeal {
 }
 
 model InterviewerApplication {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   name            String
   email           String
   experienceYears Int?
-  track           String   @default("technical")
+  track           String    @default("technical")
   domains         Json?
   linkedIn        String?
   whyJoin         String?
   phone           String?
   currentCompany  String?
   jobTitle        String?
-  status          String   @default("pending")
-  createdAt       DateTime @default(now())
+  status          String    @default("pending")
+  createdAt       DateTime  @default(now())
   reviewedAt      DateTime?
 }
 
 model Interviewer {
-  id                     String   @id @default(uuid())
-  userId                 String?  @unique
-  name                   String?
-  domain                 String?
-  track                  String?  @default("technical")
-  domains                Json?
-  experienceYears        Int?
-  phone                  String?
-  status                 String   @default("active")
+  id                       String   @id @default(uuid())
+  userId                   String?  @unique
+  name                     String?
+  domain                   String?
+  track                    String?  @default("technical")
+  domains                  Json?
+  experienceYears          Int?
+  phone                    String?
+  status                   String   @default("active")
   // Settings: Interviewer profile
-  profileImage           String?
-  currentCompany         String?
-  jobTitle               String?
-  linkedInUrl            String?
+  profileImage             String?
+  currentCompany           String?
+  jobTitle                 String?
+  linkedInUrl              String?
   // Settings: Expertise & topics
-  expertiseAreas         Json?    // string[] e.g. Backend, Frontend, System Design
-  preferredInterviewTopics Json?  // string[] e.g. DSA, System design
+  expertiseAreas           Json? // string[] e.g. Backend, Frontend, System Design
+  preferredInterviewTopics Json? // string[] e.g. DSA, System design
   // Settings: Availability (JSON: { Mon: [{ start, end }], ... })
-  availabilitySchedule   Json?
-  bio                    String?  @db.Text
-  languagesSpoken        Json?    // string[]
-  profileCompleted       Boolean  @default(false)
-  totalInterviews        Int      @default(0)
-  totalPassed            Int      @default(0)
+  availabilitySchedule     Json?
+  bio                      String?  @db.Text
+  languagesSpoken          Json? // string[]
+  profileCompleted         Boolean  @default(false)
+  totalInterviews          Int      @default(0)
+  totalPassed              Int      @default(0)
   /// PRD §6.4 — { daysOfWeek: number[], timeSlots: string[] } (0=Sunday … 6=Saturday)
-  recurringSchedule      Json?
-  recurringActive        Boolean  @default(false)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  recurringSchedule        Json?
+  recurringActive          Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
-  user         User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
-  slots        InterviewerSlot[]
-  sessions     HumanInterviewSession[]
-  bankDetails  InterviewerBankDetails?
-  earnings     InterviewerEarning[]
+  user        User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  slots       InterviewerSlot[]
+  sessions    HumanInterviewSession[]
+  bankDetails InterviewerBankDetails?
+  earnings    InterviewerEarning[]
 }
 
 model InterviewerBankDetails {
@@ -683,15 +747,15 @@ model InterviewerBankDetails {
 }
 
 model InterviewerEarning {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   interviewerId String
-  sessionId     String   @unique
+  sessionId     String    @unique
   amountPaise   Int
   month         Int
   year          Int
-  payoutStatus  String   @default("pending") // pending | paid | failed
+  payoutStatus  String    @default("pending") // pending | paid | failed
   paidAt        DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   interviewer Interviewer           @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
   session     HumanInterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -706,44 +770,44 @@ model InterviewerInvite {
 }
 
 model InterviewerSlot {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   interviewerId String
   startsAt      DateTime
   endsAt        DateTime?
-  status        String   @default("available")
+  status        String    @default("available")
   bookedUserId  String?
 
-  interviewer Interviewer @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
-  bookedUser  User?      @relation(fields: [bookedUserId], references: [id])
-  session     HumanInterviewSession?
-  attemptBookings HumanInterviewAttempt[]
+  interviewer            Interviewer             @relation(fields: [interviewerId], references: [id], onDelete: Cascade)
+  bookedUser             User?                   @relation(fields: [bookedUserId], references: [id])
+  session                HumanInterviewSession?
+  attemptBookings        HumanInterviewAttempt[]
   humanInterviewBookings HumanInterviewBooking[]
 }
 
 model HumanInterviewSession {
-  id                   String    @id @default(uuid())
-  userId               String
-  interviewerId        String
-  slotId               String?   @unique
-  scheduledAt          DateTime?
-  completedAt          DateTime?
-  status               String    @default("scheduled")
-  meetingLink          String?
-  verificationTier     String?
-  evaluationScores     Json?
-  evaluationNotes      String?
-  interviewerNotes     String?  @db.Text
-  candidateFeedback    String?  @db.Text
-  evaluationPass       Boolean?
-  evaluationSubmittedAt DateTime?
-  attemptNumber        Int       @default(1)
-  paymentStatus        String    @default("waived")
-  humanInterviewAttemptId String? @unique
-  humanInterviewAttempt HumanInterviewAttempt? @relation(fields: [humanInterviewAttemptId], references: [id], onDelete: SetNull)
+  id                      String                 @id @default(uuid())
+  userId                  String
+  interviewerId           String
+  slotId                  String?                @unique
+  scheduledAt             DateTime?
+  completedAt             DateTime?
+  status                  String                 @default("scheduled")
+  meetingLink             String?
+  verificationTier        String?
+  evaluationScores        Json?
+  evaluationNotes         String?
+  interviewerNotes        String?                @db.Text
+  candidateFeedback       String?                @db.Text
+  evaluationPass          Boolean?
+  evaluationSubmittedAt   DateTime?
+  attemptNumber           Int                    @default(1)
+  paymentStatus           String                 @default("waived")
+  humanInterviewAttemptId String?                @unique
+  humanInterviewAttempt   HumanInterviewAttempt? @relation(fields: [humanInterviewAttemptId], references: [id], onDelete: SetNull)
 
-  user        User         @relation(fields: [userId], references: [id])
-  interviewer Interviewer  @relation(fields: [interviewerId], references: [id])
-  slot        InterviewerSlot? @relation(fields: [slotId], references: [id])
+  user        User                    @relation(fields: [userId], references: [id])
+  interviewer Interviewer             @relation(fields: [interviewerId], references: [id])
+  slot        InterviewerSlot?        @relation(fields: [slotId], references: [id])
   bookings    HumanInterviewBooking[]
   earning     InterviewerEarning?
 }
@@ -756,18 +820,18 @@ model HumanInterviewBooking {
   slotId                  String   @map("slot_id")
   attemptNumber           Int      @map("attempt_number")
   paymentStatus           String   @map("payment_status")
-  humanInterviewAttemptId String? @map("human_interview_attempt_id")
-  humanInterviewSessionId String? @map("human_interview_session_id")
+  humanInterviewAttemptId String?  @map("human_interview_attempt_id")
+  humanInterviewSessionId String?  @map("human_interview_session_id")
   createdAt               DateTime @default(now())
 
-  candidate User @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  candidate User            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   slot      InterviewerSlot @relation(fields: [slotId], references: [id], onDelete: Restrict)
 
   attempt HumanInterviewAttempt? @relation(fields: [humanInterviewAttemptId], references: [id], onDelete: SetNull)
   session HumanInterviewSession? @relation(fields: [humanInterviewSessionId], references: [id], onDelete: SetNull)
 
-  @@map("human_interview_bookings")
   @@index([candidateId, createdAt])
+  @@map("human_interview_bookings")
 }
 
 model ProctoringEvent {
@@ -775,7 +839,7 @@ model ProctoringEvent {
   sessionId      String
   userId         String?
   testType       String?
-  type           String   // PHONE_DETECTED, LOOKING_AWAY, MULTIPLE_PERSONS, FACE_MISSING, etc.
+  type           String // PHONE_DETECTED, LOOKING_AWAY, MULTIPLE_PERSONS, FACE_MISSING, etc.
   severity       String?
   /// Per-signal violation index for this session when logged (1-based); not a weighted risk score.
   riskScore      Int      @default(0)
@@ -805,22 +869,22 @@ model ProctoringEventCount {
 
 /// Evidence-based ProvenHire Resume (PRD v2). Synced from verification + interviews; not freely editable by candidates.
 model ProvenHireResume {
-  id                      String   @id @default(uuid())
-  userId                  String   @unique
+  id                     String    @id @default(uuid())
+  userId                 String    @unique
   /// L0 | L1 | L2 | L3 (string for badge display)
-  certificationLevel      String   @default("L0")
-  certificationDate       DateTime?
-  verifiedSkills          Json     @default("[]")
+  certificationLevel     String    @default("L0")
+  certificationDate      DateTime?
+  verifiedSkills         Json      @default("[]")
   /// [{ skill, source: 'resume' | ... }]
-  claimedSkills           Json     @default("[]")
-  projects                Json     @default("[]")
-  assessmentScores        Json     @default("{}")
-  createdAt               DateTime @default(now())
-  lastUpdatedAt           DateTime @updatedAt
-  isPublic                Boolean  @default(false)
-  pendingCandidateReview  Boolean  @default(false)
+  claimedSkills          Json      @default("[]")
+  projects               Json      @default("[]")
+  assessmentScores       Json      @default("{}")
+  createdAt              DateTime  @default(now())
+  lastUpdatedAt          DateTime  @updatedAt
+  isPublic               Boolean   @default(false)
+  pendingCandidateReview Boolean   @default(false)
   /// Auto-generated share slug: firstname-last4ofId (unique).
-  shareableHandle         String   @unique
+  shareableHandle        String    @unique
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -845,14 +909,14 @@ model ResumeChangeRequest {
 
 /// Cross-role settings: notifications, email alerts, etc.
 model UserPreferences {
-  id                    String   @id @default(uuid())
-  userId                String   @unique
-  emailNotifications    Boolean  @default(true)
-  applicationAlerts     Boolean  @default(true)  // Recruiter: new applications
-  weeklyReports         Boolean  @default(false)  // Recruiter: hiring reports
-  interviewReminders    Boolean  @default(true)  // Interviewer: slot reminders
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  emailNotifications Boolean  @default(true)
+  applicationAlerts  Boolean  @default(true) // Recruiter: new applications
+  weeklyReports      Boolean  @default(false) // Recruiter: hiring reports
+  interviewReminders Boolean  @default(true) // Interviewer: slot reminders
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -878,11 +942,11 @@ model PasswordResetToken {
 }
 
 model TestCredential {
-  id       String   @id @default(uuid())
-  email    String   @unique
-  password String
-  role     UserRole
-  active   Boolean  @default(true)
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      UserRole
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
 }
 
@@ -893,15 +957,15 @@ model BlockedEmail {
 }
 
 model EmailVerificationCode {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   email                 String
   codeHash              String
   verificationTokenHash String?
   expiresAt             DateTime
-  attempts              Int      @default(0)
+  attempts              Int       @default(0)
   verifiedAt            DateTime?
   consumedAt            DateTime?
-  createdAt             DateTime @default(now())
+  createdAt             DateTime  @default(now())
 
   @@index([email, createdAt])
 }

@@ -330,23 +330,25 @@ interviewRouter.post("/ai-skills/start", requireAuth, requireJobSeeker, async (r
     const schema = z.object({
       jobRole: z.string().min(1),
       experienceLevel: z.enum(["fresher", "mid", "senior"]).optional(),
+      isDataTrack: z.boolean().optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
 
     const profile = await prisma.jobSeekerProfile.findUnique({
       where: { userId: req.user!.id },
-      select: { experienceYears: true },
+      select: { experienceYears: true, roleType: true },
     });
     const profileTier = experienceTierFromYears(profile?.experienceYears);
     const track = (parsed.data.experienceLevel ?? profileTier) as ExperienceTier;
+    const isData = parsed.data.isDataTrack ?? profile?.roleType === "data";
 
-    const result = await startAiSkillsInterview(req.user!.id, parsed.data.jobRole, track);
+    const result = await startAiSkillsInterview(req.user!.id, parsed.data.jobRole, track, { isDataTrack: isData });
     return res.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to start";
     if (msg.includes("must be in progress")) return res.status(403).json({ error: msg });
-    if (msg.includes("Complete the DSA")) return res.status(400).json({ error: msg });
+    if (msg.includes("Complete the DSA") || msg.includes("Complete the Data Round")) return res.status(400).json({ error: msg });
     console.error("[interview/ai-skills/start]", e);
     return res.status(500).json({ error: "Failed to start AI Skills interview" });
   }
@@ -364,7 +366,13 @@ interviewRouter.post("/ai-skills/turn", requireAuth, requireJobSeeker, interview
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
 
-    const result = await processAiSkillsTurn(parsed.data.interviewId, req.user!.id, parsed.data.answer);
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { roleType: true },
+    });
+    const overrideStageName = profile?.roleType === "data" ? "data_skills_interview" : undefined;
+
+    const result = await processAiSkillsTurn(parsed.data.interviewId, req.user!.id, parsed.data.answer, { overrideStageName });
     return res.json({ ...result, turnId: parsed.data.turnId });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to process turn";
