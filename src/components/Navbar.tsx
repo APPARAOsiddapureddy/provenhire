@@ -16,8 +16,11 @@ import BrandMark from "@/components/BrandMark";
 const linkTone =
   "font-mono text-[13px] font-semibold text-muted-foreground tracking-wider uppercase hover:text-foreground transition-colors";
 
+const navDropdownContentClass =
+  "min-w-[12rem] z-[200] border border-border/80 bg-card/98 text-card-foreground shadow-2xl backdrop-blur-xl";
+
 const dropdownItemClass =
-  "font-mono text-xs font-semibold uppercase tracking-wider cursor-pointer";
+  "font-mono text-xs font-semibold uppercase tracking-wider cursor-pointer text-foreground/90 focus:bg-primary/12 focus:text-foreground data-[highlighted]:bg-primary/12 data-[highlighted]:text-foreground";
 
 const Navbar = () => {
   const { user, userRole, signOut } = useAuth();
@@ -121,7 +124,7 @@ const Navbar = () => {
           Company
           <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="min-w-[11rem]">
+        <DropdownMenuContent align="center" className={navDropdownContentClass}>
           <DropdownMenuItem asChild className={dropdownItemClass}>
             <Link to="/resources">Resources</Link>
           </DropdownMenuItem>

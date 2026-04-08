@@ -423,3 +423,15 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 - [ ] Firebase: Production domain in **Authorized domains**
 - [ ] Vercel: Redeployed **after** setting any env vars
 - [ ] Sign up from Vercel URL works (Network tab shows Render domain)
+
+---
+
+## Other hosting (Railway, Neon, etc.)
+
+If you do **not** use Render Postgres, you can still deploy the API anywhere Node runs:
+
+1. Provision **PostgreSQL** (Railway, Neon, Supabase, etc.) and set **`DATABASE_URL`** on the API service.
+2. Run migrations on deploy (e.g. `npx prisma migrate deploy` in your build/start pipeline).
+3. Point the Vite **`VITE_*`** / proxy **API** URL at your backend; keep CORS and Firebase **Authorized domains** aligned with the frontend origin.
+
+The **Vercel + Render** flow above is the team’s default reference architecture.

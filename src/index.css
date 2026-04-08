@@ -413,7 +413,8 @@
 
 /* ══════════════════════════════════════════
    VERIFICATION STAGES CARD (Hero right)
-   3-state cycle: Not Verified → Skill Passport → Hire
+   3-state demo: Not certified → Skill Passport → Hired
+   (Stepper labels update with state; ✓ only after each milestone.)
 ══════════════════════════════════════════ */
 .verification-stages-wrap {
   position: relative;
@@ -426,23 +427,42 @@
   .verification-stages-wrap { margin: 0; }
 }
 
-/* Step indicators */
+.vs-journey-caption {
+  letter-spacing: 0.12em;
+}
+
+/* Step indicators — horizontal: dot + label, connectors between */
 .vs-steps {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 24px;
+  gap: 8px;
+  margin: 0 0 24px 0;
+  padding: 0;
+  list-style: none;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+@media (min-width: 1024px) {
+  .vs-steps { justify-content: flex-start; }
 }
 .vs-step-item {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.34);
   transition: color 0.4s;
+  line-height: 1.2;
 }
-.vs-step-item.active { color: rgba(255,255,255,0.75); }
-.vs-step-item.done { color: hsl(var(--primary) / 0.5); }
+.vs-step-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  max-width: 7.5rem;
+}
+.vs-step-item.active { color: rgba(255,255,255,0.88); }
+.vs-step-item.done { color: hsl(var(--primary) / 0.88); }
 .vs-step-dot {
   width: 28px;
   height: 28px;
@@ -468,12 +488,15 @@
   color: hsl(var(--primary-foreground));
 }
 .vs-step-line {
-  width: 32px;
-  height: 1.5px;
-  background: rgba(255,255,255,0.07);
+  width: clamp(20px, 8vw, 40px);
+  height: 2px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.1);
   border-radius: 2px;
   position: relative;
   overflow: hidden;
+  list-style: none;
+  align-self: center;
 }
 .vs-step-line-fill {
   position: absolute;
@@ -759,7 +782,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
   flex-shrink: 0;
 }
 .vs-hb-name { font-family: var(--font-bebas); font-size: 12px; font-weight: 700; color: hsl(var(--foreground)); margin-bottom: 2px; }

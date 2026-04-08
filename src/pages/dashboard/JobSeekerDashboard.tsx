@@ -97,6 +97,8 @@ const JobSeekerDashboard = () => {
     block_human_interview_section: boolean;
     payment_status: string;
   } | null>(null);
+  /** v2: true until verification `profile_setup` is completed — server shows fresher stage order until then. */
+  const [pipelinePendingProfileSetup, setPipelinePendingProfileSetup] = useState(false);
   const [resumeProfileLoading, setResumeProfileLoading] = useState(false);
   const showJobTitleModal = Boolean(
     !loading &&
@@ -323,6 +325,7 @@ const JobSeekerDashboard = () => {
           certificationLabelShort?: string | null;
           stage_order?: string[];
           verification_pipeline_v2?: boolean;
+          pipeline_pending_profile_setup?: boolean;
         }>("/api/verification/stages"),
       ]);
 
@@ -334,6 +337,7 @@ const JobSeekerDashboard = () => {
       const stagesList = Array.isArray(stagesData?.stages) ? stagesData.stages : [];
       const order = Array.isArray(stagesData?.stage_order) ? stagesData!.stage_order! : null;
       setApiStageOrder(order && order.length > 0 ? order : null);
+      setPipelinePendingProfileSetup(Boolean(stagesData?.pipeline_pending_profile_setup));
       const role = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
       const derivedCertification = deriveCertificationFromStages(role, stagesList);
       const apiLevel = stagesData?.certification_level ?? 0;
@@ -792,6 +796,11 @@ const JobSeekerDashboard = () => {
                     ? "Progressive proof, not paperwork. Finish each stage to grow your ProvenHire Resume and unlock better-matched roles."
                     : "Evidence over claims. You earn Early Access after Level 1; Skill Passport and ProvenHire Resume unlock as you complete AI-verified stages—your path adapts to your experience band."}
                 </p>
+                {roleType === "technical" && pipelinePendingProfileSetup && (
+                  <p className="text-sm text-amber-200/90 border border-amber-400/30 bg-amber-500/10 rounded-lg px-3 py-2 mt-3 max-w-3xl">
+                    You’re on the early-career verification steps until you finish <strong className="font-semibold">Profile Setup</strong> in the verification flow. After that, your stages update to match the experience you entered (for example, mid/senior paths include System Design instead of CS fundamentals).
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="dashboard-proc-indicator">

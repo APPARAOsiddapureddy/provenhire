@@ -16,7 +16,7 @@ import {
   allowPlaceholderVerificationCompletion,
   isVerificationPipelineV2,
   technicalStagesForProfile,
-  verificationStagesNeededTechnical,
+  technicalStagesForTier,
 } from "../constants/verificationPipeline.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
@@ -78,12 +78,75 @@ async function resolveAptitudeSubmitSession(userId: string): Promise<{
 
 const nonTechnicalStages = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
 
-function verificationStagesNeededForRole(roleType: string, experienceYears: number | null): string[] {
-  if (roleType === "non_technical") return [...nonTechnicalStages];
-  if (!isVerificationPipelineV2()) {
-    return [...LEGACY_TECHNICAL_STAGES_V1];
+async function isProfileSetupCompleted(userId: string): Promise<boolean> {
+  const row = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "profile_setup", status: "completed" },
+    select: { id: true },
+  });
+  return Boolean(row);
+}
+
+/**
+ * v2 technical: show fresher stage order until profile_setup is completed; then use experienceYears.
+ * Non-technical and legacy v1 are unchanged.
+ */
+async function resolveNeededVerificationStages(
+  userId: string,
+  profile: { roleType?: string | null; experienceYears?: number | null } | null
+): Promise<{ neededStages: string[]; profileSetupCompleted: boolean }> {
+  const roleType = ((profile?.roleType as string) || "technical") as string;
+  if (roleType === "non_technical") {
+    return { neededStages: [...nonTechnicalStages], profileSetupCompleted: true };
   }
-  return verificationStagesNeededTechnical({ experienceYears, roleType: "technical" });
+  if (!isVerificationPipelineV2()) {
+    return { neededStages: [...LEGACY_TECHNICAL_STAGES_V1], profileSetupCompleted: true };
+  }
+  const profileSetupCompleted = await isProfileSetupCompleted(userId);
+  const neededStages = !profileSetupCompleted
+    ? technicalStagesForTier("fresher")
+    : technicalStagesForProfile(profile?.experienceYears);
+  return { neededStages, profileSetupCompleted };
+}
+
+/** Create missing pipeline rows; drop only extra *locked* stages (never human expert) so the path can switch after profile setup. */
+async function ensureVerificationPipelineStages(userId: string, neededStages: string[]): Promise<void> {
+  let existing = await prisma.verificationStage.findMany({ where: { userId } });
+  const neededSet = new Set(neededStages);
+  const neverPrune = new Set<string>(["human_expert_interview"]);
+
+  if (existing.length === 0) {
+    await prisma.verificationStage.createMany({
+      data: neededStages.map((stageName, index) => ({
+        userId,
+        stageName,
+        status: index === 0 ? "in_progress" : "locked",
+      })),
+      skipDuplicates: true,
+    });
+    return;
+  }
+
+  for (const row of existing) {
+    if (neededSet.has(row.stageName) || neverPrune.has(row.stageName)) continue;
+    const canDelete = row.status === "locked" && row.score == null;
+    if (canDelete) {
+      await prisma.verificationStage.delete({ where: { id: row.id } });
+    }
+  }
+
+  existing = await prisma.verificationStage.findMany({ where: { userId } });
+  const have = new Set(existing.map((r) => r.stageName));
+  const missing = neededStages.filter((s) => !have.has(s));
+  if (missing.length > 0) {
+    await prisma.verificationStage.createMany({
+      data: missing.map((stageName) => ({
+        userId,
+        stageName,
+        status: "locked",
+      })),
+      skipDuplicates: true,
+    });
+  }
 }
 
 function allowedVerificationStageNames(roleType: string): Set<string> {
@@ -160,7 +223,10 @@ async function reconcileTechnicalVerificationStages(userId: string): Promise<voi
     return;
   }
 
-  const order = technicalStagesForProfile(profile?.experienceYears);
+  const profileSetupDone = await isProfileSetupCompleted(userId);
+  const order = !profileSetupDone
+    ? technicalStagesForTier("fresher")
+    : technicalStagesForProfile(profile?.experienceYears);
   let rows = await reload();
   const statusOf = (name: string) => rows.find((r) => r.stageName === name)?.status;
 
@@ -250,33 +316,12 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
   try {
     const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     const roleType = (profile?.roleType as string) || "technical";
-    const experienceYears = profile?.experienceYears ?? null;
-    const neededStages = verificationStagesNeededForRole(roleType, experienceYears);
+    const { neededStages, profileSetupCompleted: profileSetupDoneForResponse } = await resolveNeededVerificationStages(
+      req.user!.id,
+      profile
+    );
 
-    let existing = await prisma.verificationStage.findMany({ where: { userId: req.user!.id } });
-    if (existing.length === 0) {
-      await prisma.verificationStage.createMany({
-        data: neededStages.map((stage, index) => ({
-          userId: req.user!.id,
-          stageName: stage,
-          status: index === 0 ? "in_progress" : "locked",
-        })),
-        skipDuplicates: true,
-      });
-      existing = await prisma.verificationStage.findMany({ where: { userId: req.user!.id } });
-    }
-    const have = new Set(existing.map((r) => r.stageName));
-    const missing = neededStages.filter((s) => !have.has(s));
-    if (missing.length > 0) {
-      await prisma.verificationStage.createMany({
-        data: missing.map((stage) => ({
-          userId: req.user!.id,
-          stageName: stage,
-          status: "locked",
-        })),
-        skipDuplicates: true,
-      });
-    }
+    await ensureVerificationPipelineStages(req.user!.id, neededStages);
     if (roleType !== "non_technical") {
       await syncLegacyAptitudeToCsFundamentals(req.user!.id);
       await reconcileTechnicalVerificationStages(req.user!.id);
@@ -286,12 +331,17 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
       calculateCertificationLevel(req.user!.id),
     ]);
     const track =
-      roleType === "non_technical" ? null : experienceTierFromYears(profile?.experienceYears);
+      roleType === "non_technical"
+        ? null
+        : isVerificationPipelineV2() && !profileSetupDoneForResponse
+          ? null
+          : experienceTierFromYears(profile?.experienceYears);
     return res.json({
       stages: toStageResponse(stages),
       roleType,
       verification_pipeline_v2: isVerificationPipelineV2(),
       verification_track: track,
+      pipeline_pending_profile_setup: roleType === "technical" && isVerificationPipelineV2() && !profileSetupDoneForResponse,
       stage_order: roleType === "non_technical" ? nonTechnicalStages : neededStages,
       certification_level: certification.level,
       certification_label: certification.label,
@@ -456,6 +506,21 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     data: updateData,
   });
 
+  if (
+    stageName === "profile_setup" &&
+    status === "completed" &&
+    roleType === "technical" &&
+    isVerificationPipelineV2()
+  ) {
+    const { neededStages } = await resolveNeededVerificationStages(userId, profile);
+    await ensureVerificationPipelineStages(userId, neededStages);
+    try {
+      await reconcileTechnicalVerificationStages(userId);
+    } catch (e) {
+      console.warn("[verification/stages/update] reconcile after profile_setup", e);
+    }
+  }
+
   // PRD: After Stage 4 pass (without Stage 5), status should be verified.
   if (stageName === "expert_interview" && status === "completed") {
     const prof = await prisma.jobSeekerProfile.findUnique({
@@ -516,7 +581,7 @@ verificationRouter.post("/stages/bulk", requireAuth, requireJobSeeker, async (re
       return res.json({ ok: true });
     }
 
-    const stagesForPath = verificationStagesNeededForRole(roleType, profile?.experienceYears ?? null);
+    const { neededStages: stagesForPath } = await resolveNeededVerificationStages(userId, profile);
     await prisma.verificationStage.createMany({
       data: stagesForPath.map((stage, index) => ({
         userId,
@@ -538,10 +603,7 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
   const roleType = (profile?.roleType as string) || "technical";
-  const stageOrder =
-    roleType === "non_technical"
-      ? nonTechnicalStages
-      : verificationStagesNeededForRole(roleType, profile?.experienceYears ?? null);
+  const { neededStages: stageOrder } = await resolveNeededVerificationStages(req.user!.id, profile);
   const currentIndex = stageOrder.indexOf(parsed.data.stageName);
   if (currentIndex < 0) return res.status(400).json({ error: "Invalid stage for this path" });
   if (parsed.data.stageName === "aptitude_test" || parsed.data.stageName === "cs_fundamentals") {

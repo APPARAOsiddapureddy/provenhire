@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Check, X, Star } from "lucide-react";
+import { Building2, Check, X, Star } from "lucide-react";
 
-type Stage = 0 | 1 | 2; // Not Verified, Skill Passport, Hired
+type Stage = 0 | 1 | 2; // Uncertified pool → Skill Passport issued → Hired
 
 export default function VerificationStagesCard() {
   const [current, setCurrent] = useState<Stage>(0);
@@ -18,37 +18,45 @@ export default function VerificationStagesCard() {
 
   return (
     <div className="verification-stages-wrap">
-      {/* Step indicators: Not Verified | Skill Passport | Hire */}
-      <div className="vs-steps">
-        <div className={`vs-step-item ${current === 0 ? "active" : current > 0 ? "done" : ""}`}>
-          <div className="vs-step-dot">
-            {current > 0 ? <Check className="w-3 h-3" strokeWidth={3} /> : "1"}
+      <p className="vs-journey-caption font-mono text-[10px] uppercase tracking-[0.14em] text-white/40 mb-3 text-center lg:text-left">
+        Candidate journey · evidence before hire
+      </p>
+      {/* Stepper: labels stay truthful — checkmarks only once that milestone is reached */}
+      <ol className="vs-steps" aria-label="Hiring journey steps">
+        <li
+          className={`vs-step-item ${current === 0 ? "active" : ""} ${current > 0 ? "done" : ""}`}
+          aria-current={current === 0 ? "step" : undefined}
+        >
+          <div className="vs-step-dot" aria-hidden>
+            {current > 0 ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "1"}
           </div>
-          <span>Not Verified</span>
-        </div>
-        <div className="vs-step-line">
-          <div
-            className="vs-step-line-fill"
-            style={{ width: current >= 1 ? "100%" : "0%" }}
-          />
-        </div>
-        <div className={`vs-step-item ${current === 1 ? "active" : current > 1 ? "done" : ""}`}>
-          <div className="vs-step-dot">
-            {current > 1 ? <Check className="w-3 h-3" strokeWidth={3} /> : "2"}
+          <span className="vs-step-label">{current > 0 ? "Certified" : "Not certified"}</span>
+        </li>
+        <li className="vs-step-line" aria-hidden>
+          <div className="vs-step-line-fill" style={{ width: current >= 1 ? "100%" : "0%" }} />
+        </li>
+        <li
+          className={`vs-step-item ${current === 1 ? "active" : ""} ${current > 1 ? "done" : ""}`}
+          aria-current={current === 1 ? "step" : undefined}
+        >
+          <div className="vs-step-dot" aria-hidden>
+            {current > 1 ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "2"}
           </div>
-          <span>Skill Passport</span>
-        </div>
-        <div className="vs-step-line">
-          <div
-            className="vs-step-line-fill"
-            style={{ width: current >= 2 ? "100%" : "0%" }}
-          />
-        </div>
-        <div className={`vs-step-item ${current === 2 ? "active" : ""}`}>
-          <div className="vs-step-dot">{current === 2 ? "3" : "3"}</div>
-          <span>Hire</span>
-        </div>
-      </div>
+          <span className="vs-step-label">Skill Passport</span>
+        </li>
+        <li className="vs-step-line" aria-hidden>
+          <div className="vs-step-line-fill" style={{ width: current >= 2 ? "100%" : "0%" }} />
+        </li>
+        <li
+          className={`vs-step-item ${current === 2 ? "active" : ""}`}
+          aria-current={current === 2 ? "step" : undefined}
+        >
+          <div className="vs-step-dot" aria-hidden>
+            {current === 2 ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "3"}
+          </div>
+          <span className="vs-step-label">Hired</span>
+        </li>
+      </ol>
 
       {/* Card stage */}
       <div className="vs-stage">
@@ -58,7 +66,7 @@ export default function VerificationStagesCard() {
         >
           <div className="vs-pill vs-pill-red">
             <span className="vs-pill-dot" />
-            Not Verified
+            Not certified
           </div>
           <div className="vs-person-row">
             <div className="vs-avatar vs-avatar-gray relative">
@@ -192,7 +200,9 @@ export default function VerificationStagesCard() {
             </div>
           </div>
           <div className="vs-hired-banner">
-            <div className="vs-hb-logo">🏢</div>
+            <div className="vs-hb-logo" aria-hidden>
+              <Building2 className="w-5 h-5 text-primary" strokeWidth={1.75} />
+            </div>
             <div>
               <div className="vs-hb-name">Razorpay — Bengaluru</div>
               <div className="vs-hb-sub">Frontend Engineer · 22 LPA · Full-time</div>

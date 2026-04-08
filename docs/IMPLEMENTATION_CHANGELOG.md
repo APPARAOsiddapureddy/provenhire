@@ -1,12 +1,16 @@
 # ProvenHire — Implementation changelog
 
-**Purpose:** Summarize **code and product-facing UI** changes so engineers and PMs can align without reading full diffs. For **business rules**, see [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) and the PRD index in [README.md](README.md).
-
-**Remaining features to build (single spec):** [PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md](PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md)
+**Purpose:** Summarize **code and product-facing UI** changes so engineers and PMs can align without reading full diffs. For **business rules and backlog**, see [PRD.md](PRD.md) Part C and the index in [README.md](README.md).
 
 ---
 
 ## April 2026
+
+### Documentation
+
+| Change | Location |
+|--------|----------|
+| **Single PRD:** `PRD_RECRUITER.md`, `PRD_BUSINESS.md`, and `PRD_AI_INTERVIEW.md` merged into **`PRD.md`** (Parts A–D). **`DEPLOYMENT.md`** removed; use **`DEPLOYMENT_COMPLETE.md`** (plus new “Other hosting” note). Hub and root READMEs updated. | [`PRD.md`](PRD.md), [`README.md`](README.md), [`DEPLOYMENT_COMPLETE.md`](DEPLOYMENT_COMPLETE.md) |
 
 ### Brand (in-app)
 
@@ -49,7 +53,7 @@
 The following landed in **migrations + services** around the same program; details are in PRDs, not duplicated here:
 
 - Candidate **retake ledger**, cooldowns, **paid stage** gating, recruiter **subscription usage** (`RecruiterUsage`, contacts, profile views), admin **`grant-retake`** / **`recruiter plan`** PATCH.
-- **`docs/PRD_REVENUE_AND_BUSINESS_RULES.md`**, **`docs/PRD_VERIFICATION_PIPELINE_V2.md`**, refreshed **`docs/PRD_RECRUITER.md`**, **`docs/PRD.md`** (v6.4).
+- **`docs/PRD.md`** (v6.6+): single consolidated PRD (Parts A–D); verification v2 in **§3.0**.
 
 ---
 

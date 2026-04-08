@@ -4,11 +4,10 @@
 
 ## Documentation (share with your team)
 
-All PRDs, deployment guides, and SEO notes live under **[docs/README.md](docs/README.md)** — start there for the document map.
+All documentation lives under **[docs/README.md](docs/README.md)** — start there for the map.
 
-- **Main product PRD:** [docs/PRD.md](docs/PRD.md)
-- **Recent code/UI changes (changelog):** [docs/IMPLEMENTATION_CHANGELOG.md](docs/IMPLEMENTATION_CHANGELOG.md)
-- **Remaining implementation spec (backlog):** [docs/PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md](docs/PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md)
+- **Product PRD (single file — candidate, recruiter, business, AI interview):** [docs/PRD.md](docs/PRD.md)
+- **Recent code/UI changes:** [docs/IMPLEMENTATION_CHANGELOG.md](docs/IMPLEMENTATION_CHANGELOG.md)
 - **Deploy (Vercel + Render):** [docs/DEPLOYMENT_COMPLETE.md](docs/DEPLOYMENT_COMPLETE.md)
 
 ## Stack

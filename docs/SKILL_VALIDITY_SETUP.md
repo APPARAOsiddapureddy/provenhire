@@ -4,7 +4,7 @@
 
 Skill verifications (Aptitude, Live Coding, AI Interview) expire after a fixed duration. Candidates must re-attempt after expiry to maintain verified status.
 
-**Product target (PRD 4 per-stage windows):** see [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) (candidate revenue — skill / verification validity) — may differ from the coarse keys below until extended.
+**Product target (per-stage windows):** see [PRD.md](PRD.md) Part C — Business, §2 candidate revenue (skill / verification validity) — may differ from the coarse keys below until extended.
 
 | Skill | Display Name | Validity (`server/src/config/skillValidity.ts`) |
 |-------|--------------|----------|
