@@ -838,7 +838,8 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
       ? Math.round((score / totalMarksForPct) * 100)
       : Math.min(100, Math.max(0, Math.round(score)));
     const existingStage = await prisma.verificationStage.findFirst({
-      where: { userId: req.user!.id, stageName: "aptitude_test" },
+      where: { userId: req.user!.id, stageName: { in: ["cs_fundamentals", "aptitude_test"] } },
+      orderBy: { updatedAt: "desc" },
     });
     if (existingStage) {
       await prisma.verificationStage.update({

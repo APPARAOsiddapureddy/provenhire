@@ -645,6 +645,7 @@ const VerificationFlow = () => {
                 key={retryingStage === "cs_fundamentals" ? "cs-retry" : "cs-first"}
                 stageStatus={getStageStatus("cs_fundamentals")}
                 stageScore={stages.find((s) => s.stage_name === "cs_fundamentals")?.score}
+                pipelineStageName="cs_fundamentals"
                 onComplete={() => {
                   setRetryingStage(null);
                   void completeAndAdvanceStage("cs_fundamentals");

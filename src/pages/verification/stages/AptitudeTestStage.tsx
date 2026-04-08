@@ -62,6 +62,8 @@ interface AptitudeTestStageProps {
   isRetry?: boolean;
   /** Refresh parent cooldown state after any official aptitude row is written (pass, fail, or invalidated). */
   onAfterAptitudeSubmit?: () => void;
+  /** V2 pipeline uses "cs_fundamentals"; legacy uses "aptitude_test". Defaults to "aptitude_test". */
+  pipelineStageName?: string;
 }
 
 const AptitudeTestStage = ({
@@ -72,6 +74,7 @@ const AptitudeTestStage = ({
   onRetry,
   isRetry = false,
   onAfterAptitudeSubmit,
+  pipelineStageName = "aptitude_test",
 }: AptitudeTestStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -233,12 +236,12 @@ const AptitudeTestStage = ({
             onAfterAptitudeSubmit?.();
           })
           .catch(() => {});
-        void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
+        void api.post("/api/verification/stages/update", { stageName: pipelineStageName, status: "failed", score: 0 }).catch(() => {});
         setSubmitted(true);
         setSubmittedScore(0);
       }
     },
-    [questions.length, onAfterAptitudeSubmit]
+    [questions.length, onAfterAptitudeSubmit, pipelineStageName]
   );
 
   const { tabSwitchCount } = useProctoringRiskMonitor({
@@ -271,7 +274,7 @@ const AptitudeTestStage = ({
                   onAfterAptitudeSubmit?.();
                 })
                 .catch(() => {});
-              void api.post("/api/verification/stages/update", { stageName: "aptitude_test", status: "failed", score: 0 }).catch(() => {});
+              void api.post("/api/verification/stages/update", { stageName: pipelineStageName, status: "failed", score: 0 }).catch(() => {});
               setSubmitted(true);
               setSubmittedScore(0);
             }
@@ -492,7 +495,7 @@ const AptitudeTestStage = ({
       }
       // Backend POST /aptitude already stores percent in VerificationStage; do not send raw marks
       // so resume/profile APIs show percent consistently (not marks).
-      const stagePayload = { stageName: "aptitude_test" as const, status: score >= passThreshold ? "completed" : "failed" as const };
+      const stagePayload = { stageName: pipelineStageName, status: score >= passThreshold ? "completed" : "failed" as const };
       const scorePct = totalMarks > 0 ? Math.round((score / totalMarks) * 100) : 0;
       if (score >= passThreshold) {
         setSubmittedScore(score); // keep for "Your current score: X%" in success block
