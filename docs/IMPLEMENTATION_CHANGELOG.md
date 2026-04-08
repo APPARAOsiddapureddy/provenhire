@@ -2,6 +2,8 @@
 
 **Purpose:** Summarize **code and product-facing UI** changes so engineers and PMs can align without reading full diffs. For **business rules**, see [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) and the PRD index in [README.md](README.md).
 
+**Remaining features to build (single spec):** [PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md](PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md)
+
 ---
 
 ## April 2026

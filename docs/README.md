@@ -22,6 +22,7 @@ Use this page as the **single entry point** when onboarding engineers, product, 
 | [**PRD_EXPERT_INTERVIEWER.md**](PRD_EXPERT_INTERVIEWER.md) | Expert interviewer (Stage 5): profile gate, slots, evaluations, earnings, cron. |
 | [**PRD_VERIFICATION_SCORING.md**](PRD_VERIFICATION_SCORING.md) | Scorecards, floors, shortlist math (Stages 2–4 blend). |
 | [**PRD_DSA_QUESTIONS_STORAGE.md**](PRD_DSA_QUESTIONS_STORAGE.md) | DSA question bank and storage model. |
+| [**PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md**](PRD_TECHNICAL_IMPLEMENTATION_REMAINING.md) | **Engineering backlog** — AI Skills, System Design, ProvenHire Resume, paywall UI, JD interview, discovery grid; **do-not-touch** list; strict step order. |
 
 Supporting / historical / audits:
 
