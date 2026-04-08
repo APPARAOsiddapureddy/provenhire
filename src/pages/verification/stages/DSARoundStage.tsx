@@ -51,6 +51,7 @@ interface DSARoundStageProps {
   isRetry?: boolean;
   targetJobTitle?: string | null;
   experienceYears?: number;
+  nextStageLabel?: string;
 }
 
 type TestResultStatus =
@@ -262,7 +263,7 @@ function getStarterForQuestion(q: ApiDSAQuestion, lang: ProgrammingLanguage): st
   return defaultStarter(lang);
 }
 
-const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, targetJobTitle, experienceYears = 2 }: DSARoundStageProps) => {
+const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry = false, targetJobTitle, experienceYears = 2, nextStageLabel = "AI Skills Interview" }: DSARoundStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const testIdRef = useRef<string>(`DSA_${Date.now()}`);
@@ -1189,7 +1190,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             </p>
             <Button onClick={handleNoDsaComplete} disabled={noDsaSubmitting}>
               {noDsaSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Continue to AI Expert Interview
+              Continue to {nextStageLabel}
             </Button>
           </div>
         </CardContent>
@@ -1250,13 +1251,15 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         <CardContent className="pt-6">
           <div className="p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
             <h3 className="text-lg font-semibold text-foreground">DSA round passed! What&apos;s next?</h3>
-            <p className="text-sm text-muted-foreground">You can go to the homepage or continue to the AI Expert Interview.</p>
+            <p className="text-sm text-muted-foreground">
+              Great work on the coding round. Your next step is the <span className="font-semibold text-foreground">{nextStageLabel}</span> — continue when you&apos;re ready, or come back later from your dashboard.
+            </p>
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={() => navigate("/")}>
                 Go to Homepage
               </Button>
               <Button onClick={() => onComplete()}>
-                Continue to AI Expert Interview
+                Continue to {nextStageLabel}
               </Button>
             </div>
           </div>

@@ -32,8 +32,7 @@ export default function PipelineStagePlaceholder({
           </ul>
         ) : null}
         <p>
-          In non-production environments, your team can still advance this step for integration testing. Production rollout
-          requires the full assessment UI and payment gates described in the verification PRD.
+          This assessment is coming soon. You will be notified when it becomes available. In the meantime, continue with other available stages or return to your dashboard.
         </p>
         {onBackToDashboard ? (
           <Button variant="outline" onClick={onBackToDashboard}>

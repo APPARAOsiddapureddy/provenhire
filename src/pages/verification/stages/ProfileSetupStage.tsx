@@ -38,12 +38,14 @@ interface ProfileSetupStageProps {
   onComplete: () => void;
   onContinueToVerification?: () => void;
   roleType?: "technical" | "non_technical";
+  nextStageName?: string;
+  nextStageLabel?: string;
 }
 
 const ACCEPT_MIME =
   "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 
-const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "technical" }: ProfileSetupStageProps) => {
+const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "technical", nextStageName, nextStageLabel }: ProfileSetupStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -654,13 +656,13 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
               </Button>
               <Button
                 onClick={() => {
-                  const nextStage = roleType === "non_technical" ? "non_tech_assignment" : "aptitude_test";
-                  api.post("/api/verification/stages/update", { stageName: nextStage, status: "in_progress" }).then(() => {
+                  const resolvedNextStage = nextStageName ?? (roleType === "non_technical" ? "non_tech_assignment" : "cs_fundamentals");
+                  api.post("/api/verification/stages/update", { stageName: resolvedNextStage, status: "in_progress" }).then(() => {
                     onContinueToVerification?.();
                   });
                 }}
               >
-                Continue to {roleType === "non_technical" ? "Assignment" : "Cognitive Assessment"}
+                Continue to {nextStageLabel ?? (roleType === "non_technical" ? "Assignment" : "CS Fundamentals + Aptitude")}
               </Button>
             </div>
           </div>

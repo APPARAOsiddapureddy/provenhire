@@ -203,6 +203,7 @@ export interface AISkillsInterviewStageProps {
   onSessionComplete: () => void;
   onReturnToDashboard?: () => void;
   onPaywallRequired?: (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => void;
+  nextStageLabel?: string;
 }
 
 export default function AISkillsInterviewStage({
@@ -211,6 +212,7 @@ export default function AISkillsInterviewStage({
   onSessionComplete,
   onReturnToDashboard,
   onPaywallRequired,
+  nextStageLabel,
 }: AISkillsInterviewStageProps) {
   const { user } = useAuth();
   const { getMode } = useFeatureFlags();
@@ -1040,7 +1042,9 @@ export default function AISkillsInterviewStage({
                   )}
                   <p className="text-sm text-muted-foreground">
                     {outcome.pass
-                      ? "You passed this verification step."
+                      ? nextStageLabel
+                        ? `You passed! Your next step is the ${nextStageLabel}. Continue when you're ready.`
+                        : "You passed this verification step."
                       : "You did not meet the bar on this attempt. Retry follows cooldown and retake policy."}
                   </p>
                   {typeof outcome.totalScore === "number" && (
@@ -1066,11 +1070,18 @@ export default function AISkillsInterviewStage({
                       </ul>
                     </div>
                   )}
-                  {onReturnToDashboard && (
-                    <Button variant="outline" onClick={onReturnToDashboard}>
-                      Return to Dashboard
-                    </Button>
-                  )}
+                  <div className="flex flex-wrap gap-3">
+                    {onReturnToDashboard && (
+                      <Button variant="outline" onClick={onReturnToDashboard}>
+                        {outcome.pass && nextStageLabel ? "Go to Dashboard" : "Return to Dashboard"}
+                      </Button>
+                    )}
+                    {outcome.pass && nextStageLabel && (
+                      <Button onClick={onSessionComplete}>
+                        Continue to {nextStageLabel}
+                      </Button>
+                    )}
+                  </div>
                 </>
               )}
             </div>

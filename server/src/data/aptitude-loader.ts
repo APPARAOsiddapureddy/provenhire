@@ -1,9 +1,6 @@
 /**
  * Loads aptitude questions and selects 20 questions with experience-based difficulty.
- * Marks: easy=1, medium=2, hard=2. Pass: 60% of total.
- * - Fresher (< 1 year): 15 easy, 5 medium (25 marks, pass 15)
- * - 1–3 years: 10 easy, 5 medium, 5 hard (30 marks, pass 18)
- * - 5+ years: 5 easy, 5 medium, 10 hard (35 marks, pass 21)
+ * Marks: easy=1, medium=2, hard=3. All sets normalized to 25 total; pass = 60%.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -13,7 +10,7 @@ import { experienceTierFromYears, questionSetForTier } from "../utils/experience
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export const APTITUDE_MARKS = { easy: 1, medium: 2, hard: 2 } as const;
+export const APTITUDE_MARKS = { easy: 1, medium: 2, hard: 3 } as const;
 export const APTITUDE_QUESTION_COUNT = 20;
 
 export interface McqQuestionRaw {
@@ -204,6 +201,10 @@ function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSe
       i++;
     }
     totalMarks = ids.reduce((s, id) => s + (marksKey[id] ?? 1), 0);
+  }
+
+  for (const q of questions) {
+    q.marks = marksKey[q.id] ?? q.marks;
   }
 
   const passThreshold = Math.ceil(totalMarks * 0.6);

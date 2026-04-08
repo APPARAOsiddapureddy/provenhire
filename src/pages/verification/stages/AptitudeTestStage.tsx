@@ -64,6 +64,7 @@ interface AptitudeTestStageProps {
   onAfterAptitudeSubmit?: () => void;
   /** V2 pipeline uses "cs_fundamentals"; legacy uses "aptitude_test". Defaults to "aptitude_test". */
   pipelineStageName?: string;
+  nextStageLabel?: string;
 }
 
 const AptitudeTestStage = ({
@@ -75,6 +76,7 @@ const AptitudeTestStage = ({
   isRetry = false,
   onAfterAptitudeSubmit,
   pipelineStageName = "aptitude_test",
+  nextStageLabel = "DSA Round",
 }: AptitudeTestStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -500,7 +502,7 @@ const AptitudeTestStage = ({
       if (score >= passThreshold) {
         setSubmittedScore(score); // keep for "Your current score: X%" in success block
         await api.post("/api/verification/stages/update", stagePayload);
-        toast.success(`Cognitive Assessment passed! Score: ${scorePct}%. Complete Live Coding (DSA) to earn Level 1 — Cognitive Verified.`);
+        toast.success(`Cognitive Assessment passed! Score: ${scorePct}%. Next up: ${nextStageLabel}.`);
         setJustPassed(true);
         onAfterAptitudeSubmit?.();
       } else {
@@ -775,9 +777,8 @@ const AptitudeTestStage = ({
               Cognitive Assessment cleared! <span className="inline-block">🏆</span>
             </h3>
             <p className="text-sm text-muted-foreground">
-              Strong start. You finished the Cognitive Assessment — the next step is{" "}
-              <span className="font-semibold text-foreground">Live Coding (DSA)</span>. After you pass DSA (and with profile + cognitive complete), you earn{" "}
-              <span className="font-semibold text-foreground">Level 1 — Cognitive Verified</span>. Later stages on your track (for example AI skills and expert interviews, and a human expert step when it applies) determine Skill Passport and higher certification tiers — exact levels depend on your path and outcomes.
+              Strong start. You finished the Cognitive Assessment — the next step is the{" "}
+              <span className="font-semibold text-foreground">{nextStageLabel}</span>. Each completed stage unlocks a higher certification level and increases your visibility to recruiters.
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border bg-background/80 p-3">
@@ -790,16 +791,16 @@ const AptitudeTestStage = ({
               <div className="rounded-lg border bg-background/80 p-3">
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                   <Target className="h-4 w-4" />
-                  Next: Level 1
+                  Next step
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">Complete and pass the DSA round</p>
+                <p className="mt-1 text-xs text-muted-foreground">Complete the {nextStageLabel}</p>
               </div>
               <div className="rounded-lg border bg-background/80 p-3">
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                   <Sparkles className="h-4 w-4" />
-                  After L1
+                  Higher tiers
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">AI skills and expert interviews unlock higher tiers when you qualify</p>
+                <p className="mt-1 text-xs text-muted-foreground">AI skills and expert interviews unlock higher certification levels</p>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -817,7 +818,7 @@ const AptitudeTestStage = ({
                 Go to Homepage
               </Button>
               <Button onClick={() => onComplete()}>
-                Continue to DSA Round (Level 2 Path)
+                Continue to {nextStageLabel}
               </Button>
             </div>
           </div>

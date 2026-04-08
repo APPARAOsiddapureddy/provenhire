@@ -127,6 +127,13 @@ const VerificationFlow = () => {
   };
   const getStageLabel = (stageName: string) => STAGE_LABELS[stageName] ?? stageName.split('_').join(' ');
 
+  const getNextStageInfo = (currentStageName: string): { name: string; label: string } | null => {
+    const idx = stageOrder.indexOf(currentStageName);
+    if (idx < 0 || idx + 1 >= stageOrder.length) return null;
+    const next = stageOrder[idx + 1]!;
+    return { name: next, label: getStageLabel(next) };
+  };
+
   const mergeStagesWithOrder = (data: VerificationStage[], order = stageOrder): VerificationStage[] =>
     order.map(
       (name) => data.find((s) => s.stage_name === name) ?? { stage_name: name, status: 'locked' as StageStatus }
@@ -441,15 +448,20 @@ const VerificationFlow = () => {
   const renderCurrentStage = () => {
     switch (currentStage) {
       case 'profile_setup':
-        return (
-          <ProfileSetupStage
-            roleType={roleType}
-            onComplete={() => loadVerificationStages()}
-            onContinueToVerification={() => {
-              void loadVerificationStages();
-            }}
-          />
-        );
+        {
+          const next = getNextStageInfo("profile_setup");
+          return (
+            <ProfileSetupStage
+              roleType={roleType}
+              onComplete={() => loadVerificationStages()}
+              onContinueToVerification={() => {
+                void loadVerificationStages();
+              }}
+              nextStageName={next?.name}
+              nextStageLabel={next?.label}
+            />
+          );
+        }
       case 'non_tech_assignment':
         return !testStageStarted.non_tech_assignment ? (
           <Card className="border-2 border-primary/30 bg-primary/5">
@@ -575,6 +587,7 @@ const VerificationFlow = () => {
                 onSessionExpired={() => setTestStageStarted((p) => ({ ...p, aptitude_test: false }))}
                 onRetry={retryAptitudeAndRestart}
                 isRetry={retryingStage === 'aptitude_test'}
+                nextStageLabel={getNextStageInfo("aptitude_test")?.label}
                 onAfterAptitudeSubmit={() => {
                   void checkCooldowns();
                 }}
@@ -653,6 +666,7 @@ const VerificationFlow = () => {
                 onSessionExpired={() => setTestStageStarted((p) => ({ ...p, cs_fundamentals: false }))}
                 onRetry={retryCsFundamentalsAndRestart}
                 isRetry={retryingStage === "cs_fundamentals"}
+                nextStageLabel={getNextStageInfo("cs_fundamentals")?.label}
                 onAfterAptitudeSubmit={() => {
                   void checkCooldowns();
                 }}
@@ -712,6 +726,7 @@ const VerificationFlow = () => {
                 onSessionComplete={() => void loadVerificationStages()}
                 onReturnToDashboard={handleReturnToDashboard}
                 onPaywallRequired={handlePaywallRequired}
+                nextStageLabel={getNextStageInfo("ai_skills_interview")?.label}
               />
             )}
           </div>
@@ -766,7 +781,7 @@ const VerificationFlow = () => {
                 <CardContent className="pt-6">
                   <h3 className="text-xl font-semibold text-foreground mb-2">Next step: DSA Round</h3>
                   <p className="text-muted-foreground mb-4">
-                    Start the DSA coding round when you're ready, or return to the homepage and come back later.
+                    Solve coding problems under timed, proctored conditions. You need at least 60/100 to pass. Allow about 60 minutes in one sitting.
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" onClick={() => navigate("/")}>
@@ -812,6 +827,7 @@ const VerificationFlow = () => {
                 isRetry={retryingStage === 'dsa_round'}
                 targetJobTitle={targetJobTitle || undefined}
                 experienceYears={experienceYears}
+                nextStageLabel={getNextStageInfo("dsa_round")?.label}
               />
             )}
           </div>
@@ -840,7 +856,7 @@ const VerificationFlow = () => {
                 <CardContent className="pt-6">
                   <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Expert Interview</h3>
                   <p className="text-muted-foreground mb-4">
-                    Start the Expert Interview when you're ready, or return to the homepage and come back later.
+                    A 20–30 minute AI-led deep-dive into your experience, projects, and domain expertise. This is the final stage — clear it to unlock your highest certification level.
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" onClick={() => navigate("/")}>
