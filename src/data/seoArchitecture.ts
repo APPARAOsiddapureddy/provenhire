@@ -162,7 +162,6 @@ export const SEO_LANDING_PAGES: SeoPageDef[] = [
     related: rel([
       ["Hire developers", "/hire-developers"],
       ["Verified candidates", "/verified-candidates"],
-      ["For employers (original page)", "/for-employers"],
       ["No-resume hiring", "/no-resume-hiring"],
       ["Post a job", "/auth?role=recruiter"],
     ]),

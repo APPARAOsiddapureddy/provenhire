@@ -86,8 +86,8 @@ const Index = () => {
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" asChild className="btn-outline btn-hero">
-                  <Link to="/for-employers">
-                    I&apos;m a Recruiter ↗
+                  <Link to="/for-recruiters">
+                    I&apos;m hiring ↗
                   </Link>
                 </Button>
               </div>
@@ -212,7 +212,7 @@ const Index = () => {
               Skill Verified Hiring
             </h2>
             <p className="text-muted-foreground leading-relaxed">
-              <strong className="text-foreground">ProvenHire</strong> is India&apos;s first verified hiring platform built on skill validation, not resumes. Companies waste weeks screening candidates who overstate their abilities. ProvenHire solves this by verifying every candidate through a multi-stage process before they reach your shortlist. Whether you need developers, engineers, or professionals, our <Link to="/jobs" className="text-primary hover:underline font-medium">job listings</Link> show only skill-verified talent. Recruiters use ProvenHire to <Link to="/for-employers" className="text-primary hover:underline font-medium">hire certified candidates</Link> with confidence.
+              <strong className="text-foreground">ProvenHire</strong> is India&apos;s first verified hiring platform built on skill validation, not resumes. Companies waste weeks screening candidates who overstate their abilities. ProvenHire solves this by verifying every candidate through a multi-stage process before they reach your shortlist. Whether you need developers, engineers, or professionals, our <Link to="/jobs" className="text-primary hover:underline font-medium">job listings</Link> show only skill-verified talent. Hiring teams use ProvenHire to <Link to="/for-recruiters" className="text-primary hover:underline font-medium">hire certified candidates</Link> with confidence.
             </p>
 
             <h2 className="font-bebas text-2xl sm:text-3xl tracking-[2px] text-foreground">
@@ -233,7 +233,7 @@ const Index = () => {
               Why Companies Trust ProvenHire
             </h2>
             <p className="text-muted-foreground leading-relaxed">
-              Hiring today is broken: résumés are inflated, screening is slow, and bad hires are costly. ProvenHire fixes this with a verified hiring platform that proves skills before the first interview. Job seekers get certified in 24–48 hours and unlock access to premium roles; recruiters get a pre-verified talent pool and can focus on fit instead of filtering. Our developer hiring platform and coding assessment pipeline are designed for scale—whether you&apos;re hiring one developer or building an entire team. As an AI hiring platform, ProvenHire combines automation with human expert review for a fair, fast, and reliable process. Explore <Link to="/jobs" className="text-primary hover:underline font-medium">verified jobs</Link>, learn more <Link to="/about" className="text-primary hover:underline font-medium">about us</Link>, or <Link to="/for-employers" className="text-primary hover:underline font-medium">post a job</Link> and start hiring verified talent with ProvenHire.
+              Hiring today is broken: résumés are inflated, screening is slow, and bad hires are costly. ProvenHire fixes this with a verified hiring platform that proves skills before the first interview. Job seekers get certified in 24–48 hours and unlock access to premium roles; recruiters get a pre-verified talent pool and can focus on fit instead of filtering. Our developer hiring platform and coding assessment pipeline are designed for scale—whether you&apos;re hiring one developer or building an entire team. As an AI hiring platform, ProvenHire combines automation with human expert review for a fair, fast, and reliable process. Explore <Link to="/jobs" className="text-primary hover:underline font-medium">verified jobs</Link>, learn more <Link to="/about" className="text-primary hover:underline font-medium">about us</Link>, or <Link to="/auth?role=recruiter" className="text-primary hover:underline font-medium">post a job</Link> and start hiring verified talent with ProvenHire.
             </p>
           </div>
         </div>
@@ -365,7 +365,7 @@ const Index = () => {
               <Link to="/auth">Start Verification →</Link>
             </Button>
             <Button size="lg" variant="outline" asChild className="btn-outline btn-hero">
-              <Link to="/for-employers">Hire Certified Talent</Link>
+              <Link to="/for-recruiters">Hire certified talent</Link>
             </Button>
           </div>
         </div>

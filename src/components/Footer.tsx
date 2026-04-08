@@ -61,8 +61,7 @@ const Footer = () => {
                 <li><Link to="/for-job-seekers" className="text-muted-foreground hover:text-primary transition-colors">For Job Seekers</Link></li>
                 {userRole !== "jobseeker" && (
                   <>
-                    <li><Link to="/for-employers" className="text-muted-foreground hover:text-primary transition-colors">For Employers</Link></li>
-                    <li><Link to="/for-recruiters" className="text-muted-foreground hover:text-primary transition-colors">For Recruiters</Link></li>
+                    <li><Link to="/for-recruiters" className="text-muted-foreground hover:text-primary transition-colors">Employers &amp; recruiters</Link></li>
                     <li><Link to="/post-job" className="text-muted-foreground hover:text-primary transition-colors">Post a Job</Link></li>
                   </>
                 )}

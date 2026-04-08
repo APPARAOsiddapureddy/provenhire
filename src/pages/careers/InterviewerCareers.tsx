@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import SEO from "@/components/SEO";
+import { MarketingPageHero } from "@/components/MarketingPageHero";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -99,20 +101,30 @@ export default function InterviewerCareers() {
   if (submitted) {
     return (
       <div className="min-h-screen flex flex-col">
+        <SEO
+          title="Application received | Expert interviewer | ProvenHire"
+          description="Your expert interviewer application was submitted."
+          path="/careers/interviewer"
+        />
         <Navbar />
-        <div className="flex-1 pt-24 pb-20">
-          <section className="container mx-auto px-4 max-w-xl mx-auto text-center">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-green-500/20 flex items-center justify-center">
-              <CheckCircle className="h-10 w-10 text-green-600 dark:text-green-400" />
+        <MarketingPageHero
+          eyebrow="Careers"
+          title={
+            <>
+              Application <span className="text-primary">received</span>
+            </>
+          }
+          subtitle="Thanks for applying to become an Expert Interviewer. Our team will review your application and get back to you within 3–5 business days."
+        />
+        <div className="marketing-content-band py-16 md:py-20">
+          <div className="container mx-auto px-4 max-w-xl text-center">
+            <div className="w-20 h-20 mx-auto mb-8 rounded-full bg-[#1FA971]/15 border border-[#1FA971]/35 flex items-center justify-center">
+              <CheckCircle className="h-10 w-10 text-[#1FA971]" aria-hidden />
             </div>
-            <h1 className="text-3xl font-bold mb-4">Application Received</h1>
-            <p className="text-muted-foreground mb-8">
-              Thanks for applying to become an Expert Interviewer. Our team will review your application and get back to you within 3–5 business days.
-            </p>
-            <Button asChild>
-              <Link to="/">Back to Home</Link>
+            <Button asChild className="btn-primary shadow-glow">
+              <Link to="/">Back to home</Link>
             </Button>
-          </section>
+          </div>
         </div>
         <Footer />
       </div>
@@ -121,34 +133,47 @@ export default function InterviewerCareers() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SEO
+        title="Expert interviewer careers | ProvenHire"
+        description="Apply to conduct live expert interviews for ProvenHire. Flexible schedule, technical and non-technical tracks."
+        path="/careers/interviewer"
+      />
       <Navbar />
 
-      <div className="flex-1 pt-24 pb-20">
-        {/* Clarity banner — impossible to miss */}
-        <section className="border-b border-border bg-primary/5 py-4">
+      <MarketingPageHero
+        eyebrow="Careers"
+        title={
+          <>
+            Conduct <span className="text-primary">expert</span> interviews
+          </>
+        }
+        subtitle="Join our interviewer panel: live video sessions, structured rubrics, and flexible availability. This is not a job seeker application — you are applying to interview candidates."
+      />
+
+      <div className="marketing-content-band pb-20">
+        <section className="border-b border-border/80 bg-primary/5 py-4">
           <div className="container mx-auto px-4">
-            <Alert className="max-w-3xl mx-auto border-primary/30 bg-background">
+            <Alert className="max-w-3xl mx-auto border-primary/30 bg-card/60">
               <UserCheck className="h-5 w-5 text-primary" />
               <AlertDescription className="font-semibold text-foreground">
-                This page is for experienced professionals who want to conduct technical interviews — not for job seekers.
-                Minimum 5 years of industry experience required. Not for you? Use Find Jobs or For Employers below.
+                For experienced professionals who want to conduct interviews — not for job seekers. Minimum 5 years of industry
+                experience. Not for you? Use Find Jobs or Employers &amp; recruiters below.
               </AlertDescription>
             </Alert>
           </div>
         </section>
 
-        {/* Hero with graphic */}
         <section className="container mx-auto px-4 py-12 md:py-16">
           <div className="max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-10">
             <div className="flex-shrink-0">
               <InterviewerConducting size={220} className="mx-auto" />
               <div className="flex justify-center gap-8 mt-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-primary" />
+                  <span className="w-2 h-2 rounded-full bg-primary" aria-hidden />
                   You conduct the interview
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-muted-foreground/60" />
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground/60" aria-hidden />
                   Candidate is interviewed
                 </span>
               </div>
@@ -156,16 +181,14 @@ export default function InterviewerCareers() {
             <div className="flex-1 text-center md:text-left">
               <Badge className="mb-4 bg-primary/15 text-primary border-primary/30">
                 <Video className="mr-1 h-3 w-3" />
-                Expert Interviewer Role
+                Expert interviewer role
               </Badge>
-              <h1 className="text-3xl md:text-4xl font-bold mb-4">
-                Apply to <span className="text-primary">conduct</span> expert interviews
-              </h1>
-              <p className="text-lg text-muted-foreground mb-6">
-                Join our panel of interviewers. You conduct live video calls with candidates, evaluate their skills, and help shape verified talent. Flexible schedule, technical & non-technical tracks.
+              <p className="text-lg text-muted-foreground mb-4">
+                Live video calls, evaluation rubrics, and impact on verified talent. Technical and non-technical tracks
+                supported.
               </p>
-              <p className="text-sm text-muted-foreground/80">
-                This is not a job application. You are applying to become someone who <strong>interviews</strong> job seekers.
+              <p className="text-sm text-muted-foreground/85">
+                This is not a job application. You are applying to become someone who <strong className="text-foreground">interviews</strong> job seekers.
               </p>
             </div>
           </div>
@@ -173,7 +196,7 @@ export default function InterviewerCareers() {
 
         {/* Not for you? */}
         <section className="container mx-auto px-4 mb-16">
-          <div className="max-w-2xl mx-auto flex flex-col sm:flex-row gap-4 justify-center items-center p-4 rounded-xl border border-border bg-muted/30">
+          <div className="max-w-2xl mx-auto flex flex-col sm:flex-row gap-4 justify-center items-center p-4 rounded-xl border-2 border-primary/15 bg-card/45">
             <span className="text-sm font-medium text-muted-foreground">Not for you?</span>
             <div className="flex gap-4">
               <Link
@@ -184,11 +207,11 @@ export default function InterviewerCareers() {
                 Find Jobs
               </Link>
               <Link
-                to="/for-employers"
+                to="/for-recruiters"
                 className="flex items-center gap-2 text-sm font-medium text-primary hover:underline"
               >
                 <Briefcase className="h-4 w-4" />
-                For Employers
+                Employers &amp; recruiters
               </Link>
             </div>
           </div>
@@ -198,7 +221,7 @@ export default function InterviewerCareers() {
         <section className="container mx-auto px-4 mb-16">
           <h2 className="text-xl font-bold text-center mb-8">What you get as an interviewer</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto">
-            <Card className="border-2">
+            <Card className="border-2 border-primary/12 bg-card/45 backdrop-blur-sm">
               <CardContent className="pt-6">
                 <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mb-3">
                   <Clock className="h-6 w-6 text-primary" />
@@ -207,7 +230,7 @@ export default function InterviewerCareers() {
                 <p className="text-sm text-muted-foreground">Set your own availability. Conduct interviews when it suits you.</p>
               </CardContent>
             </Card>
-            <Card className="border-2">
+            <Card className="border-2 border-primary/12 bg-card/45 backdrop-blur-sm">
               <CardContent className="pt-6">
                 <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mb-3">
                   <Code className="h-6 w-6 text-primary" />
@@ -216,7 +239,7 @@ export default function InterviewerCareers() {
                 <p className="text-sm text-muted-foreground">DSA, Full Stack, System Design, Product, and more.</p>
               </CardContent>
             </Card>
-            <Card className="border-2">
+            <Card className="border-2 border-primary/12 bg-card/45 backdrop-blur-sm">
               <CardContent className="pt-6">
                 <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mb-3">
                   <MessageSquare className="h-6 w-6 text-primary" />
@@ -230,7 +253,7 @@ export default function InterviewerCareers() {
 
         {/* Application form */}
         <section className="container mx-auto px-4">
-          <Card className="max-w-2xl mx-auto border-2">
+          <Card className="max-w-2xl mx-auto border-2 border-primary/15 bg-card/50">
             <CardHeader>
               <CardTitle>Apply to become an interviewer</CardTitle>
               <CardDescription>Fill in your details. We'll review and invite you to join the expert panel.</CardDescription>
@@ -353,7 +376,7 @@ export default function InterviewerCareers() {
                   <p className="text-xs text-muted-foreground">{form.whyJoin.trim().length} / 100+</p>
                 </div>
 
-                <Button type="submit" className="w-full" disabled={submitting}>
+                <Button type="submit" className="w-full btn-primary shadow-glow" disabled={submitting}>
                   {submitting ? "Submitting..." : "Submit application"}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
@@ -367,3 +390,4 @@ export default function InterviewerCareers() {
     </div>
   );
 }
+

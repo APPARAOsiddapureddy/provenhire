@@ -3,6 +3,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MarketingPageHero } from "@/components/MarketingPageHero";
 
 const CLUSTERS = [
   {
@@ -31,6 +32,9 @@ const CLUSTERS = [
   },
 ];
 
+const clusterCardClass =
+  "border-2 border-primary/12 bg-card/45 backdrop-blur-sm hover:border-primary/45 hover:shadow-[0_0_24px_hsl(var(--gold)/0.07)] transition-all duration-300";
+
 export default function BlogIndexPage() {
   return (
     <div className="min-h-screen flex flex-col">
@@ -40,31 +44,40 @@ export default function BlogIndexPage() {
         path="/blog"
       />
       <Navbar />
-      <main className="flex-1 pt-24 pb-20 container mx-auto px-4 max-w-4xl">
-        <h1 className="text-4xl md:text-5xl font-bold mb-4">Blog & content clusters</h1>
-        <p className="text-xl text-muted-foreground mb-12">
-          Pillar URLs are live today. Long-form articles can be added as MDX or CMS posts on these slugs without changing routes.
-        </p>
-        <div className="space-y-10">
-          {CLUSTERS.map((c) => (
-            <section key={c.title}>
-              <h2 className="text-2xl font-bold mb-4">{c.title}</h2>
-              <div className="grid sm:grid-cols-1 gap-3">
-                {c.items.map((item) => (
-                  <Link key={item.to} to={item.to}>
-                    <Card className="border hover:border-primary/40 transition-colors">
-                      <CardHeader className="py-4">
-                        <CardTitle className="text-base font-semibold">{item.label}</CardTitle>
-                        <CardDescription className="text-xs opacity-70">{item.to}</CardDescription>
-                      </CardHeader>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          ))}
+      <MarketingPageHero
+        eyebrow="Content"
+        title={
+          <>
+            Blog &amp; <span className="text-primary">clusters</span>
+          </>
+        }
+        subtitle="Pillar URLs are live today. Long-form articles can ship on these slugs without changing routes—styled like the rest of the product."
+      />
+      <div className="marketing-content-band py-14 md:py-16">
+        <div className="container mx-auto px-4 max-w-4xl">
+          <div className="space-y-12">
+            {CLUSTERS.map((c) => (
+              <section key={c.title}>
+                <h2 className="text-sm font-mono font-bold text-primary uppercase tracking-wider mb-5">{c.title}</h2>
+                <div className="grid sm:grid-cols-1 gap-3">
+                  {c.items.map((item) => (
+                    <Link key={item.to} to={item.to} className="block group">
+                      <Card className={clusterCardClass}>
+                        <CardHeader className="py-4">
+                          <CardTitle className="text-base font-semibold group-hover:text-primary transition-colors">
+                            {item.label}
+                          </CardTitle>
+                          <CardDescription className="text-xs font-mono opacity-70">{item.to}</CardDescription>
+                        </CardHeader>
+                      </Card>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
         </div>
-      </main>
+      </div>
       <Footer />
     </div>
   );

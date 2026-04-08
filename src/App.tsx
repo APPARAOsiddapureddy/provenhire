@@ -14,7 +14,6 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Jobs from "./pages/Jobs";
 import About from "./pages/About";
-import ForEmployers from "./pages/ForEmployers";
 import SeoMarketingPage from "./pages/seo/SeoMarketingPage";
 import { FeaturesHubPage, ResourcesHubPage } from "./pages/seo/SeoHubPage";
 import BlogIndexPage from "./pages/seo/BlogIndexPage";
@@ -130,7 +129,7 @@ const App = () => (
               <Route path="/jobs/:seoSlug" element={<ProgrammaticJobSlugRoute />} />
               <Route path="/skills/:skillSlug" element={<ProgrammaticSkillSlugRoute />} />
               <Route path="/about" element={<About />} />
-              <Route path="/for-employers" element={<ForEmployers />} />
+              <Route path="/for-employers" element={<Navigate to="/for-recruiters" replace />} />
               {SEO_LANDING_PAGES.map((p) => (
                 <Route key={p.path} path={p.path} element={<SeoMarketingPage page={p} />} />
               ))}

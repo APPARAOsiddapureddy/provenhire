@@ -4,10 +4,8 @@ import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
-import {
-  PROGRAMMATIC_JOB_PAGES,
-  PROGRAMMATIC_SKILL_PAGES,
-} from "@/data/seoArchitecture";
+import { MarketingPageHero } from "@/components/MarketingPageHero";
+import { PROGRAMMATIC_JOB_PAGES, PROGRAMMATIC_SKILL_PAGES } from "@/data/seoArchitecture";
 import { ArrowRight } from "lucide-react";
 
 type Mode = "job" | "skill";
@@ -30,27 +28,27 @@ export default function ProgrammaticSeoPage({ mode, slug }: { mode: Mode; slug: 
       <div className="min-h-screen flex flex-col">
         <SEO title={def.title} description={def.description} path={`/jobs/${slug}`} />
         <Navbar />
-        <main className="flex-1 pt-24 pb-20 container mx-auto px-4 max-w-3xl">
-          <p className="font-mono text-xs font-bold text-primary uppercase tracking-wider mb-2">Programmatic / jobs</p>
-          <h1 className="text-4xl font-bold mb-6">{def.h1}</h1>
-          <p className="text-xl text-muted-foreground mb-8">{def.heroSub}</p>
-          <p className="text-muted-foreground mb-8 leading-relaxed">
-            Browse live openings and candidates in the main directory. This URL targets long-tail hiring intent (
-            <span className="text-foreground/90">{def.keywords}</span>) while keeping one consistent verification
-            standard across roles.
-          </p>
-          <div className="flex flex-wrap gap-4">
-            <Button asChild className="bg-gradient-hero">
-              <Link to="/jobs">
-                Open job directory
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/for-recruiters">For recruiters</Link>
-            </Button>
+        <MarketingPageHero eyebrow="Programmatic · Jobs" title={def.h1} subtitle={def.heroSub} />
+        <div className="marketing-content-band">
+          <div className="container mx-auto px-4 max-w-3xl py-12 md:py-14">
+            <p className="text-muted-foreground mb-8 leading-relaxed text-lg">
+              Browse live openings and candidates in the main directory. This URL targets long-tail hiring intent (
+              <span className="text-foreground/90">{def.keywords}</span>) while keeping one consistent verification
+              standard across roles.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <Button asChild className="btn-primary shadow-glow">
+                <Link to="/jobs">
+                  Open job directory
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+              <Button variant="outline" asChild className="border-primary/30 hover:bg-primary/10">
+                <Link to="/for-recruiters">Employers &amp; recruiters</Link>
+              </Button>
+            </div>
           </div>
-        </main>
+        </div>
         <Footer />
       </div>
     );
@@ -62,22 +60,22 @@ export default function ProgrammaticSeoPage({ mode, slug }: { mode: Mode; slug: 
     <div className="min-h-screen flex flex-col">
       <SEO title={def.title} description={def.description} path={`/skills/${slug}`} />
       <Navbar />
-      <main className="flex-1 pt-24 pb-20 container mx-auto px-4 max-w-3xl">
-        <p className="font-mono text-xs font-bold text-primary uppercase tracking-wider mb-2">Programmatic / skills</p>
-        <h1 className="text-4xl font-bold mb-6">{def.h1}</h1>
-        <p className="text-xl text-muted-foreground mb-8">{def.heroSub}</p>
-        <div className="flex flex-wrap gap-4">
-          <Button asChild className="bg-gradient-hero">
-            <Link to="/jobs">
-              Browse jobs
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/skill-verification">Skill verification</Link>
-          </Button>
+      <MarketingPageHero eyebrow="Programmatic · Skills" title={def.h1} subtitle={def.heroSub} />
+      <div className="marketing-content-band">
+        <div className="container mx-auto px-4 max-w-3xl py-12 md:py-14">
+          <div className="flex flex-wrap gap-4">
+            <Button asChild className="btn-primary shadow-glow">
+              <Link to="/jobs">
+                Browse jobs
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button variant="outline" asChild className="border-primary/30 hover:bg-primary/10">
+              <Link to="/skill-verification">Skill verification</Link>
+            </Button>
+          </div>
         </div>
-      </main>
+      </div>
       <Footer />
     </div>
   );

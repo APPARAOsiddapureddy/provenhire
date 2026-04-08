@@ -161,6 +161,49 @@
   pointer-events: none;
 }
 
+/* Inner marketing pages — same navy/gold language as homepage hero */
+.marketing-hero-strip {
+  position: relative;
+  overflow: hidden;
+  padding: 5rem 1rem 2.5rem;
+  background: linear-gradient(165deg, hsl(210 40% 16%) 0%, hsl(210 50% 12%) 45%, hsl(210 45% 14%) 100%);
+  color: hsl(var(--foreground));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+@media (min-width: 768px) {
+  .marketing-hero-strip {
+    padding: 5.5rem 1.5rem 3rem;
+  }
+}
+
+.marketing-hero-strip::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 56px 56px;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.marketing-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 55% 55% at 72% 32%, hsl(var(--gold) / 0.14) 0%, transparent 52%),
+    radial-gradient(ellipse 42% 48% at 18% 72%, hsl(158 69% 39% / 0.07) 0%, transparent 48%),
+    radial-gradient(ellipse 100% 100% at 50% 100%, transparent 0%, hsl(210 30% 14% / 0.35) 100%);
+  pointer-events: none;
+}
+
+.marketing-content-band {
+  flex: 1;
+  background: linear-gradient(180deg, hsl(var(--background)) 0%, hsl(210 38% 11%) 100%);
+}
+
 /* Softer grid */
 .hero-section::before {
   content: '';

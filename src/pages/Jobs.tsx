@@ -237,7 +237,7 @@ const Jobs = () => {
   // Recruiter: job listing is for job seekers; redirect to recruiter experience
   useEffect(() => {
     if (user && userRole === 'recruiter') {
-      navigate('/for-employers', { replace: true });
+      navigate("/dashboard/recruiter", { replace: true });
       return;
     }
   }, [user, userRole, navigate]);

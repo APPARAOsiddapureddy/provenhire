@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
+import { MarketingPageHero } from "@/components/MarketingPageHero";
 import { SEO_PAGE_BY_PATH, type SeoPageDef, type SeoBlock } from "@/data/seoArchitecture";
 import { ArrowRight } from "lucide-react";
 
@@ -30,7 +31,7 @@ function Blocks({ blocks }: { blocks: SeoBlock[] }) {
       {blocks.map((b, idx) => {
         if (b.type === "h2") {
           return (
-            <h2 key={idx} className="text-2xl font-bold text-foreground scroll-mt-28">
+            <h2 key={idx} className="text-2xl font-bold text-foreground scroll-mt-28 border-l-2 border-primary/40 pl-3">
               {b.text}
             </h2>
           );
@@ -43,7 +44,7 @@ function Blocks({ blocks }: { blocks: SeoBlock[] }) {
           );
         }
         return (
-          <ul key={idx} className="list-disc pl-6 space-y-2 text-lg">
+          <ul key={idx} className="list-disc pl-6 space-y-2 text-lg marker:text-primary">
             {b.items.map((item) => (
               <li key={item}>
                 <InlineEmphasis text={item} />
@@ -57,23 +58,22 @@ function Blocks({ blocks }: { blocks: SeoBlock[] }) {
 }
 
 export default function SeoMarketingPage({ page }: { page: SeoPageDef }) {
+  const related =
+    page.related?.filter((r) => r.to !== "/for-employers" && r.to !== page.path) ?? [];
+
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col">
       <SEO title={page.title} description={page.description} path={page.path} />
       <Navbar />
-      <main className="flex-1 pt-24 pb-20">
-        <article className="container mx-auto px-4 max-w-3xl">
-          <header className="mb-12">
-            <p className="font-mono text-xs font-bold text-primary tracking-[2px] uppercase mb-3">ProvenHire</p>
-            <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6 leading-tight">{page.h1}</h1>
-            <p className="text-xl text-muted-foreground leading-relaxed">{page.heroSub}</p>
-          </header>
+      <MarketingPageHero eyebrow="ProvenHire" title={page.h1} subtitle={page.heroSub} />
+      <div className="marketing-content-band">
+        <article className="container mx-auto px-4 max-w-3xl py-14 md:py-16">
           <Blocks blocks={page.blocks} />
-          {page.related && page.related.length > 0 && (
-            <nav className="mt-14 pt-10 border-t border-border" aria-label="Related pages">
+          {related.length > 0 && (
+            <nav className="mt-14 pt-10 border-t border-primary/15" aria-label="Related pages">
               <h2 className="text-sm font-mono font-bold text-primary uppercase tracking-wider mb-4">Related</h2>
               <ul className="flex flex-col sm:flex-row flex-wrap gap-3">
-                {page.related.map((r) => (
+                {related.map((r) => (
                   <li key={r.to}>
                     <Link to={r.to} className="text-primary hover:underline text-sm font-medium">
                       {r.label} →
@@ -84,18 +84,18 @@ export default function SeoMarketingPage({ page }: { page: SeoPageDef }) {
             </nav>
           )}
           <div className="mt-12 flex flex-col sm:flex-row gap-4">
-            <Button size="lg" asChild className="bg-gradient-hero shadow-glow">
+            <Button size="lg" asChild className="btn-primary shadow-glow">
               <Link to="/auth?mode=signup">
                 Get started
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Link>
             </Button>
-            <Button size="lg" variant="outline" asChild>
-              <Link to="/for-recruiters">For recruiters</Link>
+            <Button size="lg" variant="outline" asChild className="border-primary/30 hover:bg-primary/10">
+              <Link to="/for-recruiters">Employers &amp; recruiters →</Link>
             </Button>
           </div>
         </article>
-      </main>
+      </div>
       <Footer />
     </div>
   );

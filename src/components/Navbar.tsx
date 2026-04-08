@@ -107,12 +107,9 @@ const Navbar = () => {
             Hire talent
             <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="center" className="min-w-[11rem]">
+          <DropdownMenuContent align="center" className="min-w-[14rem]">
             <DropdownMenuItem asChild className={dropdownItemClass}>
-              <Link to="/for-employers">For employers</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild className={dropdownItemClass}>
-              <Link to="/for-recruiters">For recruiters</Link>
+              <Link to="/for-recruiters">Employers &amp; recruiters</Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -156,11 +153,8 @@ const Navbar = () => {
       {showHireMenu && (
         <div className="flex flex-col gap-2 border-t border-border pt-4">
           <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/70">Hire talent</p>
-          <Link to="/for-employers" onClick={() => setMenuOpen(false)} className="hover:text-foreground pl-1">
-            For employers
-          </Link>
           <Link to="/for-recruiters" onClick={() => setMenuOpen(false)} className="hover:text-foreground pl-1">
-            For recruiters
+            Employers &amp; recruiters
           </Link>
         </div>
       )}
