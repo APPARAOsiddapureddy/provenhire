@@ -1,11 +1,11 @@
 # PRD: Recruiter — Complete Product Requirements
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** April 2026  
-**Status:** Final  
+**Status:** Final (revenue rules aligned with implementation)  
 **Author:** ProvenHire Product Team  
 
-**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md) · **Test recruiter seed:** `server/prisma/seed-recruiter.ts`
+**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md) · **Revenue & limits:** [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) · **Test recruiter seed:** `server/prisma/seed-recruiter.ts`
 
 ---
 
@@ -27,14 +27,14 @@ This PRD defines the complete recruiter experience on ProvenHire — from sign-u
 - Job posting and management
 - Kanban application pipeline
 - Company profile public page
-- Recruiter analytics dashboard
-- Revenue model infrastructure (shortlist gate — freemium)
+- Recruiter analytics dashboard (Growth tier — when wired to `subscriptionTier`)
+- Revenue model: **subscription tiers**, profile-view caps, **Express Interest** contact credits, JD interview allowances (see §9)
 
 **Out of scope:**
 
-- In-app messaging (deferred until revenue model finalized)
+- In-app messaging (deferred)
 - Job certification level gating (excluded by product decision)
-- Recruiter pricing and payment integration (parked — to be decided with co-founders)
+- **Razorpay / automated billing** — manual UPI + admin plan update until volume threshold (see **PRD_REVENUE_AND_BUSINESS_RULES.md**)
 
 ---
 
@@ -71,7 +71,7 @@ After sign-up, before admin review, recruiter is prompted to complete company pr
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| Company logo | Yes | Image upload — stored in GCS |
+| Company logo | Yes | Image upload — **Cloudflare R2** (S3-compatible) when `CLOUDFLARE_R2_*` env is set; else local/uploads per `server/src/services/storage.service.ts` |
 | Company website | Yes | Must be valid URL |
 | Industry | Yes | Dropdown — Technology, Finance, Healthcare, E-commerce, EdTech, SaaS, Other |
 | Company LinkedIn URL | Yes | Verified company page |
@@ -124,12 +124,11 @@ Admin actions:
 - **Reject** → `verificationStatus = "rejected"`, recruiter gets email with reason
 - **Request more info** → Admin adds note, recruiter gets email asking for additional details
 
-API:
+API (align with `server/src/routes/admin.ts`):
 
 ```
-POST /api/admin/recruiters/:id/approve
-POST /api/admin/recruiters/:id/reject   { reason: string }
-POST /api/admin/recruiters/:id/request-info  { note: string }
+PATCH /api/admin/recruiters/:id/verification
+  Body: { "status": "verified" | "rejected", "reason"?: string }
 ```
 
 ### 3.5 After Approval
@@ -500,7 +499,7 @@ Each card in the pipeline shows:
 - Recruiter drags card from one column to another
 - On drop: stage updates in DB via `PATCH /api/jobs/applications/:id/status`
 - Stage change logged with timestamp
-- If moved to Shortlisted: counts toward freemium shortlist quota (see §9)
+- If moved to Shortlisted: optional analytics only; **monetization** is via profile views + Express Interest (see §9)
 
 ### 7.4 Filter by Job
 
@@ -575,68 +574,51 @@ GET /api/companies/:companyId
 
 ---
 
-## 9. Revenue Model Infrastructure (Freemium — Shortlist Gate)
+## 9. Revenue Model — Subscription Tiers (PRD 4)
 
-**Note:** Final pricing numbers to be decided with co-founders. This section defines the technical infrastructure for the freemium model.
+**Canonical tables and business rules:** **`docs/PRD_REVENUE_AND_BUSINESS_RULES.md`**. Below: recruiter-product summary + **implemented** API hooks.
 
-### 9.1 Free Tier Limits
+### 9.1 Tier limits (product)
 
-| Feature | Free Limit |
-|---------|-----------|
-| Active job posts | 2 |
-| Candidate search | Unlimited browsing |
-| Candidate cards viewed | Unlimited |
-| Full profile views | 10 per month |
-| Candidates shortlisted (moved to Shortlisted column) | 5 per month |
-| Application pipeline | Basic (Applied + Reviewing only) |
-| Analytics | None |
+| Tier | Price (INR/mo) | Active jobs | Full profile views / month | Express Interest (contacts) / month | JD AI interviews / month | Analytics |
+|------|------------------|------------|----------------------------|--------------------------------------|----------------------------|-----------|
+| **Free** | 0 | 2 | 5 | **0** | 0 | No |
+| **Starter** | 2,999 | 5 | 50 | 10 | 5 | No |
+| **Growth** | 7,999 | ∞ | ∞ | 30 | 10 | Yes |
 
-### 9.2 Paid Tier (Unlock)
+- **Active jobs:** published jobs only (drafts/closed excluded from cap semantics in product).
+- **Profile view:** dedupe per recruiter–candidate pair; opening **full ProvenHire Resume** consumes **one** view credit for that pair (grid browse does not).
+- **Contacts:** each `POST /api/notifications/contact-candidate` consumes **one** credit; **402** when tier limit is 0 or exhausted.
+- **Monthly reset:** usage counters roll forward on **UTC calendar month** start (`server/src/services/recruiterUsagePeriod.service.ts`).
+- **Paywall UX:** in-context upgrade modal when a limit is hit; **sidebar CTA** when any meter ≥ ~80% (product direction).
 
-| Feature | Paid |
-|---------|------|
-| Active job posts | Unlimited |
-| Full profile views | Unlimited |
-| Candidates shortlisted | Unlimited |
-| Application pipeline | Full Kanban (all 5 columns) |
-| AI interview breakdown visible | Yes |
-| Analytics dashboard | Yes |
-| Priority candidate matching | Yes |
+### 9.2 Per-use charges (recruiter)
 
-### 9.3 Paywall Trigger Points
+| Item | INR | When |
+|------|-----|------|
+| JD AI interview (beyond allowance) | 799 | When billing path exists |
+| Human expert interview | 2,500 | Per session |
 
-When recruiter hits a free tier limit:
+### 9.3 Progressive information reveal
 
-- **Shortlist limit reached:** Banner shown: *"You've shortlisted 5 candidates this month. Upgrade to continue shortlisting unlimited verified talent."*
-- **Full profile limit reached:** On click of "View Full Profile" after 10 views: modal shown with upgrade prompt
-- **Pipeline column locked:** Shortlisted/Interview/Offer columns show lock icon on free tier
+Aligns with **PRD_REVENUE_AND_BUSINESS_RULES.md** §5: grid → full resume (no PII) → post-acceptance identity → phone last.
 
-### 9.4 DB Schema Additions
+### 9.4 `RecruiterUsage` (schema)
 
-```prisma
-model RecruiterUsage {
-  id                    String   @id @default(uuid())
-  recruiterId           String   @unique
-  planType              String   @default("free")  // free | paid
-  shortlistCountMonth   Int      @default(0)
-  profileViewCountMonth Int      @default(0)
-  activeJobCount        Int      @default(0)
-  periodStart           DateTime @default(now())
-  periodEnd             DateTime
-  updatedAt             DateTime @updatedAt
-}
-```
+See `server/prisma/schema.prisma` — includes `subscriptionTier` (`free` | `starter` | `growth`), legacy `planType`, `profileViewCountMonth`, **`contactCountMonth`**, **`jdInterviewCountMonth`**, `shortlistCountMonth`, `activeJobCount`, `periodStart`.
 
-### 9.5 Usage Tracking API
+### 9.5 Usage & admin APIs (implemented)
 
 ```
-GET /api/recruiter/usage
-  Returns current month usage counts + limits
+GET  /api/users/me/recruiter-subscription
+  Recruiter auth — returns tier, limits, MTD used counters, periodStart.
 
-POST /api/recruiter/shortlist/:candidateId
-  Increments shortlistCountMonth
-  Returns { allowed: boolean, remaining: number }
+PATCH /api/admin/recruiters/:id/plan
+  Body: { "subscriptionTier": "free" | "starter" | "growth" }
+  :id = RecruiterProfile.id — after manual payment verification.
 ```
+
+**Note:** Routes like `GET /api/recruiter/usage` or `POST /api/recruiter/shortlist/:candidateId` in older drafts are **not** the canonical pattern; prefer **`/api/users/me/recruiter-subscription`** + existing Kanban/application APIs. **Shortlist** quota as a *primary* monetization gate has been **superseded** by **profile views + contacts** per PRD 4 (shortlist counts may still exist for analytics).
 
 ---
 
@@ -644,7 +626,7 @@ POST /api/recruiter/shortlist/:candidateId
 
 Route: `/dashboard/recruiter/analytics`
 
-**Available on paid tier only.**
+**Product intent:** **Growth** subscription only (`subscriptionTier === "growth"`). Free/Starter: blurred preview + upgrade prompt (see PRD 4).
 
 ### 10.1 Overview Stats
 
@@ -776,7 +758,8 @@ GET  /api/users/candidates/:profileId
 
 ```
 POST /api/notifications/contact-candidate
-  { candidateId, jobId?, message? }
+  { candidateUserId: string, recruiterMessage?: string }
+  Recruiter role; enforces contact monthly limit (402 CONTACT_LIMIT when exhausted or free tier).
 
 GET  /api/recruiter/interests
   Returns interest list with status
@@ -807,11 +790,11 @@ POST  /api/jobs/applications/:id/note
   { note: string }
 ```
 
-### Usage / Freemium
+### Subscription usage
 
 ```
-GET  /api/recruiter/usage
-POST /api/recruiter/shortlist/:candidateId
+GET  /api/users/me/recruiter-subscription
+  Tier, limits, profileViewCountMonth, contactCountMonth, jdInterviewCountMonth, periodStart.
 ```
 
 ### Analytics
@@ -826,11 +809,9 @@ GET  /api/recruiter/analytics/jobs
 ### Admin (Recruiter Management)
 
 ```
-GET  /api/admin/recruiters                   All recruiters with status
-GET  /api/admin/recruiters/pending           Pending approval queue
-POST /api/admin/recruiters/:id/approve
-POST  /api/admin/recruiters/:id/reject        { reason: string }
-POST /api/admin/recruiters/:id/request-info  { note: string }
+GET   /api/admin/recruiters                        All recruiters with status
+PATCH /api/admin/recruiters/:id/verification       { status: "verified"|"rejected", reason? }
+PATCH /api/admin/recruiters/:id/plan               { subscriptionTier: "free"|"starter"|"growth" }
 ```
 
 ---
@@ -857,21 +838,23 @@ model RecruiterProfile {
 }
 ```
 
-### RecruiterUsage (new)
+### RecruiterUsage
 
 ```prisma
 model RecruiterUsage {
   id                    String   @id @default(uuid())
   recruiterId           String   @unique
-  planType              String   @default("free")
+  planType              String   @default("free")   // legacy: free | paid
+  subscriptionTier      String   @default("free")   // free | starter | growth
   shortlistCountMonth   Int      @default(0)
   profileViewCountMonth Int      @default(0)
+  contactCountMonth     Int      @default(0)
+  jdInterviewCountMonth Int      @default(0)
   activeJobCount        Int      @default(0)
   periodStart           DateTime @default(now())
-  periodEnd             DateTime
+  periodEnd             DateTime?
   updatedAt             DateTime @updatedAt
-
-  recruiter RecruiterProfile @relation(fields: [recruiterId], references: [id])
+  recruiter RecruiterProfile @relation(...)
 }
 ```
 
@@ -909,7 +892,7 @@ model JobApplication {
 - Stage change: optimistic UI update + API call in background
 - On API failure: revert card position + toast error
 - Empty column state: illustrated empty state with helpful text
-- Locked columns (free tier): greyed out with lock icon + upgrade prompt
+- **Legacy / optional:** Kanban column locks for free tier if product still uses them; **PRD 4** primarily gates **profile views** and **contacts**.
 
 ### Full Profile / Resume Design Rules
 
@@ -940,7 +923,7 @@ Hi [Name],
 
 Your ProvenHire recruiter account for [Company Name] has been approved.
 
-You now have access to our pool of verified candidates — each one assessed through our 5-stage verification pipeline covering aptitude, live coding, and AI-powered expert interviews.
+You now have access to our pool of verified candidates — each one assessed through our verification pipeline (cognitive, live coding, AI interviews, and optional human expert — see `PRD.md` §3).
 
 Get started: provenhire.in/dashboard/recruiter
 
@@ -978,8 +961,8 @@ The ProvenHire Team
 9. Job post form captures all required fields including required skills and experience level
 10. Kanban board shows all 5 columns — drag and drop updates stage in DB
 11. Stage change logged in `stageHistory` with timestamp
-12. Free tier: shortlist limit enforced at 5/month — upgrade prompt shown on limit hit
-13. Paid tier: all 5 Kanban columns accessible — analytics dashboard visible
+12. Free tier: **Express Interest** blocked (0 contacts) or profile view cap enforced — **402** + upgrade prompt
+13. **Growth** tier: full analytics dashboard; Starter/Free see preview gating per PRD 4
 14. Company profile public page shows logo, description, active jobs, verified badge
 15. Recruiter analytics shows time-to-shortlist, candidate quality distribution, application funnel
 16. All candidate data APIs require `requireAuth` + recruiter role check
@@ -994,7 +977,7 @@ The ProvenHire Team
 | Only verified recruiters access candidate search | `verificationStatus === "verified"` check on all candidate APIs |
 | Candidate PII (phone, email) hidden until interest accepted | Filtered at API response level |
 | Recruiter can only see applications for their own jobs | `postedById === recruiter.id` filter on all application queries |
-| Analytics only for paid tier | `planType === "paid"` check on analytics routes |
+| Analytics for Growth tier | `subscriptionTier === "growth"` (or equivalent) on analytics routes |
 | Admin recruiter management routes | `requireAdmin` middleware |
 | Candidate full profile view counted toward monthly limit | Middleware increments `profileViewCountMonth` |
 
@@ -1005,8 +988,8 @@ The ProvenHire Team
 | Area | Status |
 |------|--------|
 | PRD document | `docs/PRD_RECRUITER.md` |
-| Prisma | `RecruiterUsage`, extra `RecruiterProfile` / `JobApplication` fields — migration `server/prisma/migrations/20260405120000_recruiter_prd_usage_kanban` |
-| REST & UI in §12 | Partially implemented — align routes and screens with this document |
+| Prisma | `RecruiterUsage` (+ `subscriptionTier`, `contactCountMonth`, `jdInterviewCountMonth`); migrations through `20260411160000_revenue_prd4_usage_retakes` |
+| REST & UI in §12 | **Usage:** `GET /api/users/me/recruiter-subscription`; **contact:** `POST /api/notifications/contact-candidate`; align analytics gating with **Growth** tier |
 
-*PRD v1.0 — April 2026 | ProvenHire Product Team*  
-*Revenue model pricing to be finalized with co-founders. Technical infrastructure specified in §9 is implementation-ready.*
+*PRD v1.1 — April 2026 | ProvenHire Product Team*  
+*Revenue numbers and tier rules: **PRD_REVENUE_AND_BUSINESS_RULES.md**.*

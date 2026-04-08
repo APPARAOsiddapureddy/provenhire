@@ -20,8 +20,13 @@
 
 `DSAContext` — `server/src/types/dsaContext.ts` (for AI Skills context injection).
 
+## Server enforcement (April 2026)
+
+- **Paid retakes + cooldowns:** `revenue.ts` constants; `gatePaidVerificationStageInProgress` (AI Skills / System Design on `POST /api/verification/stages/update`); `gateExpertInterviewStart` on interview create; CS Fundamentals **24h** / DSA **48h** on submit routes; ledger via `CandidateRetakeLedger` + `grantRetakeCredits`.
+- **Recruiter limits:** `RecruiterUsage` (`subscriptionTier`, `profileViewCountMonth`, `contactCountMonth`, `jdInterviewCountMonth`), monthly roll via `recruiterUsagePeriod.service.ts`, contact cap on `POST /api/notifications/contact-candidate`.
+
 ## Not fully shipped
 
-- Paid retakes, cooldown tables, skill validity windows (§8–9) as automated enforcement
-- Full AI Skills + System Design sessions, JD interview (`jd_interview`), DSA context injection into prompts
-- Email / in-app 90-day profile refresh
+- Full AI Skills + System Design product sessions (placeholder completion in non-prod), JD interview consumer flow + `jdInterviewCountMonth` decrement
+- Automated Razorpay; skill validity / expiry badges as full product polish; email / in-app 90-day refresh campaigns
+- DSA context injection into AI Skills prompts (type `DSAContext` exists)

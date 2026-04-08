@@ -4,9 +4,11 @@
 
 Skill verifications (Aptitude, Live Coding, AI Interview) expire after a fixed duration. Candidates must re-attempt after expiry to maintain verified status.
 
-| Skill | Display Name | Validity |
+**Product target (PRD 4 per-stage windows):** see [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) (candidate revenue — skill / verification validity) — may differ from the coarse keys below until extended.
+
+| Skill | Display Name | Validity (`server/src/config/skillValidity.ts`) |
 |-------|--------------|----------|
-| APTITUDE | Aptitude Verification | 180 days |
+| APTITUDE | Cognitive Assessment | 180 days |
 | LIVE_CODING | Live Coding Verification | 30 days |
 | INTERVIEW | AI Interview Verification | 365 days |
 

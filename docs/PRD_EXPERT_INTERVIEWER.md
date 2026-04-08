@@ -6,7 +6,7 @@
 
 ## Summary
 
-Expert interviewers conduct Stage 5 human interviews, set availability, view candidate context, submit weighted evaluations (≥70 = pass / L3), and accrue per-session earnings. Full narrative, UI wireframes, and notification copy live in the product PRD; this file tracks **what the codebase implements**.
+Expert interviewers conduct **human** expert interviews (verification stage `human_expert_interview` in legacy chain; eligibility and certification may vary when **`VERIFICATION_PIPELINE_V2`** is on — see `PRD_VERIFICATION_PIPELINE_V2.md`). They set availability, view candidate context, submit weighted evaluations (≥70 = pass / L3), and accrue per-session earnings. **Recruiter-paid human sessions** (₹2,500) are a separate product lane from candidate verification cost — see **`PRD_REVENUE_AND_BUSINESS_RULES.md`**. This file tracks **what the codebase implements** for the interviewer role.
 
 ## Implemented in this repo
 

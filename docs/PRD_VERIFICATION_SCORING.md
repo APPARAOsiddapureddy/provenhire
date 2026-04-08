@@ -1,10 +1,12 @@
 # PRD: Verification Scoring — Aptitude, DSA & AI Interview
 
-**Version:** 2.0  
+**Version:** 2.1  
 **Last updated:** April 2026  
 **Purpose:** Define how marks are calculated, stored, and shown for the three technical verification stages. This revision matches the **current** frontend and backend (post–aptitude UI and API alignment).
 
-**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md)
+**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md) · **Pipeline v2:** [PRD_VERIFICATION_PIPELINE_V2.md](PRD_VERIFICATION_PIPELINE_V2.md)
+
+**Note:** When **`cs_fundamentals`** is the active cognitive stage (pipeline v2 fresher), scoring, storage, and APIs remain aligned with the **aptitude** pipeline (`POST /api/verification/aptitude`, `AptitudeTestResult`, percentage on the cognitive stage row) — only the **verification `stageName`** differs.
 
 ---
 

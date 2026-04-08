@@ -10,7 +10,7 @@
 **STT (production default in repo):** OpenAI **Whisper** via segmented browser `MediaRecorder` + `POST /api/interview/transcribe` — see **`src/hooks/useWhisperSession.ts`**. Deepgram **nova-3** (browser WebSocket) remains the long-term target in **§12.1**; see **§16** for the alternate Deepgram hook and drift.  
 **Weight in final technical score:** 40% (`server/src/services/verificationScoring.service.ts`)
 
-**Team index:** [docs/README.md](README.md) · **Main PRD (Stage 4 summary):** [PRD.md](PRD.md) §3.4
+**Team index:** [docs/README.md](README.md) · **Main PRD (Stage 4 summary):** [PRD.md](PRD.md) §3.4 · **Retakes & cooldowns:** [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md)
 
 > **Implementation:** This file is the **product specification**. **`docs/PRD.md` §3.4** summarizes verification flow; **§16 below** maps this spec to **what is implemented in this Git repository** vs still open.
 

@@ -12,8 +12,11 @@ Use this page as the **single entry point** when onboarding engineers, product, 
 |----------|----------------|
 | [**PRD.md**](PRD.md) | **Main PRD** — roles, verification pipeline (technical + non‑technical), AI interview summary, routes, **test credentials**, NFRs. Start here. |
 | [**PRD_PRODUCT_REQUIREMENTS.md**](PRD_PRODUCT_REQUIREMENTS.md) | Ideology, certification levels (L0–L3), progressive access, user journeys. |
-| [**PRD_AI_INTERVIEW_ROUND.md**](PRD_AI_INTERVIEW_ROUND.md) | AI Expert Interview (Stage 4) — full spec, voice, proctoring, APIs, gaps vs code. |
+| [**PRD_AI_INTERVIEW_MASTER.md**](PRD_AI_INTERVIEW_MASTER.md) | AI Expert Interview — concise master spec (placement, stack, APIs); links to the long PRD. |
+| [**PRD_AI_INTERVIEW_ROUND.md**](PRD_AI_INTERVIEW_ROUND.md) | AI Expert Interview — full spec, voice, proctoring, APIs, gaps vs code. |
 | [**PRD_RECRUITER.md**](PRD_RECRUITER.md) | Recruiter flows: verification, jobs, Kanban, search, usage — API- and UI-level detail. |
+| [**PRD_REVENUE_AND_BUSINESS_RULES.md**](PRD_REVENUE_AND_BUSINESS_RULES.md) | **PRD 4** — candidate retakes, recruiter tiers, limits, progressive reveal, admin/manual payment hooks. |
+| [**PRD_VERIFICATION_PIPELINE_V2.md**](PRD_VERIFICATION_PIPELINE_V2.md) | Technical verification track redesign (fresher vs mid/senior stages, env flag). |
 | [**PRD_EXPERT_INTERVIEWER.md**](PRD_EXPERT_INTERVIEWER.md) | Expert interviewer (Stage 5): profile gate, slots, evaluations, earnings, cron. |
 | [**PRD_VERIFICATION_SCORING.md**](PRD_VERIFICATION_SCORING.md) | Scorecards, floors, shortlist math (Stages 2–4 blend). |
 | [**PRD_DSA_QUESTIONS_STORAGE.md**](PRD_DSA_QUESTIONS_STORAGE.md) | DSA question bank and storage model. |

@@ -22,9 +22,11 @@ This document is the **efficient, end-to-end** description of what the AI interv
 
 | Stage | Name | Notes |
 |-------|------|--------|
-| 1–3 | Profile, Aptitude, DSA | Prerequisites |
-| **4** | **AI Expert Interview** | This PRD |
-| 5 | Human expert interview | Separate PRD; unlocked by scorecard |
+| 1–3 | Profile, Aptitude/CS fundamentals, DSA | Prerequisites (exact `stageName` depends on `VERIFICATION_PIPELINE_V2`; see `PRD_VERIFICATION_PIPELINE_V2.md`) |
+| **Late pipeline** | **AI Expert Interview** | Verification stage `expert_interview`; interview type **`ai_expert`**. *Legacy copy* calls this “Stage 4”; in **pipeline v2** it follows **AI Skills** (all tiers) and **System Design** (mid/senior). |
+| Human step | Human expert interview | Separate PRD; `human_expert_interview` where enabled |
+
+**Retakes / cooldowns** for `expert_interview` sessions: **`docs/PRD_REVENUE_AND_BUSINESS_RULES.md`** + `gateExpertInterviewStart` in `interview.ts`.
 
 **Technical scorecard blend:** `aptitude × 0.25 + DSA × 0.35 + AI_interview × 0.40` (each arm 0–100).  
 **Typical unlock to Stage 5:** combined rules + floors (e.g. aptitude ≥ 55, DSA ≥ 60, **AI interview ≥ 60**)—see `buildTechnicalScorecard()` and `PRD_VERIFICATION_SCORING.md`.

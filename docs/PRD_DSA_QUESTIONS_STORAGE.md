@@ -4,7 +4,9 @@
 **Last updated:** 2026-04-02  
 **Author:** ProvenHire Engineering  
 
-**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md)
+**Team index:** [docs/README.md](README.md) · **Main PRD:** [PRD.md](PRD.md) · **Pipeline v2 DSA tiers:** [PRD_VERIFICATION_PIPELINE_V2.md](PRD_VERIFICATION_PIPELINE_V2.md)
+
+**Product rule:** **48-hour cooldown** between official DSA round submissions (`POST /api/verification/dsa`) — see `PRD_REVENUE_AND_BUSINESS_RULES.md` and `server/src/constants/revenue.ts`.
 
 ---
 

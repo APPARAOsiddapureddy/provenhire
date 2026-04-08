@@ -1,10 +1,10 @@
 # ProvenHire Product Requirement Document
 
-**Version 1.1**  
+**Version 1.2**  
 **Last updated:** April 2026  
 **Document type:** Product Requirements — Ideology & User Journeys
 
-**Team index:** [docs/README.md](README.md) · **Consolidated product PRD (routes, AI interview, credentials):** [PRD.md](PRD.md)
+**Team index:** [docs/README.md](README.md) · **Consolidated product PRD (routes, AI interview, credentials):** [PRD.md](PRD.md) · **Verification track v2:** [PRD_VERIFICATION_PIPELINE_V2.md](PRD_VERIFICATION_PIPELINE_V2.md) · **Revenue:** [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md)
 
 ---
 
@@ -81,7 +81,7 @@ ProvenHire uses a **three-level certification hierarchy**. Candidates advance th
 
 **Requirements:**
 - Profile Setup
-- Aptitude Test
+- Cognitive assessment — **`aptitude_test`** (legacy) or **`cs_fundamentals`** (pipeline v2 fresher); same underlying assessment semantics when v2 is enabled (see `PRD_VERIFICATION_PIPELINE_V2.md`).
 
 - **Status:** Cognitive and reasoning ability verified.
 - **Job visibility:** Can **see and apply to entry-level and junior roles**. Limited job pool—basic opportunities.
@@ -92,7 +92,7 @@ ProvenHire uses a **three-level certification hierarchy**. Candidates advance th
 
 **Requirements (in addition to Level 1):**
 - DSA Round
-- AI Expert Interview
+- AI interviews pipeline — **AI Skills** (`ai_skills_interview`) and, for mid/senior, **System Design** (`system_design_interview`) when v2 is on; **AI Expert** session (`expert_interview` / `ai_expert`) per certification logic in codebase (`computeProvenhireCertification` / `PRD_VERIFICATION_PIPELINE_V2.md`).
 
 - **Status:** Coding ability and communication validated.
 - **Job visibility:** Can **see mid-level and standard roles**. Broader job pool—most roles on the platform.

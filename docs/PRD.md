@@ -1,8 +1,9 @@
 # ProvenHire — Product Requirements Document (PRD)
 
-**Version:** 6.3  
+**Version:** 6.4  
 **Last Updated:** April 2026  
-**Status:** Current
+**Status:** Current  
+**Revenue & limits:** [PRD_REVENUE_AND_BUSINESS_RULES.md](PRD_REVENUE_AND_BUSINESS_RULES.md) · **Verification v2 track:** [PRD_VERIFICATION_PIPELINE_V2.md](PRD_VERIFICATION_PIPELINE_V2.md)
 
 ---
 
@@ -15,7 +16,7 @@ ProvenHire is India's first skill-certified hiring platform that connects verifi
 | Stakeholder | Value |
 |-------------|-------|
 | **Job Seekers** | Get verified through aptitude, DSA, AI interview, and human expert interview. Carry a Skill Passport. Stand out to employers. |
-| **Recruiters** | Access pre-verified candidates, post jobs for free, AI-powered matching, reduce time-to-hire by 60%. |
+| **Recruiters** | Access pre-verified candidates under **tiered subscriptions** (free / starter / growth: jobs, full-profile views, contacts, JD credits); ProvenHire Resume + discovery; reduce time-to-hire by starting with verified talent. |
 | **Expert Interviewers** | Conduct Stage 5 human interviews, flexible schedule, earn per interview, shape future talent. |
 
 ---
@@ -33,7 +34,19 @@ ProvenHire is India's first skill-certified hiring platform that connects verifi
 
 ## 3. Verification Flow
 
-### 3.1 Technical Track (5 Stages)
+### 3.0 Pipeline versions (`VERIFICATION_PIPELINE_V2`)
+
+- **Legacy (default when env unset):** `profile_setup` → `aptitude_test` → `dsa_round` → `expert_interview` (AI) → `human_expert_interview` (Stage 5 human).
+- **Pipeline v2 (when `VERIFICATION_PIPELINE_V2=true`):** Stage list depends on **experience tier** — see `server/src/constants/verificationPipeline.ts` and **`docs/PRD_VERIFICATION_PIPELINE_V2.md`**.
+  - **Fresher:** `profile_setup` → **`cs_fundamentals`** (cognitive — same submit path as legacy aptitude) → `dsa_round` → **`ai_skills_interview`** → `expert_interview` (AI Expert).
+  - **Mid / Senior:** `profile_setup` → `dsa_round` → **`ai_skills_interview`** → **`system_design_interview`** → `expert_interview` (AI Expert).
+- **Human expert (Stage 5)** remains a separate booking flow where enabled; naming in UI may still say “Stage 5” for the human step.
+
+**Candidate monetization (retakes / cooldowns)** is defined in **`docs/PRD_REVENUE_AND_BUSINESS_RULES.md`** and enforced server-side for paid stages and CS/DSA timing.
+
+### 3.1 Technical Track — Legacy numbering (5 Stages)
+
+The table below describes the **classic** five-step narrative still used in much of the UX copy; map stage **names** to your active pipeline via §3.0.
 
 | Stage | Name | Description | Pass Criteria |
 |-------|------|-------------|---------------|
@@ -154,6 +167,8 @@ Detailed task checklist and data model notes remain in **`docs/PRD_AI_INTERVIEW_
 ### 4.1 Careers Page (`/careers/interviewer`)
 
 **Purpose:** Recruitment of interviewers who will conduct Stage 5 human expert interviews.
+
+**Compensation & economics (founding vs standard, recruiter add-on pricing):** **`docs/PRD_REVENUE_AND_BUSINESS_RULES.md`** §4. Marketing copy should match locked rates (e.g. founding **₹750** / session).
 
 **Audience:** Professionals who want to **conduct** interviews — not job seekers or employers.
 
@@ -277,10 +292,11 @@ HumanInterviewSession (userId, interviewerId, slotId, scheduledAt, meetingLink,
 ### 6.3 Verification
 
 ```
-VerificationStage (userId, stageName, status, score)
-  stageName: profile_setup | aptitude_test | dsa_round | expert_interview | human_expert_interview
-  status: locked | in_progress | completed | failed
-  score: For aptitude_test after submit, **0–100 (percent)**; for dsa_round and expert_interview, **0–100**; raw aptitude marks live on AptitudeTestResult
+VerificationStage ([userId, stageName], status, score)
+  stageName (technical, includes v2): profile_setup | aptitude_test | cs_fundamentals | dsa_round |
+    ai_skills_interview | system_design_interview | expert_interview | human_expert_interview
+  status: locked | in_progress | completed | failed | pending_review (where used)
+  score: 0–100 on stage rows; raw aptitude marks on AptitudeTestResult; see PRD_VERIFICATION_SCORING.md
 
 JobSeekerProfile (verificationStatus, roleType)
   verificationStatus: pending | verified | expert_verified
@@ -300,12 +316,15 @@ JobSeekerProfile (verificationStatus, roleType)
 
 ### 7.1 Job Seeker (Technical Track)
 
+**Legacy path:**
+
 ```
-Sign Up → Profile Setup → Aptitude Test → DSA Round → AI Interview
-  → Shortlist check (≥65%) → Human Expert Interview (book slot)
-  → Attend interview (join meeting link) → Get expert_verified
+Sign Up → Profile Setup → Aptitude Test → DSA Round → AI Expert Interview (stage expert_interview)
+  → Scorecard / shortlist check → Human Expert Interview (book slot) → expert_verified
   → Browse jobs, apply
 ```
+
+**Pipeline v2 (typical):** same idea, but cognitive step may be `cs_fundamentals`; mid/senior add **AI Skills** and **System Design** interviews before **AI Expert**; exact order from `verificationStagesNeededTechnical()` / `GET /api/verification/stages`.
 
 ### 7.2 Expert Interviewer
 
@@ -405,9 +424,9 @@ From repo: `cd server`, then `npx prisma migrate deploy` if needed, then the `np
 
 - Email delivery for interviewer invite (currently link copy-paste)
 - In-app video call integration (currently external Zoom/Meet link)
-- Interviewer compensation tracking
+- Automated payouts and in-app payment (Razorpay) — see **PRD_REVENUE_AND_BUSINESS_RULES.md** § Parked
 - Non-technical track Stage 5 (human expert) if needed
 
 ---
 
-*PRD v6.3 — April 2026*
+*PRD v6.4 — April 2026*
