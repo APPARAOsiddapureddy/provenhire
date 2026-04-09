@@ -7,6 +7,7 @@ import { prisma } from "../../config/prisma.js";
 import type { DSAContext } from "../../types/dsaContext.js";
 import type { ExperienceTier } from "../../utils/experienceTier.js";
 import { experienceTierFromYears } from "../../utils/experienceTier.js";
+import { detectDataSubtrack, type DataSubtrack } from "../../constants/verificationPipeline.js";
 import { runGeminiJson } from "../ai.service.js";
 import { syncJobSeekerVerificationStatus } from "../certification.service.js";
 import { skillVerifiedThresholdForTier, syncProvenhireResumeFromSources } from "../provenhireResume.service.js";
@@ -150,6 +151,8 @@ export type AISkillsPlanV1 = {
   v: typeof PLAN_VERSION;
   phase: "dsa" | "skill" | "complete";
   track: ExperienceTier;
+  candidateTrack: "software" | "data";
+  dataSubtrack?: DataSubtrack;
   jobRole: string;
   experienceLevel: "junior" | "mid" | "senior";
   dsaProblems: DSAContext["problems"];
@@ -192,6 +195,9 @@ function pickProblem(plan: AISkillsPlanV1, stepIdx: number): DSAContext["problem
 async function genDsaQuestion(plan: AISkillsPlanV1): Promise<{ question: string; acknowledgement: string | null }> {
   const p = pickProblem(plan, plan.dsaIndex);
   const depth = plan.track === "fresher" ? "fresher" : plan.track === "mid" ? "mid-level" : "senior";
+  if (plan.candidateTrack === "data") {
+    return genDataRoundQuestion(plan, p);
+  }
   const system = `You are a concise technical interviewer (~${depth}). Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty","question":"one spoken interview question, no markdown"}`;
   const user = p
     ? `Problem title: ${p.title}
@@ -212,10 +218,186 @@ Ask question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS} for DSA walkthrough �
   return { acknowledgement: "Thanks.", question: fallbackQ };
 }
 
+function looksLikeSqlTask(p: DSAContext["problems"][0]): boolean {
+  const desc = (p.description ?? "").toLowerCase();
+  const code = (p.candidateCode ?? "").toLowerCase();
+  if (p.language?.toLowerCase() === "sql") return true;
+  if (desc.includes("sql")) return true;
+  if (code.includes("select ") || code.includes(" from ") || code.includes(" join ")) return true;
+  return false;
+}
+
+async function genDataRoundQuestion(
+  plan: AISkillsPlanV1,
+  p: DSAContext["problems"][0] | null,
+): Promise<{ question: string; acknowledgement: string | null }> {
+  const depth = plan.track === "fresher" ? "fresher" : plan.track === "mid" ? "mid-level" : "senior";
+  const sub = plan.dataSubtrack ?? "engineering";
+  const idx = plan.dsaIndex;
+
+  const system = `You are a concise data interviewer (~${depth}) for a ${sub} candidate. Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty","question":"one spoken interview question, no markdown"}`;
+
+  const user = p
+    ? `Task title: ${p.title}
+Task difficulty: ${p.difficulty}
+Candidate passed ${p.testCasesPassed}/${p.testCasesTotal} tests. Fully solved: ${p.isFullySolved}. Partial: ${p.isPartiallySolved}.
+Candidate solution excerpt (truncated): ${p.candidateCode.slice(0, 2000)}
+
+Ask question ${idx + 1} of ${DSA_PART_QUESTIONS} for a Data Round walkthrough.
+- If the task is SQL, ask SQL-specific reasoning/optimization/edge-case questions.
+- If the task is Python, ask data-processing/performance/robustness/testing questions.
+- If partial/failed, focus on debugging and why it failed (not DSA algorithms).
+Ask one question only.`
+    : `No saved code. Ask one practical data question appropriate for a ${sub} candidate at ~${depth} (question ${idx + 1} of ${DSA_PART_QUESTIONS}).`;
+
+  const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user);
+  if (parsed?.question?.trim()) {
+    return { question: parsed.question.trim(), acknowledgement: parsed.acknowledgement?.trim() || null };
+  }
+
+  if (!p) {
+    return { acknowledgement: "Thanks.", question: "Walk me through a recent analysis or pipeline you worked on — what was the input data and how did you validate correctness?" };
+  }
+
+  const partialTemplates = [
+    `Your solution passed ${p.testCasesPassed} of ${p.testCasesTotal} test cases. Walk me through your approach and where you think it failed.`,
+    "Where do you think your solution broke down — logic, edge cases, or assumptions about the data?",
+    "If you had 10 more minutes, what would you change first to get the remaining tests passing?",
+    "How would you debug this quickly — what would you print/log or test first?",
+    "What was the trickiest part of this task, and what would you do differently next time?",
+  ];
+
+  if (!p.isFullySolved) {
+    return { acknowledgement: "Thanks.", question: partialTemplates[Math.min(idx, partialTemplates.length - 1)]! };
+  }
+
+  const sqlTemplates = [
+    "Walk me through your query approach — why did you structure it this way?",
+    "What performance bottleneck might this query hit at 100 million rows, and how would you mitigate it?",
+    "If this table had no indexes, what would you change in your query or schema to keep it fast?",
+    "What edge cases or data-quality issues could make this query return incorrect results?",
+    "How would you rewrite this query to be more performant or more readable, and why?",
+  ];
+
+  const pythonTemplates = [
+    "Walk me through your data processing logic step by step — what transformations happen and why?",
+    "How would this behave on a dataset 100× larger — what would you optimize first?",
+    "How do you handle missing values or unexpected types in the input data here?",
+    "How would you test this function to ensure it handles edge cases correctly?",
+    "How would you make this code more memory efficient while keeping it readable?",
+  ];
+
+  const isSql = looksLikeSqlTask(p);
+  const pool = isSql ? sqlTemplates : pythonTemplates;
+  return { acknowledgement: "Thanks.", question: pool[Math.min(idx, pool.length - 1)]! };
+}
+
+function generateDataSkillQuestion(
+  skill: string,
+  questionIndex: number,
+  experienceLevel: ExperienceTier,
+  dataSubtrack?: DataSubtrack,
+): string {
+  const skillLower = (skill || "").toLowerCase();
+  void dataSubtrack;
+
+  const tier = experienceLevel;
+
+  const pick = (qs: string[]) => qs[questionIndex % qs.length]!;
+
+  if (skillLower.includes("sql") || skillLower.includes("postgres") || skillLower.includes("mysql")) {
+    const fresherQ = [
+      "Explain the difference between INNER JOIN and LEFT JOIN with a simple example.",
+      "What does GROUP BY do and when would you use HAVING instead of WHERE?",
+    ];
+    const midQ = [
+      "Explain the difference between RANK() and DENSE_RANK() with an example.",
+      "What is a CTE and when would you prefer it over a subquery?",
+    ];
+    const seniorQ = [
+      "Walk me through how you would optimize a slow query on a 100-million-row table.",
+      "Explain what a query execution plan is and what you look for when diagnosing performance.",
+    ];
+    return pick(tier === "fresher" ? fresherQ : tier === "mid" ? midQ : seniorQ);
+  }
+
+  if (skillLower.includes("python") || skillLower.includes("pandas")) {
+    const fresherQ = [
+      "What is the difference between loc and iloc in pandas?",
+      "How do you handle missing values in a pandas DataFrame?",
+    ];
+    const midQ = [
+      "You have a DataFrame with 10 million rows. What techniques would you use to process it efficiently?",
+      "What is the difference between apply() and vectorized operations in pandas? When does it matter?",
+    ];
+    const seniorQ = [
+      "Describe a situation where you had to optimize a pandas pipeline for production. What did you change?",
+      "When would you choose Polars or Dask over pandas, and why?",
+    ];
+    return pick(tier === "fresher" ? fresherQ : tier === "mid" ? midQ : seniorQ);
+  }
+
+  if (skillLower.includes("statistics") || skillLower.includes("stat")) {
+    const fresherQ = [
+      "Explain what a p-value means in plain language.",
+      "What is the difference between mean and median, and when does median matter more?",
+    ];
+    const midQ = [
+      "Explain the difference between Type I and Type II errors. When is each more costly?",
+      "What is the central limit theorem and why does it matter in practice?",
+    ];
+    const seniorQ = [
+      "How do you design an A/B test for a business decision, and what pitfalls do you watch for?",
+      "Explain selection bias and give an example of how it can distort analysis results.",
+    ];
+    return pick(tier === "fresher" ? fresherQ : tier === "mid" ? midQ : seniorQ);
+  }
+
+  if (skillLower.includes("pytorch") || skillLower.includes("tensorflow") || skillLower.includes("sklearn")) {
+    const fresherQ = [
+      "What is the difference between supervised and unsupervised learning?",
+      "What is overfitting and how do you detect it?",
+    ];
+    const midQ = [
+      "Explain the bias–variance tradeoff with a real example.",
+      "When would you choose a gradient boosting model over a neural network?",
+    ];
+    const seniorQ = [
+      "How do you handle model drift in production?",
+      "Describe your approach to feature selection for a classification problem with 500 features.",
+    ];
+    return pick(tier === "fresher" ? fresherQ : tier === "mid" ? midQ : seniorQ);
+  }
+
+  if (
+    ["spark", "airflow", "dbt", "kafka", "flink", "databricks", "snowflake", "bigquery", "redshift"].some((t) =>
+      skillLower.includes(t)
+    )
+  ) {
+    const midQ = [
+      `What are the main use cases for ${skill} and when would you NOT use it?`,
+      `What is the hardest problem you have solved using ${skill}?`,
+    ];
+    const seniorQ = [
+      `Describe how you would architect a production system using ${skill} at scale.`,
+      `What are failure modes of ${skill} that you have encountered, and how did you mitigate them?`,
+    ];
+    return pick(tier === "senior" ? seniorQ : midQ);
+  }
+
+  return questionIndex === 0
+    ? `Walk me through how you have used ${skill} in a real project.`
+    : `What is the most complex problem you have solved using ${skill}?`;
+}
+
 async function genSkillQuestion(plan: AISkillsPlanV1): Promise<{ question: string; acknowledgement: string | null }> {
   const skill = plan.resumeSkills[plan.skillIdx] ?? "this skill";
   const depth = plan.track === "fresher" ? "basic conceptual" : plan.track === "mid" ? "practical on-the-job" : "deep architecture-level";
   const round = plan.skillRound + 1;
+  if (plan.candidateTrack === "data") {
+    const q = generateDataSkillQuestion(skill, plan.skillRound, plan.track, plan.dataSubtrack);
+    return { acknowledgement: "Got it.", question: q };
+  }
   const system = `You verify resume skills. Output ONLY JSON: {"acknowledgement":"short or empty","question":"spoken question only"}`;
   const user = `Skill: ${skill}. Experience band: ${plan.track}. Depth: ${depth}.
 This is follow-up ${round} of 2 for this skill. ${round === 1 ? "Start with foundations." : "Ask for a concrete example or trade-off."}`;
@@ -459,10 +641,13 @@ export async function startAiSkillsInterview(
 
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
-    select: { experienceYears: true },
+    select: { experienceYears: true, roleType: true, targetJobTitle: true },
   });
   const profileTier = experienceTierFromYears(profile?.experienceYears);
   const useTrack: ExperienceTier = track ?? profileTier;
+
+  const candidateTrack: "software" | "data" = opts?.isDataTrack === true || profile?.roleType === "data" ? "data" : "software";
+  const dataSubtrack = candidateTrack === "data" ? detectDataSubtrack(profile?.targetJobTitle ?? "") : undefined;
 
   const dsaProblems = isData
     ? await loadDataRoundContext(userId)
@@ -477,6 +662,8 @@ export async function startAiSkillsInterview(
     v: PLAN_VERSION,
     phase: "dsa",
     track: useTrack,
+    candidateTrack,
+    dataSubtrack,
     jobRole,
     experienceLevel: experienceLevelForInterview(useTrack),
     dsaProblems: dsaProblems.problems,

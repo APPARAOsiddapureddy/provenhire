@@ -39,7 +39,10 @@ export async function gatePaidVerificationStageInProgress(
     return { ok: true };
   }
 
-  const cooldownMs = stageName === "ai_skills_interview" ? COOLDOWN_AI_SKILLS_MS : COOLDOWN_SYSTEM_DESIGN_MS;
+  const cooldownMs =
+    stageName === "ai_skills_interview" || stageName === "data_skills_interview"
+      ? COOLDOWN_AI_SKILLS_MS
+      : COOLDOWN_SYSTEM_DESIGN_MS;
   const it = interviewTypeForStage(stageName);
 
   let lastAt = 0;

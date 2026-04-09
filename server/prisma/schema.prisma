@@ -73,6 +73,10 @@ model JobSeekerProfile {
   education                  Json?
   workExperience             Json?
   roleType                   String?   @default("technical")
+  /// product | design | business | operations | marketing | people — persisted at profile_setup completion (non-tech track).
+  nonTechSubtrack            String?
+  /// engineering | science | analysis — persisted at profile_setup completion (data track).
+  dataSubtrack               String?
   targetJobTitle             String?
   noticePeriod               String? // e.g. "15 days", "1 month", "Immediate"
   currentSalary              String? // e.g. "10 LPA", "15-20 L"

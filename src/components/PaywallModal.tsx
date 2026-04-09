@@ -19,7 +19,9 @@ interface PaywallModalProps {
 
 const STAGE_NAMES: Record<string, string> = {
   ai_skills_interview: "AI Skills Interview",
+  data_skills_interview: "AI Skills Interview (Data)",
   system_design_interview: "System Design Interview",
+  data_system_design: "Data System Design Interview",
   expert_interview: "Expert Interview",
   non_tech_assignment: "Non-Technical Assignment Retake",
 };

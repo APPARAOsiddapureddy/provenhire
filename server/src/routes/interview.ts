@@ -39,6 +39,11 @@ import {
   processAiSkillsTurn,
   getAiSkillsStatus,
 } from "../services/interview/aiSkillsOrchestrator.js";
+import {
+  startDataSystemDesignInterview,
+  processDataSystemDesignTurn,
+  getDataSystemDesignStatus,
+} from "../services/interview/systemDesignOrchestrator.js";
 import { experienceTierFromYears } from "../utils/experienceTier.js";
 import type { ExperienceTier } from "../utils/experienceTier.js";
 
@@ -412,6 +417,85 @@ interviewRouter.get("/ai-skills/status", requireAuth, requireJobSeeker, async (r
     return res.json(row);
   } catch (e) {
     console.error("[interview/ai-skills/status]", e);
+    return res.status(500).json({ error: "Failed to load status" });
+  }
+});
+
+function adversarialLevelFromTier(tier: ExperienceTier): "junior" | "mid" | "senior" {
+  if (tier === "fresher") return "junior";
+  if (tier === "senior") return "senior";
+  return "mid";
+}
+
+interviewRouter.post("/data-system-design/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const schema = z.object({
+      jobRole: z.string().min(1),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { experienceYears: true, roleType: true },
+    });
+    if (profile?.roleType !== "data") {
+      return res.status(403).json({ error: "Data System Design is only for data-track candidates." });
+    }
+    const tier = experienceTierFromYears(profile?.experienceYears);
+    const level = adversarialLevelFromTier(tier);
+
+    const result = await startDataSystemDesignInterview(req.user!.id, parsed.data.jobRole, level);
+    return res.json(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to start";
+    if (msg.includes("pipeline first") || msg.includes("Complete the Data")) {
+      return res.status(403).json({ error: msg });
+    }
+    if (msg.includes("only available")) return res.status(403).json({ error: msg });
+    console.error("[interview/data-system-design/start]", e);
+    return res.status(500).json({ error: "Failed to start Data System Design session" });
+  }
+});
+
+interviewRouter.post(
+  "/data-system-design/turn",
+  requireAuth,
+  requireJobSeeker,
+  interviewTurnLimiter,
+  async (req: AuthedRequest, res) => {
+    try {
+      const schema = z.object({
+        interviewId: z.string().min(1),
+        answer: z.string().min(1),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+      const result = await processDataSystemDesignTurn(
+        parsed.data.interviewId,
+        req.user!.id,
+        parsed.data.answer
+      );
+      return res.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to process turn";
+      if (msg === "Interview not found") return res.status(404).json({ error: msg });
+      console.error("[interview/data-system-design/turn]", e);
+      return res.status(500).json({ error: "Failed to process turn" });
+    }
+  }
+);
+
+interviewRouter.get("/data-system-design/status", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const interviewId = typeof req.query.interviewId === "string" ? req.query.interviewId.trim() : "";
+    if (!interviewId) return res.status(400).json({ error: "interviewId query required" });
+    const row = await getDataSystemDesignStatus(interviewId, req.user!.id);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    return res.json(row);
+  } catch (e) {
+    console.error("[interview/data-system-design/status]", e);
     return res.status(500).json({ error: "Failed to load status" });
   }
 });

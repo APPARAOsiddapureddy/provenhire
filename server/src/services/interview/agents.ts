@@ -2,7 +2,7 @@
  * Adversarial AI interview agents — Gemini-backed (same stack as ai.service).
  * JSON agents parse structured output; follow-up phrasing uses plain text generation.
  */
-import type { NonTechSubtrack } from "../../constants/verificationPipeline.js";
+import type { DataSubtrack, NonTechSubtrack } from "../../constants/verificationPipeline.js";
 import { GoogleGenAI } from "@google/genai";
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -12,7 +12,7 @@ function responseText(response: unknown): string {
   return String((response as { text?: string })?.text ?? "").trim();
 }
 
-async function callGeminiJson(system: string, user: string, tier: "fast" | "balanced" | "deep"): Promise<unknown> {
+export async function callGeminiJson(system: string, user: string, tier: "fast" | "balanced" | "deep"): Promise<unknown> {
   if (!gemini) return null;
   const model =
     tier === "fast" ? "gemini-2.0-flash" : tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
@@ -40,7 +40,7 @@ async function callGeminiJson(system: string, user: string, tier: "fast" | "bala
   }
 }
 
-async function callGeminiText(system: string, user: string, tier: "fast" | "balanced" | "deep"): Promise<string> {
+export async function callGeminiText(system: string, user: string, tier: "fast" | "balanced" | "deep"): Promise<string> {
   if (!gemini) return "";
   const model =
     tier === "fast" ? "gemini-2.0-flash" : tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
@@ -307,6 +307,25 @@ const NON_TECH_SUBTRACK_CAL: Record<NonTechSubtrack, string> = {
     "People / HR / customer-success context: structured assessment, fairness, engagement, difficult people situations, service recovery.",
 };
 
+/** Data-track AI Expert — pipelines, modeling, and analytics depth (not generic backend API design). */
+const DATA_SPRINT_GOALS: Record<number, string> = {
+  1:
+    "Understand a significant data project they owned: problem, data sources, transformations, models or metrics they delivered, and what was hard.",
+  2:
+    "Probe conceptual depth on data fundamentals for their level — SQL/analytics logic, stats/ML intuition, data quality, or evaluation — grounded in their experience.",
+  3:
+    "Stress-test data architecture thinking: scale, reliability, cost, lineage, monitoring, failure modes, and sensible trade-offs for pipelines or ML systems.",
+};
+
+const DATA_SUBTRACK_CAL: Record<DataSubtrack, string> = {
+  engineering:
+    "Data engineering bias: ingestion, orchestration, warehousing, incremental loads, partitioning, Spark/batch/streaming trade-offs, observability.",
+  science:
+    "Data science / ML bias: modeling choices, offline vs online metrics, training/serving skew, experimentation, drift, responsible use of data.",
+  analysis:
+    "Analytics bias: metric definitions, SQL complexity, dashboard trustworthiness, causal caution, stakeholder-ready insights.",
+};
+
 /** Lines to append to prompts so the model avoids repeating the same short question many turns in a row. */
 export function formatAskedQuestionsBlock(questions: string[], maxLines = 16): string {
   const u = [...new Set(questions.map((q) => q.trim()).filter(Boolean))].slice(-maxLines);
@@ -386,7 +405,12 @@ export async function generateSprintQuestion(
   resumeContext: string,
   history: { question?: string }[],
   recentAsked?: string[],
-  opts?: { nonTechnical?: boolean; subtrack?: NonTechSubtrack }
+  opts?: {
+    nonTechnical?: boolean;
+    subtrack?: NonTechSubtrack;
+    dataTrack?: boolean;
+    dataSubtrack?: DataSubtrack;
+  }
 ): Promise<string> {
   const fromHist = history
     .map((h) => h.question)
@@ -403,11 +427,24 @@ You are interviewing for a non-technical professional role. Do not ask for code,
         ? " Use organizational and scenario challenges, not low-level engineering design."
         : ""
     }`;
+  } else if (opts?.dataTrack) {
+    system = `${system}
+
+You are interviewing a DATA TRACK candidate (analytics, data engineering, data science, or MLOps). Prioritize data pipelines, storage, SQL/analytical reasoning, statistics/ML, and measurable outcomes — not generic CRUD API or front-end system design unless their background is clearly full-stack data apps. Keep questions spoken-interview friendly (no coding on a whiteboard).`;
   }
 
-  const sprintGoal = opts?.nonTechnical ? NON_TECH_SPRINT_GOALS[sprint] ?? "" : SPRINT_GOALS[sprint] ?? "";
-  const subAngle =
-    opts?.nonTechnical && opts.subtrack ? NON_TECH_SUBTRACK_CAL[opts.subtrack] ?? "" : "";
+  const sprintGoal = opts?.nonTechnical
+    ? NON_TECH_SPRINT_GOALS[sprint] ?? ""
+    : opts?.dataTrack
+      ? DATA_SPRINT_GOALS[sprint] ?? ""
+      : SPRINT_GOALS[sprint] ?? "";
+  const subAngle = opts?.nonTechnical
+    ? opts.subtrack
+      ? NON_TECH_SUBTRACK_CAL[opts.subtrack] ?? ""
+      : ""
+    : opts?.dataTrack && opts.dataSubtrack
+      ? DATA_SUBTRACK_CAL[opts.dataSubtrack] ?? ""
+      : "";
 
   const text = await callGeminiText(
     system,
@@ -471,6 +508,8 @@ export async function evaluateFullInterview(
     jobRole?: string | null;
     /** Non-technical track: calibrate for communication-heavy roles (PM, design, etc.). */
     nonTechnical?: boolean;
+    /** Data track: calibrate for data/ML/analytics technical depth. */
+    dataTrack?: boolean;
   }
 ): Promise<Record<string, unknown> | null> {
   const transcript = history
@@ -508,12 +547,24 @@ This is a NON-TECHNICAL role interview (product, design, operations, marketing, 
 `
     : "";
 
+  const dataTrackBlock =
+    meta?.dataTrack && !meta?.nonTechnical
+      ? `
+This is a DATA TRACK technical interview (analytics, data engineering, data science, ML ops).
+- Weight concept_score and reasoning_score toward data systems: pipelines, SQL/analytics, stats/ML intuition, reliability, and data quality — not leetcode trivia.
+- engineering_signal should reflect ability to design and reason about data-heavy systems (batch/stream, storage, orchestration, modeling lifecycle) at the stated experience level.
+`
+      : "";
+
+  const roleKind = meta?.nonTechnical ? "professional " : meta?.dataTrack ? "data-technical " : "technical ";
+  const signalLabel = meta?.nonTechnical ? "professional" : "technical/data";
+
   const result = await callGeminiJson(
-    `You are evaluating a complete adversarial ${meta?.nonTechnical ? "professional " : "technical "}interview across 3 sprints.
+    `You are evaluating a complete adversarial ${roleKind}interview across 3 sprints.
 You must produce TWO SEPARATE assessments:
 1) claim_credibility_risk: were specific resume claims substantiated in dialogue? (none | low | medium | high)
-2) engineering_signal: overall ${meta?.nonTechnical ? "professional" : "engineering"} ability independent of claim disputes (strong | moderate | inconclusive | weak)
-${nonTechBlock}
+2) engineering_signal: overall ${signalLabel} ability independent of claim disputes (strong | moderate | inconclusive | weak)
+${nonTechBlock}${dataTrackBlock}
 
 Return JSON:
 {
@@ -573,4 +624,100 @@ Average structure score: ${avgStructure.toFixed(1)}/3`,
   );
 
   return result && typeof result === "object" ? (result as Record<string, unknown>) : null;
+}
+
+const DATA_SD_RUBRIC = `Ask one medium-length spoken question (2–4 sentences). Sound like a senior data architect / staff DS — no "thank you" preambles. Output only the question.`;
+
+export async function generateDataSystemDesignQuestion(
+  phase: "lld" | "hld",
+  history: { question: string; answer: string }[],
+  resumeContext: string,
+  dataSubtrack: DataSubtrack,
+  experienceLevel: string,
+  recentQuestions: string[]
+): Promise<string> {
+  const phaseGoal =
+    phase === "lld"
+      ? "Low-level data design: schemas, keys, incremental loading, data contracts, transformation logic, validation, and how correctness is guaranteed."
+      : "High-level data platform: orchestration, storage choices, batch vs stream, SLAs, monitoring, cost, failure recovery, security/PII boundaries, and cross-team interfaces.";
+  const cal = DATA_SUBTRACK_CAL[dataSubtrack] ?? DATA_SUBTRACK_CAL.engineering;
+  const histBlock = history
+    .slice(-6)
+    .map((h, i) => `Q${i + 1}: ${h.question}\nA${i + 1}: ${h.answer}`)
+    .join("\n\n");
+
+  const text = await callGeminiText(
+    `You are a technical interviewer for DATA system design. ${DATA_SD_RUBRIC}`,
+    `Phase: ${phase.toUpperCase()}
+${phaseGoal}
+Calibration angle: ${cal}
+Candidate experience (engineering scale): ${experienceLevel}
+Candidate context: ${resumeContext.slice(0, 900)}
+
+Recent dialogue (ground follow-ups here):
+${histBlock || "(first follow-up after phase opener)"}
+
+${formatAskedQuestionsBlock(recentQuestions)}
+
+Generate the NEXT question only. It must advance the design discussion — not repeat prior angles.`,
+    "balanced"
+  );
+  return text.replace(/^["']|["']$/g, "").trim() || "What is the core entity model you would use, and how would you enforce data quality at ingest?";
+}
+
+export async function evaluateDataSystemDesignSession(
+  history: { phase: "lld" | "hld"; question: string; answer: string }[],
+  resumeContext: string,
+  dataSubtrack: DataSubtrack,
+  experienceLevel: string
+): Promise<{
+  lldScore: number;
+  hldScore: number;
+  totalScore: number;
+  pass: boolean;
+  summary: string;
+} | null> {
+  const transcript = history
+    .map((h, i) => `[${i + 1} | ${h.phase.toUpperCase()}]\nQ: ${h.question}\nA: ${h.answer}`)
+    .join("\n\n");
+  const result = (await callGeminiJson(
+    `You score a spoken data system design interview in two phases: LLD (first half of transcript) vs HLD (second half).
+Subtrack calibration: ${DATA_SUBTRACK_CAL[dataSubtrack]}.
+Experience level: ${experienceLevel}.
+Return JSON only:
+{
+  "lld_score": <0-100>,
+  "hld_score": <0-100>,
+  "total_score": <0-100>,
+  "pass": <boolean> (true if total_score >= 55 AND both lld_score and hld_score >= 45 for mid/senior; for fresher path if total_score >= 50),
+  "summary": "<2 sentences>"
+}`,
+    `RESUME/CONTEXT:\n${resumeContext.slice(0, 1200)}\n\nTRANSCRIPT:\n${transcript.slice(0, 12000)}`,
+    "balanced"
+  )) as {
+    lld_score?: number;
+    hld_score?: number;
+    total_score?: number;
+    pass?: boolean;
+    summary?: string;
+  } | null;
+
+  if (!result) return null;
+  const lld = Math.min(100, Math.max(0, Math.round(Number(result.lld_score) || 0)));
+  const hld = Math.min(100, Math.max(0, Math.round(Number(result.hld_score) || 0)));
+  let total = Math.min(100, Math.max(0, Math.round(Number(result.total_score) || (lld + hld) / 2)));
+  const exp = experienceLevel.toLowerCase();
+  const passBarrierTotal = exp === "junior" ? 50 : 55;
+  const passBarrierDim = exp === "junior" ? 40 : 45;
+  const pass =
+    typeof result.pass === "boolean"
+      ? result.pass
+      : total >= passBarrierTotal && lld >= passBarrierDim && hld >= passBarrierDim;
+  return {
+    lldScore: lld,
+    hldScore: hld,
+    totalScore: total,
+    pass,
+    summary: String(result.summary ?? "").trim() || "Evaluation complete.",
+  };
 }

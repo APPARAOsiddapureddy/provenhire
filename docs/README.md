@@ -12,7 +12,7 @@ Single entry point for engineers, product, and ops. **All product requirements**
 
 | Document | Scope |
 |----------|--------|
-| [**PRD.md**](PRD.md) | **Only PRD** — **Part A:** roles, routes, verification (legacy + v2, fresher-until-profile-setup), scoring, DSA, human expert. **Part B:** recruiter. **Part C:** revenue, retakes, recruiter tiers, backlog. **Part D:** AI Expert Interview (full adversarial / voice / APIs / §16). |
+| [**PRD.md**](PRD.md) | **Only PRD** — **Part A:** roles, routes, verification (legacy + v2, **data track §3.0.1**, fresher-until-profile-setup), scoring, DSA / data round, human expert. **Part B:** recruiter. **Part C:** revenue, retakes, recruiter tiers, backlog. **Part D:** AI Expert Interview (full adversarial / voice / APIs / §16). |
 
 Use the TOC at the top of `PRD.md` or GitHub’s outline to jump to Part B/C/D.
 

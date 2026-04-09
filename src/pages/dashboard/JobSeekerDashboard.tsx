@@ -30,26 +30,54 @@ function nonTechnicalFallbackOrder(experienceYears: number | null | undefined): 
   return ['profile_setup', 'non_tech_assignment', 'expert_interview'];
 }
 
+/** When GET /verification/stages has not yet returned `stage_order`, align with server `dataStagesForTier`. */
+function dataTrackFallbackOrder(experienceYears: number | null | undefined): string[] {
+  const y = experienceYears == null || Number.isNaN(Number(experienceYears)) ? 0 : Number(experienceYears);
+  if (y < 1) {
+    return ['profile_setup', 'data_fundamentals', 'data_round', 'data_skills_interview', 'expert_interview'];
+  }
+  return ['profile_setup', 'data_round', 'data_skills_interview', 'data_system_design', 'expert_interview'];
+}
+
 const STAGE_LABELS: Record<string, string> = {
   profile_setup: 'Profile Setup',
   aptitude_test: 'Cognitive Assessment',
   cs_fundamentals: 'CS Fundamentals',
   domain_fundamentals: 'Domain Fundamentals',
+  data_fundamentals: 'Data Fundamentals',
   dsa_round: 'DSA Round',
+  data_round: 'Data Round',
   non_tech_assignment: 'Assignment',
   ai_skills_interview: 'AI Skills Interview',
+  data_skills_interview: 'AI Skills (Data)',
   system_design_interview: 'System Design',
+  data_system_design: 'Data System Design',
   expert_interview: 'AI Expert Interview',
   human_expert_interview: 'Human Expert Interview',
 };
 
 const deriveCertificationFromStages = (
-  roleType: "technical" | "non_technical",
+  roleType: "technical" | "non_technical" | "data",
   stages: Array<{ stage_name?: string; status?: string }>
 ): { level: number; label: string } => {
   const completed = new Set(
     stages.filter((s) => s.status === "completed").map((s) => s.stage_name).filter(Boolean) as string[]
   );
+  if (roleType === "data") {
+    if (completed.has("expert_interview")) {
+      return { level: 3, label: "Level 3 - Elite Verified Candidate" };
+    }
+    const hasSkills = completed.has("data_skills_interview");
+    const hasSd = completed.has("data_system_design");
+    const midSeniorPipeline = stages.some((s) => s.stage_name === "data_system_design");
+    if (midSeniorPipeline ? hasSkills && hasSd : hasSkills) {
+      return { level: 2, label: "Level 2 - Skill Passport Verified" };
+    }
+    if (completed.has("data_round")) {
+      return { level: 1, label: "Level 1 - Cognitive Verified" };
+    }
+    return { level: 0, label: "Level 0 - Not Yet Certified" };
+  }
   if (roleType === "non_technical") {
     if (completed.has("expert_interview") || completed.has("human_expert_interview")) {
       return { level: 3, label: "Level 3 - AI Expert Verified Candidate" };
@@ -121,9 +149,13 @@ const JobSeekerDashboard = () => {
     profile &&
     !(profile.targetJobTitle ?? profile.target_job_title)?.trim()
   );
-  const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
+  const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical" | "data";
   const nonTechFallbackOrder = useMemo(
     () => nonTechnicalFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null),
+    [profile?.experienceYears, profile?.experience_years]
+  );
+  const dataFallbackOrder = useMemo(
+    () => dataTrackFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null),
     [profile?.experienceYears, profile?.experience_years]
   );
   const stageOrder = useMemo(() => {
@@ -131,9 +163,13 @@ const JobSeekerDashboard = () => {
       if (apiStageOrder && apiStageOrder.length > 0) return [...apiStageOrder];
       return [...nonTechFallbackOrder];
     }
+    if (roleType === "data") {
+      if (apiStageOrder && apiStageOrder.length > 0) return [...apiStageOrder];
+      return [...dataFallbackOrder];
+    }
     if (apiStageOrder && apiStageOrder.length > 0) return [...apiStageOrder];
     return [...TECHNICAL_STAGE_ORDER];
-  }, [roleType, apiStageOrder, nonTechFallbackOrder]);
+  }, [roleType, apiStageOrder, nonTechFallbackOrder, dataFallbackOrder]);
   const nonTechHasDomainFundamentals = useMemo(
     () => roleType === "non_technical" && stageOrder.includes("domain_fundamentals"),
     [roleType, stageOrder]
@@ -152,7 +188,14 @@ const JobSeekerDashboard = () => {
   const completedUpToStage = (() => {
     if (!verificationStages.length) return null;
     const completed = verificationStages.filter((s: { status?: string }) => s.status === "completed");
-    if (roleType === "technical") {
+    if (roleType === "data") {
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "ai_interview";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "data_system_design")) return "system_design";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "data_skills_interview")) return "ai_skills";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "data_round")) return "dsa";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "data_fundamentals")) return "aptitude";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "profile_setup")) return "profile";
+    } else if (roleType === "technical") {
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "human_expert_interview")) return "expert";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "ai_interview";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "system_design_interview")) return "system_design";
@@ -213,23 +256,41 @@ const JobSeekerDashboard = () => {
             stages: ["expert_interview"],
           },
         ]
-      : [
-          {
-            level: 1,
-            label: "Level 1 - Cognitive Verified",
-            stages: ["profile_setup", "cognitive_or_fundamentals", "dsa_round"],
-          },
-          {
-            level: 2,
-            label: "Level 2 - Skill Passport",
-            stages: ["expert_interview"],
-          },
-          {
-            level: 3,
-            label: "Level 3 - Elite Verified",
-            stages: ["human_expert_interview"],
-          },
-        ];
+      : roleType === "data"
+        ? [
+            {
+              level: 1,
+              label: "Level 1 - Cognitive Verified",
+              stages: ["profile_setup", "data_fundamentals", "data_round"],
+            },
+            {
+              level: 2,
+              label: "Level 2 - Skill Passport",
+              stages: ["data_skills_interview", "data_system_design"],
+            },
+            {
+              level: 3,
+              label: "Level 3 - Elite Verified",
+              stages: ["expert_interview"],
+            },
+          ]
+        : [
+            {
+              level: 1,
+              label: "Level 1 - Cognitive Verified",
+              stages: ["profile_setup", "cognitive_or_fundamentals", "dsa_round"],
+            },
+            {
+              level: 2,
+              label: "Level 2 - Skill Passport",
+              stages: ["expert_interview"],
+            },
+            {
+              level: 3,
+              label: "Level 3 - Elite Verified",
+              stages: ["human_expert_interview"],
+            },
+          ];
 
   const {
  
@@ -371,7 +432,7 @@ const JobSeekerDashboard = () => {
       const order = Array.isArray(stagesData?.stage_order) ? stagesData!.stage_order! : null;
       setApiStageOrder(order && order.length > 0 ? order : null);
       setPipelinePendingProfileSetup(Boolean(stagesData?.pipeline_pending_profile_setup));
-      const role = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
+      const role = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical" | "data";
       const derivedCertification = deriveCertificationFromStages(role, stagesList);
       const apiLevel = stagesData?.certification_level ?? 0;
       const apiLabel = stagesData?.certification_label ?? "Level 0 - Not Yet Certified";
@@ -839,9 +900,9 @@ const JobSeekerDashboard = () => {
                     ? "Progressive proof, not paperwork. Finish each stage to grow your ProvenHire Resume and unlock better-matched roles."
                     : "Evidence over claims. You earn Early Access after Level 1; Skill Passport and ProvenHire Resume unlock as you complete AI-verified stages—your path adapts to your experience band."}
                 </p>
-                {roleType === "technical" && pipelinePendingProfileSetup && (
+                {(roleType === "technical" || roleType === "data") && pipelinePendingProfileSetup && (
                   <p className="text-sm text-amber-200/90 border border-amber-400/30 bg-amber-500/10 rounded-lg px-3 py-2 mt-3 max-w-3xl">
-                    You’re on the early-career verification steps until you finish <strong className="font-semibold">Profile Setup</strong> in the verification flow. After that, your stages update to match the experience you entered (for example, mid/senior paths include System Design instead of CS fundamentals).
+                    You’re on the early-career verification steps until you finish <strong className="font-semibold">Profile Setup</strong> in the verification flow. After that, your stages update to match the experience you entered (for example, mid/senior paths add system design instead of fundamentals-only prep).
                   </p>
                 )}
               </div>
@@ -853,7 +914,7 @@ const JobSeekerDashboard = () => {
                 {certificationLevelNumber >= 1 && (
                   <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
                     <Award className="h-3.5 w-3.5 mr-1.5" />
-                    {roleType === "technical"
+                    {roleType === "technical" || roleType === "data"
                       ? "Level 1 — Cognitive verified"
                       : certificationLevelNumber >= 3
                         ? "Level 3 — AI Expert verified"
@@ -875,7 +936,7 @@ const JobSeekerDashboard = () => {
                   const activeByCode = provenhireCertCode === code;
                   const highlight = activeByCode || (provenhireCertCode == null && activeByNumber);
                   const titles: Record<string, string> =
-                    roleType === "technical"
+                    roleType === "technical" || roleType === "data"
                       ? { L1: "Cognitive Verified", L2: "Skill Passport", L3: "Elite Verified" }
                       : {
                           L1: "Foundation",
@@ -897,12 +958,18 @@ const JobSeekerDashboard = () => {
                         <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">{provenhireCertSubtitle}</p>
                       ) : (
                         <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">
-                          {roleType === "technical"
+                          {roleType === "technical" || roleType === "data"
                             ? code === "L1"
-                              ? "Profile, fundamentals & live coding — then browse entry-friendly roles"
+                              ? roleType === "data"
+                                ? "Profile, data fundamentals (early-career), then the Data Round"
+                                : "Profile, fundamentals & live coding — then browse entry-friendly roles"
                               : code === "L2"
-                                ? "AI Skills, System Design (mid/senior), AI Expert — Skill Passport"
-                                : "Human expert interview — highest trust tier"
+                                ? roleType === "data"
+                                  ? "Data AI Skills; mid/senior also complete Data System Design — then AI Expert"
+                                  : "AI Skills, System Design (mid/senior), AI Expert — Skill Passport"
+                                : roleType === "data"
+                                  ? "AI Expert interview caps the data verification path"
+                                  : "Human expert interview — highest trust tier"
                             : code === "L1"
                               ? "Profile and (for early-career) domain fundamentals"
                               : code === "L2"
@@ -954,7 +1021,10 @@ const JobSeekerDashboard = () => {
               </div>
 
               <div className="dashboard-stages-grid">
-                {(roleType === "technical" ? stageOrder.filter((s) => s !== "human_expert_interview") : stageOrder).map((stageName, idx) => {
+                {(roleType === "technical" || roleType === "data"
+                  ? stageOrder.filter((s) => s !== "human_expert_interview")
+                  : stageOrder
+                ).map((stageName, idx) => {
                   const stageData = verificationStages.find((s: any) => s.stage_name === stageName);
                   const status = getStageStatus(stageName);
                   const isCompleted = status === 'done';
@@ -985,12 +1055,19 @@ const JobSeekerDashboard = () => {
                       'Same rigour as our cognitive band — timed, proctored fundamentals before live coding (early-career path).',
                     domain_fundamentals:
                       'Timed aptitude plus domain MCQs tailored to your target non-technical role (early-career path).',
+                    data_fundamentals:
+                      'Timed aptitude plus data-focused fundamentals (SQL, Python, stats basics) for early-career data paths.',
                     dsa_round: 'Proctored live coding: algorithmic problems matched to your experience tier.',
+                    data_round: 'Proctored SQL and Python data tasks executed in a sandbox — core gate for Level 1 on the data track.',
                     non_tech_assignment: 'Role-based written assignment tailored to your target job title.',
                     ai_skills_interview:
                       'AI-led deep dive on your stack and decisions — adaptive, proctored, feeds your ProvenHire Resume.',
+                    data_skills_interview:
+                      'Walkthrough of your Data Round work plus depth checks on SQL, Python, and data skills from your profile.',
                     system_design_interview:
                       'Structured system design conversation for mid/senior tracks — trade-offs, scaling, and clarity.',
+                    data_system_design:
+                      'Data platform design: LLD (schemas, pipelines, quality) then HLD (scale, orchestration, reliability).',
                     expert_interview:
                       roleType === "non_technical"
                         ? 'AI Expert Interview — structured rubric on communication, judgment, and role craft (voice-first).'
@@ -1016,15 +1093,26 @@ const JobSeekerDashboard = () => {
                       <p className="dashboard-stage-card-desc">{stageDesc[stageName] ?? ''}</p>
                       <div className="flex flex-wrap gap-1">
                         {stageName === 'profile_setup' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> AI Parsed</span>}
-                        {(stageName === 'aptitude_test' || stageName === 'cs_fundamentals' || stageName === 'domain_fundamentals') && (
+                        {(stageName === 'aptitude_test' ||
+                          stageName === 'cs_fundamentals' ||
+                          stageName === 'domain_fundamentals' ||
+                          stageName === 'data_fundamentals') && (
                           <>
                             <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span>
                             <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Timed attempt</span>
                           </>
                         )}
-                        {stageName === 'dsa_round' && <><span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span><span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Sandbox Executed</span></>}
+                        {(stageName === 'dsa_round' || stageName === 'data_round') && (
+                          <>
+                            <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span>
+                            <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Sandbox Executed</span>
+                          </>
+                        )}
                         {stageName === 'non_tech_assignment' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Job-Specific</span>}
-                        {(stageName === 'ai_skills_interview' || stageName === 'system_design_interview') && (
+                        {(stageName === 'ai_skills_interview' ||
+                          stageName === 'system_design_interview' ||
+                          stageName === 'data_skills_interview' ||
+                          stageName === 'data_system_design') && (
                           <>
                             <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span>
                             <span className="dashboard-trust-chip"><span style={{ background: 'var(--dash-gold)' }} className="w-1.5 h-1.5 rounded-full" /> AI adaptive</span>
@@ -1043,7 +1131,7 @@ const JobSeekerDashboard = () => {
                       {isCompleted && stageName === 'non_tech_assignment' && <div className="dashboard-score-text">Score: {stageData?.score ?? 0}/100</div>}
                       {stageName === 'expert_interview' &&
                         stageData?.status === 'pending_review' &&
-                        roleType === "technical" && (
+                        (roleType === "technical" || roleType === "data") && (
                         <div className="mt-3 text-sm font-semibold text-amber-600">Under review — expect an email in 10–15 hours</div>
                       )}
                       {isCompleted && stageName === 'expert_interview' && (

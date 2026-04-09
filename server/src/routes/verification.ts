@@ -28,7 +28,6 @@ import {
   detectNonTechSubtrack,
   detectDataSubtrack,
   type VerificationTrack,
-  type DataSubtrack,
 } from "../constants/verificationPipeline.js";
 import { pickNonTechAssignmentPrompt } from "../data/nonTechAssignmentPrompts.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
@@ -553,10 +552,22 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     } else {
       updateData.score = iv.totalScore != null ? Math.round(iv.totalScore) : null;
     }
-  } else if (
-    (stageName === "system_design_interview" || stageName === "data_system_design") &&
-    status === "completed"
-  ) {
+  } else if (stageName === "data_system_design" && status === "completed") {
+    const iv = await prisma.interview.findFirst({
+      where: { userId, interviewType: "system_design", status: "completed" },
+      orderBy: { completedAt: "desc" },
+      select: { totalScore: true },
+    });
+    if (!iv) {
+      if (!allowPlaceholderVerificationCompletion()) {
+        return res.status(400).json({
+          error: "Complete the Data System Design interview in-platform before marking this step complete.",
+        });
+      }
+    } else {
+      updateData.score = iv.totalScore != null ? Math.round(iv.totalScore) : null;
+    }
+  } else if (stageName === "system_design_interview" && status === "completed") {
     if (!allowPlaceholderVerificationCompletion()) {
       return res.status(503).json({
         error: "This verification step is not available yet. Complete the official assessment flow when it is released.",
@@ -603,7 +614,17 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
       }
     }
     const updatedProfile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
-    const { neededStages } = await resolveNeededVerificationStages(userId, updatedProfile);
+    const rtFinal = updatedProfile?.roleType ?? "technical";
+    const title = updatedProfile?.targetJobTitle;
+    const subtrackPatch =
+      rtFinal === "non_technical"
+        ? { nonTechSubtrack: detectNonTechSubtrack(title), dataSubtrack: null as string | null }
+        : rtFinal === "data"
+          ? { dataSubtrack: detectDataSubtrack(title), nonTechSubtrack: null as string | null }
+          : { nonTechSubtrack: null as string | null, dataSubtrack: null as string | null };
+    await prisma.jobSeekerProfile.update({ where: { userId }, data: subtrackPatch });
+    const profileForStages = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
+    const { neededStages } = await resolveNeededVerificationStages(userId, profileForStages);
     await ensureVerificationPipelineStages(userId, neededStages);
     try {
       await reconcileVerificationStages(userId);

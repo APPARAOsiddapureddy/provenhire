@@ -24,7 +24,12 @@ import {
 } from "./agents.js";
 import { findFollowupsForQuestionText } from "./questionBankService.js";
 import { computeWeaknessCoverageRatio, evaluateFullInterviewMultiPass } from "./evaluationService.js";
-import { detectNonTechSubtrack, type NonTechSubtrack } from "../../constants/verificationPipeline.js";
+import {
+  detectDataSubtrack,
+  detectNonTechSubtrack,
+  type DataSubtrack,
+  type NonTechSubtrack,
+} from "../../constants/verificationPipeline.js";
 
 const QUESTIONS_PER_SPRINT = 5;
 const MAX_QUESTIONS = 15;
@@ -81,6 +86,18 @@ const NON_TECH_OPENERS: Record<number, string> = {
   1: `Let's start with something concrete from your background. Tell me about work you're proud of — a project, internship, or initiative. What was your role, what problem did you solve, and what did you learn?`,
   2: `Let's go deeper into how you think in your role. Pick one framework, principle, or concept you rely on when making decisions, and walk me through a real example of applying it.`,
   3: `Here's a scenario: you're facing a tough deadline with unclear priorities and several stakeholders pulling in different directions. How would you approach it — what would you clarify first, and what would you do in the first week?`,
+};
+
+const DATA_SPRINTS: Record<number, { name: string; persona: string }> = {
+  1: { name: "Data Project Defense", persona: "curious_lead" },
+  2: { name: "Data Foundations", persona: "socratic_mentor" },
+  3: { name: "Data Systems & Scale", persona: "senior_peer" },
+};
+
+const DATA_OPENERS: Record<number, string> = {
+  1: `Let's anchor in real work. Tell me about a data project you're proud of — the business or analytics problem, what data you used, what you built or shipped, and what you personally owned end to end.`,
+  2: `Pick one technical idea that was central to that work — something you really had to understand to ship a correct pipeline, metric, or model. How would you explain it to a strong engineer who doesn't know your domain?`,
+  3: `Imagine you need to serve reliable, fresh analytics or features to downstream teams at serious scale — where latency, cost, and data quality all matter. Where would you start designing that system, and what do you think breaks first as you grow?`,
 };
 
 /** Spoken after each accepted answer, before the next question (TTS only; not stored on InterviewMessage). */
@@ -207,6 +224,9 @@ type AdversarialState = {
   /** When true, use non-technical sprint names and openers (persisted in questionPlan). */
   trackNonTechnical?: boolean;
   nonTechSubtrack?: NonTechSubtrack;
+  /** When true, use data-calibrated sprint names, openers, and question generation (roleType === "data"). */
+  trackData?: boolean;
+  dataSubtrack?: DataSubtrack;
   questionCount: number;
   sprintQuestionCount: number;
   history: {
@@ -348,6 +368,8 @@ export function buildResumeContext(profile: {
     if (profile.portfolioUrl?.trim()) {
       parts.push(`Portfolio URL: ${profile.portfolioUrl.trim()}`);
     }
+  } else if (profile.roleType === "data") {
+    parts.push(`Data subtrack: ${detectDataSubtrack(profile.targetJobTitle ?? profile.currentRole)}`);
   }
   return parts.join("\n");
 }
@@ -362,14 +384,17 @@ export async function startAdversarialInterview(
   const profile = row?.user?.jobSeekerProfile;
   const jobRole = row?.jobRole ?? "Software Engineer";
   const isNonTech = profile?.roleType === "non_technical";
-  const opener = isNonTech ? NON_TECH_OPENERS[1] : SPRINT_OPENERS[1];
-  const cfg1 = isNonTech ? NON_TECH_SPRINTS[1] : SPRINTS[1];
+  const isData = profile?.roleType === "data";
+  const opener = isNonTech ? NON_TECH_OPENERS[1] : isData ? DATA_OPENERS[1] : SPRINT_OPENERS[1];
+  const cfg1 = isNonTech ? NON_TECH_SPRINTS[1] : isData ? DATA_SPRINTS[1] : SPRINTS[1];
   const initial: AdversarialState = {
     sprint: 1,
     persona: cfg1.persona,
     sprintName: cfg1.name,
     trackNonTechnical: isNonTech ? true : undefined,
     nonTechSubtrack: isNonTech ? detectNonTechSubtrack(profile?.targetJobTitle ?? profile?.currentRole) : undefined,
+    trackData: isData ? true : undefined,
+    dataSubtrack: isData ? detectDataSubtrack(profile?.targetJobTitle ?? profile?.currentRole) : undefined,
     questionCount: 0,
     sprintQuestionCount: 0,
     history: [],
@@ -538,7 +563,9 @@ export async function processTurn(
       response: prompt,
       acknowledgement: "",
       sprint,
-      sprintName: stateSprintName ?? (state.trackNonTechnical ? NON_TECH_SPRINTS[1].name : SPRINTS[1].name),
+      sprintName:
+        stateSprintName ??
+        (state.trackNonTechnical ? NON_TECH_SPRINTS[1].name : state.trackData ? DATA_SPRINTS[1].name : SPRINTS[1].name),
       persona,
       complete: false,
       questionCount: prevQCount,
@@ -662,6 +689,8 @@ export async function processTurn(
         generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt, {
           nonTechnical: Boolean(state.trackNonTechnical),
           subtrack: state.nonTechSubtrack,
+          dataTrack: Boolean(state.trackData),
+          dataSubtrack: state.dataSubtrack,
         })
       );
       if (forceSprintQuestion) {
@@ -704,12 +733,20 @@ export async function processTurn(
     const nextSprint = sprint + 1;
     if (nextSprint <= 3) {
       currentSprint = nextSprint;
-      const sprintDef = state.trackNonTechnical ? NON_TECH_SPRINTS[nextSprint] : SPRINTS[nextSprint];
+      const sprintDef = state.trackNonTechnical
+        ? NON_TECH_SPRINTS[nextSprint]
+        : state.trackData
+          ? DATA_SPRINTS[nextSprint]
+          : SPRINTS[nextSprint];
       currentPersona = sprintDef.persona;
       currentSprintName = sprintDef.name;
       currentSprintQuestionCount = 0;
       sprintAdvanced = true;
-      followup = state.trackNonTechnical ? NON_TECH_OPENERS[nextSprint] : SPRINT_OPENERS[nextSprint];
+      followup = state.trackNonTechnical
+        ? NON_TECH_OPENERS[nextSprint]
+        : state.trackData
+          ? DATA_OPENERS[nextSprint]
+          : SPRINT_OPENERS[nextSprint];
       currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
       currentQuestionFollowupAsked = false;
       consec = 0;
@@ -785,6 +822,8 @@ export async function processTurn(
     sprintName: currentSprintName,
     trackNonTechnical: state.trackNonTechnical,
     nonTechSubtrack: state.nonTechSubtrack,
+    trackData: state.trackData,
+    dataSubtrack: state.dataSubtrack,
     questionCount: newQuestionCount,
     sprintQuestionCount: currentSprintQuestionCount,
     history: newHistory,
@@ -949,6 +988,7 @@ export async function finalizeAiInterviewInBackground(
     select: { roleType: true },
   });
   const nonTechnical = jsProfile?.roleType === "non_technical";
+  const dataTrack = jsProfile?.roleType === "data";
 
   const coverageRatio = computeWeaknessCoverageRatio(newWeaknesses, newQuestionCount);
   const multi = await evaluateFullInterviewMultiPass(
@@ -961,6 +1001,7 @@ export async function finalizeAiInterviewInBackground(
       experienceLevel,
       jobRole,
       nonTechnical,
+      dataTrack: dataTrack && !nonTechnical,
     }
   );
   let evaluation = multi.evaluation as Record<string, unknown>;

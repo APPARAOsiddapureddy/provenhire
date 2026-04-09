@@ -6,6 +6,17 @@
 
 ## April 2026
 
+### Data track & system design (PRD v6.7 + code)
+
+| Change | Location |
+|--------|----------|
+| **PRD.md v6.7:** **§3.0.1 Data track** (stages, certification, AI Skills data branch, Data System Design APIs, AI Expert data calibration, **`nonTechSubtrack` / `dataSubtrack`**). **§3.2** non-technical v2. **§6.3** `roleType: data` + stage names. **§7.1.1** data flow. **Part D** + **§11.2** / **§11.7** track variants. **STEP 3:** data shipped, software system design backlog. | [`PRD.md`](PRD.md) |
+| **Data System Design** — orchestrator, **`/api/interview/data-system-design/*`**, UI stage, verification rules for **`data_system_design`**. | `server/src/services/interview/systemDesignOrchestrator.ts`, `server/src/routes/interview.ts`, `server/src/routes/verification.ts`, [`DataSystemDesignStage.tsx`](../src/pages/verification/stages/DataSystemDesignStage.tsx), [`VerificationFlow.tsx`](../src/pages/verification/VerificationFlow.tsx) |
+| **AI Expert** data calibration (sprints, agents). | [`orchestrator.ts`](../server/src/services/interview/orchestrator.ts), [`agents.ts`](../server/src/services/interview/agents.ts) |
+| **Profile subtracks** + migration **`20260409130000_jobseeker_subtrack_fields`**. | [`schema.prisma`](../server/prisma/schema.prisma), [`verification.ts`](../server/src/routes/verification.ts) |
+| **Retake gate:** **`data_skills_interview`** uses AI Skills cooldown. | [`verificationStageRetakeGate.service.ts`](../server/src/services/verificationStageRetakeGate.service.ts) |
+| **Dashboard** data track labels/order/chips; **Paywall** data stage names. | [`JobSeekerDashboard.tsx`](../src/pages/dashboard/JobSeekerDashboard.tsx), [`PaywallModal.tsx`](../src/components/PaywallModal.tsx) |
+
 ### Documentation
 
 | Change | Location |
@@ -53,7 +64,7 @@
 The following landed in **migrations + services** around the same program; details are in PRDs, not duplicated here:
 
 - Candidate **retake ledger**, cooldowns, **paid stage** gating, recruiter **subscription usage** (`RecruiterUsage`, contacts, profile views), admin **`grant-retake`** / **`recruiter plan`** PATCH.
-- **`docs/PRD.md`** (v6.6+): single consolidated PRD (Parts A–D); verification v2 in **§3.0**.
+- **`docs/PRD.md`** (v6.7+): single consolidated PRD (Parts A–D); verification v2 in **§3.0** and **data track in §3.0.1**.
 
 ---
 
