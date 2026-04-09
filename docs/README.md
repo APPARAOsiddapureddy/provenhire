@@ -67,5 +67,6 @@ Run `npx prisma migrate deploy` before seeds if the schema is behind.
 
 | When | Change |
 |------|--------|
+| Apr 2026 | **PRD v6.8:** AI interview deep doc — **§3.4.9** (questions, relevance, Whisper/Cartesia stack, answer flow), **§3.4.3** STT/TTS corrections, Expert **profile-driven `v2/start`**; Part D **§12.0** vs Deepgram **§12.1**. See **`IMPLEMENTATION_CHANGELOG.md`**. |
 | Apr 2026 | **Single PRD:** merged `PRD_RECRUITER.md`, `PRD_BUSINESS.md`, `PRD_AI_INTERVIEW.md` into **`PRD.md`**. Removed redundant **`DEPLOYMENT.md`** (use **`DEPLOYMENT_COMPLETE.md`** only). |
 | Apr 2026 | Earlier: four separate PRD files; scoring, DSA, pipeline v2 consolidated into candidate section. |

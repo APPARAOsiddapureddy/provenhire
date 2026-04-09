@@ -1,6 +1,6 @@
 # ProvenHire — Product Requirements Document (PRD)
 
-**Version:** 6.7 (single consolidated document)  
+**Version:** 6.8 (single consolidated document)  
 **Last Updated:** April 2026  
 **Status:** Current
 **Implementation drift log:** [IMPLEMENTATION_CHANGELOG.md](IMPLEMENTATION_CHANGELOG.md)
@@ -120,30 +120,31 @@ This section is the **single place** in the main PRD for what the AI interview i
 
 #### 3.4.1 Purpose and learner promise
 
-- **Goal:** A structured, **voice-first**, technical interview that feeds the verification scorecard (**40%** of the technical blend with Stages 2–3; see §3.1 and `buildTechnicalScorecard()`).
-- **Format (live product):** **Adversarial v2** — three **sprints** (Project Defense → Foundations → System Design), up to **15** total exchanges, with dynamic follow-ups (weakness / discrepancy / reasoning probes) driven by Gemini.
+- **Goal:** A structured interview that feeds the verification scorecard (**40%** of the technical blend with Stages 2–3 where that blend applies; see §3.1 and `buildTechnicalScorecard()`). **Technical** and **data** tracks default to **voice-first**; **non-technical** defaults to **typed** answers with an optional voice toggle in UI (`ExpertInterviewStage`).
+- **Format (live product):** **Adversarial v2** — **three sprints** and up to **15** total exchanges. **Sprint names and openers** depend on **`JobSeekerProfile.roleType`**: software uses **Project Defense → Foundations → System Design**; **non-technical** uses **Experience Defense → Domain Foundations → Scenario**; **data** uses **Data Project Defense → Data Foundations → Data Systems & Scale** (see `orchestrator.ts`). Dynamic follow-ups (weakness / discrepancy / reasoning probes) are driven by **Gemini** agents (`agents.ts`).
+- **Pre-start context (Expert Interview UI):** `VerificationFlow` passes **`verificationRoleType`** (from profile `roleType`) and **`experienceYears`**. If the candidate is **non-technical**, **data**, **or** has a **non-empty `targetJobTitle`**, the screen **skips** the software-only role dropdown and shows a **read-only** role + experience summary. **`POST /api/interview/v2/start`** receives **`jobRole`** from the profile title (not a forced **Software Engineer** default) and **`experienceLevel`** derived from years (**&lt;2** junior, **2–5** mid, **5+** senior). This keeps questions and scoring aligned with the **actual target role** (e.g. marketing vs engineering).
 - **Trust:** Camera and tab/proctoring signals are required during the session; outcomes can be flagged for admin review when integrity or anti-gaming rules fire.
 
 #### 3.4.2 Interview engines in the codebase
 
 | Track | Entry | Behavior |
 |-------|--------|----------|
-| **Primary (verification UI)** | `POST /api/interview/v2/start`, `POST /api/interview/v2/turn`, `POST /api/interview/v2/partial` | Orchestrator in `server/src/services/interview/orchestrator.ts`: sprint personas, static openers per sprint, `processTurn` / agents for follow-ups and final evaluation. **Non-technical:** alternate sprint names/openers + **`generateSprintQuestion(nonTechnical, subtrack)`** + weighted dimension scoring. **Data (`roleType === "data"`):** data sprint names/openers + **`dataTrack` / `dataSubtrack`** in agents. Front end: `src/pages/verification/stages/ExpertInterviewStage.tsx`. |
+| **Primary (verification UI)** | `POST /api/interview/v2/start`, `POST /api/interview/v2/turn`, `POST /api/interview/v2/partial` | Orchestrator in `server/src/services/interview/orchestrator.ts`: sprint personas, static openers per sprint, `processTurn` / agents for follow-ups and final evaluation. **Non-technical:** alternate sprint names/openers + **`generateSprintQuestion(nonTechnical, subtrack)`** + weighted dimension scoring. **Data (`roleType === "data"`):** data sprint names/openers + **`dataTrack` / `dataSubtrack`** in agents. Front end: `src/pages/verification/stages/ExpertInterviewStage.tsx` — **`verificationRoleType`** and **`experienceYears`** wired from **`VerificationFlow.tsx`** (v6.8). |
 | **AI Skills (software / data)** | `POST /api/interview/ai-skills/start`, `POST /api/interview/ai-skills/turn`, `GET /api/interview/ai-skills/status` | `aiSkillsOrchestrator.ts`; data track uses Data Round context and data-skills Part B. Verification stages: `ai_skills_interview` vs `data_skills_interview`. |
 | **Data System Design** | `POST /api/interview/data-system-design/start`, `POST .../turn`, `GET .../status` | `systemDesignOrchestrator.ts`; `interviewType: system_design`; verification stage `data_system_design` only (data track). |
 | **Legacy / question-plan** | `POST /api/interview/start`, `POST /api/interview/respond`, etc. | Older linear plan with optional **`QUESTION_BANK_SOURCE=db`** (`InterviewQuestionBank`). Still present for compatibility; the verification flow uses **v2** for the AI Expert Interview stage. |
 
-#### 3.4.3 Voice, TTS, and environment
+#### 3.4.3 Voice, TTS, STT, and environment
 
 | Capability | Implemented | Notes |
 |------------|-------------|--------|
-| **Speech-to-text (live)** | Yes | **Deepgram** WebSocket when `DEEPGRAM_API_KEY` is set; otherwise **Web Speech API** (Chrome/Edge) with live partials and `/v2/partial` prefetch. Hook: `src/hooks/useDeepgramSession.ts`. |
-| **TTS (question + fillers)** | Yes | **ElevenLabs** streaming MP3 when `ELEVENLABS_API_KEY` (and voice id) set; otherwise **`speechSynthesis`** fallback. Routes: `GET/POST` patterns under `server/src/routes/interview.ts` (`/tts`, `/tts-filler`). |
-| **Whisper / post-hoc STT on audio** | No | Not in the v2 voice path; gap vs older gap-analysis doc for “upload then transcribe” pipelines. |
-| **5s review / edit transcript before send** | No | Spec’d in `PRD.md` (Part D — AI Expert Interview) §5 for typed+voice hybrid; v2 is continuous voice turn submission without that gate. |
-| **Typed answer toggle** | Partial | **`ExpertInterviewStage`** supports **voice vs typed** per `verificationRoleType`: **non-technical** defaults to **typed** with visible toggle; **technical** defaults **voice**. (Wire `verificationRoleType` from `VerificationFlow` when product wants data/software to differ.) |
+| **Speech-to-text (AI Expert + AI Skills verification UIs)** | Yes | **Primary path:** **`useWhisperSession`** (`src/hooks/useWhisperSession.ts`) — browser **MediaRecorder** + **RMS-based VAD** (~**1.5s** silence ends a segment), then **`POST /api/interview/transcribe`** → **OpenAI Whisper** `whisper-1` (`server/src/services/whisper.service.ts`), English, verbose JSON → transcript + coarse **high / medium / low** confidence. Used by **`ExpertInterviewStage.tsx`** and **`AISkillsInterviewStage.tsx`**. Client sends **`whisperLatencyMs`** on turn endpoints for **`turnLog`**. **Product relevance:** segmented post-hoc transcription favors **accurate final text** for Gemini weakness/discrepancy agents over ultra-low-latency streaming partials alone. |
+| **Speech-to-text (live alternate; not mounted on Expert / AI Skills)** | Optional | **`useDeepgramSession.ts`** + **`GET /api/interview/deepgram-token`** + **`POST /api/interview/v2/partial`** for prefetch / future live UX — **not** imported by Expert or AI Skills stages today. |
+| **Text-to-speech (questions, acks, nudges)** | Yes | **`server/src/services/tts.service.ts`**: **Cartesia** (`sonic-english`, MP3 stream) when **`CARTESIA_API_KEY`** and **`CARTESIA_VOICE_ID`** are set; else **ElevenLabs** (`eleven_turbo_v2_5`); else JSON **`{ fallback: true, text }`** for client **`speechSynthesis`**. Routes: **`POST /api/interview/tts`**, **`GET /api/interview/tts-filler`**. **Fillers:** **`warmInterviewFillerCache()`** at server start + **`getPreCachedFillerMp3`** when available. **Product relevance:** natural voice improves **question comprehension**; fillers mask **Gemini** latency. **Client:** ~**520ms** cooldown after TTS before re-enabling mic (**`POST_AI_SPEECH_COOLDOWN_MS`**) so Whisper does not transcribe **TTS** as the candidate. |
+| **5s review / edit transcript before send** | No | Spec’d in Part D §5 for a typed+voice hybrid; v2 Expert path is **submit when ready** (draft + optional multi-segment voice) without a mandatory review gate. |
+| **Typed answer mode** | Yes (Expert) | **`ExpertInterviewStage`:** **`verificationRoleType`** from **`VerificationFlow`** — **non-technical** defaults **`inputMode: typed`**; **technical** / **data** default **voice**, with UI toggle. **`POST /api/interview/v2/turn`** accepts **`inputMode: "voice" \| "typed"`**. |
 
-**Production checklist (operator):** set `GEMINI_API_KEY`, optional `DEEPGRAM_API_KEY`, optional `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` on the API service so candidates get cloud STT/TTS instead of browser-only fallbacks.
+**Production checklist (operator):** **`GEMINI_API_KEY`** (interview intelligence); **`OPENAI_API_KEY`** (Whisper **`/transcribe`** for Expert + AI Skills voice); **`CARTESIA_*`** (primary TTS) and/or **`ELEVENLABS_*`** (fallback TTS); optional **`DEEPGRAM_API_KEY`** only if product wires live Deepgram on a surface.
 
 #### 3.4.4 Proctoring, anti-gaming, and integrity
 
@@ -167,11 +168,12 @@ This section is the **single place** in the main PRD for what the AI interview i
 | Method | Path | Role |
 |--------|------|------|
 | POST | `/api/interview/v2/start` | Create session + first sprint question (auth, job seeker). |
-| POST | `/api/interview/v2/turn` | Submit answer (`inputMode: voice`), receive next question or completion. |
-| POST | `/api/interview/v2/partial` | Optional prefetch while user is still speaking. |
-| GET | `/api/interview/deepgram-token` | Returns `{ token }` or `{ token: null }` for browser STT fallback. |
-| POST | `/api/interview/tts` | MP3 stream or JSON `{ fallback: true }` for browser TTS. |
-| GET | `/api/interview/tts-filler` | Short filler line while model thinks. |
+| POST | `/api/interview/v2/turn` | Submit answer text (`inputMode: voice` \| `typed`), optional **`whisperLatencyMs`**, **`turnId`**, paste/time telemetry; receive next question or completion. |
+| POST | `/api/interview/v2/partial` | Optional prefetch while user is still speaking (used with Deepgram/live paths when wired). |
+| GET | `/api/interview/deepgram-token` | Returns `{ token }` or `{ token: null }` for browser live STT (alternate path). |
+| POST | `/api/interview/transcribe` | Multipart **audio** → **OpenAI Whisper** transcript (+ confidence); used by **`useWhisperSession`** on Expert + AI Skills stages. |
+| POST | `/api/interview/tts` | MP3 stream (**Cartesia** or **ElevenLabs**) or JSON `{ fallback: true, text }` for browser TTS. |
+| GET | `/api/interview/tts-filler` | Short filler line while model thinks (precached MP3 when warmed). |
 | POST | `/api/interview/ai-skills/start` | AI Skills session (optional `isDataTrack`; stage must be in progress). |
 | POST | `/api/interview/ai-skills/turn` | AI Skills answer turn. |
 | GET | `/api/interview/ai-skills/status` | Resume AI Skills session. |
@@ -187,8 +189,8 @@ This section is the **single place** in the main PRD for what the AI interview i
 | Data-track + non-technical calibration (sprints, `generateSprintQuestion`, `evaluateFullInterview` meta) | Done |
 | Data System Design session (data track) | Done — see §3.0.1 |
 | Software System Design stage (`system_design_interview`) | Partial — UI may remain placeholder until software session ships |
-| Role + experience level on start | Done |
-| Cloud STT/TTS + browser fallbacks | Partial — ElevenLabs + Deepgram live; **Cartesia** (spec §12) not yet; Deepgram model **nova-2** in client until **nova-3** (see `PRD.md` (Part D — AI Expert Interview) §16) |
+| Role + experience on start (Expert) | Done — **v6.8:** profile-driven **`jobRole`** / derived **`experienceLevel`** when non-tech, data, or profile has **`targetJobTitle`**; otherwise software role dropdown (`ExpertInterviewStage` + `VerificationFlow`). |
+| Cloud STT/TTS + browser fallbacks | **STT:** **OpenAI Whisper** (segmented) is **primary** on Expert + AI Skills UIs; **Deepgram** live is optional and **not** wired to those stages. **TTS:** **Cartesia** → **ElevenLabs** → browser (`tts.service.ts`). Part D §16 “Deepgram nova-2/3 on Expert” is **not** current for verification Expert UI — see §3.4.9. |
 | Camera + proctoring hooks + face/phone | Done |
 | Final Gemini evaluation + badge/score UI | Done |
 | Question bank DB + admin CRUD | Partial (schema + legacy plan path; not driving v2 orchestrator) |
@@ -210,6 +212,64 @@ The live screen should read as **voice-first**, not a static form. Recommended p
 6. **Accessibility:** Keyboard target for replay; respect `prefers-reduced-motion` for pulsers.
 
 Detailed task checklist and data model notes remain in **`PRD.md` (Part D — AI Expert Interview)** (especially Part B §16).
+
+#### 3.4.9 AI interviews — questions asked, relevance, STT/TTS, and answer process
+
+**Scope:** Verification surfaces that use **in-browser voice + server intelligence** together: **AI Expert Interview** (`ExpertInterviewStage`, **v2** adversarial) and **AI Skills Interview** (`AISkillsInterviewStage`). **Data System Design** is primarily **typed** with optional TTS on questions — see §3.0.1. Legacy **`POST /api/interview/start`** + **`respond`** question plans are separate (§3.4.2).
+
+##### What questions are asked (structure and sources)
+
+1. **AI Expert (v2)** — `server/src/services/interview/orchestrator.ts`, `agents.ts`, **`startAdversarialInterview`** / **`processTurn`**:
+   - **Three sprints**, each with a **persona** (`curious_lead`, `socratic_mentor`, `senior_peer`) and a **track-specific static opener** (`SPRINT_OPENERS`, `NON_TECH_OPENERS`, or `DATA_OPENERS`).
+   - **Technical:** Project Defense → Foundations → System Design scenarios.
+   - **Non-technical:** Experience Defense → Domain Foundations → stakeholder/scenario sprint.
+   - **Data:** Data project → technical depth → data systems at scale.
+   - **Up to 15** scored question turns (**5 per sprint**), **30-minute** wall-clock cap, and completion rules in **`isInterviewComplete`**.
+   - **After each answer**, parallel **Gemini** calls: **`detectWeakness`**, **`checkDiscrepancy`** (resume vs answer), **`evaluateReasoning`**, **`extractConcepts`**; then **`applyReasoningHonestyCap`**. The **next question** is chosen by the **priority chain** (Part D §4): high-severity **discrepancy** probe (new **`resumeClaim`**) → high-severity **weakness** probe → **question-bank deepen** via **`adaptFollowup`** → **prefetch** if **`isStillRelevant`** → else **`generateSprintQuestion`** with **`nonTechnical` / `subtrack` / `dataTrack` / `dataSubtrack`**. On sprint boundary, the next **opener** is injected and **`findFollowupsForQuestionText`** loads templates for that line.
+   - **Resume context** — **`buildResumeContext`**: target title, years, skills, work JSON, **`nonTechSubtrack`** or **`dataSubtrack`** from title detection — keeps LLM prompts **aligned to the candidate’s stated role**.
+
+2. **AI Skills** — `aiSkillsOrchestrator.ts`; APIs **`/api/interview/ai-skills/*`**. Part A grounded in **DSA submission** (software) or **Data Round** (data); Part B deepens skills. Same **Whisper + TTS** client stack as Expert (§3.4.3).
+
+##### How relevance is preserved (questions stay on-topic and non-repetitive)
+
+| Mechanism | Role |
+|-----------|------|
+| **`isStillRelevant`** | Prefetch candidate must overlap **extracted concepts** or substantive words with the user’s answer — avoids irrelevant prefetched lines. |
+| **`isNearDuplicateQuestion`** | Drops prefetches too similar to **recent asked** questions. |
+| **`resolveDistinctQuestion`** | Regenerates if the model would duplicate a prior prompt. |
+| **`probedClaims`** | Avoids repeating the same **resume discrepancy** probe. |
+| **Consecutive high same-type weakness** | **`forceSprintQuestion`** + **`pivoting`** — escapes interrogation loops. |
+| **`findFollowupsForQuestionText`** | Deepening templates tied to the **actual** question string. |
+| **Fragment handling** | Very short answers: **`fragmentRetry`** without advancing the adversarial pipeline unfairly. |
+| **Subtracks** | **`detectNonTechSubtrack`** / **`detectDataSubtrack`** — narrows marketing vs HR vs analytics-style calibration passed into **`generateSprintQuestion`** / evaluation meta. |
+
+##### Text-to-speech — stack and product relevance
+
+| Layer | Implementation | Relevance |
+|-------|----------------|-----------|
+| **Server synthesis** | **Cartesia** primary, **ElevenLabs** second, else instruct client to **`speechSynthesis`** | Candidates **hear** adversarial questions clearly; reduces mis-scores from “couldn’t parse audio” |
+| **Fillers + cache** | **`tts-filler`** + **`warmInterviewFillerCache`** | Masks **Gemini** latency; feels continuous |
+| **Client timing** | Cooldown after TTS before mic; **sequential** ack → gap → main question | Prevents **STT pollution** from speaker audio; avoids stale **`turnId`** races |
+
+##### Speech-to-text — stack and product relevance
+
+| Layer | Implementation | Relevance |
+|-------|----------------|-----------|
+| **Segmented capture** | **VAD** ~1.5s silence, **WebM/Opus** blob, **Whisper** `whisper-1` | **High-fidelity** text for **weakness** and **discrepancy** agents |
+| **Telemetry** | **`whisperLatencyMs`** on **`v2/turn`** | **turnLog** / ops visibility |
+| **vs live streaming** | **Deepgram** not used on these stages today | Trade-off: **latency vs accuracy** — product chose **accuracy** for verification |
+
+##### End-to-end: answering one turn (AI Expert v2)
+
+1. **Start:** User gesture → optional **fullscreen** → **`getUserMedia`**. **`POST /api/interview/v2/start`** with **`jobRole`** and **`experienceLevel`** (from **profile** when UI skips pickers — §3.4.1). Server creates row, returns first **question** + sprint meta.
+2. **Listen to AI:** **`POST /api/interview/tts`** (or browser fallback); Whisper **paused** during AI floor.
+3. **Voice answer:** **`user_speaking`** floor; segments transcribed → draft; user **Submit** when ready (multi-segment answers concatenate). Optional **silence nudge** TTS if idle.
+4. **Typed answer:** **`inputMode: typed`**; compose in **textarea**, Submit (no **`whisperLatencyMs`** for that turn).
+5. **Turn:** **`POST /api/interview/v2/turn`** with **answer**, **`inputMode`**, **`turnId`**, optional telemetry. Server **`processTurn`**, persists **`InterviewMessage`**, returns **acknowledgement** + **response** (next question) or completion / **`fragmentRetry`** / **`timeExpired`** / **`pivoting`**.
+6. **Audio chain:** Play acknowledgement TTS, short gap, play question TTS; **abort** if **`turnId`** stale.
+7. **Completion:** Multi-pass **`evaluateFullInterview`**, badge/score UI, human-gate **`pending_review`** where applicable, optional **request-review**.
+
+**AI Skills:** Same **Whisper + TTS** pattern; submits to **`/api/interview/ai-skills/turn`** instead of **`v2/turn`**.
 
 ---
 
@@ -1032,7 +1092,7 @@ In-app video (Meet link only), Razorpay **payout** to interviewers, full dossier
 
 ---
 
-*PRD v6.7 — April 2026 — consolidated doc set*
+*PRD v6.8 — April 2026 — consolidated doc set*
 
 ---
 
@@ -2778,8 +2838,8 @@ Each step is independently valuable and shippable.
 
 | Capability | Target / spec | Repo status (April 2026) |
 |------------|---------------|---------------------------|
-| **STT (verification ExpertInterviewStage)** | Accurate, segmented capture without coupling to live partials | **Primary:** **`useWhisperSession`** — browser records audio in segments with pause detection, **`POST /api/interview/transcribe`** (**OpenAI Whisper**, `whisper.service.ts`). UI guides “pause ~1.5s” to finalize segments; client debounces TTS tail so model audio is not transcribed as the user. |
-| **STT (alternate hook, not wired to Expert stage UI)** | Live streaming + prefetch | **`useDeepgramSession.ts`** + **`GET /api/interview/deepgram-token`** (**nova-3** JWT) + **`/v2/partial`** for prefetch — **not imported** by `ExpertInterviewStage.tsx` today; reserved for future live room UX or other surfaces. |
+| **STT (verification Expert + AI Skills stages)** | Accurate, segmented capture without coupling to live partials | **Primary:** **`useWhisperSession`** — browser records audio in segments with pause detection, **`POST /api/interview/transcribe`** (**OpenAI Whisper**, `whisper.service.ts`). UI guides “pause ~1.5s” to finalize segments; client debounces TTS tail so model audio is not transcribed as the user. **`ExpertInterviewStage.tsx`** and **`AISkillsInterviewStage.tsx`**. |
+| **STT (alternate hook, not wired to Expert / AI Skills UI)** | Live streaming + prefetch | **`useDeepgramSession.ts`** + **`GET /api/interview/deepgram-token`** (**nova-3** JWT) + **`/v2/partial`** for prefetch — **not imported** by Expert or AI Skills stages today; reserved for future live room UX or other surfaces. |
 | **TTS** | **Cartesia** primary → **ElevenLabs** → browser `speechSynthesis` | **`tts.service.ts`**: Cartesia first, then ElevenLabs; **`200` + `{ fallback: true, text }`** for browser TTS. |
 | **Filler phrases** | Instant masking before main TTS | **`warmInterviewFillerCache()`** on server startup pre-synthesizes MP3s; **`GET /api/interview/tts-filler`** returns **cached buffer** when available, else live TTS. |
 
@@ -2795,10 +2855,10 @@ Each step is independently valuable and shippable.
 - `POST /api/interview/v2/turn` — body may include **`turnId`** (client UUID); response echoes **`turnId`** for stale-response discard. Optional telemetry: **`inputMode`** (`voice` \| `typed`), **`pasteCount`**, **`timeToSubmitSeconds`**, **`whisperLatencyMs`** (segment STT latency for **`turnLog`**), **`audioUrl`**, **`transcriptionConfidence`**. Fire-and-forget **`handlePartialTranscript`** on the **full** answer (same prefetch warmup as partials). Response may include **`pivoting`**, **`fragmentRetry`**, **`timeExpired`** (when the 30-minute cap triggers completion), and **`acknowledgement`** (split from main **`response`** for sequential TTS).
 - `POST /api/interview/v2/partial` — STT partials for prefetch only.
 - `POST /api/interview/:id/request-review` — candidate dispute / second look (**auth**, **job-seeker**): **`reason`** 10–500 chars; within **7 days** of completion; **409** if already requested; sets **`reviewRequestedAt`**, **`reviewRequestReason`**, **`reviewFlag`**, **`reviewReason: candidate_dispute`**.
-- `GET /api/interview/deepgram-token` — browser STT credential.
-- `POST /api/interview/tts` — AI voice line (ElevenLabs or fallback flag).
-- `GET /api/interview/tts-filler` — filler line.
-- `POST /api/interview/transcribe` — **Whisper** transcription of user audio (multipart); used by expert stage segmented capture.
+- `GET /api/interview/deepgram-token` — browser **Deepgram** live STT credential (alternate path — not used by Expert/AI Skills UIs today).
+- `POST /api/interview/tts` — AI voice: **MP3** stream (**Cartesia** or **ElevenLabs**) or JSON **`{ fallback: true, text }`** for browser **`speechSynthesis`**.
+- `GET /api/interview/tts-filler` — filler line (precached MP3 when warmed).
+- `POST /api/interview/transcribe` — **OpenAI Whisper** transcription of user audio (multipart); used by **`useWhisperSession`** on **Expert** and **AI Skills** stages.
 
 **Admin (human gate):** `GET /api/admin/ai-interview-queue/pending`, `POST /api/admin/ai-interview-queue/:id/approve`, `POST .../reject` — see `humanInterviewGate.service.ts`.
 
@@ -2806,7 +2866,7 @@ Each step is independently valuable and shippable.
 
 **v1 (legacy):** `POST /api/interview/start`, `POST /api/interview/respond`, result endpoints—as documented in `PRD.md` (Part D) `#part-b--detailed-specification` Appendix A.
 
-**Frontend:** `src/pages/verification/stages/ExpertInterviewStage.tsx` — **`useWhisperSession`** (passes **`whisperLatencyMs`** into **`onFinal`** for **`/v2/turn`**), **`useProctoringRiskMonitor`**, client **`turnId`** with **stale discard on response and again after acknowledgement TTS / gap / before main question TTS**, **~5s silence nudge** while listening, **`timeExpired`** banner, **request-review** UI after completion. **`useDeepgramSession.ts`** exists but is **not** mounted on the expert stage today.
+**Frontend:** `src/pages/verification/stages/ExpertInterviewStage.tsx` — **`useWhisperSession`** (passes **`whisperLatencyMs`** into **`onFinal`** for **`/v2/turn`**), **`useProctoringRiskMonitor`**, client **`turnId`** with **stale discard on response and again after acknowledgement TTS / gap / before main question TTS**, **~5s silence nudge** while listening, **`timeExpired`** banner, **request-review** UI after completion. **`VerificationFlow.tsx`** passes **`verificationRoleType`** and **`experienceYears`** so non-technical/data/profile-title candidates skip the software role dropdown and send **profile-aligned** **`jobRole`** / derived **`experienceLevel`** to **`v2/start`**. **`AISkillsInterviewStage.tsx`** uses the **same** Whisper + TTS client pattern with **`/api/interview/ai-skills/turn`**. **`useDeepgramSession.ts`** exists but is **not** mounted on Expert or AI Skills stages today.
 
 **Candidate result metadata:** `GET /api/interview/:id/result` includes **`completedAt`**, **`reviewRequestedAt`** (for gating the review CTA).
 
@@ -2889,6 +2949,8 @@ Remaining vs product wishlist (not blockers for current production path):
 | **Routes (v1.3)** | **`v2/turn`**: **`whisperLatencyMs`**, fire-and-forget **`handlePartialTranscript`** on full answer; **`request-review`** validation (409 duplicate). **`GET /:id/result`**: **`completedAt`**, **`reviewRequestedAt`**. |
 | **Admin (v1.3)** | **`GET /admin/questions/analytics`** (join bank, discrimination flags); **`GET /admin/interviews/:id/replay`**; UI **`InterviewReplayView`** + **`AIInterviewReview`** replay + analytics table. |
 | **Frontend (v1.3)** | Silence nudge; **turnId** re-check after ack / gap / before question TTS; **`whisperLatencyMs`** from last segment; **time-expired** banner; **request-review** form. |
+| **PRD + Expert UX (v6.8)** | **`PRD.md` Part A §3.4.9** — questions, relevance mechanics, STT/TTS rationale, step-by-step answer flow; **§3.4.3** corrected to **OpenAI Whisper** (primary) + **Cartesia→ElevenLabs** TTS. **`VerificationFlow.tsx`** → **`ExpertInterviewStage`**: **`verificationRoleType`**, **`experienceYears`**, profile-driven **`v2/start`** when non-tech / data / non-empty **`targetJobTitle`**. |
+| **AI Skills (doc parity)** | **`AISkillsInterviewStage`** documented as sharing **`useWhisperSession`** + **`/transcribe`** + interview TTS routes (§3.4.9). |
 
 ---
 
@@ -3449,7 +3511,7 @@ Executed in parallel after each candidate answer:
 
 ## 11.6 Prefetch
 
-On **final** partials from Deepgram (and `/v2/partial`): extract concepts, enqueue ~2 candidate follow-ups in memory (`prefetchCache`), **Flash-only** — no weakness evaluation on partials.
+On **`/v2/partial`** payloads and **fire-and-forget** **`handlePartialTranscript`** after a **committed** answer: extract concepts, enqueue ~2 candidate follow-ups in memory (`prefetchCache`), **Flash-only** — no weakness evaluation on partials. **Production Expert UI** primarily supplies text via **Whisper segments**; **Deepgram** final partials are the historical/spec path when a client mounts **`useDeepgramSession`**.
 
 ## 11.7 Interview state
 
@@ -3465,7 +3527,18 @@ Stored in `Interview.questionPlan` JSON (single object in array): `sprint`, `per
 
 # Section 12 — Voice architecture
 
-## 12.1 STT — Deepgram nova-3
+## 12.0 Verification STT path (shipped — Expert + AI Skills)
+
+**What candidates use today** on **`ExpertInterviewStage`** and **`AISkillsInterviewStage`**:
+
+- **Capture:** `MediaRecorder` + RMS **VAD** (~**1.5s** silence) in **`useWhisperSession.ts`**.
+- **Transcription:** **`POST /api/interview/transcribe`** → **OpenAI** **`whisper-1`** (`whisper.service.ts`), English, verbose JSON → transcript + **high/medium/low** confidence.
+- **Relevance:** Segmented post-hoc STT prioritizes **accurate text** for Gemini **weakness / discrepancy / reasoning** agents over streaming partial latency.
+- **Telemetry:** Last segment **`whisperLatencyMs`** attached to **`/v2/turn`** or AI Skills **`turn`** for **`turnLog`**.
+
+**§12.1** below describes the **alternate Deepgram live** architecture (prefetch / future surfaces); it is **not** the active mic path on these verification stages unless product rewires the client.
+
+## 12.1 STT — Deepgram nova-3 (alternate / target live path)
 
 - **Transport:** Browser `WebSocket` to `wss://api.deepgram.com/v1/listen` — audio **does not** go through ProvenHire API.
 - **Auth:** Backend `GET /api/interview/deepgram-token` returns credentials for the browser (see §13.4 implementation note).
@@ -3614,8 +3687,9 @@ This section is the **engineering** view of §§11–15 above. Update when shipp
 | STT echo / tail mitigation | §12.8 | **Shipped** — post-TTS mic cooldown + `scrubSttEcho` in `ExpertInterviewStage.tsx` |
 | Turn ID stale response discard | §12.5, §13.2 | **Shipped** — client sends `turnId` (UUID); server echoes `turnId`; UI drops mismatched responses **and** re-checks after acknowledgement TTS, post-gap, and before main question TTS |
 | Floor + TTS abort | §12.2 | **Shipped** — `AbortController` in `ExpertInterviewStage` + `useWhisperSession` discard while AI speaks |
-| Primary STT (Expert Interview UI) | §12.1 | **Shipped** — OpenAI Whisper via **`useWhisperSession`** + **`POST /api/interview/transcribe`** (segmented upload); segment latency passed as **`whisperLatencyMs`** on **`v2/turn`** for server **`turnLog`** |
-| Deepgram **nova-3** / live WS STT | §12.1 | **Alternate path** — **`useDeepgramSession.ts`** + **`/api/interview/deepgram-token`**; not wired into **`ExpertInterviewStage`** today |
+| Primary STT (Expert + AI Skills UIs) | §12.0 | **Shipped** — OpenAI Whisper via **`useWhisperSession`** + **`POST /api/interview/transcribe`** (segmented upload); segment latency passed as **`whisperLatencyMs`** on **`v2/turn`** or **`ai-skills/turn`** for server **`turnLog`** |
+| Deepgram **nova-3** / live WS STT | §12.1 | **Alternate path** — **`useDeepgramSession.ts`** + **`/api/interview/deepgram-token`**; not wired into **`ExpertInterviewStage`** or **`AISkillsInterviewStage`** today |
+| Expert **`v2/start` context from profile | Part A §3.4.1 | **Shipped** — **`VerificationFlow`** passes **`verificationRoleType`** + **`experienceYears`**; read-only role summary + profile **`jobRole`** / derived **`experienceLevel`** when non-tech, data, or non-empty **`targetJobTitle`** |
 | Cartesia TTS primary | §12.3 | **Shipped** — **`server/src/services/tts.service.ts`** (Cartesia → ElevenLabs); routes stream in `interview.ts` |
 | TTS fallback shape | §13.5 | **Shipped** — `200` + `{ fallback: true }` + browser TTS (differs from spec `503`) |
 | Filler TTS pre-cached at startup | §12.4 | **Shipped** — `warmInterviewFillerCache()` in server bootstrap; **`GET /api/interview/tts-filler`** |
@@ -3661,5 +3735,6 @@ Sections **1–15** are the target product spec; **§16** tracks repository drif
 | 3.0.1 | **§16** + §13.4/13.5 **implementation notes** (JWT token shape, ElevenLabs-only TTS until Cartesia) |
 | 3.0.2 | **§12.8** production voice UX (sanitization, STT echo); **§16** refreshed (30m cap, turnId, Cartesia, filler warm, Whisper primary STT); header STT note; §13.5–13.6 aligned with **`tts.service.ts`** |
 | 3.0.3 | **§16** — multi-pass eval, v2 integrity merge, turn timing / `whisperLatencyMs`, v2 per-question rows, `timeExpired`, silence nudge, review-request route + UI, admin analytics & replay; cross-ref **`PRD.md` (Part D) Part A v1.3** |
+| 3.0.4 | **PRD v6.8 (Part A):** §3.4.9 end-to-end AI interview doc (questions, relevance, STT/TTS, answer flow); §3.4.3 STT/TTS aligned with **Whisper** + **Cartesia** stack; Expert profile-driven **`v2/start`**. **Part D:** §6 API/frontend lines; **§12.0** verification STT vs **§12.1** Deepgram alternate; §11.6 prefetch note; Part A §12 changelog rows. |
 
-*PRD v3.0.3 — April 2026 | ProvenHire Product Team*
+*PRD v3.0.4 — April 2026 | ProvenHire Product Team*

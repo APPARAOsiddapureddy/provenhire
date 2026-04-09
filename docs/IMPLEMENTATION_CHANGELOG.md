@@ -6,6 +6,13 @@
 
 ## April 2026
 
+### PRD v6.8 — AI interviews (documentation + Expert profile context)
+
+| Change | Location |
+|--------|----------|
+| **PRD.md v6.8:** Part A **§3.4.1** (track-specific sprints, voice vs typed, **profile-driven `v2/start`**). **§3.4.3** — **OpenAI Whisper** segmented STT + **Cartesia→ElevenLabs→browser** TTS; operator checklist updated. **§3.4.6** — **`/transcribe`**, **`v2/turn`** **`inputMode`**. **§3.4.7** — matrix aligned with shipped STT/TTS. **§3.4.9** — full **questions asked**, **relevance** (`isStillRelevant`, duplicates, probes, subtracks), **TTS/STT product relevance**, **step-by-step answer process** (Expert v2 + AI Skills pointer). **Part D** §5–§6, **§12.0** vs **§12.1** STT, **§11.6** prefetch, Part A §12 changelog, document history **3.0.4**. | [`PRD.md`](PRD.md) |
+| **Expert Interview UI** — `verificationRoleType` + `experienceYears` from **`VerificationFlow`**; skip software role dropdown for non-tech / data / profile title; read-only summary. | [`VerificationFlow.tsx`](../src/pages/verification/VerificationFlow.tsx), [`ExpertInterviewStage.tsx`](../src/pages/verification/stages/ExpertInterviewStage.tsx) |
+
 ### Data track & system design (PRD v6.7 + code)
 
 | Change | Location |
