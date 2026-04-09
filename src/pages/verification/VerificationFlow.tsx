@@ -901,6 +901,8 @@ const VerificationFlow = () => {
               <>
             <ExpertInterviewStage
               targetJobTitle={targetJobTitle}
+              experienceYears={experienceYears}
+              verificationRoleType={roleType}
               onInterviewAwaitingReview={async () => {
                 await loadVerificationStages();
                 handleReturnToDashboard();

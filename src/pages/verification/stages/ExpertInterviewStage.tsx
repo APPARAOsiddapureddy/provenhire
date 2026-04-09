@@ -84,8 +84,42 @@ const INTERVIEW_ROLES = [
   "Other Technical Role",
 ];
 
+function experienceLevelFromYears(years: number | undefined | null): "junior" | "mid" | "senior" {
+  if (years == null || Number.isNaN(years) || years < 0) return "mid";
+  if (years < 2) return "junior";
+  if (years < 5) return "mid";
+  return "senior";
+}
+
+function defaultJobRoleWhenNoTitle(vrt: "technical" | "non_technical" | "data"): string {
+  if (vrt === "non_technical") return "Professional role";
+  if (vrt === "data") return "Data professional";
+  return "Software Engineer";
+}
+
+function initialJobRole(
+  title: string | undefined,
+  vrt: "technical" | "non_technical" | "data"
+): string {
+  const t = title?.trim() ?? "";
+  if (t) return t;
+  return defaultJobRoleWhenNoTitle(vrt);
+}
+
+function interviewSetupDescription(vrt: "technical" | "non_technical" | "data"): string {
+  if (vrt === "non_technical") {
+    return "Structured interview about your experience and fit for your target role. Typed answers. Camera required for proctoring.";
+  }
+  if (vrt === "data") {
+    return "Multi-part interview covering your data background, depth, and reasoning. Voice-first. Camera required for proctoring.";
+  }
+  return "3-sprint adversarial interview — Project Defense → Foundations → System Design. Voice-first. Camera required for proctoring.";
+}
+
 export interface ExpertInterviewStageProps {
   targetJobTitle?: string;
+  /** Profile years of experience — used when role/experience pickers are skipped. */
+  experienceYears?: number;
   /** Verification track — non-tech defaults to typed answers; technical defaults to voice. */
   verificationRoleType?: "technical" | "non_technical" | "data";
   onReturnToDashboard?: () => void;
@@ -258,6 +292,7 @@ function fallbackBrowserTTS(text: string, signal?: AbortSignal): Promise<void> {
 
 export default function ExpertInterviewStage({
   targetJobTitle = "",
+  experienceYears,
   verificationRoleType = "technical",
   onReturnToDashboard,
   onInterviewAwaitingReview,
@@ -266,10 +301,27 @@ export default function ExpertInterviewStage({
   const { user } = useAuth();
   const { getMode } = useFeatureFlags();
 
-  const [jobRole, setJobRole] = useState(
-    targetJobTitle && INTERVIEW_ROLES.includes(targetJobTitle) ? targetJobTitle : "Software Engineer"
+  const hasProfileTitle = Boolean(targetJobTitle?.trim());
+  const skipRoleSetup =
+    verificationRoleType === "non_technical" ||
+    verificationRoleType === "data" ||
+    hasProfileTitle;
+
+  const [jobRole, setJobRole] = useState(() => initialJobRole(targetJobTitle, verificationRoleType));
+  const [experienceLevel, setExperienceLevel] = useState<"junior" | "mid" | "senior">(() =>
+    experienceLevelFromYears(experienceYears)
   );
-  const [experienceLevel, setExperienceLevel] = useState<"junior" | "mid" | "senior">("mid");
+
+  useEffect(() => {
+    if (!skipRoleSetup) return;
+    const t = targetJobTitle?.trim();
+    setJobRole(t || defaultJobRoleWhenNoTitle(verificationRoleType));
+  }, [targetJobTitle, verificationRoleType, skipRoleSetup]);
+
+  useEffect(() => {
+    if (!skipRoleSetup) return;
+    setExperienceLevel(experienceLevelFromYears(experienceYears));
+  }, [experienceYears, skipRoleSetup]);
 
   const [interviewId, setInterviewId] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
@@ -790,7 +842,11 @@ export default function ExpertInterviewStage({
         sprintName: string;
         persona: string;
       }>("/api/interview/v2/start", {
-        jobRole: jobRole === "Other Technical Role" ? targetJobTitle || "Software Engineer" : jobRole,
+        jobRole: skipRoleSetup
+          ? targetJobTitle?.trim() || jobRole
+          : jobRole === "Other Technical Role"
+            ? targetJobTitle || "Software Engineer"
+            : jobRole,
         experienceLevel,
       });
 
@@ -923,47 +979,61 @@ export default function ExpertInterviewStage({
             <Shield className="h-5 w-5 text-primary" />
             AI Expert Interview
           </CardTitle>
-          <CardDescription>
-            3-sprint adversarial interview — Project Defense → Foundations → System Design. Voice-first. Camera
-            required for proctoring.
-          </CardDescription>
+          <CardDescription>{interviewSetupDescription(verificationRoleType)}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {!started && (
             <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Target role</label>
-                <Select value={jobRole} onValueChange={setJobRole}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {INTERVIEW_ROLES.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Experience level</label>
-                <Select
-                  value={experienceLevel}
-                  onValueChange={(v) => setExperienceLevel(v as "junior" | "mid" | "senior")}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EXPERIENCE_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {skipRoleSetup ? (
+                <div className="rounded-lg border border-border/80 bg-muted/25 px-4 py-3 text-sm space-y-1.5">
+                  <p>
+                    <span className="text-muted-foreground">Target role: </span>
+                    <span className="font-medium text-foreground">{targetJobTitle?.trim() || jobRole}</span>
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Experience: </span>
+                    <span className="font-medium text-foreground">
+                      {EXPERIENCE_OPTIONS.find((o) => o.value === experienceLevel)?.label ?? experienceLevel}
+                    </span>
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Target role</label>
+                    <Select value={jobRole} onValueChange={setJobRole}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {INTERVIEW_ROLES.map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {r}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Experience level</label>
+                    <Select
+                      value={experienceLevel}
+                      onValueChange={(v) => setExperienceLevel(v as "junior" | "mid" | "senior")}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EXPERIENCE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
               <div className="flex gap-2 flex-wrap">
                 <Button onClick={() => void startInterview()} disabled={loading} size="lg">
                   {loading ? "Starting..." : "Start Interview →"}
