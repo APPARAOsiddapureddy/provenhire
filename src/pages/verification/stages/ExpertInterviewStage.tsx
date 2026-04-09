@@ -8,7 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useWhisperSession } from "@/hooks/useWhisperSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
-import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock, Send } from "lucide-react";
+import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock, Send, Keyboard } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 const PERSONA_DESC: Record<string, string> = {
@@ -86,6 +86,8 @@ const INTERVIEW_ROLES = [
 
 export interface ExpertInterviewStageProps {
   targetJobTitle?: string;
+  /** Verification track — non-tech defaults to typed answers; technical defaults to voice. */
+  verificationRoleType?: "technical" | "non_technical" | "data";
   onReturnToDashboard?: () => void;
   onInterviewAwaitingReview?: () => void;
   onPaywallRequired?: (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => void;
@@ -256,6 +258,7 @@ function fallbackBrowserTTS(text: string, signal?: AbortSignal): Promise<void> {
 
 export default function ExpertInterviewStage({
   targetJobTitle = "",
+  verificationRoleType = "technical",
   onReturnToDashboard,
   onInterviewAwaitingReview,
   onPaywallRequired,
@@ -295,6 +298,12 @@ export default function ExpertInterviewStage({
   const [remainingMinutes, setRemainingMinutes] = useState<number | null>(null);
   /** Committed voice segments (finalized STT). Live line is `partial`. Submit sends draft + partial. */
   const [answerDraft, setAnswerDraft] = useState("");
+  const [answerInputMode, setAnswerInputMode] = useState<"voice" | "typed">(() =>
+    verificationRoleType === "non_technical" ? "typed" : "voice"
+  );
+  const answerInputModeRef = useRef(answerInputMode);
+  answerInputModeRef.current = answerInputMode;
+  const isTypedAnswer = answerInputMode === "typed";
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -429,9 +438,14 @@ export default function ExpertInterviewStage({
         await new Promise<void>((r) => setTimeout(r, POST_AI_SPEECH_COOLDOWN_MS));
       }
       if (!ac.signal.aborted) {
-        whisperSession.setCaptureEnabled(true);
-        whisperSession.transition("user_speaking");
-        whisperSession.resumeListening();
+        if (answerInputModeRef.current === "typed") {
+          whisperSession.setCaptureEnabled(false);
+          whisperSession.transition("user_speaking");
+        } else {
+          whisperSession.setCaptureEnabled(true);
+          whisperSession.transition("user_speaking");
+          whisperSession.resumeListening();
+        }
       }
     },
     [whisperSession]
@@ -441,9 +455,14 @@ export default function ExpertInterviewStage({
   const speakAckThenQuestion = useCallback(
     async (expectedTurnId: string, acknowledgement: string | null | undefined, question: string) => {
       const resumeListeningAfterStale = () => {
-        whisperSession.setCaptureEnabled(true);
-        whisperSession.transition("user_speaking");
-        whisperSession.resumeListening();
+        if (answerInputModeRef.current === "typed") {
+          whisperSession.setCaptureEnabled(false);
+          whisperSession.transition("user_speaking");
+        } else {
+          whisperSession.setCaptureEnabled(true);
+          whisperSession.transition("user_speaking");
+          whisperSession.resumeListening();
+        }
       };
 
       window.speechSynthesis?.cancel();
@@ -488,9 +507,14 @@ export default function ExpertInterviewStage({
         await new Promise<void>((r) => setTimeout(r, POST_AI_SPEECH_COOLDOWN_MS));
       }
       if (!ac.signal.aborted) {
-        whisperSession.setCaptureEnabled(true);
-        whisperSession.transition("user_speaking");
-        whisperSession.resumeListening();
+        if (answerInputModeRef.current === "typed") {
+          whisperSession.setCaptureEnabled(false);
+          whisperSession.transition("user_speaking");
+        } else {
+          whisperSession.setCaptureEnabled(true);
+          whisperSession.transition("user_speaking");
+          whisperSession.resumeListening();
+        }
       }
     },
     [whisperSession]
@@ -499,12 +523,18 @@ export default function ExpertInterviewStage({
   const submitAnswer = useCallback(async () => {
     const id = interviewIdRef.current;
     if (processingRef.current || !id) return;
-    if (whisperSession.floor !== "user_speaking") return;
+    const typed = answerInputModeRef.current === "typed";
+    if (!typed && whisperSession.floor !== "user_speaking") return;
     if (turnInFlight) return;
 
-    const composed = [answerDraftRef.current, partial].filter(Boolean).join(" ").trim();
+    const composed = typed
+      ? answerDraftRef.current.trim()
+      : [answerDraftRef.current, partial].filter(Boolean).join(" ").trim();
     if (!composed) {
-      toast.error("Speak your answer, then tap submit when you are done.", { duration: 2800 });
+      toast.error(
+        typed ? "Type your answer in the box, then submit." : "Speak your answer, then tap submit when you are done.",
+        { duration: 2800 }
+      );
       return;
     }
 
@@ -553,10 +583,10 @@ export default function ExpertInterviewStage({
       }>("/api/interview/v2/turn", {
         interviewId: id,
         answer: composed,
-        inputMode: "voice",
+        inputMode: typed ? "typed" : "voice",
         timeToSubmitSeconds: timeToSubmit,
         turnId,
-        whisperLatencyMs: lastWhisperLatencyMsRef.current,
+        ...(typed ? {} : { whisperLatencyMs: lastWhisperLatencyMsRef.current }),
       });
 
       fillerAc.abort();
@@ -689,14 +719,7 @@ export default function ExpertInterviewStage({
       processingRef.current = false;
       setTurnInFlight(false);
     }
-  }, [
-    whisperSession,
-    partial,
-    turnInFlight,
-    onInterviewAwaitingReview,
-    speakAckThenQuestion,
-    clearSilenceNudgeTimer,
-  ]);
+  }, [whisperSession, partial, turnInFlight, onInterviewAwaitingReview, speakAckThenQuestion, clearSilenceNudgeTimer]);
 
   const replayQuestion = useCallback(() => {
     unlockInterviewAudioOutput();

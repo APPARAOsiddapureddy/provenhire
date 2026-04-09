@@ -1198,7 +1198,13 @@ adminRouter.post("/interviews/:id/re-evaluate", async (_req, res) => {
   if (!evaluation || evaluation.fallback_triggered) {
     return res.status(502).json({ error: "Re-evaluation failed; Gemini unavailable or invalid output" });
   }
-  const { total, badge } = computeAiInterviewAggregateScore(evaluation);
+  const reEvalProfile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: interview.userId },
+    select: { roleType: true },
+  });
+  const { total, badge } = computeAiInterviewAggregateScore(evaluation, {
+    nonTechnical: reEvalProfile?.roleType === "non_technical",
+  });
   await prisma.interviewQuestionResult.deleteMany({ where: { interviewId: interview.id } });
   const perQ = evaluation.per_question_scores;
   if (Array.isArray(perQ)) {

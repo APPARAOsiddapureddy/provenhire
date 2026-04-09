@@ -2,6 +2,7 @@
  * Adversarial AI interview agents — Gemini-backed (same stack as ai.service).
  * JSON agents parse structured output; follow-up phrasing uses plain text generation.
  */
+import type { NonTechSubtrack } from "../../constants/verificationPipeline.js";
 import { GoogleGenAI } from "@google/genai";
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -284,6 +285,28 @@ const SPRINT_GOALS: Record<number, string> = {
   3: "Think through real engineering trade-offs together — scaling decisions, failure modes, design alternatives. Treat it as a collaborative discussion.",
 };
 
+/** Non-technical adversarial v2 — PRD §7 (April 2026). */
+const NON_TECH_SPRINT_GOALS: Record<number, string> = {
+  1: "Experience defense: relevant work, projects, or initiatives — their role, impact, trade-offs, and what they learned. Probe for specifics vs vague contributions.",
+  2: "Domain foundations: subtrack-appropriate frameworks, metrics, and concepts — depth matched to their level, not trivia.",
+  3: "Scenario: realistic on-the-job situations — deadlines, stakeholders, prioritization, conflict, and communication. Assess structured thinking and judgment.",
+};
+
+const NON_TECH_SUBTRACK_CAL: Record<NonTechSubtrack, string> = {
+  product:
+    "Product context: discovery, prioritization (e.g. RICE, MoSCoW), metrics, roadmap trade-offs, stakeholder alignment.",
+  design:
+    "Design context: research, IA, accessibility, design process, critique, collaboration with engineering; portfolio-level narratives if mentioned.",
+  business:
+    "Business / analytics / commercial context: problem framing, data interpretation, KPIs, structured recommendations, financial literacy.",
+  operations:
+    "Operations / delivery context: planning, risk, execution, process improvement, governance, stakeholder cadence.",
+  marketing:
+    "Marketing / growth context: channels, funnels, experiments, messaging, launch metrics, budget trade-offs.",
+  people:
+    "People / HR / customer-success context: structured assessment, fairness, engagement, difficult people situations, service recovery.",
+};
+
 /** Lines to append to prompts so the model avoids repeating the same short question many turns in a row. */
 export function formatAskedQuestionsBlock(questions: string[], maxLines = 16): string {
   const u = [...new Set(questions.map((q) => q.trim()).filter(Boolean))].slice(-maxLines);
@@ -362,7 +385,8 @@ export async function generateSprintQuestion(
   persona: string,
   resumeContext: string,
   history: { question?: string }[],
-  recentAsked?: string[]
+  recentAsked?: string[],
+  opts?: { nonTechnical?: boolean; subtrack?: NonTechSubtrack }
 ): Promise<string> {
   const fromHist = history
     .map((h) => h.question)
@@ -370,12 +394,25 @@ export async function generateSprintQuestion(
     .map(String) as string[];
   const merged = [...new Set([...(recentAsked ?? []), ...fromHist].filter(Boolean))].slice(-18);
   const covered = merged.length ? merged.join("\n- ") : "(none yet)";
-  const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead;
+  let system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead;
+  if (opts?.nonTechnical) {
+    system = `${system}
+
+You are interviewing for a non-technical professional role. Do not ask for code, algorithms, or software system architecture unless the candidate is clearly from a technical background. Emphasize communication, stakeholder dynamics, and domain judgment.${
+      persona === "senior_peer"
+        ? " Use organizational and scenario challenges, not low-level engineering design."
+        : ""
+    }`;
+  }
+
+  const sprintGoal = opts?.nonTechnical ? NON_TECH_SPRINT_GOALS[sprint] ?? "" : SPRINT_GOALS[sprint] ?? "";
+  const subAngle =
+    opts?.nonTechnical && opts.subtrack ? NON_TECH_SUBTRACK_CAL[opts.subtrack] ?? "" : "";
 
   const text = await callGeminiText(
     system,
-    `Sprint goal: ${SPRINT_GOALS[sprint] ?? ""}
-Candidate background: ${resumeContext.slice(0, 800)}
+    `Sprint goal: ${sprintGoal}
+${subAngle ? `Calibration: ${subAngle}\n` : ""}Candidate background: ${resumeContext.slice(0, 800)}
 Questions already asked — do NOT repeat or ask the same angle again:
 - ${covered}
 Your next question must open a meaningfully different line of inquiry (new sub-topic, trade-off, or concrete detail), not a minor rewording of any line above.
@@ -384,7 +421,7 @@ Generate ONE question that opens a meaningfully new line of inquiry. Follow the 
     "balanced"
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
-  return q || "Tell me about a technical challenge you faced recently.";
+  return q || (opts?.nonTechnical ? "Walk me through a situation where you had to align stakeholders under ambiguity — what did you do first?" : "Tell me about a technical challenge you faced recently.");
 }
 
 export async function prefetchFollowups(
@@ -432,6 +469,8 @@ export async function evaluateFullInterview(
     coverageRatio: number;
     experienceLevel?: string | null;
     jobRole?: string | null;
+    /** Non-technical track: calibrate for communication-heavy roles (PM, design, etc.). */
+    nonTechnical?: boolean;
   }
 ): Promise<Record<string, unknown> | null> {
   const transcript = history
@@ -459,11 +498,22 @@ export async function evaluateFullInterview(
       ? `Coverage ratio ${coverage.toFixed(2)} is LOW. Lower overall confidence. Mark under-tested dimensions as inconclusive. Prefer "insufficient data on X" over confident negatives on areas not probed. Set confidence_calibrated to false.`
       : `Coverage ratio ${coverage.toFixed(2)}. Set confidence_calibrated to true unless other factors contradict.`;
 
+  const nonTechBlock = meta?.nonTechnical
+    ? `
+This is a NON-TECHNICAL role interview (product, design, operations, marketing, people, business).
+- Calibrate concept_score and reasoning_score for domain/process thinking, not code.
+- communication_score should weigh heavily in your holistic judgment (articulation, structure, stakeholder awareness).
+- engineering_signal may reflect "professional execution" / structured thinking rather than software engineering.
+- Overall rubric alignment: concept 30%, reasoning 25%, communication 30%, confidence 15% when you set dimension scores so they could combine consistently.
+`
+    : "";
+
   const result = await callGeminiJson(
-    `You are evaluating a complete adversarial technical interview across 3 sprints.
+    `You are evaluating a complete adversarial ${meta?.nonTechnical ? "professional " : "technical "}interview across 3 sprints.
 You must produce TWO SEPARATE assessments:
 1) claim_credibility_risk: were specific resume claims substantiated in dialogue? (none | low | medium | high)
-2) engineering_signal: overall engineering ability independent of claim disputes (strong | moderate | inconclusive | weak)
+2) engineering_signal: overall ${meta?.nonTechnical ? "professional" : "engineering"} ability independent of claim disputes (strong | moderate | inconclusive | weak)
+${nonTechBlock}
 
 Return JSON:
 {

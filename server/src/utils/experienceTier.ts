@@ -14,7 +14,8 @@ export type AptitudeQuestionSetId =
   | "cs_fundamentals_advanced"
   | "data_fundamentals_fresher"
   | "data_fundamentals_medium"
-  | "data_fundamentals_advanced";
+  | "data_fundamentals_advanced"
+  | "non_tech_domain_fundamentals";
 
 export function questionSetForTier(tier: ExperienceTier): AptitudeQuestionSetId {
   switch (tier) {

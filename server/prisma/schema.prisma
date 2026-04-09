@@ -92,6 +92,11 @@ model JobSeekerProfile {
   nonTechAssignmentResponse  String?   @db.Text
   /// Window for assignment freshness (e.g. set to submittedAt + 36h on each submit).
   nonTechAssignmentExpiresAt DateTime?
+  /// Each official graded submit increments this (used for free vs paid retake gating).
+  nonTechAssignmentSubmitCount Int      @default(0)
+  nonTechAssignmentLastSubmittedAt DateTime?
+  /// After a paid retake (3rd+ submit), next paid attempt allowed only after this instant (PRD: 7 days).
+  nonTechAssignmentPaidCooldownUntil DateTime?
   /// After a failed Human Expert Interview, candidate cannot re-book until this time (PRD: 30 days).
   humanExpertRetryAfter      DateTime?
   createdAt                  DateTime  @default(now())

@@ -335,6 +335,18 @@ export async function computeProvenhireCertification(userId: string): Promise<{
       select: { stageName: true, status: true },
     });
     const done = (n: string) => stages.some((s) => s.stageName === n && s.status === "completed");
+    const tierNt = experienceTierFromYears(profile?.experienceYears);
+
+    if (done("expert_interview")) {
+      const latest = await prisma.interview.findFirst({
+        where: { userId, status: "completed", interviewType: "ai_expert" },
+        orderBy: { completedAt: "desc" },
+        select: { id: true },
+      });
+      if (latest) {
+        return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
+      }
+    }
     if (done("human_expert_interview")) {
       const ok = await prisma.humanInterviewSession.findFirst({
         where: { userId, evaluationPass: true },
@@ -342,8 +354,15 @@ export async function computeProvenhireCertification(userId: string): Promise<{
       });
       if (ok) return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
     }
-    if (done("profile_setup") && done("non_tech_assignment")) {
-      return { certificationLevel: "L1", certificationLabel: "Cognitive Verified" };
+    if (done("non_tech_assignment")) {
+      return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
+    }
+    if (tierNt === "fresher") {
+      if (done("domain_fundamentals")) {
+        return { certificationLevel: "L1", certificationLabel: "Foundation Verified" };
+      }
+    } else if (done("profile_setup")) {
+      return { certificationLevel: "L1", certificationLabel: "Foundation Verified" };
     }
     return { certificationLevel: null, certificationLabel: null };
   }

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { recordAiInterviewSubmittedForAdminReview } from "../humanInterviewGate.service.js";
+import { syncJobSeekerVerificationStatus } from "../certification.service.js";
 import { analyzeAnswerAntiGaming } from "../aiInterviewAntiGaming.service.js";
 import {
   aggregateProctoringViolations,
@@ -23,6 +24,7 @@ import {
 } from "./agents.js";
 import { findFollowupsForQuestionText } from "./questionBankService.js";
 import { computeWeaknessCoverageRatio, evaluateFullInterviewMultiPass } from "./evaluationService.js";
+import { detectNonTechSubtrack, type NonTechSubtrack } from "../../constants/verificationPipeline.js";
 
 const QUESTIONS_PER_SPRINT = 5;
 const MAX_QUESTIONS = 15;
@@ -67,6 +69,18 @@ const SPRINT_OPENERS: Record<number, string> = {
   1: `Let's start with something concrete from your background. Tell me about a project you've worked on that you're genuinely proud of — what problem were you solving, what did you personally build, and what made it technically interesting to you?`,
   2: `Now let's go a level deeper into the concepts behind your work. Pick one technical idea that sits at the core of something you've built — something you really had to understand to get it right. How would you explain it to someone encountering it for the first time?`,
   3: `Let's think through a design problem together. Imagine you're building a system that needs to serve real-time predictions for a few million users — the kind of scale where simple solutions start breaking. Where would you start, and what do you think the hardest parts would be to get right?`,
+};
+
+const NON_TECH_SPRINTS: Record<number, { name: string; persona: string }> = {
+  1: { name: "Experience Defense", persona: "curious_lead" },
+  2: { name: "Domain Foundations", persona: "socratic_mentor" },
+  3: { name: "Scenario", persona: "senior_peer" },
+};
+
+const NON_TECH_OPENERS: Record<number, string> = {
+  1: `Let's start with something concrete from your background. Tell me about work you're proud of — a project, internship, or initiative. What was your role, what problem did you solve, and what did you learn?`,
+  2: `Let's go deeper into how you think in your role. Pick one framework, principle, or concept you rely on when making decisions, and walk me through a real example of applying it.`,
+  3: `Here's a scenario: you're facing a tough deadline with unclear priorities and several stakeholders pulling in different directions. How would you approach it — what would you clarify first, and what would you do in the first week?`,
 };
 
 /** Spoken after each accepted answer, before the next question (TTS only; not stored on InterviewMessage). */
@@ -190,6 +204,9 @@ type AdversarialState = {
   sprint: number;
   persona: string;
   sprintName: string;
+  /** When true, use non-technical sprint names and openers (persisted in questionPlan). */
+  trackNonTechnical?: boolean;
+  nonTechSubtrack?: NonTechSubtrack;
   questionCount: number;
   sprintQuestionCount: number;
   history: {
@@ -307,6 +324,8 @@ export function buildResumeContext(profile: {
   workExperience?: unknown;
   targetJobTitle?: string | null;
   fullName?: string | null;
+  roleType?: string | null;
+  portfolioUrl?: string | null;
 } | null | undefined): string {
   if (!profile) return "";
   const skillsStr = Array.isArray(profile.skills)
@@ -323,19 +342,34 @@ export function buildResumeContext(profile: {
     profile.about ? `Background: ${profile.about}` : "",
     profile.workExperience ? `Work: ${JSON.stringify(profile.workExperience).slice(0, 500)}` : "",
   ].filter(Boolean);
+  if (profile.roleType === "non_technical") {
+    const st = detectNonTechSubtrack(profile.targetJobTitle ?? profile.currentRole);
+    parts.push(`Non-technical subtrack: ${st}`);
+    if (profile.portfolioUrl?.trim()) {
+      parts.push(`Portfolio URL: ${profile.portfolioUrl.trim()}`);
+    }
+  }
   return parts.join("\n");
 }
 
 export async function startAdversarialInterview(
   interviewId: string
 ): Promise<{ question: string; sprint: number; sprintName: string; persona: string }> {
-  const row = await prisma.interview.findUnique({ where: { id: interviewId }, select: { jobRole: true } });
+  const row = await prisma.interview.findUnique({
+    where: { id: interviewId },
+    select: { jobRole: true, user: { select: { jobSeekerProfile: true } } },
+  });
+  const profile = row?.user?.jobSeekerProfile;
   const jobRole = row?.jobRole ?? "Software Engineer";
-  const opener = SPRINT_OPENERS[1];
+  const isNonTech = profile?.roleType === "non_technical";
+  const opener = isNonTech ? NON_TECH_OPENERS[1] : SPRINT_OPENERS[1];
+  const cfg1 = isNonTech ? NON_TECH_SPRINTS[1] : SPRINTS[1];
   const initial: AdversarialState = {
     sprint: 1,
-    persona: "curious_lead",
-    sprintName: "Project Defense",
+    persona: cfg1.persona,
+    sprintName: cfg1.name,
+    trackNonTechnical: isNonTech ? true : undefined,
+    nonTechSubtrack: isNonTech ? detectNonTechSubtrack(profile?.targetJobTitle ?? profile?.currentRole) : undefined,
     questionCount: 0,
     sprintQuestionCount: 0,
     history: [],
@@ -372,8 +406,8 @@ export async function startAdversarialInterview(
   return {
     question: opener,
     sprint: 1,
-    sprintName: "Project Defense",
-    persona: "curious_lead",
+    sprintName: cfg1.name,
+    persona: cfg1.persona,
   };
 }
 
@@ -504,7 +538,7 @@ export async function processTurn(
       response: prompt,
       acknowledgement: "",
       sprint,
-      sprintName: stateSprintName ?? SPRINTS[1].name,
+      sprintName: stateSprintName ?? (state.trackNonTechnical ? NON_TECH_SPRINTS[1].name : SPRINTS[1].name),
       persona,
       complete: false,
       questionCount: prevQCount,
@@ -625,7 +659,10 @@ export async function processTurn(
       followup = prefetched;
     } else {
       followup = await resolveDistinctQuestion(askedForPrompt, () =>
-        generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt)
+        generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt, {
+          nonTechnical: Boolean(state.trackNonTechnical),
+          subtrack: state.nonTechSubtrack,
+        })
       );
       if (forceSprintQuestion) {
         followupBranch = "forced_sprint";
@@ -667,11 +704,12 @@ export async function processTurn(
     const nextSprint = sprint + 1;
     if (nextSprint <= 3) {
       currentSprint = nextSprint;
-      currentPersona = SPRINTS[nextSprint].persona;
-      currentSprintName = SPRINTS[nextSprint].name;
+      const sprintDef = state.trackNonTechnical ? NON_TECH_SPRINTS[nextSprint] : SPRINTS[nextSprint];
+      currentPersona = sprintDef.persona;
+      currentSprintName = sprintDef.name;
       currentSprintQuestionCount = 0;
       sprintAdvanced = true;
-      followup = SPRINT_OPENERS[nextSprint];
+      followup = state.trackNonTechnical ? NON_TECH_OPENERS[nextSprint] : SPRINT_OPENERS[nextSprint];
       currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
       currentQuestionFollowupAsked = false;
       consec = 0;
@@ -745,6 +783,8 @@ export async function processTurn(
     sprint: currentSprint,
     persona: currentPersona,
     sprintName: currentSprintName,
+    trackNonTechnical: state.trackNonTechnical,
+    nonTechSubtrack: state.nonTechSubtrack,
     questionCount: newQuestionCount,
     sprintQuestionCount: currentSprintQuestionCount,
     history: newHistory,
@@ -904,6 +944,12 @@ export async function finalizeAiInterviewInBackground(
     experienceLevel,
   } = p;
 
+  const jsProfile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { roleType: true },
+  });
+  const nonTechnical = jsProfile?.roleType === "non_technical";
+
   const coverageRatio = computeWeaknessCoverageRatio(newWeaknesses, newQuestionCount);
   const multi = await evaluateFullInterviewMultiPass(
     newHistory,
@@ -914,6 +960,7 @@ export async function finalizeAiInterviewInBackground(
       coverageRatio,
       experienceLevel,
       jobRole,
+      nonTechnical,
     }
   );
   let evaluation = multi.evaluation as Record<string, unknown>;
@@ -938,6 +985,20 @@ export async function finalizeAiInterviewInBackground(
       overallRaw <= 10.5 ? Math.round(overallRaw * 10) : Math.round(Math.min(100, overallRaw));
   }
   overallScore = Math.min(100, Math.max(0, overallScore));
+
+  if (nonTechnical) {
+    const c = Number(evaluation.concept_score);
+    const r = Number(evaluation.reasoning_score);
+    const comm = Number(evaluation.communication_score);
+    const conf = Number(evaluation.confidence_score);
+    if ([c, r, comm, conf].every((n) => Number.isFinite(n))) {
+      overallScore = Math.min(
+        100,
+        Math.max(0, Math.round(0.3 * c + 0.25 * r + 0.3 * comm + 0.15 * conf))
+      );
+      evaluation.overall_score = overallScore / 10;
+    }
+  }
 
   const badge =
     overallScore >= 90
@@ -1047,11 +1108,24 @@ export async function finalizeAiInterviewInBackground(
 
   prefetchCache.delete(interviewId);
 
-  await recordAiInterviewSubmittedForAdminReview({
-    userId,
-    interviewId,
-    score: overallScore,
-  });
+  if (nonTechnical) {
+    await prisma.verificationStage.upsert({
+      where: { userId_stageName: { userId, stageName: "expert_interview" } },
+      create: { userId, stageName: "expert_interview", status: "completed", score: overallScore },
+      update: { status: "completed", score: overallScore },
+    });
+    try {
+      await syncJobSeekerVerificationStatus(userId);
+    } catch (e) {
+      console.warn("[finalizeAiInterviewInBackground] syncJobSeekerVerificationStatus", e);
+    }
+  } else {
+    await recordAiInterviewSubmittedForAdminReview({
+      userId,
+      interviewId,
+      score: overallScore,
+    });
+  }
 
   return { overallScore, badgeLevel: badge, evaluation };
 }

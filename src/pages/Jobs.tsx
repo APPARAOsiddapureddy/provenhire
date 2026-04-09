@@ -102,9 +102,17 @@ const Jobs = () => {
       stages.filter((s) => s.status === "completed").map((s) => s.stage_name).filter(Boolean) as string[]
     );
     if (role === "non_technical") {
-      if (completed.has("human_expert_interview")) return { level: 2, label: "Level 2 - Expert Verified Candidate" };
-      if (completed.has("profile_setup") && completed.has("non_tech_assignment")) {
-        return { level: 1, label: "Level 1 - Skill Assignment Verified" };
+      if (completed.has("expert_interview") || completed.has("human_expert_interview")) {
+        return { level: 3, label: "Level 3 - AI Expert Verified Candidate" };
+      }
+      if (completed.has("non_tech_assignment")) {
+        return { level: 2, label: "Level 2 - Assignment Verified Candidate" };
+      }
+      const needsDomain = stages.some((s) => s.stage_name === "domain_fundamentals");
+      const domainOk = completed.has("domain_fundamentals");
+      const profileOk = completed.has("profile_setup");
+      if (profileOk && (!needsDomain || domainOk)) {
+        return { level: 1, label: "Level 1 - Foundation Verified" };
       }
       return { level: 0, label: "Level 0 - Not Yet Certified" };
     }
@@ -948,7 +956,9 @@ const Jobs = () => {
                         <>
                           <h3 className="text-xl font-semibold mb-2">Unlock the jobs board</h3>
                           <p className="text-sm text-muted-foreground mb-6">
-                            Complete verification through Live Coding (DSA) to earn Level 1 — Cognitive Verified — and see roles open to you. Level 2 (AI Interview) and Level 3 (Human Expert Interview) unlock more opportunities as recruiters post new roles.
+                            {roleType === "non_technical"
+                              ? "Earn Level 1 (Foundation) on the non-technical track — profile, domain fundamentals if you’re early-career, then your assignment and AI Expert Interview unlock higher gates and better-matched roles."
+                              : "Complete verification through Live Coding (DSA) to earn Level 1 — Cognitive Verified — and see roles open to you. Level 2 (AI Interview) and Level 3 (Human Expert Interview) unlock more opportunities as recruiters post new roles."}
                           </p>
                           <Button onClick={() => navigate('/verification')} className="bg-gradient-hero hover:opacity-90">
                             Start Verification

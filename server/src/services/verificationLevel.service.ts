@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { experienceTierFromYears } from "../utils/experienceTier.js";
 import { computeProvenhireCertification, type ProvenhireCertificationCode } from "./verificationScoring.service.js";
 
 export type CertificationTrack = "technical" | "non_technical";
@@ -21,8 +22,9 @@ const TECH_LABELS: Record<number, string> = {
 
 const NON_TECH_LABELS: Record<number, string> = {
   0: "Level 0 - Not Yet Certified",
-  1: "Level 1 - Skill Assignment Verified",
-  2: "Level 2 - Expert Verified Candidate",
+  1: "Level 1 - Foundation Verified",
+  2: "Level 2 - Skill Passport Verified",
+  3: "Level 3 - Elite ProvenHire Candidate",
 };
 
 export function getCertificationLabel(roleType: CertificationTrack, level: number): string {
@@ -35,11 +37,20 @@ export function getCertificationLabel(roleType: CertificationTrack, level: numbe
 
 export function calculateCertificationLevelFromCompletedStages(
   roleType: CertificationTrack,
-  completedStageNames: Set<string>
+  completedStageNames: Set<string>,
+  opts?: { experienceYears?: number | null }
 ): number {
   if (roleType === "non_technical") {
-    if (completedStageNames.has("human_expert_interview")) return 2;
-    if (completedStageNames.has("profile_setup") && completedStageNames.has("non_tech_assignment")) return 1;
+    if (completedStageNames.has("expert_interview") || completedStageNames.has("human_expert_interview")) {
+      return 3;
+    }
+    if (completedStageNames.has("non_tech_assignment")) return 2;
+    const tierNt = experienceTierFromYears(opts?.experienceYears);
+    if (tierNt === "fresher") {
+      if (completedStageNames.has("domain_fundamentals")) return 1;
+    } else if (completedStageNames.has("profile_setup")) {
+      return 1;
+    }
     return 0;
   }
 
@@ -91,8 +102,8 @@ export async function calculateCertificationLevel(userId: string): Promise<Certi
 
 export function minimumLevelHint(roleType: CertificationTrack, level: number): string {
   if (roleType === "non_technical") {
-    if (level <= 1) return "Complete Profile Setup and Non-Technical Assignment to unlock this role.";
-    if (level >= 2) return "Complete Human Expert Interview to unlock this role.";
+    if (level <= 1) return "Complete profile, assignment, and earlier non-technical stages to unlock this role.";
+    if (level === 2) return "Complete the AI Expert Interview to unlock this role.";
     return "Complete verification stages to unlock this role.";
   }
 

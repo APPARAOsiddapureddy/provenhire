@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
 /** Technical: profile → aptitude → dsa → ai_interview → expert */
-/** Non-technical: profile → assignment → expert */
+/** Non-technical: profile → [domain] → assignment → expert (AI) */
 export type CompletedUpToStage =
   | "profile"
   | "aptitude"
@@ -14,6 +14,7 @@ export type CompletedUpToStage =
   | "ai_interview"
   | "expert"
   | "assignment"
+  | "domain"
   | null;
 
 interface SkillPassportProps {
@@ -25,6 +26,8 @@ interface SkillPassportProps {
   dsaScore?: number;
   interviewScore?: number;
   roleType?: "technical" | "non_technical";
+  /** When true, non-tech path includes domain_fundamentals (early-career). */
+  nonTechHasDomainFundamentals?: boolean;
   compact?: boolean;
 }
 
@@ -37,6 +40,7 @@ const SkillPassport = ({
   dsaScore,
   interviewScore,
   roleType = "technical",
+  nonTechHasDomainFundamentals = false,
   compact = false,
 }: SkillPassportProps) => {
   const getLevelConfig = (level: "A" | "B" | "C" | null) => {
@@ -91,7 +95,9 @@ const SkillPassport = ({
     "ai_interview",
     "expert",
   ];
-  const nonTechStageOrder: CompletedUpToStage[] = ["profile", "assignment", "expert"];
+  const nonTechStageOrder: CompletedUpToStage[] = nonTechHasDomainFundamentals
+    ? ["profile", "domain", "assignment", "expert"]
+    : ["profile", "assignment", "expert"];
 
   const stageOrder =
     roleType === "non_technical" ? nonTechStageOrder : techStageOrder;
@@ -109,9 +115,13 @@ const SkillPassport = ({
     (effectiveStage === "dsa" ||
       effectiveStage === "ai_interview" ||
       effectiveStage === "expert");
+  const nonTechAssignmentIdx = nonTechStageOrder.indexOf("assignment");
   const showScoresFromAptitude =
     (roleType === "technical" && stageIndex >= 1) ||
-    (roleType === "non_technical" && (effectiveStage === "assignment" || effectiveStage === "expert"));
+    (roleType === "non_technical" &&
+      nonTechAssignmentIdx >= 0 &&
+      stageIndex >= nonTechAssignmentIdx &&
+      (effectiveStage === "assignment" || effectiveStage === "expert"));
   const showInterviewScore =
     (roleType === "technical" && (effectiveStage === "ai_interview" || effectiveStage === "expert")) ||
     (roleType === "non_technical" && effectiveStage === "expert");
@@ -126,10 +136,13 @@ const SkillPassport = ({
       if (effectiveStage === "ai_interview")
         return "Complete Human Expert Interview for full certification";
     } else {
-      if (!effectiveStage || effectiveStage === "profile")
-        return "Complete Assignment to unlock scores";
-      if (effectiveStage === "assignment")
-        return "Complete Expert Interview to unlock Skill Passport";
+      if (!effectiveStage || effectiveStage === "profile") {
+        return nonTechHasDomainFundamentals
+          ? "Complete Domain Fundamentals to continue"
+          : "Complete Assignment to unlock scores";
+      }
+      if (effectiveStage === "domain") return "Complete Assignment to unlock scores";
+      if (effectiveStage === "assignment") return "Complete AI Expert Interview to unlock Skill Passport";
     }
     return "";
   };
@@ -224,10 +237,14 @@ const SkillPassport = ({
                             ? "AI Interview complete · Next: Human Expert"
                             : "In progress"
                     : effectiveStage === "profile"
-                      ? "Profile complete · Next: Assignment"
-                      : effectiveStage === "assignment"
-                        ? "Assignment complete · Next: Expert Interview"
-                        : "In progress"}
+                      ? nonTechHasDomainFundamentals
+                        ? "Profile complete · Next: Domain fundamentals"
+                        : "Profile complete · Next: Assignment"
+                      : effectiveStage === "domain"
+                        ? "Domain fundamentals complete · Next: Assignment"
+                        : effectiveStage === "assignment"
+                          ? "Assignment complete · Next: AI Expert Interview"
+                          : "In progress"}
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -288,11 +305,19 @@ const SkillPassport = ({
         )}
         {!isFullyVerified && roleType === "non_technical" && (
           <div className="flex items-center gap-2 flex-wrap">
-            {[
-              { key: "profile" as CompletedUpToStage, label: "Profile" },
-              { key: "assignment" as CompletedUpToStage, label: "Assignment" },
-              { key: "expert" as CompletedUpToStage, label: "Expert" },
-            ].map(({ key, label }) => {
+            {(nonTechHasDomainFundamentals
+              ? [
+                  { key: "profile" as CompletedUpToStage, label: "Profile" },
+                  { key: "domain" as CompletedUpToStage, label: "Fundamentals" },
+                  { key: "assignment" as CompletedUpToStage, label: "Assignment" },
+                  { key: "expert" as CompletedUpToStage, label: "AI Expert" },
+                ]
+              : [
+                  { key: "profile" as CompletedUpToStage, label: "Profile" },
+                  { key: "assignment" as CompletedUpToStage, label: "Assignment" },
+                  { key: "expert" as CompletedUpToStage, label: "AI Expert" },
+                ]
+            ).map(({ key, label }) => {
               const idx = nonTechStageOrder.indexOf(key);
               const done = stageIndex >= idx && idx >= 0;
               return (
@@ -352,12 +377,12 @@ const SkillPassport = ({
                     <p className="text-2xl font-bold text-primary">
                       {interviewScore ?? 0}%
                     </p>
-                    <p className="text-xs text-muted-foreground">Expert Interview</p>
+                    <p className="text-xs text-muted-foreground">AI Expert Interview</p>
                   </>
                 ) : (
                   <>
                     <Lock className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
-                    <p className="text-xs text-muted-foreground">Expert Interview</p>
+                    <p className="text-xs text-muted-foreground">AI Expert Interview</p>
                   </>
                 )}
               </div>

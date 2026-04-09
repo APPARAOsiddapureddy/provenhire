@@ -53,13 +53,19 @@ async function fetchVerificationGateState(): Promise<Omit<VerificationStatus, "i
       ? completedStages.some((s: { stage_name?: string }) => s.stage_name === "dsa_round")
       : completedStages.some((s: { stage_name?: string }) => s.stage_name === "non_tech_assignment");
 
-  const totalStages = roleType === "non_technical" ? 3 : 5;
+  const totalStages =
+    roleType === "non_technical"
+      ? stages && stages.length > 0
+        ? stages.length
+        : 4
+      : 5;
   let progress = 0;
   let currentStage: string | null = null;
 
   if (stages && stages.length > 0) {
     const completed = stages.filter((s) => s.status === "completed").length;
-    progress = (completed / totalStages) * 100;
+    const denom = Math.max(1, stages.length);
+    progress = (completed / denom) * 100;
 
     const inProgress = stages.find((s) => s.status === "in_progress");
     currentStage =

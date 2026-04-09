@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +45,36 @@ interface ProfileSetupStageProps {
 const ACCEPT_MIME =
   "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 
+/** Design / UX subtrack — matches server `detectNonTechSubtrack` === design for portfolio URL (PRD §11). */
+function shouldOfferPortfolioUrl(opts: { targetJobTitle: string; currentRole: string; skills: string }): boolean {
+  const blob = `${opts.targetJobTitle} ${opts.currentRole} ${opts.skills}`.toLowerCase();
+  if (blob.includes("product manager") || blob.includes("product owner")) return false;
+  const hints = [
+    "ux designer",
+    "ui designer",
+    "ui/ux",
+    "product designer",
+    "product design",
+    "ux researcher",
+    "interaction designer",
+    "visual designer",
+    "graphic designer",
+    "design lead",
+    " wireframe",
+    "figma",
+    "sketch",
+    "illustration",
+    "photoshop",
+    " ui ",
+    " ux ",
+    "user experience",
+    "user interface",
+  ];
+  if (hints.some((h) => blob.includes(h.trim()))) return true;
+  if (blob.includes("designer") && !blob.includes("product manager")) return true;
+  return false;
+}
+
 const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "technical", nextStageName, nextStageLabel }: ProfileSetupStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -70,6 +100,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
   const [noticePeriod, setNoticePeriod] = useState("");
   const [currentSalary, setCurrentSalary] = useState("");
   const [expectedSalary, setExpectedSalary] = useState("");
+  const [targetJobTitle, setTargetJobTitle] = useState("");
+  const [portfolioUrl, setPortfolioUrl] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -108,6 +140,12 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
       .get<{ profile: Record<string, unknown> | null }>("/api/users/job-seeker-profile")
       .then(({ profile }) => {
         if (cancelled || !profile) return;
+        setTargetJobTitle(
+          String(profile.targetJobTitle ?? (profile as { target_job_title?: string }).target_job_title ?? "")
+        );
+        setPortfolioUrl(
+          String(profile.portfolioUrl ?? (profile as { portfolio_url?: string }).portfolio_url ?? "")
+        );
         if (profile.fullName) {
           setFullName(String(profile.fullName));
           // Email always comes from User (sign-up) — never from profile
@@ -183,6 +221,13 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     setParseError(null);
   };
 
+  const showPortfolioField = useMemo(
+    () =>
+      roleType === "non_technical" &&
+      shouldOfferPortfolioUrl({ targetJobTitle, currentRole, skills }),
+    [roleType, targetJobTitle, currentRole, skills]
+  );
+
   const handleSwitchToNonTechnical = async () => {
     setSwitchingTrack(true);
     try {
@@ -241,6 +286,14 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
     if (!expectedSalary.trim()) {
       errs.expectedSalary = "Please enter your expected salary.";
     }
+    if (showPortfolioField && portfolioUrl.trim()) {
+      try {
+        // eslint-disable-next-line no-new -- validate URL shape
+        new URL(portfolioUrl.trim());
+      } catch {
+        errs.portfolioUrl = "Enter a full URL starting with https://";
+      }
+    }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       toast.error("Please fix the highlighted fields.");
@@ -268,6 +321,9 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         noticePeriod: isEmployed ? (noticePeriod.trim() || undefined) : null,
         currentSalary: isEmployed ? (currentSalary.trim() || undefined) : null,
         expectedSalary: expectedSalary.trim() || undefined,
+        ...(roleType === "non_technical"
+          ? { portfolioUrl: portfolioUrl.trim() ? portfolioUrl.trim() : "" }
+          : {}),
         employmentStatus,
         enforceRequiredFields: true,
       });
@@ -520,11 +576,33 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
                 onChange={(e) => { setSkills(e.target.value); setFieldErrors((p) => ({ ...p, skills: "" })); }}
                 placeholder={roleType === "technical" ? "Python, SQL, JavaScript, React, Node.js, …" : "Communication, Excel, Project Management, Presentation, Customer Service, …"}
                 className={fieldErrors.skills ? "border-destructive focus-visible:ring-destructive" : ""}
-              />
+       />
               {fieldErrors.skills && (
                 <p className="text-sm text-destructive">{fieldErrors.skills}</p>
               )}
             </div>
+            {showPortfolioField && (
+              <div ref={(r) => { fieldRefs.current.portfolioUrl = r; }} id="field-portfolioUrl" className="space-y-2">
+                <Label>Portfolio or work samples URL (optional)</Label>
+                <Input
+                  type="url"
+                  inputMode="url"
+                  value={portfolioUrl}
+                  onChange={(e) => {
+                    setPortfolioUrl(e.target.value);
+                    setFieldErrors((p) => ({ ...p, portfolioUrl: "" }));
+                  }}
+                  placeholder="https://behance.net/… or personal site"
+                  className={fieldErrors.portfolioUrl ? "border-destructive focus-visible:ring-destructive" : ""}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shown because your target role or skills look design-oriented. Recruiters may use this in your AI Expert Interview context.
+                </p>
+                {fieldErrors.portfolioUrl && (
+                  <p className="text-sm text-destructive">{fieldErrors.portfolioUrl}</p>
+                )}
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>College / Institution</Label>
@@ -626,7 +704,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
             <DialogHeader>
               <DialogTitle>Switch to Non-Technical track?</DialogTitle>
               <DialogDescription>
-                Your resume suggests roles in Business, Operations, Marketing, or similar (non-engineering). Would you like to switch to the <strong>Non-Technical</strong> verification path? Your dashboard and verification steps will update to match — Assignment and Human Expert Interview instead of Cognitive Assessment, DSA, and AI Interview.
+                Your resume suggests roles in Business, Operations, Marketing, or similar (non-engineering). Would you like to switch to the <strong>Non-Technical</strong> verification path? Your dashboard and verification steps will update to match — domain fundamentals (early-career), assignment, and AI Expert Interview instead of CS fundamentals, DSA, and the technical AI loop.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-0">

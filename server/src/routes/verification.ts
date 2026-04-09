@@ -14,7 +14,6 @@ import {
   ALL_TECHNICAL_STAGE_NAMES,
   ALL_DATA_STAGE_NAMES,
   LEGACY_TECHNICAL_STAGES_V1,
-  NON_TECHNICAL_STAGES,
   allowPlaceholderVerificationCompletion,
   isVerificationPipelineV2,
   technicalStagesForProfile,
@@ -24,11 +23,14 @@ import {
   roleTypeToTrack,
   allowedStageNamesForTrack,
   verificationStagesForProfile,
+  nonTechnicalStagesForProfile,
   detectTrack,
+  detectNonTechSubtrack,
   detectDataSubtrack,
   type VerificationTrack,
   type DataSubtrack,
 } from "../constants/verificationPipeline.js";
+import { pickNonTechAssignmentPrompt } from "../data/nonTechAssignmentPrompts.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
@@ -49,6 +51,7 @@ import { getHumanInterviewEligibility } from "../services/humanInterviewGate.ser
 import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
 import { COOLDOWN_DSA_MS, COOLDOWN_DATA_ROUND_MS } from "../constants/revenue.js";
 import { gatePaidVerificationStageInProgress } from "../services/verificationStageRetakeGate.service.js";
+import { gateNonTechAssignmentSubmit, nextNonTechAssignmentPaidCooldownBoundary } from "../services/candidateRetake.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
@@ -71,6 +74,7 @@ async function resolveAptitudeSubmitSession(userId: string): Promise<{
   answerKey: Record<string, string>;
   marksKey: Record<string, number>;
   testStartedAt: Date | null;
+  questionSet: string | null;
 } | null> {
   try {
     const row = await getAptitudeSession(userId);
@@ -79,6 +83,7 @@ async function resolveAptitudeSubmitSession(userId: string): Promise<{
         answerKey: row.answerKey,
         marksKey: row.marksKey ?? {},
         testStartedAt: row.testStartedAt ?? null,
+        questionSet: row.questionSet ?? null,
       };
     }
   } catch (e) {
@@ -86,8 +91,6 @@ async function resolveAptitudeSubmitSession(userId: string): Promise<{
   }
   return getMemoryAptitudeSubmitContext(userId);
 }
-
-const nonTechnicalStages = [...NON_TECHNICAL_STAGES];
 
 async function isProfileSetupCompleted(userId: string): Promise<boolean> {
   const row = await prisma.verificationStage.findFirst({
@@ -107,7 +110,11 @@ async function resolveNeededVerificationStages(
 ): Promise<{ neededStages: string[]; profileSetupCompleted: boolean; track: VerificationTrack }> {
   const track = roleTypeToTrack(profile?.roleType);
   if (track === "non_technical") {
-    return { neededStages: [...nonTechnicalStages], profileSetupCompleted: true, track };
+    const profileSetupCompleted = await isProfileSetupCompleted(userId);
+    const neededStages = !profileSetupCompleted
+      ? nonTechnicalStagesForProfile(0)
+      : nonTechnicalStagesForProfile(profile?.experienceYears);
+    return { neededStages, profileSetupCompleted, track };
   }
   if (track === "software" && !isVerificationPipelineV2()) {
     return { neededStages: [...LEGACY_TECHNICAL_STAGES_V1], profileSetupCompleted: true, track };
@@ -130,7 +137,7 @@ async function resolveNeededVerificationStages(
 async function ensureVerificationPipelineStages(userId: string, neededStages: string[]): Promise<void> {
   let existing = await prisma.verificationStage.findMany({ where: { userId } });
   const neededSet = new Set(neededStages);
-  const neverPrune = new Set<string>(["human_expert_interview"]);
+  const neverPrune = new Set<string>(["human_expert_interview", "expert_interview"]);
 
   if (existing.length === 0) {
     await prisma.verificationStage.createMany({
@@ -209,9 +216,29 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
     select: { experienceYears: true, roleType: true },
   });
   const track = roleTypeToTrack(profile?.roleType);
-  if (track === "non_technical") return;
-
   const reload = () => prisma.verificationStage.findMany({ where: { userId } });
+
+  if (track === "non_technical") {
+    const { neededStages: order } = await resolveNeededVerificationStages(userId, profile);
+    let rows = await reload();
+    const statusOf = (name: string) => rows.find((r) => r.stageName === name)?.status;
+    for (let i = 1; i < order.length; i++) {
+      const prev = order[i - 1]!;
+      const cur = order[i]!;
+      const prevDone =
+        prev === "domain_fundamentals"
+          ? statusOf("domain_fundamentals") === "completed"
+          : statusOf(prev) === "completed";
+      if (prevDone && statusOf(cur) === "locked") {
+        await prisma.verificationStage.updateMany({
+          where: { userId, stageName: cur },
+          data: { status: "in_progress" },
+        });
+        rows = await reload();
+      }
+    }
+    return;
+  }
 
   if (track === "software" && !isVerificationPipelineV2()) {
     let rows = await reload();
@@ -342,19 +369,19 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
 
     await ensureVerificationPipelineStages(req.user!.id, neededStages);
     const canonicalTrack = roleTypeToTrack(roleType);
-    if (canonicalTrack !== "non_technical") {
-      if (canonicalTrack === "software") {
-        await syncLegacyAptitudeToCsFundamentals(req.user!.id);
-      }
-      await reconcileVerificationStages(req.user!.id);
+    if (canonicalTrack === "software") {
+      await syncLegacyAptitudeToCsFundamentals(req.user!.id);
     }
+    await reconcileVerificationStages(req.user!.id);
     const [stages, certification] = await Promise.all([
       prisma.verificationStage.findMany({ where: { userId: req.user!.id } }),
       calculateCertificationLevel(req.user!.id),
     ]);
     const track =
       canonicalTrack === "non_technical"
-        ? null
+        ? profileSetupDoneForResponse
+          ? experienceTierFromYears(profile?.experienceYears)
+          : null
         : !profileSetupDoneForResponse
           ? null
           : experienceTierFromYears(profile?.experienceYears);
@@ -363,8 +390,8 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
       roleType,
       verification_pipeline_v2: isVerificationPipelineV2(),
       verification_track: track,
-      pipeline_pending_profile_setup: canonicalTrack !== "non_technical" && !profileSetupDoneForResponse,
-      stage_order: canonicalTrack === "non_technical" ? nonTechnicalStages : neededStages,
+      pipeline_pending_profile_setup: !profileSetupDoneForResponse,
+      stage_order: neededStages,
       certification_level: certification.level,
       certification_label: certification.label,
       certificationLevel: certification.certificationLevel ?? null,
@@ -452,7 +479,10 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
   const updateData: { status: string; score?: number | null } = { status };
 
   if (
-    (stageName === "aptitude_test" || stageName === "cs_fundamentals" || stageName === "data_fundamentals") &&
+    (stageName === "aptitude_test" ||
+      stageName === "cs_fundamentals" ||
+      stageName === "data_fundamentals" ||
+      stageName === "domain_fundamentals") &&
     (status === "completed" || status === "failed")
   ) {
     const row = await prisma.aptitudeTestResult.findFirst({
@@ -670,7 +700,8 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   if (
     parsed.data.stageName === "aptitude_test" ||
     parsed.data.stageName === "cs_fundamentals" ||
-    parsed.data.stageName === "data_fundamentals"
+    parsed.data.stageName === "data_fundamentals" ||
+    parsed.data.stageName === "domain_fundamentals"
   ) {
     if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     await clearAptitudeSession(req.user!.id);
@@ -697,42 +728,65 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   res.json({ ok: true });
 });
 
+function aptitudeTimeLimitMinutesForQuestionSet(questionSet: string | null | undefined): number {
+  if (questionSet === "non_tech_domain_fundamentals") return 35;
+  return 30;
+}
+
 /** GET cognitive assessment questions. */
 verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
     if (await sendIfAptitudeLocked(req.user!.id, res)) return;
     let experienceYears = 0;
     let profileRoleType = "technical";
+    let targetJobTitle: string | null = null;
     try {
       const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
       experienceYears = profile?.experienceYears ?? 0;
       profileRoleType = profile?.roleType ?? "technical";
+      targetJobTitle = profile?.targetJobTitle ?? null;
     } catch (profileErr) {
       console.warn("[verification/aptitude/questions] profile read failed; using default experience band", profileErr);
     }
     const tier = experienceTierFromYears(experienceYears);
     const track = roleTypeToTrack(profileRoleType);
-    const desiredQuestionSet = track === "data" ? dataQuestionSetForTier(tier) : questionSetForTier(tier);
+    if (track === "non_technical" && tier !== "fresher") {
+      return res
+        .status(400)
+        .json({ error: "This assessment is only for fresher candidates on the non-technical track." });
+    }
+    const desiredQuestionSet =
+      track === "data"
+        ? dataQuestionSetForTier(tier)
+        : track === "non_technical"
+          ? "non_tech_domain_fundamentals"
+          : questionSetForTier(tier);
     let existing: Awaited<ReturnType<typeof getAptitudeSession>> = null;
     try {
       existing = await getAptitudeSession(req.user!.id);
     } catch (readErr) {
       console.warn("[verification/aptitude/questions] could not read session row (will issue new set)", readErr);
     }
-    if (existing?.questions && existing?.answerKey && existing?.marksKey) {
+    if (
+      existing?.questions &&
+      existing?.answerKey &&
+      existing?.marksKey &&
+      (existing.questionSet ?? desiredQuestionSet) === desiredQuestionSet
+    ) {
       const questions = existing.questions as any[];
       const totalMarks =
         existing.marksKey && typeof existing.marksKey === "object"
           ? Object.values(existing.marksKey as Record<string, number>).reduce((a, b) => a + (Number(b) || 0), 0)
           : questions.length;
       const passThreshold = Math.ceil(totalMarks * 0.6);
-    return res.json({
-      questions,
-        timeLimitMinutes: 30,
-      totalMarks,
-      passThreshold,
+      const qs = existing.questionSet ?? desiredQuestionSet;
+      return res.json({
+        questions,
+        timeLimitMinutes: aptitudeTimeLimitMinutesForQuestionSet(qs),
+        totalMarks,
+        passThreshold,
         draft: existing.draft ?? null,
-        questionSet: existing.questionSet ?? desiredQuestionSet,
+        questionSet: qs,
         experienceTier: tier,
       });
     }
@@ -740,6 +794,7 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
     const { questions, answerKey, marksKey, totalMarks, passThreshold } = createAptitudeSessionByQuestionSet(
       desiredQuestionSet,
       experienceYears,
+      { jobTitle: targetJobTitle },
     );
     try {
       await storeAptitudeSession(req.user!.id, questions, answerKey, marksKey, desiredQuestionSet);
@@ -748,11 +803,11 @@ verificationRouter.get("/aptitude/questions", requireAuth, requireJobSeeker, asy
         "[verification/aptitude/questions] Prisma session persist failed — using in-memory answer key for this instance",
         persistErr,
       );
-      storeMemoryAptitudeSession(req.user!.id, answerKey, marksKey);
+      storeMemoryAptitudeSession(req.user!.id, answerKey, marksKey, desiredQuestionSet);
     }
     return res.json({
       questions,
-      timeLimitMinutes: 30,
+      timeLimitMinutes: aptitudeTimeLimitMinutesForQuestionSet(desiredQuestionSet),
       totalMarks,
       passThreshold,
       draft: null,
@@ -844,7 +899,8 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
           error: "Your test session has expired. Please click 'Retry This Step' above, then 'Start Cognitive Assessment' to begin a fresh attempt.",
         });
       }
-      const APTITUDE_LIMIT_SEC = 30 * 60;
+      const limitMin = aptitudeTimeLimitMinutesForQuestionSet(session?.questionSet);
+      const APTITUDE_LIMIT_SEC = limitMin * 60;
       const GRACE_SEC = 120;
       const startedAt = session?.testStartedAt;
       if (startedAt) {
@@ -910,8 +966,16 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
     const scoreToStore = totalMarksForPct > 0
       ? Math.round((score / totalMarksForPct) * 100)
       : Math.min(100, Math.max(0, Math.round(score)));
+    const profileForStage = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { roleType: true },
+    });
+    const aptStageNames =
+      roleTypeToTrack(profileForStage?.roleType) === "non_technical"
+        ? (["domain_fundamentals"] as const)
+        : (["cs_fundamentals", "aptitude_test", "data_fundamentals"] as const);
     const existingStage = await prisma.verificationStage.findFirst({
-      where: { userId: req.user!.id, stageName: { in: ["cs_fundamentals", "aptitude_test", "data_fundamentals"] } },
+      where: { userId: req.user!.id, stageName: { in: [...aptStageNames] } },
       orderBy: { updatedAt: "desc" },
     });
     if (existingStage) {
@@ -1573,6 +1637,27 @@ verificationRouter.get("/technical-scorecard", requireAuth, requireJobSeeker, as
   return res.json(scorecard);
 });
 
+verificationRouter.get("/non-tech-assignment/prompt", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: req.user!.id },
+    select: { roleType: true, targetJobTitle: true, experienceYears: true, nonTechAssignmentSubmitCount: true },
+  });
+  if ((profile?.roleType ?? "technical") !== "non_technical") {
+    return res.status(400).json({ error: "Not on the non-technical verification path." });
+  }
+  const tier = experienceTierFromYears(profile?.experienceYears);
+  const sub = detectNonTechSubtrack(profile?.targetJobTitle);
+  const attemptIndex = profile?.nonTechAssignmentSubmitCount ?? 0;
+  const prompt = pickNonTechAssignmentPrompt({
+    subtrack: sub,
+    experienceTier: tier,
+    attemptIndex,
+  });
+  const threshold = tier === "senior" ? 65 : 60;
+  const timeLimitMinutes = tier === "fresher" ? 45 : tier === "mid" ? 60 : 75;
+  return res.json({ prompt, threshold, timeLimitMinutes, subtrack: sub, experienceTier: tier });
+});
+
 verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   const schema = z.object({
     prompt: z.string().min(1),
@@ -1582,17 +1667,48 @@ verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSe
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
 
-  const threshold = 60;
+  const userId = req.user!.id;
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: {
+      roleType: true,
+      experienceYears: true,
+      targetJobTitle: true,
+      nonTechAssignmentSubmitCount: true,
+    },
+  });
+  if ((profile?.roleType ?? "technical") !== "non_technical") {
+    return res.status(400).json({ error: "This endpoint is only for non-technical candidates." });
+  }
+
+  const assignRow = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "non_tech_assignment" },
+  });
+  const tier = experienceTierFromYears(profile?.experienceYears);
+  const threshold = tier === "senior" ? 65 : 60;
+  if (assignRow?.status === "completed" && assignRow.score != null && assignRow.score >= threshold) {
+    return res.status(400).json({ error: "You have already passed this assignment." });
+  }
+
+  const gate = await gateNonTechAssignmentSubmit(userId);
+  if (!gate.ok) {
+    return res.status(gate.status).json(gate.body);
+  }
+
+  const nBefore = profile?.nonTechAssignmentSubmitCount ?? 0;
+  const usedPaidRetake = nBefore >= 2;
+
+  const subtrack = detectNonTechSubtrack(parsed.data.targetJobTitle ?? profile?.targetJobTitle);
   const evalResult = await evaluateNonTechnicalAssignment({
     prompt: parsed.data.prompt,
     response: parsed.data.response,
-    targetJobTitle: parsed.data.targetJobTitle,
+    targetJobTitle: parsed.data.targetJobTitle ?? profile?.targetJobTitle ?? undefined,
+    subtrack,
     threshold,
   });
 
-  // Update assignment stage with AI score.
   await prisma.verificationStage.updateMany({
-    where: { userId: req.user!.id, stageName: "non_tech_assignment" },
+    where: { userId, stageName: "non_tech_assignment" },
     data: {
       status: evalResult.qualified ? "completed" : "failed",
       score: evalResult.score,
@@ -1602,23 +1718,31 @@ verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSe
   if (evalResult.qualified) {
     await prisma.verificationStage.upsert({
       where: {
-        userId_stageName: { userId: req.user!.id, stageName: "human_expert_interview" },
+        userId_stageName: { userId, stageName: "expert_interview" },
       },
       create: {
-          userId: req.user!.id,
-          stageName: "human_expert_interview",
-          status: "in_progress",
-        },
+        userId,
+        stageName: "expert_interview",
+        status: "in_progress",
+      },
       update: { status: "in_progress" },
-      });
-  } else {
-    // Keep human interview locked when assignment score is below threshold.
-    const existing = await prisma.verificationStage.findFirst({
-      where: { userId: req.user!.id, stageName: "human_expert_interview" },
     });
-    if (existing) {
+    const hum = await prisma.verificationStage.findFirst({
+      where: { userId, stageName: "human_expert_interview" },
+    });
+    if (hum) {
       await prisma.verificationStage.update({
-        where: { id: existing.id },
+        where: { id: hum.id },
+        data: { status: "locked" },
+      });
+    }
+  } else {
+    const ex = await prisma.verificationStage.findFirst({
+      where: { userId, stageName: "expert_interview" },
+    });
+    if (ex && ex.status !== "pending_review") {
+      await prisma.verificationStage.updateMany({
+        where: { userId, stageName: "expert_interview" },
         data: { status: "locked" },
       });
     }
@@ -1626,13 +1750,22 @@ verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSe
 
   const nonTechExpiresAt = new Date(Date.now() + 36 * 60 * 60 * 1000);
   await prisma.jobSeekerProfile.updateMany({
-    where: { userId: req.user!.id },
+    where: { userId },
     data: {
       nonTechAssignmentPrompt: parsed.data.prompt,
       nonTechAssignmentResponse: parsed.data.response,
       nonTechAssignmentExpiresAt: nonTechExpiresAt,
+      nonTechAssignmentSubmitCount: { increment: 1 },
+      nonTechAssignmentLastSubmittedAt: new Date(),
+      ...(usedPaidRetake ? { nonTechAssignmentPaidCooldownUntil: nextNonTechAssignmentPaidCooldownBoundary() } : {}),
     },
   });
+
+  try {
+    await reconcileVerificationStages(userId);
+  } catch (e) {
+    console.warn("[non-tech-assignment/submit] reconcile", e);
+  }
 
   return res.json({
     score: evalResult.score,

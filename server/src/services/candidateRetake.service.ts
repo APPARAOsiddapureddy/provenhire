@@ -4,6 +4,10 @@ import {
   COOLDOWN_AI_EXPERT_MS,
   CANDIDATE_RETAKE_SINGLE_INR,
   CANDIDATE_RETAKE_BUNDLE_INR,
+  COOLDOWN_NON_TECH_ASSIGNMENT_FREE_MS,
+  COOLDOWN_NON_TECH_ASSIGNMENT_PAID_MS,
+  CANDIDATE_NON_TECH_ASSIGNMENT_RETAKE_SINGLE_INR,
+  CANDIDATE_NON_TECH_ASSIGNMENT_RETAKE_BUNDLE_INR,
 } from "../constants/revenue.js";
 
 export async function countAvailableRetakeCredits(userId: string): Promise<number> {
@@ -129,4 +133,96 @@ export async function gateExpertInterviewStart(userId: string): Promise<
   }
 
   return { ok: true };
+}
+
+const nonTechAssignmentPricingBody = {
+  singleInr: CANDIDATE_NON_TECH_ASSIGNMENT_RETAKE_SINGLE_INR,
+  bundleInr: CANDIDATE_NON_TECH_ASSIGNMENT_RETAKE_BUNDLE_INR,
+};
+
+/**
+ * Non-tech role assignment: first submit free; second submit free after 24h; third+ needs ledger credit + 7d cadence (PRD April 2026).
+ */
+export async function gateNonTechAssignmentSubmit(userId: string): Promise<
+  { ok: true } | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: {
+      roleType: true,
+      nonTechAssignmentSubmitCount: true,
+      nonTechAssignmentLastSubmittedAt: true,
+      nonTechAssignmentPaidCooldownUntil: true,
+    },
+  });
+  if ((profile?.roleType ?? "technical") !== "non_technical") {
+    return { ok: true };
+  }
+
+  const n = profile?.nonTechAssignmentSubmitCount ?? 0;
+  if (n === 0) return { ok: true };
+
+  const last = profile?.nonTechAssignmentLastSubmittedAt?.getTime() ?? 0;
+
+  if (n === 1) {
+    if (Date.now() - last < COOLDOWN_NON_TECH_ASSIGNMENT_FREE_MS) {
+      return {
+        ok: false,
+        status: 402,
+        body: {
+          code: "COOLDOWN",
+          message: "Your first retake is free after a 24-hour cooldown.",
+          nextAvailableAt: new Date(last + COOLDOWN_NON_TECH_ASSIGNMENT_FREE_MS).toISOString(),
+        },
+      };
+    }
+    return { ok: true };
+  }
+
+  const paidUntil = profile?.nonTechAssignmentPaidCooldownUntil?.getTime() ?? 0;
+  if (paidUntil > Date.now()) {
+    return {
+      ok: false,
+      status: 402,
+      body: {
+        code: "COOLDOWN",
+        message: "Wait for the cooldown before another paid retake of this assignment.",
+        nextAvailableAt: new Date(paidUntil).toISOString(),
+      },
+    };
+  }
+
+  if ((await countAvailableRetakeCredits(userId)) < 1) {
+    return {
+      ok: false,
+      status: 402,
+      body: {
+        code: "PAYMENT_REQUIRED",
+        message:
+          "Further retakes need a paid credit (₹299 single / ₹499 bundle) — contact support with UPI proof until checkout is live.",
+        creditsAvailable: 0,
+        pricing: nonTechAssignmentPricingBody,
+      },
+    };
+  }
+
+  const consumed = await consumeRetakeCredit(userId, "non_tech_assignment");
+  if (!consumed) {
+    return {
+      ok: false,
+      status: 402,
+      body: {
+        code: "PAYMENT_REQUIRED",
+        message: "No retake credits available.",
+        pricing: nonTechAssignmentPricingBody,
+      },
+    };
+  }
+
+  return { ok: true };
+}
+
+/** After a paid-path assignment submit, enforce 7-day spacing before the next paid attempt. */
+export function nextNonTechAssignmentPaidCooldownBoundary(): Date {
+  return new Date(Date.now() + COOLDOWN_NON_TECH_ASSIGNMENT_PAID_MS);
 }

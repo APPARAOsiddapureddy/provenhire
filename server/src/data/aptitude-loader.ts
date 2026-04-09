@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { experienceTierFromYears, questionSetForTier } from "../utils/experienceTier.js";
+import { detectNonTechSubtrack } from "../constants/verificationPipeline.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -129,7 +130,10 @@ export type AptitudeQuestionSetId =
   | "cs_fundamentals_advanced"
   | "data_fundamentals_fresher"
   | "data_fundamentals_medium"
-  | "data_fundamentals_advanced";
+  | "data_fundamentals_advanced"
+  | "non_tech_domain_fundamentals";
+
+type NonTechDomainMcq = McqQuestionRaw & { subtrack?: string };
 
 let cachedCsQuestions: McqQuestionRaw[] | null = null;
 
@@ -181,6 +185,32 @@ function loadDataFundamentalsQuestions(): McqQuestionRaw[] {
   const parsed = JSON.parse(raw) as McqQuestionRaw[];
   cachedDataFundamentalsQuestions = parsed.filter(isValidMcqQuestionRaw);
   return cachedDataFundamentalsQuestions;
+}
+
+let cachedNonTechDomainQuestions: NonTechDomainMcq[] | null = null;
+
+function resolveNonTechDomainPath(): string {
+  const name = "non-tech-domain-questions.json";
+  const candidates = [
+    join(__dirname, name),
+    join(process.cwd(), "dist", "src", "data", name),
+    join(process.cwd(), "src", "data", name),
+    join(process.cwd(), "server", "src", "data", name),
+    join(process.cwd(), "server", "dist", "src", "data", name),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  throw new Error(`non-tech-domain-questions.json not found (tried: ${candidates.join("; ")})`);
+}
+
+function loadNonTechDomainQuestions(): NonTechDomainMcq[] {
+  if (cachedNonTechDomainQuestions) return cachedNonTechDomainQuestions;
+  const p = resolveNonTechDomainPath();
+  const raw = readFileSync(p, "utf-8");
+  const parsed = JSON.parse(raw) as NonTechDomainMcq[];
+  cachedNonTechDomainQuestions = parsed.filter(isValidMcqQuestionRaw);
+  return cachedNonTechDomainQuestions;
 }
 
 function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSession {
@@ -339,8 +369,20 @@ function selectMainBankMcqs(experienceYears: number, targetTotal: number): McqQu
  */
 export function createAptitudeSessionByQuestionSet(
   questionSet: AptitudeQuestionSetId,
-  experienceYears: number
+  experienceYears: number,
+  opts?: { jobTitle?: string | null }
 ): AptitudeSession {
+  if (questionSet === "non_tech_domain_fundamentals") {
+    const aptMain = selectMainBankMcqs(experienceYears, 10);
+    const domAll = loadNonTechDomainQuestions();
+    const st = detectNonTechSubtrack(opts?.jobTitle ?? null);
+    const tagged = domAll.filter((q) => (q as NonTechDomainMcq).subtrack === st);
+    const general = domAll.filter((q) => (q as NonTechDomainMcq).subtrack === "general");
+    let pool = [...tagged, ...general];
+    if (pool.length < 15) pool = [...domAll];
+    const domainPick = shuffleArray(pool).slice(0, 15);
+    return buildAptitudeSessionFromMcqs([...aptMain, ...domainPick].slice(0, 25));
+  }
   if (questionSet === "aptitude_mixed") {
     const main = selectMainBankMcqs(experienceYears, 15);
     const csAll = loadCsQuestions();
@@ -436,22 +478,29 @@ const answerKeyStore = new Map<
     marksKey: Record<string, number>;
     expiresAt: number;
     testStartedAtMs: number;
+    questionSet: string | null;
   }
 >();
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-export function storeAnswerKey(userId: string, answerKey: Record<string, string>, marksKey: Record<string, number>): void {
+export function storeAnswerKey(
+  userId: string,
+  answerKey: Record<string, string>,
+  marksKey: Record<string, number>,
+  questionSet: string | null = null
+): void {
   const now = Date.now();
-  answerKeyStore.set(userId, { answerKey, marksKey, expiresAt: now + TTL_MS, testStartedAtMs: now });
+  answerKeyStore.set(userId, { answerKey, marksKey, expiresAt: now + TTL_MS, testStartedAtMs: now, questionSet });
 }
 
 /** Same as storeAnswerKey — explicit alias when falling back from failed Prisma upsert. */
 export function storeMemoryAptitudeSession(
   userId: string,
   answerKey: Record<string, string>,
-  marksKey: Record<string, number>
+  marksKey: Record<string, number>,
+  questionSet?: string | null
 ): void {
-  storeAnswerKey(userId, answerKey, marksKey);
+  storeAnswerKey(userId, answerKey, marksKey, questionSet ?? null);
 }
 
 export function getAnswerKey(userId: string): Record<string, string> | null {
@@ -474,6 +523,7 @@ export function getMemoryAptitudeSubmitContext(userId: string): {
   answerKey: Record<string, string>;
   marksKey: Record<string, number>;
   testStartedAt: Date | null;
+  questionSet: string | null;
 } | null {
   const ent = answerKeyStore.get(userId);
   if (!ent || Date.now() > ent.expiresAt) {
@@ -485,6 +535,7 @@ export function getMemoryAptitudeSubmitContext(userId: string): {
     answerKey: ent.answerKey,
     marksKey: ent.marksKey,
     testStartedAt: new Date(ent.testStartedAtMs),
+    questionSet: ent.questionSet ?? null,
   };
 }
 

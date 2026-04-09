@@ -241,6 +241,24 @@ interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: Aut
       return res.status(retakeGate.status).json(retakeGate.body);
     }
 
+    const seekerProfile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { roleType: true },
+    });
+    if (seekerProfile?.roleType === "non_technical") {
+      const assign = await prisma.verificationStage.findFirst({
+        where: { userId: req.user!.id, stageName: "non_tech_assignment", status: "completed" },
+      });
+      const expertSt = await prisma.verificationStage.findFirst({
+        where: { userId: req.user!.id, stageName: "expert_interview" },
+      });
+      if (!assign || expertSt?.status !== "in_progress") {
+        return res.status(403).json({
+          error: "Pass the role assignment and open the AI Expert Interview step before starting.",
+        });
+      }
+    }
+
     const interview = await prisma.interview.create({
       data: {
         userId: req.user!.id,
@@ -679,7 +697,13 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
         });
       }
 
-      const { total, badge } = computeAiInterviewAggregateScore(evaluation);
+      const gateProfile = await prisma.jobSeekerProfile.findUnique({
+        where: { userId: interview.userId },
+        select: { roleType: true },
+      });
+      const { total, badge } = computeAiInterviewAggregateScore(evaluation, {
+        nonTechnical: gateProfile?.roleType === "non_technical",
+      });
     await prisma.interview.update({
       where: { id: interviewId },
       data: {

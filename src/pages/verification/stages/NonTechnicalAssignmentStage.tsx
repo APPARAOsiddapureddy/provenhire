@@ -26,28 +26,12 @@ interface NonTechnicalAssignmentStageProps {
   isRetry?: boolean;
   onComplete: () => void;
   onRetry?: () => void;
+  onPaywallRequired?: (
+    stage: string,
+    pricing: { singleInr: number; bundleInr: number },
+    cooldown: Date | null
+  ) => void;
 }
-
-const ASSIGNMENT_PROMPTS: Record<string, string> = {
-  "Product Manager": "Describe a product you would build from scratch. Include: problem statement, target users, key features, and success metrics.",
-  "Project Manager": "Walk through how you would plan and execute a 3-month project with a cross-functional team. What tools and methods would you use?",
-  "Marketing": "Outline a marketing campaign for launching a new product. Include channels, timeline, and how you would measure ROI.",
-  "Marketing Manager": "Outline a marketing campaign for launching a new product. Include channels, timeline, and how you would measure ROI.",
-  "Sales": "How would you build a sales strategy for a new market? Include pipeline, targets, and team structure.",
-  "Sales Manager": "How would you build a sales strategy for a new market? Include pipeline, targets, and team structure.",
-  "Content": "Write a 200-word sample blog post introducing a fictional SaaS product to a B2B audience.",
-  "Content Writer": "Write a 200-word sample blog post introducing a fictional SaaS product to a B2B audience.",
-  "HR": "Describe your approach to hiring for a critical role. How would you source, assess, and select candidates?",
-  "HR Manager": "Describe your approach to hiring for a critical role. How would you source, assess, and select candidates?",
-  "Business Analyst": "A stakeholder reports declining user engagement. Describe your analysis approach and the questions you would ask.",
-  "UX Designer": "Describe your process for redesigning a complex user flow. How do you research, iterate, and validate?",
-  "Customer Success": "A key customer threatens to churn. Walk through your response plan step by step.",
-  "Customer Success Manager": "A key customer threatens to churn. Walk through your response plan step by step.",
-  "Operations": "Describe how you would optimize a repeatable operational process. Include metrics and improvement tactics.",
-  "Operations Manager": "Describe how you would optimize a repeatable operational process. Include metrics and improvement tactics.",
-};
-
-const DEFAULT_PROMPT = "Describe your relevant experience and approach for this role. Include 2-3 concrete examples of work you've done (or would do) that align with the job title.";
 
 interface AssignmentEvaluation {
   score: number;
@@ -58,7 +42,6 @@ interface AssignmentEvaluation {
   gaps?: string[];
 }
 
-const THRESHOLD = 60;
 const MAX_TAB_SWITCHES = 3;
 
 const NonTechnicalAssignmentStage = ({
@@ -68,6 +51,7 @@ const NonTechnicalAssignmentStage = ({
   isRetry = false,
   onComplete,
   onRetry,
+  onPaywallRequired,
 }: NonTechnicalAssignmentStageProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -80,6 +64,9 @@ const NonTechnicalAssignmentStage = ({
   const [assignmentJustSubmitted, setAssignmentJustSubmitted] = useState(false);
   const [evaluation, setEvaluation] = useState<AssignmentEvaluation | null>(null);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
+  const [prompt, setPrompt] = useState<string>("");
+  const [passThreshold, setPassThreshold] = useState(60);
+  const [promptError, setPromptError] = useState<string | null>(null);
 
   const isFailed = stageStatus === "failed" || (assignmentJustSubmitted && evaluation && !evaluation.qualified);
   const displayScore = evaluation?.score ?? stageScore ?? 0;
@@ -94,9 +81,9 @@ const NonTechnicalAssignmentStage = ({
     if (!submittingRef.current) {
       void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
       setAssignmentJustSubmitted(true);
-      setEvaluation({ score: 0, qualified: false, threshold: THRESHOLD });
+      setEvaluation({ score: 0, qualified: false, threshold: passThreshold });
     }
-  }, []);
+  }, [passThreshold]);
 
   const { tabSwitchCount } = useProctoringRiskMonitor({
     enabled: inTest,
@@ -121,7 +108,7 @@ const NonTechnicalAssignmentStage = ({
               toast.error("Assignment terminated due to tab switching. Maximum 3 switches allowed.");
               void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
               setAssignmentJustSubmitted(true);
-              setEvaluation({ score: 0, qualified: false, threshold: THRESHOLD });
+              setEvaluation({ score: 0, qualified: false, threshold: passThreshold });
             }
           }
         : undefined,
@@ -157,11 +144,32 @@ const NonTechnicalAssignmentStage = ({
     }
   }, [assignmentJustSubmitted, proctoringState]);
 
-  const prompt =
-    (targetJobTitle && ASSIGNMENT_PROMPTS[targetJobTitle]) ||
-    (targetJobTitle ? DEFAULT_PROMPT : "Based on your target role, describe your relevant experience and approach. Include 2-3 concrete examples.");
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .get<{ prompt: string; threshold: number }>("/api/verification/non-tech-assignment/prompt")
+      .then((r) => {
+        if (!cancelled) {
+          setPrompt(r.prompt);
+          setPassThreshold(r.threshold);
+          setPromptError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPromptError("Could not load your assignment prompt. Refresh the page or try again.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetJobTitle]);
 
   const handleSubmit = async () => {
+    if (!prompt.trim()) {
+      toast.error("Your assignment prompt is still loading. Please wait.");
+      return;
+    }
     if (!response.trim()) {
       toast.error("Please write your response before submitting.");
       return;
@@ -177,15 +185,38 @@ const NonTechnicalAssignmentStage = ({
       });
       setEvaluation(evalResult);
       if (evalResult.qualified) {
-        toast.success(`Assignment scored ${evalResult.score}/100. Qualified for Human Expert Interview.`);
+        toast.success(`Assignment scored ${evalResult.score}/100. You can start the AI Expert Interview.`);
       } else {
         toast.error(
-          `Assignment scored ${evalResult.score}/100. Minimum ${evalResult.threshold}/100 required for Human Expert Interview.`
+          `Assignment scored ${evalResult.score}/100. Minimum ${evalResult.threshold}/100 required to continue.`
         );
       }
       setAssignmentJustSubmitted(true);
     } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Failed to submit assignment.");
+      const err = error as Error & { status?: number; response?: { data?: Record<string, unknown> } };
+      const data = err.response?.data;
+      const code = typeof data?.code === "string" ? data.code : "";
+      if (err.status === 402 && (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") && onPaywallRequired) {
+        const pricing = data?.pricing as { singleInr?: number; bundleInr?: number } | undefined;
+        const nextRaw = data?.nextAvailableAt;
+        const nextAt =
+          typeof nextRaw === "string" || nextRaw instanceof Date ? new Date(nextRaw as string) : null;
+        onPaywallRequired(
+          "non_tech_assignment",
+          {
+            singleInr: typeof pricing?.singleInr === "number" ? pricing.singleInr : 299,
+            bundleInr: typeof pricing?.bundleInr === "number" ? pricing.bundleInr : 499,
+          },
+          nextAt && !Number.isNaN(nextAt.getTime()) ? nextAt : null
+        );
+        toast.error(
+          code === "COOLDOWN"
+            ? "Retake cooldown is still active — see payment window for the unlock time."
+            : (err.message ?? "A paid retake credit is required for further attempts.")
+        );
+      } else {
+        toast.error(err instanceof Error ? err.message : "Failed to submit assignment.");
+      }
     } finally {
       setSubmitting(false);
       submittingRef.current = false;
@@ -200,7 +231,7 @@ const NonTechnicalAssignmentStage = ({
           <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-4">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Not yet qualified</p>
             <p className="text-sm text-muted-foreground">
-              Your score: {displayScore}/100. Minimum {THRESHOLD} required to proceed to the Human Expert Interview.
+              Your score: {displayScore}/100. Minimum {passThreshold} required to unlock the AI Expert Interview.
             </p>
             {onRetry ? (
               <Button onClick={onRetry} className="mt-2">
@@ -237,7 +268,7 @@ const NonTechnicalAssignmentStage = ({
       <CardHeader>
         <CardTitle>Assignment: {targetJobTitle || "Your Target Role"}</CardTitle>
         <CardDescription>
-          Complete this written assignment based on your target job title. Submit when ready. Need {THRESHOLD}/100 to pass.
+          Complete this written assignment based on your target job title. Submit when ready. Need {passThreshold}/100 to pass.
           Stay in fullscreen and avoid switching tabs during the assignment.
         </CardDescription>
       </CardHeader>
@@ -299,8 +330,8 @@ const NonTechnicalAssignmentStage = ({
             </p>
             <p className={`text-sm font-medium ${evaluation?.qualified ? "text-emerald-600" : "text-amber-600"}`}>
               {evaluation?.qualified
-                ? "Qualified for Human Expert Interview."
-                : "Not qualified yet for Human Expert Interview. Please improve and retry this assignment."}
+                ? "Qualified — continue to the AI Expert Interview."
+                : "Not qualified yet. Improve your response and retry (your first retake is free after 24 hours)."}
             </p>
             {evaluation?.summary && (
               <p className="text-sm text-muted-foreground">{evaluation.summary}</p>
@@ -321,7 +352,7 @@ const NonTechnicalAssignmentStage = ({
               </Button>
               {evaluation?.qualified ? (
                 <Button onClick={() => onComplete()}>
-                  Continue to Human Expert Interview
+                  Continue to AI Expert Interview
                 </Button>
               ) : (
                 <Button variant="secondary" onClick={() => onRetry?.()}>

@@ -306,6 +306,7 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     noticePeriod: z.union([z.string(), z.null()]).optional(),
     currentSalary: z.union([z.string(), z.null()]).optional(),
     expectedSalary: z.string().optional(),
+    portfolioUrl: z.union([z.string().url(), z.literal("")]).optional(),
     enforceRequiredFields: z.boolean().optional(),
     /** When "unemployed" or "student", notice period / current salary / current role / experience are not required */
     employmentStatus: z.enum(["employed", "unemployed", "student"]).optional(),

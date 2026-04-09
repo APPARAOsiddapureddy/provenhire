@@ -21,17 +21,26 @@ import DashboardShell from "@/components/DashboardShell";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 
 const TECHNICAL_STAGE_ORDER = ['profile_setup', 'cs_fundamentals', 'dsa_round', 'ai_skills_interview', 'expert_interview'] as const;
-const NON_TECHNICAL_STAGE_ORDER = ['profile_setup', 'non_tech_assignment', 'human_expert_interview'] as const;
+
+function nonTechnicalFallbackOrder(experienceYears: number | null | undefined): string[] {
+  const y = experienceYears == null || Number.isNaN(Number(experienceYears)) ? 0 : Number(experienceYears);
+  if (y < 3) {
+    return ['profile_setup', 'domain_fundamentals', 'non_tech_assignment', 'expert_interview'];
+  }
+  return ['profile_setup', 'non_tech_assignment', 'expert_interview'];
+}
+
 const STAGE_LABELS: Record<string, string> = {
   profile_setup: 'Profile Setup',
   aptitude_test: 'Cognitive Assessment',
   cs_fundamentals: 'CS Fundamentals',
+  domain_fundamentals: 'Domain Fundamentals',
   dsa_round: 'DSA Round',
   non_tech_assignment: 'Assignment',
   ai_skills_interview: 'AI Skills Interview',
   system_design_interview: 'System Design',
-  expert_interview: 'Expert Interview',
-  human_expert_interview: 'Expert Interview',
+  expert_interview: 'AI Expert Interview',
+  human_expert_interview: 'Human Expert Interview',
 };
 
 const deriveCertificationFromStages = (
@@ -42,9 +51,17 @@ const deriveCertificationFromStages = (
     stages.filter((s) => s.status === "completed").map((s) => s.stage_name).filter(Boolean) as string[]
   );
   if (roleType === "non_technical") {
-    if (completed.has("human_expert_interview")) return { level: 2, label: "Level 2 - Expert Verified Candidate" };
-    if (completed.has("profile_setup") && completed.has("non_tech_assignment")) {
-      return { level: 1, label: "Level 1 - Skill Assignment Verified" };
+    if (completed.has("expert_interview") || completed.has("human_expert_interview")) {
+      return { level: 3, label: "Level 3 - AI Expert Verified Candidate" };
+    }
+    if (completed.has("non_tech_assignment")) {
+      return { level: 2, label: "Level 2 - Assignment Verified Candidate" };
+    }
+    const needsDomain = stages.some((s) => s.stage_name === "domain_fundamentals");
+    const domainOk = completed.has("domain_fundamentals");
+    const profileOk = completed.has("profile_setup");
+    if (profileOk && (!needsDomain || domainOk)) {
+      return { level: 1, label: "Level 1 - Foundation Verified" };
     }
     return { level: 0, label: "Level 0 - Not Yet Certified" };
   }
@@ -105,11 +122,22 @@ const JobSeekerDashboard = () => {
     !(profile.targetJobTitle ?? profile.target_job_title)?.trim()
   );
   const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical";
+  const nonTechFallbackOrder = useMemo(
+    () => nonTechnicalFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null),
+    [profile?.experienceYears, profile?.experience_years]
+  );
   const stageOrder = useMemo(() => {
-    if (roleType === "non_technical") return [...NON_TECHNICAL_STAGE_ORDER];
+    if (roleType === "non_technical") {
+      if (apiStageOrder && apiStageOrder.length > 0) return [...apiStageOrder];
+      return [...nonTechFallbackOrder];
+    }
     if (apiStageOrder && apiStageOrder.length > 0) return [...apiStageOrder];
     return [...TECHNICAL_STAGE_ORDER];
-  }, [roleType, apiStageOrder]);
+  }, [roleType, apiStageOrder, nonTechFallbackOrder]);
+  const nonTechHasDomainFundamentals = useMemo(
+    () => roleType === "non_technical" && stageOrder.includes("domain_fundamentals"),
+    [roleType, stageOrder]
+  );
 
   const technicalStepsBeforeHuman = useMemo(
     () => stageOrder.filter((s) => s !== "human_expert_interview"),
@@ -139,6 +167,7 @@ const JobSeekerDashboard = () => {
     } else {
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "expert";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "non_tech_assignment")) return "assignment";
+      if (completed.some((s: { stage_name?: string }) => s.stage_name === "domain_fundamentals")) return "domain";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "profile_setup")) return "profile";
     }
     return null;
@@ -170,13 +199,18 @@ const JobSeekerDashboard = () => {
       ? [
           {
             level: 1,
-            label: "Level 1 - Assignment Verified",
-            stages: ["profile_setup", "non_tech_assignment"],
+            label: "Level 1 - Foundation",
+            stages: ["profile_setup", "domain_fundamentals"],
           },
           {
             level: 2,
-            label: "Level 2 - Expert Verified",
-            stages: ["human_expert_interview"],
+            label: "Level 2 - Assignment verified",
+            stages: ["non_tech_assignment"],
+          },
+          {
+            level: 3,
+            label: "Level 3 - AI Expert",
+            stages: ["expert_interview"],
           },
         ]
       : [
@@ -417,7 +451,7 @@ const JobSeekerDashboard = () => {
         const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
         const totalStages =
           role === "non_technical"
-            ? 3
+            ? (order && order.length > 0 ? order.length : nonTechnicalFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null).length)
             : order && order.length > 0
               ? order.length
               : TECHNICAL_STAGE_ORDER.length;
@@ -642,6 +676,7 @@ const JobSeekerDashboard = () => {
                 skills={profile.skills || []}
                 verificationStatus={profile.verificationStatus ?? profile.verification_status}
                 roleType={roleType}
+                nonTechHasDomainFundamentals={nonTechHasDomainFundamentals}
                 completedUpToStage={completedUpToStage}
                 aptitudeScore={testResults.aptitude ? (() => {
                   const t = testResults.aptitude.total_marks ?? 0;
@@ -650,7 +685,13 @@ const JobSeekerDashboard = () => {
                   return t > 0 ? Math.round((s / t) * 100) : Math.round(s);
                 })() : undefined}
                 dsaScore={testResults.dsa ? Math.round(testResults.dsa.total_score ?? 0) : undefined}
-                interviewScore={verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score ? Math.round((verificationStages.find((s: any) => s.stage_name === 'expert_interview')?.score / 15) * 100) : undefined}
+                interviewScore={(() => {
+                  const raw = verificationStages.find((s: { stage_name?: string }) => s.stage_name === "expert_interview")?.score;
+                  if (raw == null) return undefined;
+                  const n = Number(raw);
+                  if (roleType === "non_technical") return Math.round(n);
+                  return Math.round((n / 15) * 100);
+                })()}
               />
             )}
           </div>
@@ -812,7 +853,13 @@ const JobSeekerDashboard = () => {
                 {certificationLevelNumber >= 1 && (
                   <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
                     <Award className="h-3.5 w-3.5 mr-1.5" />
-                    {roleType === "technical" ? "Level 1 — Cognitive verified" : "Level 1 — Assignment verified"}
+                    {roleType === "technical"
+                      ? "Level 1 — Cognitive verified"
+                      : certificationLevelNumber >= 3
+                        ? "Level 3 — AI Expert verified"
+                        : certificationLevelNumber >= 2
+                          ? "Level 2 — Assignment verified"
+                          : "Level 1 — Foundation verified"}
                   </Badge>
                 )}
                 <Button className="dashboard-btn-gold" onClick={() => navigate('/verification')}>
@@ -821,10 +868,8 @@ const JobSeekerDashboard = () => {
               </div>
             </div>
             <div className="dashboard-section-content">
-              <div
-                className={`grid gap-3 mb-6 ${roleType === "technical" ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}
-              >
-                {(roleType === "technical" ? (["L1", "L2", "L3"] as const) : (["L1", "L2"] as const)).map((code, idx) => {
+              <div className="grid gap-3 mb-6 sm:grid-cols-3">
+                {(["L1", "L2", "L3"] as const).map((code, idx) => {
                   const step = idx + 1;
                   const activeByNumber = certificationLevelNumber >= step;
                   const activeByCode = provenhireCertCode === code;
@@ -832,7 +877,11 @@ const JobSeekerDashboard = () => {
                   const titles: Record<string, string> =
                     roleType === "technical"
                       ? { L1: "Cognitive Verified", L2: "Skill Passport", L3: "Elite Verified" }
-                      : { L1: "Assignment Verified", L2: "Expert Verified" };
+                      : {
+                          L1: "Foundation",
+                          L2: "Assignment verified",
+                          L3: "AI Expert",
+                        };
                   return (
                     <div
                       key={code}
@@ -855,8 +904,10 @@ const JobSeekerDashboard = () => {
                                 ? "AI Skills, System Design (mid/senior), AI Expert — Skill Passport"
                                 : "Human expert interview — highest trust tier"
                             : code === "L1"
-                              ? "Profile + Assignment"
-                              : "Human Expert Interview"}
+                              ? "Profile and (for early-career) domain fundamentals"
+                              : code === "L2"
+                                ? "Role-based written assignment"
+                                : "AI Expert Interview — capstone on this track"}
                         </p>
                       )}
                     </div>
@@ -881,9 +932,7 @@ const JobSeekerDashboard = () => {
                     <div className="dashboard-stage-time-label">Typical time to full verify</div>
                     <div className="dashboard-stage-time-value">2–5 days</div>
                     <div className="dashboard-stage-time-label mt-1">
-                      {roleType === "non_technical"
-                        ? "3 stages on this track"
-                        : `${stageOrder.length} stages on this track`}
+                      {`${stageOrder.length} stages on this track`}
                     </div>
                   </div>
                 </div>
@@ -934,6 +983,8 @@ const JobSeekerDashboard = () => {
                       'Proctored cognitive assessment: reasoning, quantitative, and verbal items timed on the server.',
                     cs_fundamentals:
                       'Same rigour as our cognitive band — timed, proctored fundamentals before live coding (early-career path).',
+                    domain_fundamentals:
+                      'Timed aptitude plus domain MCQs tailored to your target non-technical role (early-career path).',
                     dsa_round: 'Proctored live coding: algorithmic problems matched to your experience tier.',
                     non_tech_assignment: 'Role-based written assignment tailored to your target job title.',
                     ai_skills_interview:
@@ -941,7 +992,9 @@ const JobSeekerDashboard = () => {
                     system_design_interview:
                       'Structured system design conversation for mid/senior tracks — trade-offs, scaling, and clarity.',
                     expert_interview:
-                      'Capstone AI technical interview — adversarial follow-ups on depth and reasoning (voice-first).',
+                      roleType === "non_technical"
+                        ? 'AI Expert Interview — structured rubric on communication, judgment, and role craft (voice-first).'
+                        : 'Capstone AI technical interview — adversarial follow-ups on depth and reasoning (voice-first).',
                     human_expert_interview:
                       'Live conversation with a vetted domain expert — final trust layer when you pursue Elite verification.',
                   };
@@ -963,7 +1016,7 @@ const JobSeekerDashboard = () => {
                       <p className="dashboard-stage-card-desc">{stageDesc[stageName] ?? ''}</p>
                       <div className="flex flex-wrap gap-1">
                         {stageName === 'profile_setup' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> AI Parsed</span>}
-                        {(stageName === 'aptitude_test' || stageName === 'cs_fundamentals') && (
+                        {(stageName === 'aptitude_test' || stageName === 'cs_fundamentals' || stageName === 'domain_fundamentals') && (
                           <>
                             <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Proctored</span>
                             <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Timed attempt</span>
@@ -988,10 +1041,21 @@ const JobSeekerDashboard = () => {
                         <><div className="dashboard-score-bar"><div className="dashboard-score-fill" style={{ width: `${dsaPct ?? 0}%` }} /></div><div className="dashboard-score-text">{dsaSolved} Problems Solved{dsaPct != null ? ` (${dsaPct}%)` : ''}</div></>
                       )}
                       {isCompleted && stageName === 'non_tech_assignment' && <div className="dashboard-score-text">Score: {stageData?.score ?? 0}/100</div>}
-                      {stageName === 'expert_interview' && stageData?.status === 'pending_review' && (
+                      {stageName === 'expert_interview' &&
+                        stageData?.status === 'pending_review' &&
+                        roleType === "technical" && (
                         <div className="mt-3 text-sm font-semibold text-amber-600">Under review — expect an email in 10–15 hours</div>
                       )}
-                      {isCompleted && stageName === 'expert_interview' && <div className="dashboard-score-text">Certified Level {certificationLevel || '—'}</div>}
+                      {isCompleted && stageName === 'expert_interview' && (
+                        <div className="dashboard-score-text">
+                          {roleType === "non_technical"
+                            ? `Interview score: ${Math.round(Number(stageData?.score) || 0)}%`
+                            : `Certified Level ${certificationLevel || '—'}`}
+                        </div>
+                      )}
+                      {isCompleted && stageName === 'domain_fundamentals' && stageData?.score != null && (
+                        <div className="dashboard-score-text">Score: {Math.round(Number(stageData.score))}%</div>
+                      )}
                       {isCompleted && stageName === 'human_expert_interview' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
                       {isActive && (
                         <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>

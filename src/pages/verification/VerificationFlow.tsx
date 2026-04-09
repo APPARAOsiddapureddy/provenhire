@@ -93,11 +93,8 @@ const VerificationFlow = () => {
     []
   );
 
-  const [technicalOrderFromApi, setTechnicalOrderFromApi] = useState<string[]>(() =>
-    technicalStagesForTier("fresher")
-  );
-  const nonTechnicalStageOrder = ["profile_setup", "non_tech_assignment", "human_expert_interview"];
-  const stageOrder = roleType === "non_technical" ? nonTechnicalStageOrder : technicalOrderFromApi;
+  const [pipelineOrderFromApi, setPipelineOrderFromApi] = useState<string[]>(() => technicalStagesForTier("fresher"));
+  const stageOrder = pipelineOrderFromApi;
   const LOAD_TIMEOUT_MS = 30000;
 
   const resolveTechnicalOrderForResponse = (
@@ -105,7 +102,9 @@ const VerificationFlow = () => {
     res: VerificationStagesApiResponse,
     expYears: number
   ): string[] => {
-    if (rt === "non_technical") return nonTechnicalStageOrder;
+    if (rt === "non_technical" && Array.isArray(res.stage_order) && res.stage_order.length > 0) {
+      return res.stage_order;
+    }
     const base = technicalStageOrderFallback({
       stageOrderFromApi: res.stage_order,
       verificationPipelineV2: res.verification_pipeline_v2,
@@ -127,6 +126,7 @@ const VerificationFlow = () => {
     human_expert_interview: "Expert Interview",
     non_tech_assignment: "Assignment",
     data_fundamentals: "Data Fundamentals + Aptitude",
+    domain_fundamentals: "Aptitude + Domain Fundamentals",
     data_round: "Data Round (SQL + Python)",
     data_skills_interview: "AI Skills Interview (Data)",
     data_system_design: "Data System Design",
@@ -183,18 +183,8 @@ const VerificationFlow = () => {
         setRoleType(rt);
         setCertificationLevel(res.certification_level ?? 0);
         setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
-        // Migrate non-tech: expert_interview -> human_expert_interview for existing users
-        if (rt === "non_technical" && data?.length) {
-          data = data.map((s: VerificationStage) =>
-            s.stage_name === "expert_interview"
-              ? { ...s, stage_name: "human_expert_interview" as const }
-              : s
-          );
-        }
         let orderEff: string[] = resolveTechnicalOrderForResponse(rt, res, experienceYears);
-        if (rt === "technical") {
-          setTechnicalOrderFromApi(orderEff);
-        }
+        setPipelineOrderFromApi(orderEff);
         // Fetch job-title context and experience in background so stage pipeline can render immediately.
         void api
           .get<{ profile: { targetJobTitle?: string; experienceYears?: number } }>("/api/users/job-seeker-profile")
@@ -223,17 +213,8 @@ const VerificationFlow = () => {
             setRoleType(resRefresh.roleType as "technical" | "non_technical" | "data");
           }
           const rtEff = (resRefresh.roleType as "technical" | "non_technical" | "data") || rt;
-          if (rtEff === "non_technical" && data.length) {
-            data = data.map((s: VerificationStage) =>
-              s.stage_name === "expert_interview"
-                ? { ...s, stage_name: "human_expert_interview" as const }
-                : s
-            );
-          }
           orderEff = resolveTechnicalOrderForResponse(rtEff, resRefresh, experienceYears);
-          if (rtEff === "technical") {
-            setTechnicalOrderFromApi(orderEff);
-          }
+          setPipelineOrderFromApi(orderEff);
         }
 
         const stagesList = mergeStagesWithOrder(data as VerificationStage[], orderEff);
@@ -284,20 +265,11 @@ const VerificationFlow = () => {
       }>("/api/verification/stages");
       let data = res.stages ?? [];
       const rtEff = (res.roleType as "technical" | "non_technical" | "data") || rt || roleType;
-      if (rtEff === "non_technical" && data.length) {
-        data = data.map((s: VerificationStage) =>
-          s.stage_name === "expert_interview"
-            ? { ...s, stage_name: "human_expert_interview" as const }
-            : s
-        );
-      }
       setRoleType(rtEff);
       setCertificationLevel(res.certification_level ?? 0);
       setCertificationLabel(res.certification_label ?? "Level 0 - Not Yet Certified");
       const orderEff = resolveTechnicalOrderForResponse(rtEff, res as VerificationStagesApiResponse, experienceYears);
-      if (rtEff !== "non_technical") {
-        setTechnicalOrderFromApi(orderEff);
-      }
+      setPipelineOrderFromApi(orderEff);
       setStages(mergeStagesWithOrder(data, orderEff));
       setCurrentStage("profile_setup");
     } catch (error: any) {
@@ -468,6 +440,42 @@ const VerificationFlow = () => {
             />
           );
         }
+      case "domain_fundamentals":
+        return (
+          <div className="space-y-6">
+            {!testStageStarted.domain_fundamentals ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Aptitude + Domain Fundamentals</h3>
+                  <p className="text-muted-foreground mb-4">
+                    25 MCQs (aptitude plus role-domain knowledge for your subtrack). You have 35 minutes. Score at least
+                    60% to pass. Retakes are free with a 24-hour cooldown.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, domain_fundamentals: true }))}>
+                      Start assessment
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <AptitudeTestStage
+                key="domain-fundamentals"
+                stageStatus={getStageStatus("domain_fundamentals")}
+                stageScore={stages.find((s) => s.stage_name === "domain_fundamentals")?.score}
+                pipelineStageName="domain_fundamentals"
+                nextStageLabel={getNextStageInfo("domain_fundamentals")?.label}
+                onComplete={() => void completeAndAdvanceStage("domain_fundamentals")}
+                onSessionExpired={() => setTestStageStarted((p) => ({ ...p, domain_fundamentals: false }))}
+                onRetry={() => retryStage("domain_fundamentals", true)}
+                isRetry={retryingStage === "domain_fundamentals"}
+              />
+            )}
+          </div>
+        );
       case 'non_tech_assignment':
         return !testStageStarted.non_tech_assignment ? (
           <Card className="border-2 border-primary/30 bg-primary/5">
@@ -494,8 +502,9 @@ const VerificationFlow = () => {
             isRetry={retryingStage === 'non_tech_assignment'}
             onComplete={async () => {
               await loadVerificationStages();
-              setCurrentStage("human_expert_interview");
+              setCurrentStage("expert_interview");
             }}
+            onPaywallRequired={handlePaywallRequired}
             onRetry={() => retryStage('non_tech_assignment', true)}
           />
         );
@@ -841,7 +850,7 @@ const VerificationFlow = () => {
       case 'expert_interview':
         return (
           <div className="space-y-6">
-            {getStageStatus("expert_interview") === "pending_review" ? (
+            {getStageStatus("expert_interview") === "pending_review" && roleType !== "non_technical" ? (
               <Card className="border-2 border-amber-500/30 bg-amber-500/5">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1097,6 +1106,7 @@ const VerificationFlow = () => {
   const isInActiveTest =
     (currentStage === "aptitude_test" && testStageStarted.aptitude_test) ||
     (currentStage === "cs_fundamentals" && testStageStarted.cs_fundamentals) ||
+    (currentStage === "domain_fundamentals" && testStageStarted.domain_fundamentals) ||
     (currentStage === "data_fundamentals" && testStageStarted.data_fundamentals) ||
     (currentStage === "dsa_round" && testStageStarted.dsa_round) ||
     (currentStage === "data_round" && testStageStarted.data_round) ||

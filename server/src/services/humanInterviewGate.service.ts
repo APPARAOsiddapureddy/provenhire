@@ -110,29 +110,20 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
   const retryAfter = profile?.humanExpertRetryAfter ?? null;
 
   if (roleType === "non_technical") {
-    const assignment = await prisma.verificationStage.findFirst({
-      where: { userId, stageName: "non_tech_assignment", status: "completed" },
-    });
-    const sessionCount = await prisma.humanInterviewSession.count({
-      where: { userId, status: { in: ["scheduled", "in_progress", "completed"] } },
-    });
-    const assignStage = await prisma.verificationStage.findFirst({
-      where: { userId, stageName: "non_tech_assignment" },
-    });
-    const can = !!assignment;
+    /** Non-technical v2: AI Expert Interview replaces in-platform human expert booking for verification. */
     return withExpertRetryCooldown(
       {
         admin_review_status: "none",
         latest_queue_id: null,
         requires_payment: false,
         payment_status: "waived",
-        can_access_slots: can,
+        can_access_slots: false,
         can_access_payment_page: false,
-        block_human_interview_section: !can,
-        human_interview_attempts: sessionCount,
+        block_human_interview_section: true,
+        human_interview_attempts: 0,
         attempt_id: null,
         razorpay_key_id: null,
-        expert_interview_stage_status: assignStage?.status ?? null,
+        expert_interview_stage_status: null,
       },
       retryAfter
     );

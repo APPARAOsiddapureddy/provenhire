@@ -486,11 +486,12 @@ export interface NonTechnicalAssignmentEvaluation {
 }
 
 /**
- * Evaluate non-technical assignment answers and produce a qualification decision for Human Expert Interview.
- * Score is 0-100. Default qualification threshold = 60.
+ * Evaluate non-technical assignment answers (role assignment gate). Score 0–100.
+ * Rubric: structure 25%, domain knowledge 30%, problem analysis 25%, actionability 20%.
  */
 export async function evaluateNonTechnicalAssignment(params: {
   targetJobTitle?: string;
+  subtrack?: string;
   prompt: string;
   response: string;
   threshold?: number;
@@ -522,7 +523,14 @@ export async function evaluateNonTechnicalAssignment(params: {
     };
   }
 
-  const system = `You are an expert evaluator for non-technical hiring assignments.
+  const sub = params.subtrack ? `Subtrack: ${params.subtrack}\n` : "";
+  const system = `You are an expert evaluator for non-technical hiring (PM, design, ops, marketing, people, business).
+Score the written assignment 0-100 using this rubric (weights must guide the final score):
+- Structure (25%): clear organization, logical flow, appropriate sections.
+- Domain knowledge (30%): correct use of role-specific frameworks, terminology, concepts for the subtrack.
+- Problem analysis (25%): identifies the right problem, sound hypotheses, sound reasoning.
+- Actionability (20%): specific, realistic recommendations — not vague generalities.
+
 Return ONLY strict JSON with keys:
 {
   "score": number (0-100),
@@ -531,12 +539,12 @@ Return ONLY strict JSON with keys:
   "gaps": ["..."]
 }
 Rules:
-- Judge relevance to prompt, depth, structure, practicality, and communication clarity.
+- Do not penalize writing style or grammar unless it obscures meaning. Judge quality of thinking.
 - Be fair and strict. Do not inflate scores.
 - No markdown, no extra text.`;
 
   const user = `Target role: ${params.targetJobTitle || "Non-technical role"}
-
+${sub}
 Assignment prompt:
 ${params.prompt}
 

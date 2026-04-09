@@ -21,6 +21,7 @@ const STAGE_NAMES: Record<string, string> = {
   ai_skills_interview: "AI Skills Interview",
   system_design_interview: "System Design Interview",
   expert_interview: "Expert Interview",
+  non_tech_assignment: "Non-Technical Assignment Retake",
 };
 
 export const PaywallModal = ({

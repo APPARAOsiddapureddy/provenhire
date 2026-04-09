@@ -1,5 +1,8 @@
 /** Aggregate 0–100 score + badge from Gemini evaluation JSON (AI interview). */
-export function computeAiInterviewAggregateScore(payload: Record<string, unknown>) {
+export function computeAiInterviewAggregateScore(
+  payload: Record<string, unknown>,
+  opts?: { nonTechnical?: boolean }
+) {
   const concept =
     Number(payload.concept_score ?? NaN) ||
     Math.round(
@@ -20,9 +23,15 @@ export function computeAiInterviewAggregateScore(payload: Record<string, unknown
         ? 70
         : 50);
 
+  const nt = Boolean(opts?.nonTechnical);
+  const wC = nt ? 0.3 : 0.4;
+  const wR = nt ? 0.25 : 0.3;
+  const wM = nt ? 0.3 : 0.2;
+  const wF = nt ? 0.15 : 0.1;
+
   const total = Math.min(
     100,
-    Math.max(0, Math.round(concept * 0.4 + reasoning * 0.3 + communication * 0.2 + confidence * 0.1)),
+    Math.max(0, Math.round(concept * wC + reasoning * wR + communication * wM + confidence * wF)),
   );
   let badge = "Not Verified";
   if (total >= 90) badge = "Elite Verified";
