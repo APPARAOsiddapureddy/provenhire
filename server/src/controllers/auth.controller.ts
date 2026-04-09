@@ -13,11 +13,15 @@ const REFRESH_EXPIRY_DAYS = 7;
 
 const registerSchema = z.object({
   name: z.string().optional(),
-  email: z.string().email(),
-  password: z.string().min(6),
+  email: z.string().email("Enter a valid email address."),
+  /** Matches Auth.tsx: min 8, at least one letter and one number. */
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters.")
+    .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, "Password must include at least one letter and one number."),
   /** Privileged roles must never be self-service; only jobseeker/recruiter via public signup. */
-  role: z.enum(["jobseeker", "recruiter"]).optional(),
-  roleType: z.enum(["technical", "non_technical", "data"]).optional(),
+  role: z.enum(["jobseeker", "recruiter"]).nullish(),
+  roleType: z.enum(["technical", "non_technical", "data"]).nullish(),
   verificationToken: z.string().optional(), // Optional for now; will add when scaling
 });
 
@@ -217,7 +221,13 @@ export async function register(req: Request, res: Response) {
     }
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid registration payload" });
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+      const firstMsg = Object.values(fieldErrors).flat()[0];
+      return res.status(400).json({
+        error: firstMsg ?? "Invalid registration payload",
+        code: "VALIDATION_ERROR",
+        fields: fieldErrors,
+      });
     }
     const { name, email, password, role, roleType } = parsed.data;
     const effectiveRole = role === "recruiter" ? "recruiter" : "jobseeker";
