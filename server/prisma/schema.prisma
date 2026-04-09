@@ -53,6 +53,32 @@ model User {
   provenHireResume           ProvenHireResume?
   resumeChangeRequests       ResumeChangeRequest[]
   retakeCredits              CandidateRetakeLedger[]
+  nonTechAssignments         NonTechAssignment[]
+}
+
+/// Issued when a non-technical candidate first fetches the role assignment prompt; 48h window from issuedAt.
+model NonTechAssignment {
+  id               String    @id @default(uuid())
+  userId           String
+  subtrack         String
+  experienceTier   String
+  prompt           String    @db.Text
+  issuedAt         DateTime  @default(now())
+  deadline         DateTime
+  status           String    @default("active")
+  attemptIndex     Int       @default(0)
+  submittedAt      DateTime?
+  submittedFileUrl String?
+  submittedText    String?   @db.Text
+  score            Int?
+  passed           Boolean?
+  feedbackSummary  String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
 }
 
 model JobSeekerProfile {

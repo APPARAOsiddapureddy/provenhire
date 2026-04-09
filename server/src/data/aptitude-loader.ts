@@ -14,6 +14,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const APTITUDE_MARKS = { easy: 1, medium: 2, hard: 3 } as const;
 export const APTITUDE_QUESTION_COUNT = 20;
 
+/** Non-technical domain fundamentals: role MCQs only (no cognitive/aptitude mix). */
+export const NON_TECH_DOMAIN_QUESTION_COUNT = 15;
+export const NON_TECH_DOMAIN_TIME_LIMIT_MINUTES = 20;
+export const NON_TECH_DOMAIN_PASS_THRESHOLD_FRACTION = 0.6;
+
+export const NON_TECH_DOMAIN_FUNDAMENTALS_CONFIG = {
+  questionCount: NON_TECH_DOMAIN_QUESTION_COUNT,
+  timeLimitMinutes: NON_TECH_DOMAIN_TIME_LIMIT_MINUTES,
+  passThresholdFraction: NON_TECH_DOMAIN_PASS_THRESHOLD_FRACTION,
+} as const;
+
 export interface McqQuestionRaw {
   _id?: { $oid?: string };
   question: string;
@@ -270,6 +281,34 @@ function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSe
   return { questions, answerKey, marksKey, totalMarks, passThreshold };
 }
 
+/** 15 domain questions, 1 mark each; pass = 60% (9/15). No aptitude questions. */
+function buildNonTechDomainFundamentalsSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSession {
+  const picked = shuffleArray(selectedMcq).slice(0, NON_TECH_DOMAIN_QUESTION_COUNT);
+  const answerKey: Record<string, string> = {};
+  const marksKey: Record<string, number> = {};
+  const questions: AptitudeQuestionForClient[] = picked.map((q) => {
+    const id = getQuestionId(q);
+    answerKey[id] = (q.answer || "").trim();
+    marksKey[id] = 1;
+    const opts = [q.option_1, q.option_2, q.option_3, q.option_4].map(normalizeText).filter(Boolean);
+    const uniq = new Map<string, string>();
+    for (const opt of opts) {
+      const key = normalizeOptionKey(opt);
+      if (!uniq.has(key)) uniq.set(key, opt);
+    }
+    const cleanOpts = Array.from(uniq.values());
+    return {
+      id,
+      question: q.question,
+      options: shuffleArray(cleanOpts),
+      marks: 1,
+    };
+  });
+  const totalMarks = questions.length;
+  const passThreshold = Math.ceil(totalMarks * NON_TECH_DOMAIN_PASS_THRESHOLD_FRACTION);
+  return { questions, answerKey, marksKey, totalMarks, passThreshold };
+}
+
 function selectMainBankMcqs(experienceYears: number, targetTotal: number): McqQuestionRaw[] {
   const all = loadQuestions();
   const verbalPool = all.filter(isVerbal);
@@ -373,15 +412,13 @@ export function createAptitudeSessionByQuestionSet(
   opts?: { jobTitle?: string | null }
 ): AptitudeSession {
   if (questionSet === "non_tech_domain_fundamentals") {
-    const aptMain = selectMainBankMcqs(experienceYears, 10);
     const domAll = loadNonTechDomainQuestions();
     const st = detectNonTechSubtrack(opts?.jobTitle ?? null);
     const tagged = domAll.filter((q) => (q as NonTechDomainMcq).subtrack === st);
     const general = domAll.filter((q) => (q as NonTechDomainMcq).subtrack === "general");
     let pool = [...tagged, ...general];
-    if (pool.length < 15) pool = [...domAll];
-    const domainPick = shuffleArray(pool).slice(0, 15);
-    return buildAptitudeSessionFromMcqs([...aptMain, ...domainPick].slice(0, 25));
+    if (pool.length < NON_TECH_DOMAIN_QUESTION_COUNT) pool = [...domAll];
+    return buildNonTechDomainFundamentalsSessionFromMcqs(pool);
   }
   if (questionSet === "aptitude_mixed") {
     const main = selectMainBankMcqs(experienceYears, 15);

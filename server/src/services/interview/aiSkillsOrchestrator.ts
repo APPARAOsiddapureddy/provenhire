@@ -17,6 +17,124 @@ const SESSION_MS = 30 * 60 * 1000;
 const DSA_PART_QUESTIONS = 5;
 const PLAN_VERSION = 1 as const;
 
+/** Part A walkthrough angles — fully solved */
+const FULLY_SOLVED_ANGLES = [
+  "approach_explanation",
+  "complexity_analysis",
+  "edge_cases",
+  "optimization",
+  "alternative_approach",
+] as const;
+
+/** Part A walkthrough angles — partial pass */
+const PARTIALLY_SOLVED_ANGLES = [
+  "approach_explanation",
+  "failure_identification",
+  "debugging_thinking",
+  "fix_attempt",
+  "lesson_learned",
+] as const;
+
+/** Part A walkthrough angles — failed / not solved */
+const ATTEMPTED_BUT_WRONG_ANGLES = [
+  "initial_thinking",
+  "obstacle_faced",
+  "alternative_considered",
+  "given_hint_respond",
+  "conceptual_gap",
+] as const;
+
+type WalkthroughAngle =
+  | (typeof FULLY_SOLVED_ANGLES)[number]
+  | (typeof PARTIALLY_SOLVED_ANGLES)[number]
+  | (typeof ATTEMPTED_BUT_WRONG_ANGLES)[number];
+
+function anglesForProblem(p: DSAContext["problems"][0]): readonly WalkthroughAngle[] {
+  if (p.isFullySolved) return FULLY_SOLVED_ANGLES;
+  if (p.isPartiallySolved) return PARTIALLY_SOLVED_ANGLES;
+  return ATTEMPTED_BUT_WRONG_ANGLES;
+}
+
+function buildAngleInstruction(angle: WalkthroughAngle, problem: DSAContext["problems"][0]): string {
+  const t = problem.title;
+  const passed = problem.testCasesPassed;
+  const total = problem.testCasesTotal;
+  const instructions: Record<WalkthroughAngle, string> = {
+    approach_explanation: `Ask them to explain WHY they chose their specific approach for "${t}". Reference something visible in their code (e.g. the data structure they used, the algorithm choice).`,
+    complexity_analysis: `Ask about the time and space complexity of their specific solution to "${t}". If you can see they used a hash map, ask about that choice. If they used sorting, ask about that.`,
+    edge_cases: `Ask about a specific edge case for "${t}". Look at their code — is there an obvious case they might have missed (empty input, duplicates, negative numbers, single element)? Ask about that specific case.`,
+    optimization: `Their solution to "${t}" works. Ask if there is a more efficient approach and why they did not use it. Or ask what would break if the input was 10x larger.`,
+    alternative_approach: `Ask if they considered a different algorithm or data structure for "${t}" and why they chose the one they did.`,
+    failure_identification: `Their solution to "${t}" passed only ${passed} of ${total} test cases. Ask them where they think their solution is failing and why.`,
+    debugging_thinking: `Ask how they would debug their "${t}" solution to find which input causes it to fail.`,
+    fix_attempt: `Ask what specific change they would make to their "${t}" solution to make the remaining test cases pass.`,
+    lesson_learned: `Ask what they learned from the "${t}" problem and what they would do differently if they had another attempt.`,
+    initial_thinking: `Ask what their initial approach was to "${t}" before they started coding.`,
+    obstacle_faced: `Ask where they got stuck when solving "${t}" and what approaches they tried.`,
+    alternative_considered: `Ask if they thought of a different approach to "${t}" that they did not implement and why.`,
+    given_hint_respond: `Give them a small hint about "${t}" (based on a likely correct approach for this problem type) and ask how they would apply it.`,
+    conceptual_gap: `Ask what concept or technique, if they had known it, would have helped them solve "${t}".`,
+  };
+  return instructions[angle];
+}
+
+function distributeQuestions(problems: DSAContext["problems"], totalQuestions: number): number[] {
+  const n = problems.length;
+  if (n === 0) return [];
+  if (n >= totalQuestions) {
+    const d = new Array(n).fill(0);
+    for (let i = 0; i < totalQuestions; i++) d[i] = 1;
+    return d;
+  }
+  const distribution = new Array(n).fill(1);
+  let remaining = totalQuestions - n;
+  for (let i = 0; i < n && remaining > 0; i++) {
+    if (problems[i]!.isPartiallySolved) {
+      distribution[i]++;
+      remaining--;
+    }
+  }
+  for (let i = 0; i < n && remaining > 0; i++) {
+    if (problems[i]!.isFullySolved) {
+      distribution[i]++;
+      remaining--;
+    }
+  }
+  let idx = 0;
+  while (remaining > 0) {
+    distribution[idx % n]++;
+    remaining--;
+    idx++;
+  }
+  return distribution;
+}
+
+function generateProblemIntroduction(
+  problem: DSAContext["problems"][0],
+  _problemNumber: number,
+  _totalProblems: number,
+): string {
+  if (problem.isFullySolved) {
+    return `You solved the "${problem.title}" problem — all test cases passed. `;
+  }
+  if (problem.isPartiallySolved) {
+    return `Let's talk about the "${problem.title}" problem. You passed ${problem.testCasesPassed} out of ${problem.testCasesTotal} test cases. `;
+  }
+  return `Let's talk about the "${problem.title}" problem. This one did not pass the test cases. `;
+}
+
+function experienceInterviewLabel(level: "junior" | "mid" | "senior"): string {
+  if (level === "junior") return "Fresher / junior";
+  if (level === "mid") return "Mid-level";
+  return "Senior";
+}
+
+function experienceInterviewGuidance(level: "junior" | "mid" | "senior"): string {
+  if (level === "junior") return "Ask about basic understanding and approach; keep vocabulary accessible.";
+  if (level === "mid") return "Ask about trade-offs, edge cases, and optimization where relevant.";
+  return "Ask about optimization, alternative approaches, and production-scale concerns where relevant.";
+}
+
 const PASS_THRESH = {
   fresher: { minScore: 50, minVerifiedSkills: 2 },
   mid: { minScore: 55, minVerifiedSkills: 3 },
@@ -158,6 +276,13 @@ export type AISkillsPlanV1 = {
   dsaProblems: DSAContext["problems"];
   resumeSkills: string[];
   dsaIndex: number;
+  /** Part A: target question count per problem (length === dsaProblems.length; sums to DSA_PART_QUESTIONS when n > 0). */
+  partADistribution?: number[];
+  questionsAskedPerProblem?: number[];
+  anglesUsedPerProblem?: string[][];
+  partAAskedTexts?: string[];
+  /** Problem index + angle for the question currently shown (for scoring and post-answer bookkeeping). */
+  partAPending?: { problemIndex: number; angle: string };
   skillIdx: number;
   skillRound: number;
   skillsChecked: Record<string, number>;
@@ -192,104 +317,192 @@ function pickProblem(plan: AISkillsPlanV1, stepIdx: number): DSAContext["problem
   return ps[stepIdx % ps.length] ?? null;
 }
 
-async function genDsaQuestion(plan: AISkillsPlanV1): Promise<{ question: string; acknowledgement: string | null }> {
-  const p = pickProblem(plan, plan.dsaIndex);
-  const depth = plan.track === "fresher" ? "fresher" : plan.track === "mid" ? "mid-level" : "senior";
-  if (plan.candidateTrack === "data") {
-    return genDataRoundQuestion(plan, p);
+function findNextPartAProblemIndex(plan: AISkillsPlanV1): number {
+  const n = plan.dsaProblems.length;
+  const dist = plan.partADistribution ?? [];
+  const counts = plan.questionsAskedPerProblem ?? [];
+  for (let i = 0; i < n; i++) {
+    if ((counts[i] ?? 0) < (dist[i] ?? 0)) return i;
   }
-  const system = `You are a concise technical interviewer (~${depth}). Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty","question":"one spoken interview question, no markdown"}`;
-  const user = p
-    ? `Problem title: ${p.title}
-Difficulty: ${p.difficulty}
-Candidate passed ${p.testCasesPassed}/${p.testCasesTotal} tests. Fully solved: ${p.isFullySolved}. Partial: ${p.isPartiallySolved}.
-Code excerpt (truncated): ${p.candidateCode.slice(0, 2000)}
-Ask question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS} for DSA walkthrough — probe understanding appropriate to performance (harsher on partial solutions).`
-    : `No saved code. Ask a general data-structures/algorithms question appropriate for ${depth} (question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS}).`;
+  return n;
+}
+
+function ensurePartAState(plan: AISkillsPlanV1): void {
+  const n = plan.dsaProblems.length;
+  if (n === 0) {
+    plan.partADistribution = [];
+    plan.questionsAskedPerProblem = [];
+    plan.anglesUsedPerProblem = [];
+    if (!plan.partAAskedTexts) plan.partAAskedTexts = [];
+    return;
+  }
+  if (!plan.partADistribution || plan.partADistribution.length !== n) {
+    plan.partADistribution = distributeQuestions(plan.dsaProblems, DSA_PART_QUESTIONS);
+  }
+  const dist = plan.partADistribution;
+  if (!plan.questionsAskedPerProblem || plan.questionsAskedPerProblem.length !== n) {
+    const reconstructed = new Array(n).fill(0);
+    for (let i = 0; i < plan.dsaIndex; i++) {
+      const j = i % n;
+      reconstructed[j] = (reconstructed[j] ?? 0) + 1;
+    }
+    for (let j = 0; j < n; j++) {
+      reconstructed[j] = Math.min(reconstructed[j] ?? 0, dist[j] ?? 0);
+    }
+    plan.questionsAskedPerProblem = reconstructed;
+  }
+  if (!plan.anglesUsedPerProblem || plan.anglesUsedPerProblem.length !== n) {
+    plan.anglesUsedPerProblem = Array.from({ length: n }, () => []);
+  }
+  if (!plan.partAAskedTexts) plan.partAAskedTexts = [];
+
+  const nm = Math.max(1, n);
+  if (plan.phase === "dsa" && plan.partAPending == null && plan.currentQuestion) {
+    plan.partAPending = { problemIndex: plan.dsaIndex % nm, angle: "approach_explanation" };
+  }
+}
+
+function fallbackPartAWalkthrough(
+  problem: DSAContext["problems"][0],
+  angle: WalkthroughAngle,
+  intro: string,
+  isFirst: boolean,
+): string {
+  const head = isFirst ? intro.trim() : `Regarding "${problem.title}": `;
+  const bodies: Record<WalkthroughAngle, string> = {
+    approach_explanation: `walk me through why you chose this approach, pointing to a concrete part of your submitted code.`,
+    complexity_analysis: `what are the time and space costs of your implementation here, and what in your code drives those costs?`,
+    edge_cases: `what edge case might still break this solution, looking at how you handled boundaries in your code?`,
+    optimization: `if the input grew by an order of magnitude, what part of your solution would you revisit first?`,
+    alternative_approach: `what other approach did you consider for this problem, and why did you stick with what you wrote?`,
+    failure_identification: `where do you think your solution is failing relative to the ${problem.testCasesPassed}/${problem.testCasesTotal} tests you passed?`,
+    debugging_thinking: `how would you narrow down which input breaks your current implementation?`,
+    fix_attempt: `what is the first concrete change you would try to get the remaining tests passing?`,
+    lesson_learned: `what would you do differently on a second attempt at this problem?`,
+    initial_thinking: `before you wrote this code, how were you planning to attack the problem?`,
+    obstacle_faced: `where did you get stuck while working on it, and what did you try next?`,
+    alternative_considered: `did you consider a different structure or strategy that you did not end up coding?`,
+    given_hint_respond: `if the key idea is to rethink how you traverse or combine the data, how would you rework your solution with that in mind?`,
+    conceptual_gap: `what technique or pattern do you wish you had used here?`,
+  };
+  return `${head}${bodies[angle]}`.replace(/\s+/g, " ").trim();
+}
+
+async function generatePartAWalkthroughQuestion(
+  plan: AISkillsPlanV1,
+  problem: DSAContext["problems"][0],
+  angle: WalkthroughAngle,
+  isFirstOnProblem: boolean,
+): Promise<{ question: string; acknowledgement: string | null }> {
+  const intro = isFirstOnProblem
+    ? generateProblemIntroduction(problem, 1, plan.dsaProblems.length)
+    : "";
+  const problemContext = `
+PROBLEM THE CANDIDATE SOLVED:
+Title: ${problem.title}
+Difficulty: ${problem.difficulty}
+Description: ${problem.description.slice(0, 8000)}
+
+CANDIDATE'S SUBMITTED CODE (${problem.language}):
+${problem.candidateCode ?? "Code not available"}
+
+TEST RESULTS:
+- Passed: ${problem.testCasesPassed} out of ${problem.testCasesTotal} test cases
+- Status: ${problem.isFullySolved ? "Fully solved" : problem.isPartiallySolved ? "Partially solved" : "Not solved"}
+`;
+
+  const trackNote =
+    plan.candidateTrack === "data"
+      ? "This is a Data Round task (SQL and/or Python data processing). Every question must reference THEIR submitted query or code and test results — not unrelated abstract DSA trivia."
+      : "This is their real coding-round submission. Every question must reference THEIR implementation and test results — not generic textbook topics like unrelated algorithms.";
+
+  const askedList = plan.partAAskedTexts?.length ? plan.partAAskedTexts.join("\n") : "None yet";
+  const angleInstr = buildAngleInstruction(angle, problem);
+
+  const openingRule = isFirstOnProblem
+    ? `Your spoken question MUST begin with this exact framing, then continue naturally in the same breath: "${intro.trim()}"`
+    : `Continue probing "${problem.title}" without repeating the long opening — stay anchored to their code and pass/fail pattern.`;
+
+  const system = `You are a senior technical interviewer. Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty string","question":"one spoken interview question, no markdown"}`;
+
+  const user = `You are conducting a professional follow-up on the candidate's OWN submission from their assessment round.
+
+${trackNote}
+
+${problemContext}
+
+ANGLE KEY: ${angle}
+INSTRUCTION FOR THIS ANGLE (follow closely):
+${angleInstr}
+
+EXPERIENCE LEVEL: ${experienceInterviewLabel(plan.experienceLevel)}
+${experienceInterviewGuidance(plan.experienceLevel)}
+
+QUESTIONS ALREADY ASKED — do not repeat themes or wording:
+${askedList}
+
+${openingRule}
+
+Write ONE conversational question that:
+1. References the specific problem title
+2. References something specific from their submitted code OR their test results
+3. Matches the angle instruction
+4. Sounds like a real interviewer, not a quiz
+
+This is walkthrough question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS} for Part A.`;
+
   const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user);
   if (parsed?.question?.trim()) {
     return { question: parsed.question.trim(), acknowledgement: parsed.acknowledgement?.trim() || null };
   }
-  const fallbackQ = p
-    ? p.isPartiallySolved
-      ? `You partially solved "${p.title}" (${p.testCasesPassed}/${p.testCasesTotal}). Walk through your approach and where you think it failed.`
-      : `Walk through your approach to "${p.title}" and its time complexity.`
-    : `Explain how you would approach a typical array or hash-map problem for this role.`;
-  return { acknowledgement: "Thanks.", question: fallbackQ };
+  return {
+    acknowledgement: "Thanks.",
+    question: fallbackPartAWalkthrough(problem, angle, intro, isFirstOnProblem),
+  };
 }
 
-function looksLikeSqlTask(p: DSAContext["problems"][0]): boolean {
-  const desc = (p.description ?? "").toLowerCase();
-  const code = (p.candidateCode ?? "").toLowerCase();
-  if (p.language?.toLowerCase() === "sql") return true;
-  if (desc.includes("sql")) return true;
-  if (code.includes("select ") || code.includes(" from ") || code.includes(" join ")) return true;
-  return false;
-}
-
-async function genDataRoundQuestion(
-  plan: AISkillsPlanV1,
-  p: DSAContext["problems"][0] | null,
-): Promise<{ question: string; acknowledgement: string | null }> {
+async function genPartAWithoutSubmissions(plan: AISkillsPlanV1): Promise<{ question: string; acknowledgement: string | null }> {
   const depth = plan.track === "fresher" ? "fresher" : plan.track === "mid" ? "mid-level" : "senior";
   const sub = plan.dataSubtrack ?? "engineering";
-  const idx = plan.dsaIndex;
-
-  const system = `You are a concise data interviewer (~${depth}) for a ${sub} candidate. Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty","question":"one spoken interview question, no markdown"}`;
-
-  const user = p
-    ? `Task title: ${p.title}
-Task difficulty: ${p.difficulty}
-Candidate passed ${p.testCasesPassed}/${p.testCasesTotal} tests. Fully solved: ${p.isFullySolved}. Partial: ${p.isPartiallySolved}.
-Candidate solution excerpt (truncated): ${p.candidateCode.slice(0, 2000)}
-
-Ask question ${idx + 1} of ${DSA_PART_QUESTIONS} for a Data Round walkthrough.
-- If the task is SQL, ask SQL-specific reasoning/optimization/edge-case questions.
-- If the task is Python, ask data-processing/performance/robustness/testing questions.
-- If partial/failed, focus on debugging and why it failed (not DSA algorithms).
-Ask one question only.`
-    : `No saved code. Ask one practical data question appropriate for a ${sub} candidate at ~${depth} (question ${idx + 1} of ${DSA_PART_QUESTIONS}).`;
-
+  const system = `You are a concise technical interviewer (~${depth}). Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty","question":"one spoken interview question, no markdown"}`;
+  const user =
+    plan.candidateTrack === "data"
+      ? `No saved data-round submission text was found. Ask one practical spoken question appropriate for a ${sub} hire at ~${depth} for walkthrough question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS}. Keep it conversational.`
+      : `No saved coding submission was found. Ask one spoken problem-solving question appropriate for ~${depth} for question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS}. Keep it conversational and scenario-grounded.`;
   const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user);
   if (parsed?.question?.trim()) {
     return { question: parsed.question.trim(), acknowledgement: parsed.acknowledgement?.trim() || null };
   }
+  const fb =
+    plan.candidateTrack === "data"
+      ? "Walk me through how you would sanity-check a SQL result before sending it to stakeholders."
+      : "Walk me through how you would decompose a concrete array or map problem before writing code.";
+  return { acknowledgement: "Thanks.", question: fb };
+}
 
-  if (!p) {
-    return { acknowledgement: "Thanks.", question: "Walk me through a recent analysis or pipeline you worked on — what was the input data and how did you validate correctness?" };
+async function genDsaQuestion(plan: AISkillsPlanV1): Promise<{ question: string; acknowledgement: string | null }> {
+  ensurePartAState(plan);
+  const probs = plan.dsaProblems;
+  if (!probs.length) {
+    plan.partAPending = undefined;
+    return genPartAWithoutSubmissions(plan);
   }
-
-  const partialTemplates = [
-    `Your solution passed ${p.testCasesPassed} of ${p.testCasesTotal} test cases. Walk me through your approach and where you think it failed.`,
-    "Where do you think your solution broke down — logic, edge cases, or assumptions about the data?",
-    "If you had 10 more minutes, what would you change first to get the remaining tests passing?",
-    "How would you debug this quickly — what would you print/log or test first?",
-    "What was the trickiest part of this task, and what would you do differently next time?",
-  ];
-
-  if (!p.isFullySolved) {
-    return { acknowledgement: "Thanks.", question: partialTemplates[Math.min(idx, partialTemplates.length - 1)]! };
+  const probIdx = findNextPartAProblemIndex(plan);
+  if (probIdx >= probs.length) {
+    plan.partAPending = undefined;
+    return { acknowledgement: null, question: "" };
   }
+  const problem = probs[probIdx]!;
+  const counts = plan.questionsAskedPerProblem!;
+  const qOnThis = counts[probIdx] ?? 0;
+  const anglesPool = anglesForProblem(problem);
+  const used = new Set(plan.anglesUsedPerProblem![probIdx] ?? []);
+  const available = anglesPool.filter((a) => !used.has(a));
+  const angle = (available[0] ?? anglesPool[qOnThis % anglesPool.length]) as WalkthroughAngle;
+  plan.partAPending = { problemIndex: probIdx, angle };
 
-  const sqlTemplates = [
-    "Walk me through your query approach — why did you structure it this way?",
-    "What performance bottleneck might this query hit at 100 million rows, and how would you mitigate it?",
-    "If this table had no indexes, what would you change in your query or schema to keep it fast?",
-    "What edge cases or data-quality issues could make this query return incorrect results?",
-    "How would you rewrite this query to be more performant or more readable, and why?",
-  ];
-
-  const pythonTemplates = [
-    "Walk me through your data processing logic step by step — what transformations happen and why?",
-    "How would this behave on a dataset 100× larger — what would you optimize first?",
-    "How do you handle missing values or unexpected types in the input data here?",
-    "How would you test this function to ensure it handles edge cases correctly?",
-    "How would you make this code more memory efficient while keeping it readable?",
-  ];
-
-  const isSql = looksLikeSqlTask(p);
-  const pool = isSql ? sqlTemplates : pythonTemplates;
-  return { acknowledgement: "Thanks.", question: pool[Math.min(idx, pool.length - 1)]! };
+  const isFirstOnProblem = qOnThis === 0;
+  return generatePartAWalkthroughQuestion(plan, problem, angle, isFirstOnProblem);
 }
 
 function generateDataSkillQuestion(
@@ -753,10 +966,27 @@ export async function processAiSkillsTurn(
   }
 
   if (plan.phase === "dsa") {
-    const prob = pickProblem(plan, plan.dsaIndex);
+    ensurePartAState(plan);
+    const n = plan.dsaProblems.length;
+    const pending = plan.partAPending;
+    const prob =
+      pending != null && n > 0 && pending.problemIndex >= 0 && pending.problemIndex < n
+        ? plan.dsaProblems[pending.problemIndex]!
+        : pickProblem(plan, plan.dsaIndex);
     const asked = plan.currentQuestion;
     const s = await scoreDsaAnswer(prob, asked, answerTrim);
     plan.dsaUnderstandingScores.push(s);
+    if (plan.partAAskedTexts && asked) plan.partAAskedTexts.push(asked);
+    if (pending != null && plan.questionsAskedPerProblem && n > 0) {
+      const pid = pending.problemIndex;
+      if (pid >= 0 && pid < n) {
+        plan.questionsAskedPerProblem[pid] = (plan.questionsAskedPerProblem[pid] ?? 0) + 1;
+        const au = plan.anglesUsedPerProblem![pid] ?? [];
+        au.push(pending.angle);
+        plan.anglesUsedPerProblem![pid] = au;
+      }
+    }
+    plan.partAPending = undefined;
     plan.dsaIndex += 1;
     if (plan.dsaIndex >= DSA_PART_QUESTIONS) {
       plan.phase = "skill";

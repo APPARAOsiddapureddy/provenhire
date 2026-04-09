@@ -2,22 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { useAuth } from "@/contexts/AuthContext";
-import TestProctoringBar from "@/components/TestProctoringBar";
-import ProctoringSetupGate from "@/components/ProctoringSetupGate";
-import LiveProctoringPreview from "@/components/LiveProctoringPreview";
-import SoundDetectedAlert from "@/components/SoundDetectedAlert";
-import FullScreenMonitor from "@/components/FullScreenMonitor";
-import type { ProctoringState } from "@/components/ProctoringSetupGate";
-import { useSoundDetection } from "@/hooks/useSoundDetection";
-import { useFullScreenState } from "@/hooks/useFullScreenState";
-import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
-import { useProctorFrameCapture } from "@/hooks/useProctorFrameCapture";
-import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+import { CheckCircle2, Clock, Upload } from "lucide-react";
 
 interface NonTechnicalAssignmentStageProps {
   targetJobTitle?: string;
@@ -42,7 +31,26 @@ interface AssignmentEvaluation {
   gaps?: string[];
 }
 
-const MAX_TAB_SWITCHES = 3;
+interface PromptPayload {
+  prompt: string;
+  threshold: number;
+  timeLimitMinutes?: number;
+  subtrack?: string;
+  experienceTier?: string;
+  issuedAt?: string;
+  deadline?: string;
+  hoursRemaining?: number;
+  acceptedFormats?: string[];
+  maxFileSizeMB?: number;
+  error?: string;
+  message?: string;
+}
+
+function deadlineBannerTone(hoursRemaining: number): string {
+  if (hoursRemaining <= 6) return "border-red-500/60 bg-red-500/10 text-red-900 dark:text-red-100";
+  if (hoursRemaining <= 24) return "border-amber-500/60 bg-amber-500/10 text-amber-900 dark:text-amber-100";
+  return "border-emerald-500/50 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100";
+}
 
 const NonTechnicalAssignmentStage = ({
   targetJobTitle,
@@ -54,135 +62,108 @@ const NonTechnicalAssignmentStage = ({
   onPaywallRequired,
 }: NonTechnicalAssignmentStageProps) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const testIdRef = useRef<string>(`NON_TECH_${Date.now()}`);
   const submittingRef = useRef(false);
-  const [proctoringReady, setProctoringReady] = useState(false);
-  const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
-  const [response, setResponse] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [assignmentJustSubmitted, setAssignmentJustSubmitted] = useState(false);
   const [evaluation, setEvaluation] = useState<AssignmentEvaluation | null>(null);
-  const [soundAlertOpen, setSoundAlertOpen] = useState(false);
   const [prompt, setPrompt] = useState<string>("");
   const [passThreshold, setPassThreshold] = useState(60);
   const [promptError, setPromptError] = useState<string | null>(null);
+  const [expiredDeadline, setExpiredDeadline] = useState<string | null>(null);
+  const [subtrackLabel, setSubtrackLabel] = useState<string>("");
+  const [deadline, setDeadline] = useState<Date | null>(null);
+  const [hoursRemaining, setHoursRemaining] = useState<number | null>(null);
 
   const isFailed = stageStatus === "failed" || (assignmentJustSubmitted && evaluation && !evaluation.qualified);
   const displayScore = evaluation?.score ?? stageScore ?? 0;
-  const inTest = proctoringReady && !assignmentJustSubmitted && !isFailed;
-  const isFullScreen = useFullScreenState(inTest);
-  const { getMode: getFlagMode } = useFeatureFlags();
-  const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
-  const tabSwitchMode = getFlagMode("tab_switch_detection");
-  const strikeTerminationMode = getFlagMode("proctoring_strike_termination") as StrikeTerminationMode;
 
-  const terminateAssignmentForProctoring = useCallback((_reason: ProctoringEventCode) => {
-    if (!submittingRef.current) {
-      void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
-      setAssignmentJustSubmitted(true);
-      setEvaluation({ score: 0, qualified: false, threshold: passThreshold });
-    }
-  }, [passThreshold]);
-
-  const { tabSwitchCount } = useProctoringRiskMonitor({
-    enabled: inTest,
-    candidateId: user?.id,
-    testId: testIdRef.current,
-    testType: "non_tech_assignment",
-    cameraStream: proctoringState?.cameraStream ?? null,
-    microphoneStream: proctoringState?.microphoneStream ?? null,
-    tabSwitchDetectionEnabled: isFlagEnabled("tab_switch_detection"),
-    copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
-    devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
-    fullscreenDetectionEnabled: isFlagEnabled("fullscreen_required"),
-    multipleFaceDetectionEnabled: isFlagEnabled("multiple_face_detection"),
-    microphoneMonitoringEnabled: isFlagEnabled("microphone_monitoring"),
-    maxTabSwitches: tabSwitchMode === "STRICT" ? MAX_TAB_SWITCHES : 999,
-    strikeTerminationMode,
-    onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateAssignmentForProctoring : undefined,
-    onMaxTabSwitches:
-      strikeTerminationMode !== "STRICT" && tabSwitchMode === "STRICT"
-        ? () => {
-            if (!submittingRef.current) {
-              toast.error("Assignment terminated due to tab switching. Maximum 3 switches allowed.");
-              void api.post("/api/verification/stages/update", { stageName: "non_tech_assignment", status: "failed", score: 0 }).catch(() => {});
-              setAssignmentJustSubmitted(true);
-              setEvaluation({ score: 0, qualified: false, threshold: passThreshold });
-            }
-          }
-        : undefined,
-  });
-
-  useSoundDetection({
-    enabled: inTest && isFlagEnabled("microphone_monitoring"),
-    threshold: 40,
-    debounceMs: 4000,
-    onSoundDetected: () => setSoundAlertOpen(true),
-    existingAudioStream: proctoringState?.microphoneStream ?? undefined,
-  });
-
-  useProctorFrameCapture({
-    enabled: inTest && isFlagEnabled("screen_recording_enabled"),
-    sessionId: testIdRef.current,
-    testType: "non_tech_assignment",
-    cameraStream: proctoringState?.cameraStream ?? null,
-  });
+  const refreshHoursRemaining = useCallback(() => {
+    if (!deadline) return;
+    const remaining = (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
+    setHoursRemaining(Math.max(0, Math.round(remaining * 10) / 10));
+  }, [deadline]);
 
   useEffect(() => {
-    return () => {
-      proctoringState?.cameraStream?.getTracks().forEach((t) => t.stop());
-      proctoringState?.screenStream?.getTracks().forEach((t) => t.stop());
-    };
-  }, [proctoringState?.cameraStream, proctoringState?.screenStream]);
-
-  useEffect(() => {
-    if (assignmentJustSubmitted) {
-      proctoringState?.cameraStream?.getTracks().forEach((t) => t.stop());
-      proctoringState?.screenStream?.getTracks().forEach((t) => t.stop());
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    }
-  }, [assignmentJustSubmitted, proctoringState]);
+    if (!deadline) return;
+    refreshHoursRemaining();
+    const interval = globalThis.setInterval(refreshHoursRemaining, 60_000);
+    return () => globalThis.clearInterval(interval);
+  }, [deadline, refreshHoursRemaining]);
 
   useEffect(() => {
     let cancelled = false;
     void api
-      .get<{ prompt: string; threshold: number }>("/api/verification/non-tech-assignment/prompt")
+      .get<PromptPayload>("/api/verification/non-tech-assignment/prompt")
       .then((r) => {
-        if (!cancelled) {
-          setPrompt(r.prompt);
-          setPassThreshold(r.threshold);
-          setPromptError(null);
-        }
+        if (cancelled) return;
+        setPromptError(null);
+        setExpiredDeadline(null);
+        setPrompt(r.prompt ?? "");
+        setPassThreshold(r.threshold ?? 60);
+        if (r.deadline) setDeadline(new Date(r.deadline));
+        if (typeof r.hoursRemaining === "number") setHoursRemaining(r.hoursRemaining);
+        if (r.subtrack) setSubtrackLabel(r.subtrack);
       })
-      .catch(() => {
-        if (!cancelled) {
-          setPromptError("Could not load your assignment prompt. Refresh the page or try again.");
+      .catch((err: Error & { response?: { data?: Record<string, unknown> }; status?: number }) => {
+        if (cancelled) return;
+        const data = err.response?.data as Record<string, unknown> | undefined;
+        const code = typeof data?.error === "string" ? data.error : "";
+        if (code === "assignment_expired") {
+          const d = typeof data?.deadline === "string" ? data.deadline : null;
+          setExpiredDeadline(d);
+          setPromptError(
+            typeof data?.message === "string"
+              ? data.message
+              : "Your assignment window has closed."
+          );
+          return;
         }
+        setPromptError("Could not load your assignment prompt. Refresh the page or try again.");
       });
     return () => {
       cancelled = true;
     };
-  }, [targetJobTitle]);
+  }, [targetJobTitle, isRetry]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowed = new Set([
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]);
+    if (!allowed.has(file.type)) {
+      toast.error("Please upload a PDF or Word document (.pdf or .docx).");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File size must be under 10MB.");
+      return;
+    }
+    setSelectedFile(file);
+  };
 
   const handleSubmit = async () => {
     if (!prompt.trim()) {
       toast.error("Your assignment prompt is still loading. Please wait.");
       return;
     }
-    if (!response.trim()) {
-      toast.error("Please write your response before submitting.");
+    if (!selectedFile) {
+      toast.error("Please select your assignment document first.");
       return;
     }
     if (submittingRef.current) return;
     submittingRef.current = true;
-    setSubmitting(true);
+    setUploading(true);
     try {
-      const evalResult = await api.post<AssignmentEvaluation>("/api/verification/non-tech-assignment/submit", {
-        prompt,
-        response,
-        targetJobTitle,
-      });
+      const formData = new FormData();
+      formData.append("document", selectedFile);
+      const evalResult = await api.post<AssignmentEvaluation & { feedback?: string }>(
+        "/api/verification/non-tech-assignment/submit",
+        formData
+      );
       setEvaluation(evalResult);
       if (evalResult.qualified) {
         toast.success(`Assignment scored ${evalResult.score}/100. You can start the AI Expert Interview.`);
@@ -196,6 +177,7 @@ const NonTechnicalAssignmentStage = ({
       const err = error as Error & { status?: number; response?: { data?: Record<string, unknown> } };
       const data = err.response?.data;
       const code = typeof data?.code === "string" ? data.code : "";
+      const msg = (typeof data?.error === "string" ? data.error : err.message) || "Failed to submit assignment.";
       if (err.status === 402 && (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") && onPaywallRequired) {
         const pricing = data?.pricing as { singleInr?: number; bundleInr?: number } | undefined;
         const nextRaw = data?.nextAvailableAt;
@@ -215,16 +197,15 @@ const NonTechnicalAssignmentStage = ({
             : (err.message ?? "A paid retake credit is required for further attempts.")
         );
       } else {
-        toast.error(err instanceof Error ? err.message : "Failed to submit assignment.");
+        toast.error(msg);
       }
     } finally {
-      setSubmitting(false);
+      setUploading(false);
       submittingRef.current = false;
     }
   };
 
-  // Failed-state bypass: when user returns after failing, show retry UI without proctoring gate
-  if (stageStatus === "failed" && !proctoringReady) {
+  if (stageStatus === "failed" && !assignmentJustSubmitted) {
     return (
       <Card>
         <CardContent className="py-8">
@@ -248,81 +229,128 @@ const NonTechnicalAssignmentStage = ({
     );
   }
 
-  if (!proctoringReady) {
+  if (promptError && expiredDeadline) {
     return (
-      <ProctoringSetupGate
-        testName="Non-Technical Assignment"
-        enableScreenShare={false}
-        isRetry={isRetry}
-        skipSetup={!isFlagEnabled("camera_required") && !isFlagEnabled("screen_recording_enabled") && !isFlagEnabled("microphone_monitoring")}
-        onReady={(state) => {
-          setProctoringState(state);
-          setProctoringReady(true);
-        }}
-      />
+      <Card>
+        <CardHeader>
+          <CardTitle>Assignment window closed</CardTitle>
+          <CardDescription>
+            The deadline was{" "}
+            {new Date(expiredDeadline).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">{promptError}</p>
+          <p className="text-sm text-muted-foreground">
+            Please contact support if you believe this is an error.
+          </p>
+        </CardContent>
+      </Card>
     );
   }
+
+  if (promptError && !prompt) {
+    return (
+      <Card>
+        <CardContent className="py-8">
+          <p className="text-sm text-destructive text-center">{promptError}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const fmtDeadline =
+    deadline != null
+      ? deadline.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+      : null;
+  const hr = hoursRemaining ?? 0;
+  const bannerClass = deadlineBannerTone(hr);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Assignment: {targetJobTitle || "Your Target Role"}</CardTitle>
+        <CardTitle>Role Assignment</CardTitle>
         <CardDescription>
-          Complete this written assignment based on your target job title. Submit when ready. Need {passThreshold}/100 to pass.
-          Stay in fullscreen and avoid switching tabs during the assignment.
+          {subtrackLabel ? (
+            <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium capitalize">
+              {subtrackLabel.replace(/_/g, " ")}
+            </span>
+          ) : null}
+          {subtrackLabel ? " · " : ""}
+          Complete your written assignment and upload a PDF or Word document. Need {passThreshold}/100 to pass.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {!assignmentJustSubmitted && (
-          <>
-            <SoundDetectedAlert open={soundAlertOpen} onOpenChange={setSoundAlertOpen} />
-            <TestProctoringBar tabSwitchCount={tabSwitchCount} maxTabSwitches={tabSwitchMode === "STRICT" ? MAX_TAB_SWITCHES : 999} showTabSwitch={isFlagEnabled("tab_switch_detection")} />
-            <LiveProctoringPreview
-              cameraStream={proctoringState?.cameraStream ?? null}
-              brandName="ProvenHire"
-              position="top-right"
-            />
-          </>
+      <CardContent className="space-y-6">
+        {deadline != null && fmtDeadline && !assignmentJustSubmitted && (
+          <div className={`rounded-lg border p-4 flex flex-wrap items-start gap-3 ${bannerClass}`}>
+            <Clock className="h-5 w-5 shrink-0 mt-0.5" aria-hidden />
+            <div className="space-y-1 min-w-0">
+              <p className="text-sm font-semibold">Submit before: {fmtDeadline}</p>
+              <p className="text-sm opacity-90">
+                Time remaining:{" "}
+                {hr >= 24
+                  ? `${Math.floor(hr / 24)}d ${Math.round(hr % 24)}h`
+                  : `${Math.floor(hr)}h ${Math.round((hr % 1) * 60)}m`}
+              </p>
+            </div>
+          </div>
         )}
 
-        <div className="rounded-lg border border-border bg-muted/30 p-4">
-          <p className="text-sm font-medium text-foreground mb-2">Your task</p>
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{prompt}</p>
+        <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+          <p className="text-sm font-medium text-foreground">Your task</p>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{prompt}</p>
         </div>
 
         {!assignmentJustSubmitted && (
           <>
-            <div className="space-y-2">
-              <Label>Your response</Label>
-              <Textarea
-                value={response}
-                onChange={(e) => setResponse(e.target.value)}
-                placeholder="Type your response here..."
-                rows={12}
-                className="resize-y min-h-[200px]"
-              />
+            <div className="rounded-lg border bg-background/50 p-4 space-y-2 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">Instructions</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Prepare your response in a document (Word or PDF).</li>
+                <li>You may use any tools, resources, or references.</li>
+                <li>Save your document and upload it below when ready.</li>
+                <li>Maximum file size: 10MB. Accepted: PDF, .docx, .doc.</li>
+              </ul>
             </div>
 
-            {!isFullScreen && inTest && (
-              <div className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
-                <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                  Enter full screen to submit your assignment.
-                </span>
-                <FullScreenMonitor active={inTest} />
+            <div className="space-y-2">
+              <Label htmlFor="assignment-file">Upload document</Label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <Input
+                  id="assignment-file"
+                  type="file"
+                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={handleFileSelect}
+                  className="cursor-pointer"
+                />
               </div>
-            )}
+              {selectedFile ? (
+                <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+                  <span>
+                    {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Upload className="h-3.5 w-3.5" aria-hidden />
+                  Choose a file or drag-and-drop (browser dependent).
+                </p>
+              )}
+            </div>
 
-            <Button
-              onClick={handleSubmit}
-              disabled={submitting || !response.trim() || (inTest && !isFullScreen)}
-            >
-              {submitting ? "Submitting..." : "Submit assignment"}
+            <Button onClick={handleSubmit} disabled={uploading || !selectedFile}>
+              {uploading ? "Submitting…" : "Submit Assignment"}
             </Button>
+
+            <p className="text-xs text-muted-foreground">
+              Once submitted, you cannot re-upload. Ensure your document is complete before submitting.
+            </p>
           </>
         )}
 
         {assignmentJustSubmitted && (
-          <div className="mt-6 p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
+          <div className="mt-2 p-6 rounded-xl border-2 border-primary/30 bg-primary/5 space-y-4">
             <h3 className="text-lg font-semibold text-foreground">Assignment evaluated by AI</h3>
             <p className="text-sm text-muted-foreground">
               Score: <span className="font-semibold text-foreground">{evaluation?.score ?? 0}/100</span> (minimum{" "}
@@ -351,9 +379,7 @@ const NonTechnicalAssignmentStage = ({
                 Go to Homepage
               </Button>
               {evaluation?.qualified ? (
-                <Button onClick={() => onComplete()}>
-                  Continue to AI Expert Interview
-                </Button>
+                <Button onClick={() => onComplete()}>Continue to AI Expert Interview</Button>
               ) : (
                 <Button variant="secondary" onClick={() => onRetry?.()}>
                   Retry Assignment

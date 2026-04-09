@@ -9,7 +9,7 @@
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "tsx watch server.ts",
-    "build": "tsc -p tsconfig.json && mkdir -p dist/src/data && cp src/data/aptitude-questions.json src/data/cs-fundamentals-questions.json src/data/data-fundamentals-questions.json dist/src/data/",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/src/data && cp src/data/aptitude-questions.json src/data/cs-fundamentals-questions.json src/data/data-fundamentals-questions.json src/data/non-tech-domain-questions.json dist/src/data/",
     "start": "npm run deploy:migrate && (node -e \"process.exit(process.env.SEED_ON_START==='true'?0:1)\" && npm run seed:admin && npm run seed:test-credentials && npm run seed:dsa && npm run seed:data-round || true) && node dist/server.js",
     "deploy:migrate": "node scripts/migrate-with-retry.mjs",
     "prisma": "prisma",

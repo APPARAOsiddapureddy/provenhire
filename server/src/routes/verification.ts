@@ -1,4 +1,8 @@
 import { Router, type Response } from "express";
+import multer from "multer";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { requireAuth, requireJobSeeker, optionalAuth, AuthedRequest } from "../middleware/auth.js";
@@ -8,6 +12,7 @@ import {
   getPracticeAptitudeQuestions,
   storeMemoryAptitudeSession,
   getMemoryAptitudeSubmitContext,
+  NON_TECH_DOMAIN_FUNDAMENTALS_CONFIG,
 } from "../data/aptitude-loader.js";
 import { experienceTierFromYears, questionSetForTier, dataQuestionSetForTier, dsaTierConfig, dataRoundTierConfig } from "../utils/experienceTier.js";
 import {
@@ -28,6 +33,7 @@ import {
   detectNonTechSubtrack,
   detectDataSubtrack,
   type VerificationTrack,
+  type NonTechSubtrack,
 } from "../constants/verificationPipeline.js";
 import { pickNonTechAssignmentPrompt } from "../data/nonTechAssignmentPrompts.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
@@ -51,10 +57,66 @@ import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
 import { COOLDOWN_DSA_MS, COOLDOWN_DATA_ROUND_MS } from "../constants/revenue.js";
 import { gatePaidVerificationStageInProgress } from "../services/verificationStageRetakeGate.service.js";
 import { gateNonTechAssignmentSubmit, nextNonTechAssignmentPaidCooldownBoundary } from "../services/candidateRetake.service.js";
+import { isObjectStorageConfigured, uploadObject } from "../services/storage.service.js";
+import { UPLOADS_DIR } from "./uploads.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
 export const verificationRouter = Router();
+
+const nonTechAssignmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = new Set([
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]).has(file.mimetype);
+    if (ok) cb(null, true);
+    else cb(new Error("Only PDF and Word documents are accepted."));
+  },
+});
+
+async function extractNonTechAssignmentText(file: Express.Multer.File): Promise<string> {
+  if (file.mimetype === "application/pdf") {
+    const { PDFParse } = await import("pdf-parse");
+    const parser = new PDFParse({ data: new Uint8Array(file.buffer) });
+    try {
+      const tr = await parser.getText();
+      return tr.text ?? "";
+    } finally {
+      await parser.destroy();
+    }
+  }
+  if (
+    file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    file.mimetype === "application/msword"
+  ) {
+    const mammoth = await import("mammoth");
+    const r = await mammoth.extractRawText({ buffer: file.buffer });
+    return r.value;
+  }
+  throw new Error("Unsupported file type.");
+}
+
+async function saveNonTechAssignmentDocument(userId: string, file: Express.Multer.File): Promise<string> {
+  const ext =
+    file.mimetype === "application/pdf"
+      ? ".pdf"
+      : file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ? ".docx"
+        : ".doc";
+  const key = `non-tech-assignments/${userId}/${crypto.randomUUID()}${ext}`;
+  if (isObjectStorageConfigured()) {
+    return uploadObject(file.buffer, key, file.mimetype);
+  }
+  const dir = path.join(UPLOADS_DIR, "non-tech-assignments", userId);
+  fs.mkdirSync(dir, { recursive: true });
+  const name = `${crypto.randomUUID()}${ext}`;
+  fs.writeFileSync(path.join(dir, name), file.buffer);
+  return `/uploads/non-tech-assignments/${userId}/${name}`;
+}
 
 async function sendIfAptitudeLocked(userId: string, res: Response): Promise<boolean> {
   const s = await getAptitudeLockoutStatus(userId);
@@ -750,7 +812,7 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
 });
 
 function aptitudeTimeLimitMinutesForQuestionSet(questionSet: string | null | undefined): number {
-  if (questionSet === "non_tech_domain_fundamentals") return 35;
+  if (questionSet === "non_tech_domain_fundamentals") return NON_TECH_DOMAIN_FUNDAMENTALS_CONFIG.timeLimitMinutes;
   return 30;
 }
 
@@ -1659,145 +1721,288 @@ verificationRouter.get("/technical-scorecard", requireAuth, requireJobSeeker, as
 });
 
 verificationRouter.get("/non-tech-assignment/prompt", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
-  const profile = await prisma.jobSeekerProfile.findUnique({
-    where: { userId: req.user!.id },
-    select: { roleType: true, targetJobTitle: true, experienceYears: true, nonTechAssignmentSubmitCount: true },
-  });
-  if ((profile?.roleType ?? "technical") !== "non_technical") {
-    return res.status(400).json({ error: "Not on the non-technical verification path." });
-  }
-  const tier = experienceTierFromYears(profile?.experienceYears);
-  const sub = detectNonTechSubtrack(profile?.targetJobTitle);
-  const attemptIndex = profile?.nonTechAssignmentSubmitCount ?? 0;
-  const prompt = pickNonTechAssignmentPrompt({
-    subtrack: sub,
-    experienceTier: tier,
-    attemptIndex,
-  });
-  const threshold = tier === "senior" ? 65 : 60;
-  const timeLimitMinutes = tier === "fresher" ? 45 : tier === "mid" ? 60 : 75;
-  return res.json({ prompt, threshold, timeLimitMinutes, subtrack: sub, experienceTier: tier });
-});
-
-verificationRouter.post("/non-tech-assignment/submit", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
-  const schema = z.object({
-    prompt: z.string().min(1),
-    response: z.string().min(1),
-    targetJobTitle: z.string().optional(),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
-
   const userId = req.user!.id;
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
     select: {
       roleType: true,
-      experienceYears: true,
       targetJobTitle: true,
+      experienceYears: true,
+      nonTechSubtrack: true,
       nonTechAssignmentSubmitCount: true,
     },
   });
   if ((profile?.roleType ?? "technical") !== "non_technical") {
-    return res.status(400).json({ error: "This endpoint is only for non-technical candidates." });
+    return res.status(400).json({ error: "Not on the non-technical verification path." });
   }
-
+  if (!profile) {
+    return res.status(400).json({ error: "Profile not found." });
+  }
+  const tier = experienceTierFromYears(profile.experienceYears);
+  const threshold = tier === "senior" ? 65 : 60;
   const assignRow = await prisma.verificationStage.findFirst({
     where: { userId, stageName: "non_tech_assignment" },
   });
-  const tier = experienceTierFromYears(profile?.experienceYears);
-  const threshold = tier === "senior" ? 65 : 60;
   if (assignRow?.status === "completed" && assignRow.score != null && assignRow.score >= threshold) {
-    return res.status(400).json({ error: "You have already passed this assignment." });
+    return res.status(400).json({ error: "already_completed", message: "You have already passed this assignment." });
   }
 
-  const gate = await gateNonTechAssignmentSubmit(userId);
-  if (!gate.ok) {
-    return res.status(gate.status).json(gate.body);
+  const now = new Date();
+  await prisma.nonTechAssignment.updateMany({
+    where: { userId, status: "active", deadline: { lt: now } },
+    data: { status: "expired" },
+  });
+
+  let row = await prisma.nonTechAssignment.findFirst({
+    where: { userId, status: "active", deadline: { gt: now } },
+    orderBy: { issuedAt: "desc" },
+  });
+
+  const submitCount = profile.nonTechAssignmentSubmitCount ?? 0;
+  if (!row) {
+    const lastExpired = await prisma.nonTechAssignment.findFirst({
+      where: { userId, status: "expired" },
+      orderBy: { issuedAt: "desc" },
+    });
+    if (lastExpired && lastExpired.attemptIndex === submitCount) {
+      return res.status(400).json({
+        error: "assignment_expired",
+        message: "Your assignment window has closed.",
+        deadline: lastExpired.deadline.toISOString(),
+      });
+    }
   }
 
-  const nBefore = profile?.nonTechAssignmentSubmitCount ?? 0;
-  const usedPaidRetake = nBefore >= 2;
-
-  const subtrack = detectNonTechSubtrack(parsed.data.targetJobTitle ?? profile?.targetJobTitle);
-  const evalResult = await evaluateNonTechnicalAssignment({
-    prompt: parsed.data.prompt,
-    response: parsed.data.response,
-    targetJobTitle: parsed.data.targetJobTitle ?? profile?.targetJobTitle ?? undefined,
-    subtrack,
-    threshold,
-  });
-
-  await prisma.verificationStage.updateMany({
-    where: { userId, stageName: "non_tech_assignment" },
-    data: {
-      status: evalResult.qualified ? "completed" : "failed",
-      score: evalResult.score,
-    },
-  });
-
-  if (evalResult.qualified) {
-    await prisma.verificationStage.upsert({
-      where: {
-        userId_stageName: { userId, stageName: "expert_interview" },
-      },
-      create: {
+  if (!row) {
+    const sub: NonTechSubtrack =
+      (profile.nonTechSubtrack as NonTechSubtrack | null) ?? detectNonTechSubtrack(profile.targetJobTitle);
+    const attemptIndex = submitCount;
+    const promptText = pickNonTechAssignmentPrompt({
+      subtrack: sub,
+      experienceTier: tier,
+      attemptIndex,
+    });
+    const issuedAt = new Date();
+    const deadline = new Date(issuedAt.getTime() + 48 * 60 * 60 * 1000);
+    row = await prisma.nonTechAssignment.create({
+      data: {
         userId,
-        stageName: "expert_interview",
-        status: "in_progress",
+        subtrack: sub,
+        experienceTier: tier,
+        prompt: promptText,
+        issuedAt,
+        deadline,
+        status: "active",
+        attemptIndex,
       },
-      update: { status: "in_progress" },
     });
-    const hum = await prisma.verificationStage.findFirst({
-      where: { userId, stageName: "human_expert_interview" },
-    });
-    if (hum) {
-      await prisma.verificationStage.update({
-        where: { id: hum.id },
-        data: { status: "locked" },
-      });
-    }
-  } else {
-    const ex = await prisma.verificationStage.findFirst({
-      where: { userId, stageName: "expert_interview" },
-    });
-    if (ex && ex.status !== "pending_review") {
-      await prisma.verificationStage.updateMany({
-        where: { userId, stageName: "expert_interview" },
-        data: { status: "locked" },
-      });
-    }
   }
 
-  const nonTechExpiresAt = new Date(Date.now() + 36 * 60 * 60 * 1000);
-  await prisma.jobSeekerProfile.updateMany({
-    where: { userId },
-    data: {
-      nonTechAssignmentPrompt: parsed.data.prompt,
-      nonTechAssignmentResponse: parsed.data.response,
-      nonTechAssignmentExpiresAt: nonTechExpiresAt,
-      nonTechAssignmentSubmitCount: { increment: 1 },
-      nonTechAssignmentLastSubmittedAt: new Date(),
-      ...(usedPaidRetake ? { nonTechAssignmentPaidCooldownUntil: nextNonTechAssignmentPaidCooldownBoundary() } : {}),
-    },
-  });
-
-  try {
-    await reconcileVerificationStages(userId);
-  } catch (e) {
-    console.warn("[non-tech-assignment/submit] reconcile", e);
+  if (row.deadline <= now) {
+    return res.status(400).json({
+      error: "assignment_expired",
+      message: "Your assignment window has closed.",
+      deadline: row.deadline.toISOString(),
+    });
   }
 
+  const hoursRemaining = Math.max(0, (row.deadline.getTime() - Date.now()) / (1000 * 60 * 60));
+  const timeLimitMinutes = tier === "fresher" ? 45 : tier === "mid" ? 60 : 75;
   return res.json({
-    score: evalResult.score,
-    qualified: evalResult.qualified,
-    threshold: evalResult.threshold,
-    summary: evalResult.summary,
-    strengths: evalResult.strengths,
-    gaps: evalResult.gaps,
-    expiresAt: nonTechExpiresAt.toISOString(),
+    prompt: row.prompt,
+    threshold,
+    timeLimitMinutes,
+    subtrack: row.subtrack,
+    experienceTier: tier,
+    issuedAt: row.issuedAt.toISOString(),
+    deadline: row.deadline.toISOString(),
+    hoursRemaining: Math.round(hoursRemaining * 10) / 10,
+    acceptedFormats: ["PDF", "Word (.docx)"],
+    maxFileSizeMB: 10,
   });
 });
+
+verificationRouter.post(
+  "/non-tech-assignment/submit",
+  requireAuth,
+  requireJobSeeker,
+  (req, res, next) => {
+    nonTechAssignmentUpload.single("document")(req, res, (err: unknown) => {
+      if (err) {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        return res.status(400).json({ error: msg });
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
+    const userId = req.user!.id;
+    const file = req.file;
+    if (!file?.buffer) {
+      return res.status(400).json({ error: "Please upload your assignment document (PDF or Word)." });
+    }
+
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId },
+      select: {
+        roleType: true,
+        experienceYears: true,
+        targetJobTitle: true,
+        nonTechAssignmentSubmitCount: true,
+      },
+    });
+    if ((profile?.roleType ?? "technical") !== "non_technical") {
+      return res.status(400).json({ error: "This endpoint is only for non-technical candidates." });
+    }
+
+    const assignRow = await prisma.verificationStage.findFirst({
+      where: { userId, stageName: "non_tech_assignment" },
+    });
+    const tier = experienceTierFromYears(profile?.experienceYears);
+    const threshold = tier === "senior" ? 65 : 60;
+    if (assignRow?.status === "completed" && assignRow.score != null && assignRow.score >= threshold) {
+      return res.status(400).json({ error: "You have already passed this assignment." });
+    }
+
+    const gate = await gateNonTechAssignmentSubmit(userId);
+    if (!gate.ok) {
+      return res.status(gate.status).json(gate.body);
+    }
+
+    const now = new Date();
+    const activeAssignment = await prisma.nonTechAssignment.findFirst({
+      where: { userId, status: "active", deadline: { gt: now } },
+      orderBy: { issuedAt: "desc" },
+    });
+    if (!activeAssignment) {
+      return res.status(400).json({
+        error: "assignment_expired",
+        message: "No active assignment window. Open the assignment step again to see your deadline or request a new prompt.",
+      });
+    }
+
+    let extractedText: string;
+    try {
+      extractedText = await extractNonTechAssignmentText(file);
+    } catch (e) {
+      console.warn("[non-tech-assignment/submit] extract", e);
+      return res.status(400).json({
+        error: "Could not read your document. Please ensure it is a valid PDF or Word file.",
+      });
+    }
+
+    if (extractedText.trim().length < 100) {
+      return res.status(400).json({
+        error: "Your document appears to be empty or too short. Please upload your complete assignment.",
+      });
+    }
+
+    let fileUrl: string;
+    try {
+      fileUrl = await saveNonTechAssignmentDocument(userId, file);
+    } catch (e) {
+      console.error("[non-tech-assignment/submit] save file", e);
+      return res.status(500).json({ error: "Could not store your file. Please try again." });
+    }
+
+    const nBefore = profile?.nonTechAssignmentSubmitCount ?? 0;
+    const usedPaidRetake = nBefore >= 2;
+
+    const subtrack = detectNonTechSubtrack(profile?.targetJobTitle);
+    const evalResult = await evaluateNonTechnicalAssignment({
+      prompt: activeAssignment.prompt,
+      response: extractedText,
+      targetJobTitle: profile?.targetJobTitle ?? undefined,
+      subtrack,
+      threshold,
+    });
+
+    await prisma.nonTechAssignment.update({
+      where: { id: activeAssignment.id },
+      data: {
+        status: "submitted",
+        submittedAt: new Date(),
+        submittedFileUrl: fileUrl,
+        submittedText: extractedText.slice(0, 5000),
+        score: evalResult.score,
+        passed: evalResult.qualified,
+        feedbackSummary: evalResult.summary.slice(0, 4000),
+      },
+    });
+
+    await prisma.verificationStage.updateMany({
+      where: { userId, stageName: "non_tech_assignment" },
+      data: {
+        status: evalResult.qualified ? "completed" : "failed",
+        score: evalResult.score,
+      },
+    });
+
+    if (evalResult.qualified) {
+      await prisma.verificationStage.upsert({
+        where: {
+          userId_stageName: { userId, stageName: "expert_interview" },
+        },
+        create: {
+          userId,
+          stageName: "expert_interview",
+          status: "in_progress",
+        },
+        update: { status: "in_progress" },
+      });
+      const hum = await prisma.verificationStage.findFirst({
+        where: { userId, stageName: "human_expert_interview" },
+      });
+      if (hum) {
+        await prisma.verificationStage.update({
+          where: { id: hum.id },
+          data: { status: "locked" },
+        });
+      }
+    } else {
+      const ex = await prisma.verificationStage.findFirst({
+        where: { userId, stageName: "expert_interview" },
+      });
+      if (ex && ex.status !== "pending_review") {
+        await prisma.verificationStage.updateMany({
+          where: { userId, stageName: "expert_interview" },
+          data: { status: "locked" },
+        });
+      }
+    }
+
+    const nonTechExpiresAt = new Date(Date.now() + 36 * 60 * 60 * 1000);
+    await prisma.jobSeekerProfile.updateMany({
+      where: { userId },
+      data: {
+        nonTechAssignmentPrompt: activeAssignment.prompt,
+        nonTechAssignmentResponse: extractedText.slice(0, 100_000),
+        nonTechAssignmentExpiresAt: nonTechExpiresAt,
+        nonTechAssignmentSubmitCount: { increment: 1 },
+        nonTechAssignmentLastSubmittedAt: new Date(),
+        ...(usedPaidRetake ? { nonTechAssignmentPaidCooldownUntil: nextNonTechAssignmentPaidCooldownBoundary() } : {}),
+      },
+    });
+
+    try {
+      await reconcileVerificationStages(userId);
+    } catch (e) {
+      console.warn("[non-tech-assignment/submit] reconcile", e);
+    }
+
+    return res.json({
+      score: evalResult.score,
+      qualified: evalResult.qualified,
+      threshold: evalResult.threshold,
+      summary: evalResult.summary,
+      strengths: evalResult.strengths,
+      gaps: evalResult.gaps,
+      feedback: evalResult.summary,
+      submittedFileUrl: fileUrl,
+      expiresAt: nonTechExpiresAt.toISOString(),
+    });
+  },
+);
 
 /** Latest saved non-technical assignment (after submit). */
 verificationRouter.get("/assignment/current", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {

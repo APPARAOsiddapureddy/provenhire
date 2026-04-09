@@ -497,7 +497,8 @@ export async function evaluateNonTechnicalAssignment(params: {
   threshold?: number;
 }): Promise<NonTechnicalAssignmentEvaluation> {
   const threshold = Math.max(0, Math.min(100, params.threshold ?? 60));
-  const trimmedResponse = (params.response || "").trim();
+  /** Extracted PDF/DOCX can be long; cap prompt size for the model. */
+  const trimmedResponse = (params.response || "").trim().slice(0, 120_000);
   if (!trimmedResponse) {
     return {
       score: 0,

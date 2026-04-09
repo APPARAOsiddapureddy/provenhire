@@ -127,7 +127,7 @@ const VerificationFlow = () => {
     human_expert_interview: "Expert Interview",
     non_tech_assignment: "Assignment",
     data_fundamentals: "Data Fundamentals + Aptitude",
-    domain_fundamentals: "Aptitude + Domain Fundamentals",
+    domain_fundamentals: "Domain Fundamentals",
     data_round: "Data Round (SQL + Python)",
     data_skills_interview: "AI Skills Interview (Data)",
     data_system_design: "Data System Design",
