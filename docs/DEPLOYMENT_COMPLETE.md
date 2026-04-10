@@ -142,6 +142,36 @@ Add variables one by one as follows.
 
 ---
 
+#### Step 6b: `OPENAI_API_KEY` (recommended — AI interview voice STT)
+
+- **Required for:** **Whisper** transcription on **AI Expert** and **AI Skills** interviews (`POST /api/interview/transcribe`).
+- **Value:** Your [OpenAI API](https://platform.openai.com/api-keys) key.
+- **Without this:** voice input in those interviews will fail when candidates use the default Whisper path.
+
+#### Step 6c: `CARTESIA_API_KEY` + `CARTESIA_VOICE_ID` (recommended — primary TTS)
+
+- **Required for:** Server-side **Cartesia** MP3 for AI-spoken questions (`tts.service.ts`).
+- **Value:** From your Cartesia account.
+- **Without this:** TTS falls back to **ElevenLabs**, then browser `speechSynthesis`.
+
+#### Step 6d: `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` (optional — TTS fallback)
+
+- **Required for:** **ElevenLabs** stream when Cartesia is unset or errors.
+- **Without this:** Falls back to browser TTS (lower quality).
+
+#### Step 6e: `BANK_DETAILS_ENCRYPTION_KEY` (expert interviewer payouts)
+
+- **Required for:** Encrypting expert **bank details** at rest (**AES-256-GCM**).
+- **Value:** **64-character hex** string.
+- **Generate:** `openssl rand -hex 32`
+
+#### Step 6f: `CRON_SECRET` (expert recurring slots)
+
+- **Required for:** Securing **`POST /api/cron/expert-recurring-slots`** (Render cron or similar).
+- **Value:** Any long random string (keep secret; caller sends it as configured for your cron job).
+
+---
+
 #### Summary: Minimum variables to add
 
 | First field (name) | Second field (value) | Required? |
@@ -164,7 +194,7 @@ Log in at `/admin` or `/auth`. **Change this password in production** or remove 
 
 ### 2.4b E2E / QA accounts (job seeker, expert, recruiter)
 
-`SEED_ON_START=true` is **off by default**. Shared QA users (password `PhE2E_Apr2026!x7` in current seeds) **do not exist** in production until you create them.
+`SEED_ON_START=true` is **off by default**. Shared QA users (password **`PhE2E_Apr2026!x7`** in current seeds) **do not exist** in production until you create them.
 
 **On Render (Web Service → Shell),** with `DATABASE_URL` set, from the **`server`** directory:
 
@@ -175,7 +205,19 @@ npx tsx prisma/seed-interviewer.ts
 npx tsx prisma/seed-recruiter.ts
 ```
 
-Emails and stages are listed in **`docs/PRD.md`** §10 and **`server/.env.example`**. The frontend must call the **same** API/database you seeded.
+| Role | Email | Seed |
+|------|-------|------|
+| Job seeker — aptitude stage | `qa.apt.apr2026@test.provenhire.com` | `npm run seed:test-credentials` |
+| Job seeker — DSA stage | `qa.dsa.apr2026@test.provenhire.com` | (same) |
+| Job seeker — AI interview stage | `qa.ai.apr2026@test.provenhire.com` | (same) |
+| Job seeker — AI interview (second) | `qa.ai2.apr2026@test.provenhire.com` | (same) |
+| Expert interviewer | `qa.expert.apr2026@test.provenhire.com` | `npm run seed:interviewer` |
+| Recruiter | `qa.recruiter.apr2026@test.provenhire.com` | `npm run seed:recruiter` |
+| Admin | `admin@test.provenhire.com` | Password `Admin123456` — `npm run seed:admin` (see §2.4 above) |
+
+From repo: `cd server`, then `npx prisma migrate deploy` if needed, then the `npx tsx prisma/seed-*.ts` commands above. More context: **`server/.env.example`**, **`docs/README.md`**. The frontend must call the **same** API/database you seeded.
+
+**Security:** Do not share these QA passwords outside the team; rotate seeds if a credential leaks.
 
 ### 2.4c Build command vs `render.yaml`
 
@@ -423,6 +465,50 @@ After deploy, copy your frontend URL: `https://provenhire-xxx.vercel.app`.
 - [ ] Firebase: Production domain in **Authorized domains**
 - [ ] Vercel: Redeployed **after** setting any env vars
 - [ ] Sign up from Vercel URL works (Network tab shows Render domain)
+- [ ] `npx prisma migrate deploy` applied on production after any release that adds migrations (see **After deploying new features** below)
+- [ ] Interview STT/TTS env vars set if you use AI interviews (`OPENAI_API_KEY`, `CARTESIA_*` / `ELEVENLABS_*`, `GEMINI_API_KEY`)
+
+---
+
+## After deploying new features (schema changes)
+
+Whenever a release adds or changes **Prisma models**, apply migrations on the **production** database before relying on new behavior.
+
+1. Open **Render** → **provenhire-server** (or your API service) → **Shell**.
+2. `cd` into the service root if needed, then from the **`server`** directory run:
+   ```bash
+   npx prisma migrate deploy
+   ```
+3. **Verify** in Postgres (or Prisma Studio) that new tables/columns exist (e.g. `NonTechAssignment`, profile subtrack columns).
+
+**Recent migrations teams have had to apply for non-tech assignment + profiles:**
+
+| Migration folder (example) | What it introduces |
+|----------------------------|-------------------|
+| `20260409180000_non_tech_assignment_document` | **`NonTechAssignment`** model / document upload flow |
+| `20260409130000_jobseeker_subtrack_fields` | **`dataSubtrack`**, **`nonTechSubtrack`** on job seeker profile |
+
+*(Exact folder names live under `server/prisma/migrations/`; run `migrate deploy` to apply all pending.)*
+
+---
+
+## Production readiness checklist
+
+Use this before pointing **real** candidates at production (not only QA seeds).
+
+- [ ] **All three tracks** smoke-tested end-to-end with test accounts:
+  - [ ] **Software fresher:** profile → fundamentals → DSA → AI Skills → AI Expert (as applicable for your tier)
+  - [ ] **Data mid:** profile → data round → data skills → data system design → AI Expert
+  - [ ] **Non-technical fresher:** profile → domain fundamentals (15 MCQs) → assignment upload → AI Expert
+- [ ] **PaywallModal:** attempt a paid retake without credits — modal appears
+- [ ] **Admin** `grant-retake` (or equivalent) tested
+- [ ] **ProvenHire Resume** page loads for a verified test candidate
+- [ ] **Shareable verified URL** works (e.g. `provenhire.in/verified/[handle]`)
+- [ ] **Non-tech assignment** migration applied on production DB
+- [ ] **Required env vars** set (§2.3 + Steps 6b–6f for interviews / experts)
+- [ ] **`CRON_SECRET`** set and **`/api/cron/expert-recurring-slots`** scheduled if you use recurring expert slots
+- [ ] **Email** sending verified (**`RESEND_API_KEY`** or working alternative)
+- [ ] **File uploads** work (e.g. **PDF** for non-tech assignment)
 
 ---
 

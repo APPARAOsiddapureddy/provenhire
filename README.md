@@ -6,7 +6,7 @@
 
 All documentation lives under **[docs/README.md](docs/README.md)** — start there for the map.
 
-- **Product PRD (single file — candidate, recruiter, business, AI interview):** [docs/PRD.md](docs/PRD.md)
+- **Product PRD (index + four parts):** [docs/PRD.md](docs/PRD.md) → [PRD_CANDIDATE.md](docs/PRD_CANDIDATE.md), [PRD_RECRUITER.md](docs/PRD_RECRUITER.md), [PRD_BUSINESS.md](docs/PRD_BUSINESS.md), [PRD_AI_INTERVIEW.md](docs/PRD_AI_INTERVIEW.md)
 - **Recent code/UI changes:** [docs/IMPLEMENTATION_CHANGELOG.md](docs/IMPLEMENTATION_CHANGELOG.md)
 - **Deploy (Vercel + Render):** [docs/DEPLOYMENT_COMPLETE.md](docs/DEPLOYMENT_COMPLETE.md)
 

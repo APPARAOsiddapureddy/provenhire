@@ -1,23 +1,32 @@
 # ProvenHire — Implementation changelog
 
-**Purpose:** Summarize **code and product-facing UI** changes so engineers and PMs can align without reading full diffs. For **business rules and backlog**, see [PRD.md](PRD.md) Part C and the index in [README.md](README.md).
+**Purpose:** Summarize **code and product-facing UI** changes so engineers and PMs can align without reading full diffs. For **business rules and backlog**, see [PRD_BUSINESS.md](PRD_BUSINESS.md) and the index in [PRD.md](PRD.md) / [README.md](README.md).
 
 ---
 
 ## April 2026
 
+### PRD v6.9 — split PRD + non-tech §3.2 + deployment env (documentation)
+
+| Change | Location |
+|--------|----------|
+| **PRD split:** **`PRD.md`** = index only; specs in **`PRD_CANDIDATE.md`**, **`PRD_RECRUITER.md`**, **`PRD_BUSINESS.md`**, **`PRD_AI_INTERVIEW.md`**. | `docs/` |
+| **Candidate PRD:** §3.0 pipeline v2 callout + **implementation status table** (software vs data vs non-tech); §3.2 non-tech **15 MCQ / assignment upload / 48h**; §3.1 **canonical scorecard** box; AI Skills Part A (submission-grounded questions); §3.4.7 data Expert calibration row; removed **§10 test credentials** from PRD (moved to ops doc). | `docs/PRD_CANDIDATE.md` |
+| **Deployment:** extra env vars (Whisper, Cartesia, ElevenLabs, bank encryption, cron); **after deploy** migrations note; **production readiness** checklist. | `docs/DEPLOYMENT_COMPLETE.md` |
+| **Cross-links:** root `README.md`, `DOCUMENTATION.md`, `docs/README.md`, `SKILL_VALIDITY_SETUP.md`. | repo |
+
 ### PRD v6.8 — AI interviews (documentation + Expert profile context)
 
 | Change | Location |
 |--------|----------|
-| **PRD.md v6.8:** Part A **§3.4.1** (track-specific sprints, voice vs typed, **profile-driven `v2/start`**). **§3.4.3** — **OpenAI Whisper** segmented STT + **Cartesia→ElevenLabs→browser** TTS; operator checklist updated. **§3.4.6** — **`/transcribe`**, **`v2/turn`** **`inputMode`**. **§3.4.7** — matrix aligned with shipped STT/TTS. **§3.4.9** — full **questions asked**, **relevance** (`isStillRelevant`, duplicates, probes, subtracks), **TTS/STT product relevance**, **step-by-step answer process** (Expert v2 + AI Skills pointer). **Part D** §5–§6, **§12.0** vs **§12.1** STT, **§11.6** prefetch, Part A §12 changelog, document history **3.0.4**. | [`PRD.md`](PRD.md) |
+| **PRD v6.8 (content now in split files):** [PRD_CANDIDATE.md](PRD_CANDIDATE.md) **§3.4.1** (track-specific sprints, voice vs typed, **profile-driven `v2/start`**). **§3.4.3** — Whisper STT + Cartesia/ElevenLabs TTS. **§3.4.6–§3.4.9**, etc. [PRD_AI_INTERVIEW.md](PRD_AI_INTERVIEW.md) Part D deltas (§5–§6, §12.0, §11.6, §16, history **3.0.4**). |
 | **Expert Interview UI** — `verificationRoleType` + `experienceYears` from **`VerificationFlow`**; skip software role dropdown for non-tech / data / profile title; read-only summary. | [`VerificationFlow.tsx`](../src/pages/verification/VerificationFlow.tsx), [`ExpertInterviewStage.tsx`](../src/pages/verification/stages/ExpertInterviewStage.tsx) |
 
 ### Data track & system design (PRD v6.7 + code)
 
 | Change | Location |
 |--------|----------|
-| **PRD.md v6.7:** **§3.0.1 Data track** (stages, certification, AI Skills data branch, Data System Design APIs, AI Expert data calibration, **`nonTechSubtrack` / `dataSubtrack`**). **§3.2** non-technical v2. **§6.3** `roleType: data` + stage names. **§7.1.1** data flow. **Part D** + **§11.2** / **§11.7** track variants. **STEP 3:** data shipped, software system design backlog. | [`PRD.md`](PRD.md) |
+| **PRD v6.7 (content now in [PRD_CANDIDATE.md](PRD_CANDIDATE.md) / [PRD_AI_INTERVIEW.md](PRD_AI_INTERVIEW.md)):** **§3.0.1 Data track**, **§3.2** non-technical, recruiter §6.3 data flow, etc. |
 | **Data System Design** — orchestrator, **`/api/interview/data-system-design/*`**, UI stage, verification rules for **`data_system_design`**. | `server/src/services/interview/systemDesignOrchestrator.ts`, `server/src/routes/interview.ts`, `server/src/routes/verification.ts`, [`DataSystemDesignStage.tsx`](../src/pages/verification/stages/DataSystemDesignStage.tsx), [`VerificationFlow.tsx`](../src/pages/verification/VerificationFlow.tsx) |
 | **AI Expert** data calibration (sprints, agents). | [`orchestrator.ts`](../server/src/services/interview/orchestrator.ts), [`agents.ts`](../server/src/services/interview/agents.ts) |
 | **Profile subtracks** + migration **`20260409130000_jobseeker_subtrack_fields`**. | [`schema.prisma`](../server/prisma/schema.prisma), [`verification.ts`](../server/src/routes/verification.ts) |
@@ -28,7 +37,7 @@
 
 | Change | Location |
 |--------|----------|
-| **Single PRD:** `PRD_RECRUITER.md`, `PRD_BUSINESS.md`, and `PRD_AI_INTERVIEW.md` merged into **`PRD.md`** (Parts A–D). **`DEPLOYMENT.md`** removed; use **`DEPLOYMENT_COMPLETE.md`** (plus new “Other hosting” note). Hub and root READMEs updated. | [`PRD.md`](PRD.md), [`README.md`](README.md), [`DEPLOYMENT_COMPLETE.md`](DEPLOYMENT_COMPLETE.md) |
+| **Earlier merge (superseded by v6.9):** separate recruiter/business/AI files were merged into one `PRD.md`; **v6.9** split again for navigation. **`DEPLOYMENT.md`** removed; use **`DEPLOYMENT_COMPLETE.md`**. | `docs/` |
 
 ### Brand (in-app)
 
@@ -71,7 +80,7 @@
 The following landed in **migrations + services** around the same program; details are in PRDs, not duplicated here:
 
 - Candidate **retake ledger**, cooldowns, **paid stage** gating, recruiter **subscription usage** (`RecruiterUsage`, contacts, profile views), admin **`grant-retake`** / **`recruiter plan`** PATCH.
-- **`docs/PRD.md`** (v6.7+): single consolidated PRD (Parts A–D); verification v2 in **§3.0** and **data track in §3.0.1**.
+- **`docs/PRD.md`** (v6.9+): **index**; verification v2 in **[PRD_CANDIDATE.md](PRD_CANDIDATE.md) §3.0** and **data track §3.0.1**.
 
 ---
 
