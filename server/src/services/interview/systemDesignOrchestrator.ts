@@ -1,5 +1,7 @@
 /**
- * Data track — Data System Design interview (LLD then HLD), interviewType "system_design".
+ * System design interviews (LLD then HLD), interviewType "system_design".
+ * - **Data track** (`data_system_design` stage): existing behavior, unchanged.
+ * - **Software track** (`system_design_interview` stage): problem bank + software-focused follow-ups/eval.
  */
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
@@ -8,12 +10,16 @@ import { detectDataSubtrack, type DataSubtrack } from "../../constants/verificat
 import {
   evaluateDataSystemDesignSession,
   generateDataSystemDesignQuestion,
+  callGeminiJson,
+  callGeminiText,
+  formatAskedQuestionsBlock,
 } from "./agents.js";
 import { sanitizeAiInterviewQuestionText } from "./orchestrator.js";
 
 const ANSWERS_PER_PHASE = 5;
 const MAX_MINUTES = 32;
 export const DATA_SYSTEM_DESIGN_STAGE = "data_system_design";
+export const SOFTWARE_SYSTEM_DESIGN_STAGE = "system_design_interview";
 
 type Phase = "lld" | "hld";
 
@@ -37,10 +43,127 @@ const HLD_OPENER =
 
 function parsePlan(raw: unknown): DataSystemDesignPlan | null {
   if (!raw || typeof raw !== "object") return null;
-  const p = raw as DataSystemDesignPlan;
+  const p = raw as Record<string, unknown>;
+  /** Software sessions store `track: "software"` — must not be parsed as data (missing dataSubtrack). */
+  if (p.track === "software") return null;
+  const d = raw as DataSystemDesignPlan;
+  if (d.phase !== "lld" && d.phase !== "hld") return null;
+  if (typeof d.currentQuestion !== "string") return null;
+  return d as DataSystemDesignPlan;
+}
+
+export type SoftwareSystemDesignPlan = {
+  track: "software";
+  phase: Phase;
+  answeredInPhase: number;
+  history: { phase: Phase; question: string; answer: string }[];
+  currentQuestion: string;
+  interviewStartTime: number;
+  jobRole: string;
+  experienceLevel: "mid" | "senior";
+  problemTitle: string;
+  lldSeed: string;
+  hldSeed: string;
+};
+
+const SOFTWARE_SYSTEM_DESIGN_PROBLEMS = {
+  mid: [
+    {
+      title: "URL Shortener Service",
+      lldPrompt: `Design the class structure and API for a URL shortening service like bit.ly.
+Focus on: the core entities (URL mapping, user, analytics), the API contracts
+(create short URL, redirect, get stats), and the database schema.
+How do you generate unique short codes? What data do you store per URL?`,
+      hldPrompt: `Now design this at scale — 100 million URLs, 10 billion redirects per month.
+Walk me through: the system architecture (which components exist and how they communicate),
+your database choice and why (read-heavy workload), where you add caching and what you cache,
+how you handle the redirect at low latency, and what breaks first at 10x load.`,
+    },
+    {
+      title: "Notification Service",
+      lldPrompt: `Design the class structure and API for a notification service that sends
+email, SMS, and push notifications. Focus on: the notification entity (type, recipient,
+content, status), how you model different channel types, the send API contract,
+and retry logic for failed sends.`,
+      hldPrompt: `Scale this to 10 million notifications per day across email, SMS, and push.
+How do you: decouple the notification request from actual sending (queue design),
+handle rate limits from third-party providers, track delivery status reliably,
+ensure at-least-once delivery without duplicates, and monitor failures?`,
+    },
+    {
+      title: "Rate Limiter",
+      lldPrompt: `Design the class and interface structure for a rate limiter that can be used
+as middleware in an API service. Support: per-user limits, per-IP limits, and per-endpoint
+limits. Focus on the interface contract, the configuration model, and the core algorithm
+(token bucket, sliding window, or fixed window — explain your choice).`,
+      hldPrompt: `Now design this as a distributed rate limiter that works across 20 API servers.
+The challenge: each server handles different requests from the same user.
+Walk me through: where you store the counter state (Redis vs database vs in-memory),
+how you handle the race condition of concurrent requests, the trade-off between strict
+accuracy and performance, and what happens when your rate limit store goes down.`,
+    },
+  ],
+  senior: [
+    {
+      title: "Distributed Job Scheduler",
+      lldPrompt: `Design the class and interface structure for a distributed job scheduler
+that supports: one-time jobs, recurring jobs (cron-style), job priorities, and
+retry policies. Focus on: the Job definition model, the scheduling policy interface,
+how executor nodes register and receive work, and how job state is tracked
+through its lifecycle (pending → running → completed/failed → retrying).`,
+      hldPrompt: `This scheduler runs across 50 data centers globally with 99.99% uptime.
+Walk me through: how leader election works for the scheduler (consensus mechanism),
+how you handle network partitions (split-brain scenarios), cross-region job routing,
+what your monitoring and alerting strategy looks like, and how you do a zero-downtime
+upgrade of the scheduler itself.`,
+    },
+    {
+      title: "Event Sourcing Payment System",
+      lldPrompt: `Design the domain model and event structure for a payment system using
+event sourcing. Core entities: Account, Transaction, Payment, Refund.
+Focus on: how you model immutable events vs mutable projections/read models,
+what events are emitted for a payment lifecycle (initiated → authorized → captured → settled),
+how you handle idempotency keys, and your aggregate design.`,
+      hldPrompt: `Scale this to process 50,000 transactions per second globally.
+Walk me through: your event store design (choice and partitioning strategy),
+how you rebuild projections when a read model becomes corrupt,
+handling consistency across services that subscribe to payment events,
+your approach to regulatory compliance (audit trail, PII handling),
+and how you handle the dual-write problem between your event store and downstream services.`,
+    },
+    {
+      title: "Search Service",
+      lldPrompt: `Design the indexing and query interface for a search service that supports
+full-text search, faceted filtering, and ranking. Focus on: the document model
+and how it maps to an inverted index structure, the query API contract (what a search
+request and response look like), how you handle ranking signals, and how you model
+the indexing pipeline (document in → indexed and searchable).`,
+      hldPrompt: `This search service powers a marketplace with 500 million products.
+Walk me through: your indexing architecture (how new products appear in search within
+seconds of being created), sharding strategy for the index, how you handle index updates
+without downtime, your approach to query latency SLA (p99 < 200ms), and
+how you A/B test ranking algorithm changes without degrading user experience.`,
+    },
+  ],
+} as const;
+
+function parseSoftwarePlan(raw: unknown): SoftwareSystemDesignPlan | null {
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  if (p.track !== "software") return null;
   if (p.phase !== "lld" && p.phase !== "hld") return null;
   if (typeof p.currentQuestion !== "string") return null;
-  return p as DataSystemDesignPlan;
+  if (typeof p.problemTitle !== "string" || typeof p.lldSeed !== "string" || typeof p.hldSeed !== "string") return null;
+  if (p.experienceLevel !== "mid" && p.experienceLevel !== "senior") return null;
+  return raw as SoftwareSystemDesignPlan;
+}
+
+function sessionTimedOutGeneric(plan: { interviewStartTime: number }): boolean {
+  const t0 =
+    typeof plan.interviewStartTime === "number" && Number.isFinite(plan.interviewStartTime)
+      ? plan.interviewStartTime
+      : Date.now();
+  return Date.now() - t0 > MAX_MINUTES * 60_000;
 }
 
 function sessionTimedOut(plan: DataSystemDesignPlan): boolean {
@@ -87,13 +210,13 @@ export async function startDataSystemDesignInterview(
     orderBy: { createdAt: "desc" },
   });
   if (existing) {
-    const prev = parsePlan(existing.questionPlan);
-    if (prev && !sessionTimedOut(prev)) {
+    const prevData = parsePlan(existing.questionPlan);
+    if (prevData && !sessionTimedOut(prevData)) {
       return {
         interviewId: existing.id,
-        question: prev.currentQuestion,
-        phase: prev.phase,
-        totalUserTurns: prev.history.length,
+        question: prevData.currentQuestion,
+        phase: prevData.phase,
+        totalUserTurns: prevData.history.length,
       };
     }
     await prisma.interview.update({
@@ -378,6 +501,505 @@ export async function getDataSystemDesignStatus(
   });
   if (!row) return null;
   const p = parsePlan(row.questionPlan);
+  return {
+    status: row.status,
+    phase: p?.phase ?? null,
+    currentQuestion: p?.currentQuestion ?? null,
+  };
+}
+
+const SOFTWARE_LLD_EVALUATION = `
+Evaluate this LLD response on these dimensions:
+1. Entity/class design quality — are the right entities defined? are relationships correct?
+2. API contract clarity — are endpoints or method signatures well-defined?
+3. Database schema design — appropriate tables, columns, indexes, relationships
+4. Core business logic representation — is the main logic captured in the design?
+5. Separation of concerns — is the design modular and clean?
+
+For mid-level: expect solid basic design, may miss edge cases.
+For senior-level: expect clear separation of concerns, anticipation of edge cases,
+and justification of design choices.
+`;
+
+const SOFTWARE_HLD_EVALUATION = `
+Evaluate this HLD response on these dimensions:
+1. Component architecture — what services/components exist and how they communicate
+2. Database and storage choices — right tool for the workload, justified
+3. Caching strategy — what is cached, where, and why
+4. Scale handling — how does the system handle 10x current load
+5. Failure mode awareness — what breaks first, how to recover
+6. Trade-off articulation — candidate acknowledges alternatives and explains their choices
+
+For mid-level: expect basic scaling awareness, may miss subtle failure modes.
+For senior-level: expect deep failure mode thinking, cost awareness,
+operational considerations, and acknowledgment of trade-offs.
+`;
+
+function pickSoftwareProblem(userId: string, experienceLevel: "mid" | "senior") {
+  const problems = SOFTWARE_SYSTEM_DESIGN_PROBLEMS[experienceLevel];
+  const tail = userId.slice(-4);
+  const seed = parseInt(tail, 16);
+  const index = ((Number.isFinite(seed) ? seed : tail.split("").reduce((a, c) => a + c.charCodeAt(0), 0)) + new Date().getDate()) % problems.length;
+  return problems[index];
+}
+
+function recentQuestionsFromSoftwarePlan(plan: SoftwareSystemDesignPlan): string[] {
+  return plan.history.map((h) => h.question).filter(Boolean);
+}
+
+async function generateSoftwareSystemDesignQuestion(
+  phase: Phase,
+  history: { question: string; answer: string }[],
+  resumeContext: string,
+  experienceLevel: "mid" | "senior",
+  problemTitle: string,
+  recentQuestions: string[]
+): Promise<string> {
+  const phaseGoal =
+    phase === "lld"
+      ? `Low-level SOFTWARE design for "${problemTitle}": classes/modules, API contracts, data model/schema, core algorithms, separation of concerns. ${SOFTWARE_LLD_EVALUATION}`
+      : `High-level SOFTWARE architecture for "${problemTitle}": services, data stores, caching, scaling, failure modes, trade-offs. ${SOFTWARE_HLD_EVALUATION}`;
+  const histBlock = history
+    .slice(-6)
+    .map((h, i) => `Q${i + 1}: ${h.question}\nA${i + 1}: ${h.answer}`)
+    .join("\n\n");
+
+  const text = await callGeminiText(
+    `You are a technical interviewer for SOFTWARE system design. Ask one medium-length question (2–4 sentences). Sound like a senior/staff software engineer — no "thank you" preambles. Output only the question.`,
+    `Phase: ${phase.toUpperCase()}
+${phaseGoal}
+Candidate experience: ${experienceLevel}
+Candidate context: ${resumeContext.slice(0, 900)}
+
+Recent dialogue:
+${histBlock || "(first follow-up after phase opener)"}
+
+${formatAskedQuestionsBlock(recentQuestions)}
+
+Generate the NEXT question only. It must advance the design discussion — not repeat prior angles.`,
+    "balanced"
+  );
+  return (
+    text.replace(/^["']|["']$/g, "").trim() ||
+    (phase === "lld"
+      ? "Walk me through the main classes or modules and how they interact."
+      : "How would you scale this across multiple regions and handle partial failures?")
+  );
+}
+
+async function evaluateSoftwareSystemDesignSession(
+  history: { phase: Phase; question: string; answer: string }[],
+  resumeContext: string,
+  experienceLevel: "mid" | "senior",
+  problemTitle: string
+): Promise<{
+  lldScore: number;
+  hldScore: number;
+  totalScore: number;
+  pass: boolean;
+  summary: string;
+} | null> {
+  const transcript = history
+    .map((h, i) => `[${i + 1} | ${h.phase.toUpperCase()}]\nQ: ${h.question}\nA: ${h.answer}`)
+    .join("\n\n");
+  const result = (await callGeminiJson(
+    `You score a SOFTWARE system design interview in two phases: LLD vs HLD.
+Problem: ${problemTitle}
+Experience level: ${experienceLevel}.
+
+${SOFTWARE_LLD_EVALUATION}
+
+${SOFTWARE_HLD_EVALUATION}
+
+Return JSON only:
+{
+  "lld_score": <0-100>,
+  "hld_score": <0-100>,
+  "total_score": <0-100 optional — average of lld and hld if omitted>,
+  "summary": "<2 sentences>"
+}`,
+    `RESUME/CONTEXT:\n${resumeContext.slice(0, 1200)}\n\nTRANSCRIPT:\n${transcript.slice(0, 12000)}`,
+    "balanced"
+  )) as {
+    lld_score?: number;
+    hld_score?: number;
+    total_score?: number;
+    summary?: string;
+  } | null;
+
+  if (!result) return null;
+  const lld = Math.min(100, Math.max(0, Math.round(Number(result.lld_score) || 0)));
+  const hld = Math.min(100, Math.max(0, Math.round(Number(result.hld_score) || 0)));
+  const total =
+    typeof result.total_score === "number" && Number.isFinite(result.total_score)
+      ? Math.min(100, Math.max(0, Math.round(result.total_score)))
+      : Math.round((lld + hld) / 2);
+  const threshold = experienceLevel === "senior" ? 65 : 60;
+  const pass = total >= threshold;
+  return {
+    lldScore: lld,
+    hldScore: hld,
+    totalScore: total,
+    pass,
+    summary: String(result.summary ?? "").trim() || "Evaluation complete.",
+  };
+}
+
+async function finalizeSoftwareSystemDesignFailure(
+  interviewId: string,
+  userId: string,
+  plan: SoftwareSystemDesignPlan,
+  verdict: string
+): Promise<void> {
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: {
+      status: "failed",
+      completedAt: new Date(),
+      finalVerdict: verdict,
+      questionPlan: plan as unknown as Prisma.InputJsonValue,
+    },
+  });
+  await prisma.verificationStage.updateMany({
+    where: { userId, stageName: SOFTWARE_SYSTEM_DESIGN_STAGE },
+    data: { status: "failed", score: 0, updatedAt: new Date() },
+  });
+  try {
+    await syncJobSeekerVerificationStatus(userId);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function finalizeSoftwareSystemDesignComplete(
+  interviewId: string,
+  userId: string,
+  plan: SoftwareSystemDesignPlan,
+  evalResult: NonNullable<Awaited<ReturnType<typeof evaluateSoftwareSystemDesignSession>>>
+): Promise<{
+  response: string;
+  phase: Phase;
+  complete: boolean;
+  pass?: boolean;
+  totalScore?: number;
+  lldScore?: number;
+  hldScore?: number;
+}> {
+  const pass = evalResult.pass;
+  const totalScore = evalResult.totalScore;
+
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: {
+      status: pass ? "completed" : "failed",
+      completedAt: new Date(),
+      totalScore,
+      lldScore: evalResult.lldScore,
+      hldScore: evalResult.hldScore,
+      finalVerdict: pass ? "passed" : "below_threshold",
+      badgeLevel: pass ? "Skill Passport" : "Not verified",
+      scoreBreakdown: {
+        lld: evalResult.lldScore,
+        hld: evalResult.hldScore,
+        pass,
+        summary: evalResult.summary,
+      } as unknown as Prisma.InputJsonValue,
+      questionPlan: plan as unknown as Prisma.InputJsonValue,
+    },
+  });
+
+  await prisma.verificationStage.updateMany({
+    where: { userId, stageName: SOFTWARE_SYSTEM_DESIGN_STAGE },
+    data: { status: pass ? "completed" : "failed", score: totalScore, updatedAt: new Date() },
+  });
+
+  try {
+    await syncJobSeekerVerificationStatus(userId);
+  } catch {
+    /* ignore */
+  }
+
+  const closing = pass
+    ? "Strong work — your System Design session is complete and saved to your verification profile."
+    : "This session is complete. You did not meet the verification bar for this attempt; you can retry after the cooldown and retake policy.";
+
+  return {
+    response: closing,
+    phase: "hld",
+    complete: true,
+    pass,
+    totalScore,
+    lldScore: evalResult.lldScore,
+    hldScore: evalResult.hldScore,
+  };
+}
+
+export async function startSoftwareSystemDesignInterview(
+  userId: string,
+  jobRole: string,
+  experienceLevel: "mid" | "senior"
+): Promise<{
+  interviewId: string;
+  question: string;
+  title: string;
+  lldPrompt: string;
+  hldPrompt: string;
+  phase: Phase;
+  totalUserTurns: number;
+  lldDurationMinutes: number;
+  hldDurationMinutes: number;
+}> {
+  const stage = await prisma.verificationStage.findUnique({
+    where: { userId_stageName: { userId, stageName: SOFTWARE_SYSTEM_DESIGN_STAGE } },
+  });
+  if (!stage || stage.status !== "in_progress") {
+    throw new Error("Open the System Design step from your verification pipeline first.");
+  }
+
+  const skillsDone = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "ai_skills_interview", status: "completed" },
+  });
+  if (!skillsDone) {
+    throw new Error("Complete the AI Skills interview before starting System Design.");
+  }
+
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { roleType: true, targetJobTitle: true, currentRole: true },
+  });
+  const rt = profile?.roleType ?? "technical";
+  if (rt === "data" || rt === "non_technical") {
+    throw new Error("System Design (software) is only available on the software verification track.");
+  }
+
+  const existing = await prisma.interview.findFirst({
+    where: { userId, interviewType: "system_design", status: "in_progress" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existing) {
+    const prevSoft = parseSoftwarePlan(existing.questionPlan);
+    if (prevSoft && !sessionTimedOutGeneric(prevSoft)) {
+      return {
+        interviewId: existing.id,
+        question: prevSoft.currentQuestion,
+        title: prevSoft.problemTitle,
+        lldPrompt: prevSoft.lldSeed,
+        hldPrompt: prevSoft.hldSeed,
+        phase: prevSoft.phase,
+        totalUserTurns: prevSoft.history.length,
+        lldDurationMinutes: 15,
+        hldDurationMinutes: 15,
+      };
+    }
+    await prisma.interview.update({
+      where: { id: existing.id },
+      data: { status: "failed", completedAt: new Date(), finalVerdict: "superseded" },
+    });
+  }
+
+  const problem = pickSoftwareProblem(userId, experienceLevel);
+  const plan: SoftwareSystemDesignPlan = {
+    track: "software",
+    phase: "lld",
+    answeredInPhase: 0,
+    history: [],
+    currentQuestion: problem.lldPrompt,
+    interviewStartTime: Date.now(),
+    jobRole,
+    experienceLevel,
+    problemTitle: problem.title,
+    lldSeed: problem.lldPrompt,
+    hldSeed: problem.hldPrompt,
+  };
+
+  const interview = await prisma.interview.create({
+    data: {
+      userId,
+      jobRole,
+      experienceLevel,
+      interviewType: "system_design",
+      questionPlan: plan as unknown as Prisma.InputJsonValue,
+      questionIndex: 0,
+      status: "in_progress",
+    },
+  });
+
+  await prisma.interviewMessage.create({
+    data: {
+      interviewId: interview.id,
+      sender: "ai",
+      message: problem.lldPrompt,
+      questionType: "software_system_design_lld",
+      isFollowup: false,
+    },
+  });
+
+  return {
+    interviewId: interview.id,
+    question: problem.lldPrompt,
+    title: problem.title,
+    lldPrompt: problem.lldPrompt,
+    hldPrompt: problem.hldPrompt,
+    phase: "lld",
+    totalUserTurns: 0,
+    lldDurationMinutes: 15,
+    hldDurationMinutes: 15,
+  };
+}
+
+export async function processSoftwareSystemDesignTurn(
+  interviewId: string,
+  userId: string,
+  answer: string
+): Promise<{
+  response: string;
+  phase: Phase;
+  complete: boolean;
+  pass?: boolean;
+  totalScore?: number;
+  lldScore?: number;
+  hldScore?: number;
+  timeExpired?: boolean;
+}> {
+  const interview = await prisma.interview.findFirst({
+    where: { id: interviewId, userId, interviewType: "system_design", status: "in_progress" },
+  });
+  if (!interview) throw new Error("Interview not found");
+
+  const plan = parseSoftwarePlan(interview.questionPlan);
+  if (!plan) throw new Error("Invalid session state");
+
+  if (sessionTimedOutGeneric(plan)) {
+    await finalizeSoftwareSystemDesignFailure(interviewId, userId, plan, "time_expired");
+    return {
+      response: "We have run out of time for this session. You can retry after the cooldown and retake policy.",
+      phase: plan.phase,
+      complete: true,
+      pass: false,
+      timeExpired: true,
+    };
+  }
+
+  const trimmed = answer.trim();
+  if (trimmed.length > 0 && trimmed.length < 25) {
+    return {
+      response: "Could you go a bit deeper — what concrete components, trade-offs, or metrics would you choose?",
+      phase: plan.phase,
+      complete: false,
+    };
+  }
+
+  await prisma.interviewMessage.create({
+    data: {
+      interviewId,
+      sender: "user",
+      message: trimmed,
+      questionType: plan.phase === "lld" ? "software_system_design_lld" : "software_system_design_hld",
+      questionIndex: plan.history.length,
+    },
+  });
+
+  const newHistory = [...plan.history, { phase: plan.phase, question: plan.currentQuestion, answer: trimmed }];
+  let answered = plan.answeredInPhase + 1;
+  let phase: Phase = plan.phase;
+  let nextQuestion = "";
+
+  const resumeBits = [interview.jobRole, `Problem: ${plan.problemTitle}`, `Level: ${plan.experienceLevel}`].join(" — ");
+
+  if (answered >= ANSWERS_PER_PHASE) {
+    if (phase === "lld") {
+      phase = "hld";
+      answered = 0;
+      nextQuestion = plan.hldSeed;
+      await prisma.interviewMessage.create({
+        data: {
+          interviewId,
+          sender: "ai",
+          message: nextQuestion,
+          questionType: "software_system_design_hld",
+          isFollowup: false,
+        },
+      });
+    } else {
+      const evalResult = await evaluateSoftwareSystemDesignSession(
+        newHistory,
+        resumeBits,
+        plan.experienceLevel,
+        plan.problemTitle
+      );
+      if (!evalResult) {
+        const fallback = {
+          lldScore: 50,
+          hldScore: 50,
+          totalScore: 50,
+          pass: false,
+          summary: "Automated scoring unavailable.",
+        };
+        return await finalizeSoftwareSystemDesignComplete(interviewId, userId, { ...plan, phase, answeredInPhase: answered, history: newHistory, currentQuestion: "" }, fallback);
+      }
+      return await finalizeSoftwareSystemDesignComplete(
+        interviewId,
+        userId,
+        {
+          ...plan,
+          phase,
+          answeredInPhase: ANSWERS_PER_PHASE,
+          history: newHistory,
+          currentQuestion: "",
+          interviewStartTime: plan.interviewStartTime,
+        },
+        evalResult
+      );
+    }
+  } else {
+    const asked = [...recentQuestionsFromSoftwarePlan({ ...plan, history: newHistory }), plan.currentQuestion];
+    nextQuestion = await generateSoftwareSystemDesignQuestion(
+      phase,
+      newHistory.filter((h) => h.phase === phase).map((h) => ({ question: h.question, answer: h.answer })),
+      resumeBits,
+      plan.experienceLevel,
+      plan.problemTitle,
+      asked
+    );
+    nextQuestion = sanitizeAiInterviewQuestionText(nextQuestion);
+    await prisma.interviewMessage.create({
+      data: {
+        interviewId,
+        sender: "ai",
+        message: nextQuestion,
+        questionType: phase === "lld" ? "software_system_design_lld" : "software_system_design_hld",
+        isFollowup: true,
+      },
+    });
+  }
+
+  const nextPlan: SoftwareSystemDesignPlan = {
+    ...plan,
+    phase,
+    answeredInPhase: answered,
+    history: newHistory,
+    currentQuestion: nextQuestion,
+    interviewStartTime: plan.interviewStartTime,
+  };
+
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: { questionPlan: nextPlan as unknown as Prisma.InputJsonValue, questionIndex: newHistory.length },
+  });
+
+  return { response: nextQuestion, phase, complete: false };
+}
+
+export async function getSoftwareSystemDesignStatus(
+  interviewId: string,
+  userId: string
+): Promise<{ status: string; phase: Phase | null; currentQuestion: string | null } | null> {
+  const row = await prisma.interview.findFirst({
+    where: { id: interviewId, userId, interviewType: "system_design" },
+    select: { status: true, questionPlan: true },
+  });
+  if (!row) return null;
+  const p = parseSoftwarePlan(row.questionPlan);
   return {
     status: row.status,
     phase: p?.phase ?? null,

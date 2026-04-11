@@ -42,10 +42,80 @@ import {
 import {
   startDataSystemDesignInterview,
   processDataSystemDesignTurn,
-  getDataSystemDesignStatus,
+  startSoftwareSystemDesignInterview,
+  processSoftwareSystemDesignTurn,
 } from "../services/interview/systemDesignOrchestrator.js";
 import { experienceTierFromYears } from "../utils/experienceTier.js";
 import type { ExperienceTier } from "../utils/experienceTier.js";
+
+/** Reload UX for system design — lives in routes so interview orchestrator modules stay unchanged. */
+function buildSystemDesignSessionPayload(
+  row: { id: string; status: string; questionPlan: unknown },
+  track: "software" | "data"
+): {
+  activeSession: boolean;
+  interviewId: string;
+  phase: "lld" | "hld" | null;
+  lastQuestion: string;
+  questionsAsked: number;
+  lldStartTime: string;
+  title: string;
+  status: string;
+  currentQuestion: string | null;
+} | null {
+  const plan = row.questionPlan as Record<string, unknown> | null;
+  const isSoftware = !!(plan && typeof plan === "object" && plan["track"] === "software");
+  if (track === "software" && !isSoftware) return null;
+  if (track === "data" && isSoftware) return null;
+  if (track === "data" && !plan) return null;
+  const phase = plan?.phase === "hld" || plan?.phase === "lld" ? (plan.phase as "lld" | "hld") : null;
+  const currentQuestion = typeof plan?.currentQuestion === "string" ? plan.currentQuestion : "";
+  const hist = Array.isArray(plan?.history) ? plan.history : [];
+  const questionsAsked = hist.length;
+  const t0 =
+    typeof plan?.interviewStartTime === "number" && Number.isFinite(plan.interviewStartTime as number)
+      ? (plan.interviewStartTime as number)
+      : Date.now();
+  const title =
+    track === "software" && typeof plan?.problemTitle === "string"
+      ? String(plan.problemTitle)
+      : "Data System Design";
+  const activeSession = row.status === "in_progress";
+  return {
+    activeSession,
+    interviewId: row.id,
+    phase,
+    lastQuestion: currentQuestion,
+    questionsAsked,
+    lldStartTime: new Date(t0).toISOString(),
+    title,
+    status: row.status,
+    currentQuestion: currentQuestion || null,
+  };
+}
+
+async function resolveSystemDesignInterviewRow(
+  userId: string,
+  interviewId: string | undefined,
+  track: "software" | "data"
+) {
+  if (interviewId) {
+    return prisma.interview.findFirst({
+      where: { id: interviewId, userId, interviewType: "system_design" },
+      select: { id: true, status: true, questionPlan: true },
+    });
+  }
+  const rows = await prisma.interview.findMany({
+    where: { userId, interviewType: "system_design", status: "in_progress" },
+    orderBy: { createdAt: "desc" },
+    take: 15,
+    select: { id: true, status: true, questionPlan: true },
+  });
+  for (const row of rows) {
+    if (buildSystemDesignSessionPayload(row, track)) return row;
+  }
+  return null;
+}
 
 export const interviewRouter = Router();
 
@@ -489,13 +559,102 @@ interviewRouter.post(
 
 interviewRouter.get("/data-system-design/status", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   try {
-    const interviewId = typeof req.query.interviewId === "string" ? req.query.interviewId.trim() : "";
-    if (!interviewId) return res.status(400).json({ error: "interviewId query required" });
-    const row = await getDataSystemDesignStatus(interviewId, req.user!.id);
-    if (!row) return res.status(404).json({ error: "Not found" });
-    return res.json(row);
+    const q = typeof req.query.interviewId === "string" ? req.query.interviewId.trim() : "";
+    const interviewId = q.length > 0 ? q : undefined;
+    const row = await resolveSystemDesignInterviewRow(req.user!.id, interviewId, "data");
+    if (!row) {
+      return res.json({ activeSession: false });
+    }
+    const payload = buildSystemDesignSessionPayload(row, "data");
+    if (!payload) {
+      return interviewId ? res.status(404).json({ error: "Not found" }) : res.json({ activeSession: false });
+    }
+    return res.json(payload);
   } catch (e) {
     console.error("[interview/data-system-design/status]", e);
+    return res.status(500).json({ error: "Failed to load status" });
+  }
+});
+
+interviewRouter.post("/system-design/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const schema = z.object({
+      jobRole: z.string().min(1),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { experienceYears: true, roleType: true },
+    });
+    const rt = profile?.roleType ?? "technical";
+    if (rt === "data" || rt === "non_technical") {
+      return res.status(403).json({ error: "System Design Interview is only for software-track candidates." });
+    }
+    const tier = experienceTierFromYears(profile?.experienceYears);
+    if (tier === "fresher") {
+      return res.status(403).json({ error: "System Design Interview is only for mid and senior software candidates." });
+    }
+    const level = tier === "senior" ? "senior" : "mid";
+
+    const result = await startSoftwareSystemDesignInterview(req.user!.id, parsed.data.jobRole, level);
+    return res.json(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to start";
+    if (msg.includes("pipeline first") || msg.includes("Complete the AI Skills")) {
+      return res.status(403).json({ error: msg });
+    }
+    if (msg.includes("only available")) return res.status(403).json({ error: msg });
+    console.error("[interview/system-design/start]", e);
+    return res.status(500).json({ error: "Failed to start System Design session" });
+  }
+});
+
+interviewRouter.post(
+  "/system-design/turn",
+  requireAuth,
+  requireJobSeeker,
+  interviewTurnLimiter,
+  async (req: AuthedRequest, res) => {
+    try {
+      const schema = z.object({
+        interviewId: z.string().min(1),
+        answer: z.string().min(1),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+
+      const result = await processSoftwareSystemDesignTurn(
+        parsed.data.interviewId,
+        req.user!.id,
+        parsed.data.answer
+      );
+      return res.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to process turn";
+      if (msg === "Interview not found") return res.status(404).json({ error: msg });
+      console.error("[interview/system-design/turn]", e);
+      return res.status(500).json({ error: "Failed to process turn" });
+    }
+  }
+);
+
+interviewRouter.get("/system-design/status", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  try {
+    const q = typeof req.query.interviewId === "string" ? req.query.interviewId.trim() : "";
+    const interviewId = q.length > 0 ? q : undefined;
+    const row = await resolveSystemDesignInterviewRow(req.user!.id, interviewId, "software");
+    if (!row) {
+      return res.json({ activeSession: false });
+    }
+    const payload = buildSystemDesignSessionPayload(row, "software");
+    if (!payload) {
+      return interviewId ? res.status(404).json({ error: "Not found" }) : res.json({ activeSession: false });
+    }
+    return res.json(payload);
+  } catch (e) {
+    console.error("[interview/system-design/status]", e);
     return res.status(500).json({ error: "Failed to load status" });
   }
 });

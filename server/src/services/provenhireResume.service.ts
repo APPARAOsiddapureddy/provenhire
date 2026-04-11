@@ -163,15 +163,21 @@ export async function syncProvenhireResumeFromSources(userId: string): Promise<v
   }
 
   const dsa = stageSnapshot(stages, "dsa_round");
-  const aiSkillsStage = stages.some((s) => s.stageName === "ai_skills_interview")
-    ? stageSnapshot(stages, "ai_skills_interview")
-    : { score: null, status: null, monthYear: null };
-  const systemDesign = stageSnapshot(stages, "system_design_interview");
+  const isData = profile.roleType === "data";
+  const aiSkillsStage = isData
+    ? stageSnapshot(stages, "data_skills_interview")
+    : stageSnapshot(stages, "ai_skills_interview");
+  const systemDesign = isData
+    ? stageSnapshot(stages, "data_system_design")
+    : stageSnapshot(stages, "system_design_interview");
   const aiExpert = stageSnapshot(stages, "expert_interview");
 
   const assessmentScores = {
     dsa: { ...dsa, label: null as string | null },
-    aiSkills: { ...aiSkillsStage, label: null as string | null },
+    aiSkills: {
+      ...aiSkillsStage,
+      label: (isData ? "Data AI Skills Interview" : "AI Skills Interview") as string | null,
+    },
     systemDesign: { ...systemDesign, label: null as string | null },
     aiExpert: { ...aiExpert, badgeLevel: null as string | null },
     overall,
@@ -271,6 +277,8 @@ export type ProvenhireResumeFull = {
   shareableProfileUrl: string;
   certificationLevel: string;
   certificationDate: string | null;
+  /** Job seeker profile role type — drives labels (e.g. data vs software skills). */
+  roleType: string | null;
   pendingCandidateReview: boolean;
   identity: {
     name: string | null;
@@ -324,6 +332,7 @@ export async function getFullProvenhireResumeForCandidate(userId: string): Promi
     shareableProfileUrl: `${baseUrl}/verified/${row.shareableHandle}`,
     certificationLevel: row.certificationLevel,
     certificationDate: row.certificationDate?.toISOString() ?? null,
+    roleType: profile.roleType ?? null,
     pendingCandidateReview: row.pendingCandidateReview,
     identity: {
       name: profile.fullName,
@@ -344,7 +353,7 @@ export async function getFullProvenhireResumeForCandidate(userId: string): Promi
       workExperience,
       education,
       disclaimer:
-        "This section is sourced from the candidate's uploaded resume and has not been verified by ProvenHire.",
+        "This section is sourced from your uploaded resume and has not been verified by ProvenHire.",
     },
   };
 }

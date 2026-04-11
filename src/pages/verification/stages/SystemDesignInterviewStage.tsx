@@ -42,27 +42,33 @@ async function speakText(text: string, signal?: AbortSignal): Promise<void> {
   }
 }
 
-export interface DataSystemDesignStageProps {
+export interface SystemDesignInterviewStageProps {
   targetJobTitle?: string;
   onSessionComplete: () => void;
   onReturnToDashboard?: () => void;
   nextStageLabel?: string;
 }
 
-export default function DataSystemDesignStage({
-  targetJobTitle = "Data Engineer",
+export function SystemDesignInterviewStage({
+  targetJobTitle = "Software Engineer",
   onSessionComplete,
   onReturnToDashboard,
   nextStageLabel,
-}: DataSystemDesignStageProps) {
+}: SystemDesignInterviewStageProps) {
   const [interviewId, setInterviewId] = useState<string | null>(null);
+  const [problemTitle, setProblemTitle] = useState<string | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState("");
   const [phase, setPhase] = useState<"lld" | "hld">("lld");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(true);
   const [turnBusy, setTurnBusy] = useState(false);
   const [complete, setComplete] = useState(false);
-  const [outcome, setOutcome] = useState<{ pass?: boolean; totalScore?: number } | null>(null);
+  const [outcome, setOutcome] = useState<{
+    pass?: boolean;
+    totalScore?: number;
+    lldScore?: number;
+    hldScore?: number;
+  } | null>(null);
 
   const ttsAbortRef = useRef<AbortController | null>(null);
 
@@ -82,28 +88,32 @@ export default function DataSystemDesignStage({
           interviewId?: string;
           phase?: "lld" | "hld";
           lastQuestion?: string;
-        }>("/api/interview/data-system-design/status");
+          title?: string;
+        }>("/api/interview/system-design/status");
         if (cancelled) return;
         if (status.activeSession && status.interviewId && status.phase) {
           setInterviewId(status.interviewId);
           setPhase(status.phase);
           setCurrentQuestion(status.lastQuestion ?? "");
+          if (status.title) setProblemTitle(status.title);
           setLoading(false);
           return;
         }
       } catch {
-        /* fall through to start */
+        /* no active session — start below */
       }
       try {
         const res = await api.post<{
           interviewId: string;
           question: string;
+          title?: string;
           phase: "lld" | "hld";
-        }>("/api/interview/data-system-design/start", {
-          jobRole: targetJobTitle.trim() || "Data Engineer",
+        }>("/api/interview/system-design/start", {
+          jobRole: targetJobTitle.trim() || "Software Engineer",
         });
         if (cancelled) return;
         setInterviewId(res.interviewId);
+        if (res.title) setProblemTitle(res.title);
         setCurrentQuestion(res.question);
         setPhase(res.phase);
         setLoading(false);
@@ -139,8 +149,10 @@ export default function DataSystemDesignStage({
         complete: boolean;
         pass?: boolean;
         totalScore?: number;
+        lldScore?: number;
+        hldScore?: number;
         timeExpired?: boolean;
-      }>("/api/interview/data-system-design/turn", {
+      }>("/api/interview/system-design/turn", {
         interviewId: id,
         answer: composed,
       });
@@ -148,7 +160,12 @@ export default function DataSystemDesignStage({
       setAnswer("");
       if (turn.complete) {
         setComplete(true);
-        setOutcome({ pass: turn.pass, totalScore: turn.totalScore });
+        setOutcome({
+          pass: turn.pass,
+          totalScore: turn.totalScore,
+          lldScore: turn.lldScore,
+          hldScore: turn.hldScore,
+        });
         toast.message(
           turn.pass
             ? `Session complete — score ${turn.totalScore ?? "—"}${nextStageLabel ? `. Next: ${nextStageLabel}` : ""}`
@@ -181,7 +198,7 @@ export default function DataSystemDesignStage({
       <Card>
         <CardHeader>
           <CardTitle>Session unavailable</CardTitle>
-          <CardDescription>Return to the dashboard and open Data System Design from your pipeline.</CardDescription>
+          <CardDescription>Return to the dashboard and open System Design Interview from your pipeline.</CardDescription>
         </CardHeader>
         <CardContent>
           {onReturnToDashboard && (
@@ -195,12 +212,24 @@ export default function DataSystemDesignStage({
     );
   }
 
+  const phaseLabel =
+    phase === "lld"
+      ? "Low Level Design — Class & API Design (0:00 – 15:00)"
+      : "High Level Design — System Architecture (15:00 – 30:00)";
+  const phaseHint =
+    phase === "lld"
+      ? "Design the classes, APIs, and data model for this system."
+      : "Now design the full system architecture. Focus on scale, components, and trade-offs.";
+
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <Card>
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="text-lg">Data System Design</CardTitle>
+            <div>
+              <CardTitle className="text-lg">System Design Interview</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Software Design — 30 minutes</p>
+            </div>
             <Button
               type="button"
               variant="outline"
@@ -212,8 +241,19 @@ export default function DataSystemDesignStage({
               Play question
             </Button>
           </div>
-          <CardDescription>
-            Phase: {phase === "lld" ? "Low-level data design" : "High-level platform design"} — answer in clear written form (you can use lists and short paragraphs).
+          {problemTitle && (
+            <p className="text-sm font-medium text-foreground pt-1">Problem: {problemTitle}</p>
+          )}
+          <CardDescription className="space-y-2 pt-1">
+            <p>
+              Think through your answer before responding. In LLD: focus on classes, APIs, and data models. In HLD: focus
+              on components, databases, caching, and scale.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">{phaseLabel}</span>
+              <span className="block mt-1">{phaseHint}</span>
+            </p>
+            <p>Answer in clear written form (you can use lists and short paragraphs).</p>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -241,7 +281,8 @@ export default function DataSystemDesignStage({
           </div>
           {complete && outcome && (
             <p className="text-sm text-muted-foreground">
-              Result: {outcome.pass ? "Passed" : "Did not pass"} — overall score {outcome.totalScore ?? "—"}.
+              Result: {outcome.pass ? "Passed" : "Did not pass"} — overall {outcome.totalScore ?? "—"} (LLD{" "}
+              {outcome.lldScore ?? "—"}, HLD {outcome.hldScore ?? "—"}).
             </p>
           )}
         </CardContent>
@@ -249,3 +290,5 @@ export default function DataSystemDesignStage({
     </div>
   );
 }
+
+export default SystemDesignInterviewStage;

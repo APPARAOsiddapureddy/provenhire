@@ -25,8 +25,8 @@ const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertIntervi
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 const DataRoundStage = lazy(() => import("./stages/DataRoundStage"));
 const DataSystemDesignStage = lazy(() => import("./stages/DataSystemDesignStage"));
+const SystemDesignInterviewStage = lazy(() => import("./stages/SystemDesignInterviewStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
-import PipelineStagePlaceholder from "./stages/PipelineStagePlaceholder";
 import { checkInvalidatedTests, checkCooldownStatus } from "@/utils/recordingUpload";
 import {
   normalizeTechnicalStageOrderForDisplay,
@@ -749,15 +749,58 @@ const VerificationFlow = () => {
         );
       case "system_design_interview":
         return (
-          <PipelineStagePlaceholder
-            title="System Design Interview"
-            description="30 minutes: 15m LLD and 15m HLD. Required for Level 2 on mid and senior tracks (with AI Skills pass)."
-            bulletPoints={[
-              "LLD: entities, relationships, API contracts, schema.",
-              "HLD: scale, caching, failure modes — calibrated to mid vs senior.",
-            ]}
-            onBackToDashboard={handleReturnToDashboard}
-          />
+          <div className="space-y-6">
+            {!testStageStarted.system_design_interview ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: System Design Interview</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Two-part session: low-level design (classes, APIs, data model), then full system architecture. Allow
+                    about 30 minutes. You can type your answers and use Play question for audio.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await api.post("/api/verification/stages/update", {
+                            stageName: "system_design_interview",
+                            status: "in_progress",
+                          });
+                          setTestStageStarted((p) => ({ ...p, system_design_interview: true }));
+                        } catch (err: unknown) {
+                          const apiErr = err as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
+                          const code = apiErr?.response?.data?.code;
+                          if (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") {
+                            handlePaywallRequired(
+                              "system_design_interview",
+                              apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
+                              code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
+                                ? new Date(apiErr.response.data.nextAvailableAt)
+                                : null
+                            );
+                          } else {
+                            toast({ title: "Cannot start", description: (err as Error)?.message ?? "Try again later.", variant: "destructive" });
+                          }
+                        }
+                      }}
+                    >
+                      Start System Design Interview
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <SystemDesignInterviewStage
+                targetJobTitle={targetJobTitle || undefined}
+                onSessionComplete={() => void loadVerificationStages()}
+                onReturnToDashboard={handleReturnToDashboard}
+                nextStageLabel={getNextStageInfo("system_design_interview")?.label}
+              />
+            )}
+          </div>
         );
       case 'dsa_round':
         return (
@@ -1158,7 +1201,8 @@ const VerificationFlow = () => {
     (currentStage === "expert_interview" && testStageStarted.expert_interview) ||
     (currentStage === "ai_skills_interview" && testStageStarted.ai_skills_interview) ||
     (currentStage === "data_skills_interview" && testStageStarted.data_skills_interview) ||
-    (currentStage === "data_system_design" && testStageStarted.data_system_design);
+    (currentStage === "data_system_design" && testStageStarted.data_system_design) ||
+    (currentStage === "system_design_interview" && testStageStarted.system_design_interview);
 
   return (
     <div className={`min-h-screen bg-gradient-subtle ${isInActiveTest ? "p-0 sm:p-2" : "p-4"}`}>

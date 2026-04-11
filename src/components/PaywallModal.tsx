@@ -8,6 +8,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
+// TODO: Replace with your actual UPI ID before deploying to production
+const PROVENHIRE_UPI_ID = "provenhire@upi";
+
+// TODO: Replace with your actual WhatsApp number before deploying to production
+const PROVENHIRE_WHATSAPP = "+91 XXXXXXXXXX";
+
 interface PaywallModalProps {
   open: boolean;
   onClose: () => void;
@@ -70,10 +76,7 @@ export const PaywallModal = ({
 
             <div className="space-y-2">
               <p className="text-sm font-medium">UPI ID:</p>
-              <div className="bg-muted rounded px-3 py-2 font-mono text-sm select-all">
-                {/* TODO: Replace with your actual UPI ID before deploying */}
-                provenhire@upi
-              </div>
+              <div className="bg-muted rounded px-3 py-2 font-mono text-sm select-all">{PROVENHIRE_UPI_ID}</div>
             </div>
 
             <div className="rounded-lg border p-4 space-y-2 text-sm">
@@ -81,8 +84,7 @@ export const PaywallModal = ({
               <p className="text-muted-foreground">
                 Send your payment screenshot to:
               </p>
-              {/* TODO: Replace with your actual WhatsApp number */}
-              <p className="font-medium">WhatsApp: +91 XXXXXXXXXX</p>
+              <p className="font-medium">WhatsApp: {PROVENHIRE_WHATSAPP}</p>
               <p className="text-muted-foreground text-xs">
                 Include your registered email address in the message. Credits
                 will be added within 2 hours.

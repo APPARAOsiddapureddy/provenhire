@@ -618,9 +618,12 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     const iv = await prisma.interview.findFirst({
       where: { userId, interviewType: "system_design", status: "completed" },
       orderBy: { completedAt: "desc" },
-      select: { totalScore: true },
+      select: { totalScore: true, questionPlan: true },
     });
-    if (!iv) {
+    const qp = iv?.questionPlan;
+    const isSoftwareOnly =
+      qp != null && typeof qp === "object" && !Array.isArray(qp) && (qp as { track?: string }).track === "software";
+    if (!iv || isSoftwareOnly) {
       if (!allowPlaceholderVerificationCompletion()) {
         return res.status(400).json({
           error: "Complete the Data System Design interview in-platform before marking this step complete.",
@@ -630,10 +633,22 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
       updateData.score = iv.totalScore != null ? Math.round(iv.totalScore) : null;
     }
   } else if (stageName === "system_design_interview" && status === "completed") {
-    if (!allowPlaceholderVerificationCompletion()) {
-      return res.status(503).json({
-        error: "This verification step is not available yet. Complete the official assessment flow when it is released.",
-      });
+    const iv = await prisma.interview.findFirst({
+      where: { userId, interviewType: "system_design", status: "completed" },
+      orderBy: { completedAt: "desc" },
+      select: { totalScore: true, questionPlan: true },
+    });
+    const qp = iv?.questionPlan;
+    const isSoftwareTrack =
+      qp != null && typeof qp === "object" && !Array.isArray(qp) && (qp as { track?: string }).track === "software";
+    if (!iv || !isSoftwareTrack) {
+      if (!allowPlaceholderVerificationCompletion()) {
+        return res.status(400).json({
+          error: "Complete the System Design interview in-platform before marking this step complete.",
+        });
+      }
+    } else {
+      updateData.score = iv.totalScore != null ? Math.round(iv.totalScore) : null;
     }
   } else if (stageName === "expert_interview" && status === "completed") {
     const interview = await prisma.interview.findFirst({

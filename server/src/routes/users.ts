@@ -246,7 +246,7 @@ usersRouter.post("/me/provenhire-resume/change-request", requireAuth, async (req
       status: "pending",
     },
   });
-  res.json({ request });
+  res.json({ ok: true, request });
 });
 
 usersRouter.post("/me/provenhire-resume/project/:projectId/approve", requireAuth, async (req: AuthedRequest, res) => {
