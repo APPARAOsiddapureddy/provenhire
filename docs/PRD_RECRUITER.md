@@ -1,6 +1,6 @@
 # PRD: Recruiter — Complete Product Requirements
 
-**Version:** 1.1  
+**Version:** 1.1 (recruiter) · **Product doc set:** 6.9  
 **Date:** April 2026  
 **Status:** Final (revenue rules aligned with implementation)  
 **Author:** ProvenHire Product Team  

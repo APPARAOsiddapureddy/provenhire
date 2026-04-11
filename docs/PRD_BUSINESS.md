@@ -1,5 +1,6 @@
 # PRD — Business rules & engineering backlog
 
+**Version:** 6.9 · **April 2026**  
 **Consolidated April 2026.** Part 1 = revenue and limits (formerly *PRD_REVENUE_AND_BUSINESS_RULES*). Part 2 = implementation backlog (formerly *PRD_TECHNICAL_IMPLEMENTATION_REMAINING*).
 
 **Index:** [PRD.md](PRD.md) (index) · [PRD_CANDIDATE.md](PRD_CANDIDATE.md) (candidate) · [PRD_RECRUITER.md](PRD_RECRUITER.md) (recruiter) · [README.md](README.md)

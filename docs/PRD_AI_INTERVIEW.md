@@ -1,5 +1,7 @@
 # PRD — AI Expert Interview (full specification)
 
+**Version:** 6.9 · **April 2026** · Lives in this file only (see [PRD.md](PRD.md) index).
+
 **Consolidated April 2026.** Part A = concise master spec (stack, placement, APIs). Part B = full product specification (formerly *PRD_AI_INTERVIEW_ROUND*).
 
 **Index:** [PRD.md](PRD.md) (index) · Candidate summary: [PRD_CANDIDATE.md](PRD_CANDIDATE.md) §3.4 · Revenue & retakes: [PRD_BUSINESS.md](PRD_BUSINESS.md) · [README.md](README.md)
@@ -177,7 +179,7 @@ Remaining vs product wishlist (not blockers for current production path):
 | **Routes (v1.3)** | **`v2/turn`**: **`whisperLatencyMs`**, fire-and-forget **`handlePartialTranscript`** on full answer; **`request-review`** validation (409 duplicate). **`GET /:id/result`**: **`completedAt`**, **`reviewRequestedAt`**. |
 | **Admin (v1.3)** | **`GET /admin/questions/analytics`** (join bank, discrimination flags); **`GET /admin/interviews/:id/replay`**; UI **`InterviewReplayView`** + **`AIInterviewReview`** replay + analytics table. |
 | **Frontend (v1.3)** | Silence nudge; **turnId** re-check after ack / gap / before question TTS; **`whisperLatencyMs`** from last segment; **time-expired** banner; **request-review** form. |
-| **PRD + Expert UX (v6.8)** | **[PRD_CANDIDATE.md](PRD_CANDIDATE.md) §3.4.9** — questions, relevance mechanics, STT/TTS rationale, step-by-step answer flow; **§3.4.3** corrected to **OpenAI Whisper** (primary) + **Cartesia→ElevenLabs** TTS. **`VerificationFlow.tsx`** → **`ExpertInterviewStage`**: **`verificationRoleType`**, **`experienceYears`**, profile-driven **`v2/start`** when non-tech / data / non-empty **`targetJobTitle`**. |
+| **PRD + Expert UX (v6.8→v6.9)** | **[PRD_CANDIDATE.md](PRD_CANDIDATE.md) §3.4.9** — questions, relevance mechanics, STT/TTS rationale, step-by-step answer flow; **§3.4.3** **OpenAI Whisper** (primary) + **Cartesia→ElevenLabs** TTS. **`VerificationFlow.tsx`** → **`ExpertInterviewStage`**: **`verificationRoleType`**, **`experienceYears`**, profile-driven **`v2/start`** when non-tech / data / non-empty **`targetJobTitle`**. Doc **split** in v6.9. |
 | **AI Skills (doc parity)** | **`AISkillsInterviewStage`** documented as sharing **`useWhisperSession`** + **`/transcribe`** + interview TTS routes (§3.4.9). |
 
 ---
@@ -965,5 +967,6 @@ Sections **1–15** are the target product spec; **§16** tracks repository drif
 | 3.0.3 | **§16** — multi-pass eval, v2 integrity merge, turn timing / `whisperLatencyMs`, v2 per-question rows, `timeExpired`, silence nudge, review-request route + UI, admin analytics & replay; cross-ref **PRD_CANDIDATE Part A v1.3** (now [PRD_CANDIDATE.md](PRD_CANDIDATE.md) §3.4) |
 | 3.0.4 | **PRD v6.8 (Part A):** §3.4.9 end-to-end AI interview doc (questions, relevance, STT/TTS, answer flow); §3.4.3 STT/TTS aligned with **Whisper** + **Cartesia** stack; Expert profile-driven **`v2/start`**. **Part D:** §6 API/frontend lines; **§12.0** verification STT vs **§12.1** Deepgram alternate; §11.6 prefetch note; Part A §12 changelog rows. |
 | 3.0.5 | **PRD v6.9 split:** monolithic **`PRD.md`** replaced by index + **`PRD_CANDIDATE.md`**, **`PRD_RECRUITER.md`**, **`PRD_BUSINESS.md`**, **`PRD_AI_INTERVIEW.md`**. Cross-links updated. |
+| 3.0.6 | Header **Version 6.9** on this file; recruiter/business headers aligned with doc set **6.9**; candidate matrix rows reference **v6.9** for Expert profile wiring. |
 
-*PRD v3.0.5 — April 2026 | ProvenHire Product Team*
+*PRD v3.0.6 — April 2026 | ProvenHire Product Team*
