@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, getAuthToken } from "@/lib/api";
+import { unlockInterviewAudioOutput, speakText, fallbackBrowserTTS } from "@/lib/interviewTts";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWhisperSession } from "@/hooks/useWhisperSession";
@@ -53,22 +54,6 @@ function scrubSttEcho(text: string): string {
   s = s.replace(/^(thank you|thanks)(?:\s+so much)?\s*[,.!?]?\s+/i, "").trim();
   if (POLITENESS_ONLY_TRANSCRIPT.test(s)) return "";
   return s;
-}
-
-/** Tiny silent WAV — call synchronously from a click/tap before awaits so later `Audio.play()` is not blocked by autoplay policy. */
-function unlockInterviewAudioOutput(): void {
-  try {
-    const a = new Audio(
-      "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
-    );
-    a.volume = 0.01;
-    void a.play().then(() => {
-      a.pause();
-      a.removeAttribute("src");
-    }).catch(() => {});
-  } catch {
-    /* ignore */
-  }
 }
 
 const INTERVIEW_ROLES = [
@@ -125,70 +110,6 @@ export interface ExpertInterviewStageProps {
   onReturnToDashboard?: () => void;
   onInterviewAwaitingReview?: () => void;
   onPaywallRequired?: (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => void;
-}
-
-async function speakText(text: string, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return;
-  try {
-    const res = await fetch("/api/interview/tts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getAuthToken()}`,
-      },
-      body: JSON.stringify({ text }),
-      signal,
-    });
-    if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
-
-    const contentType = res.headers.get("Content-Type") || "";
-    const looksLikeAudio =
-      contentType.includes("audio") || contentType.includes("octet-stream");
-
-    if (looksLikeAudio) {
-      const blob = await res.blob();
-      if (blob.size === 0) {
-        await fallbackBrowserTTS(text, signal);
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      await new Promise<void>((resolve) => {
-        const audio = new Audio();
-        audio.preload = "auto";
-        audio.setAttribute("playsinline", "");
-        audio.volume = 1;
-        audio.src = url;
-        const cleanup = () => {
-          URL.revokeObjectURL(url);
-          signal?.removeEventListener("abort", onAbort);
-          resolve();
-        };
-        const onAbort = () => {
-          audio.pause();
-          audio.src = "";
-          cleanup();
-        };
-        signal?.addEventListener("abort", onAbort);
-        audio.onended = cleanup;
-        audio.onerror = () => {
-          void fallbackBrowserTTS(text, signal).finally(cleanup);
-        };
-        void audio.play().catch(() => {
-          void fallbackBrowserTTS(text, signal).finally(cleanup);
-        });
-      });
-      return;
-    }
-
-    const data = (await res.json()) as { fallback?: boolean; text?: string };
-    if (data.fallback) {
-      await fallbackBrowserTTS(data.text || text, signal);
-    }
-  } catch (e) {
-    if (signal?.aborted) return;
-    console.warn("[speakText] TTS request failed, using browser fallback:", e);
-    await fallbackBrowserTTS(text, signal);
-  }
 }
 
 async function speakFiller(signal?: AbortSignal): Promise<void> {
@@ -258,36 +179,6 @@ async function speakFiller(signal?: AbortSignal): Promise<void> {
   } catch {
     /* filler optional */
   }
-}
-
-function fallbackBrowserTTS(text: string, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (!window.speechSynthesis || signal?.aborted) {
-      resolve();
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95;
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(
-      (v) =>
-        v.name.includes("Samantha") || v.name.includes("Karen") || v.name.includes("Google US English")
-    );
-    if (preferred) u.voice = preferred;
-    const onAbort = () => {
-      window.speechSynthesis.cancel();
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    };
-    signal?.addEventListener("abort", onAbort);
-    u.onend = () => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    };
-    u.onerror = () => resolve();
-    window.speechSynthesis.speak(u);
-  });
 }
 
 export default function ExpertInterviewStage({

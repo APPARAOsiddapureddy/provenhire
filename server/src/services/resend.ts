@@ -214,10 +214,12 @@ export async function sendAiInterviewUnderReviewEmail(to: string, name?: string 
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to,
-    subject: "Your AI interview is under review",
+    subject: "AI Expert Interview recorded — next step with your employer",
     html: `
       <p>Hi ${name?.trim() || "there"},</p>
-      <p>Your AI interview is under review. You will receive an email within <strong>10–15 hours</strong> with your result.</p>
+      <p>Your <strong>AI Expert Interview</strong> is complete and scored on your ProvenHire profile.</p>
+      <p>For roles you have applied to, the <strong>hiring employer</strong> chooses what happens next: another AI screening, a ProvenHire Human Expert interview, or an on-site interview with their team — not an automatic platform default.</p>
+      <p>Watch your dashboard for when a Human Expert round opens, or messages from employers you applied to.</p>
       <p><a href="${baseUrl()}/dashboard/jobseeker" style="color:#D4AF37;font-weight:bold">Go to your dashboard →</a></p>
       <p>— The ProvenHire Team</p>
     `,

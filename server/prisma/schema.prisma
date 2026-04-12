@@ -274,6 +274,10 @@ model JobApplication {
   recruiterNote      String?   @db.Text
   stageChangedAt     DateTime?
   stageHistory       Json? // [{ stage, changedAt, changedBy? }]
+  /// After AI expert completes: recruiter sets next step — provenhire_ai | human_expert | company_employee
+  recruiterNextInterviewMode      String?
+  recruiterInterviewPathSetAt     DateTime?
+  recruiterInterviewPathSetByUserId String?
 
   job       Job  @relation(fields: [jobId], references: [id])
   jobSeeker User @relation("JobApplicationsByUser", fields: [jobSeekerId], references: [id])

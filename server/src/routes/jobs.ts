@@ -543,6 +543,8 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
 
       return {
         application_id: a.id,
+        recruiter_next_interview_mode: a.recruiterNextInterviewMode ?? null,
+        recruiter_interview_path_set_at: a.recruiterInterviewPathSetAt?.toISOString?.() ?? null,
         status: a.status,
         applied_at: a.appliedAt?.toISOString?.() ?? null,
         resume_url: a.resumeUrl ?? p.resumeUrl,
@@ -830,6 +832,21 @@ jobsRouter.get("/recruiter/applications", requireAuth, async (req: AuthedRequest
     orderBy: { appliedAt: "desc" },
   });
   res.json({ applications });
+});
+
+/** After AI Expert Interview: employer chooses next round (PRD — not platform-default). */
+jobsRouter.patch("/recruiter/applications/:applicationId/next-interview", requireAuth, async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "recruiter") {
+    return res.status(403).json({ error: "Recruiter access required" });
+  }
+  const { setRecruiterInterviewPathForApplication } = await import("../services/recruiterInterviewPath.service.js");
+  const result = await setRecruiterInterviewPathForApplication({
+    applicationId: req.params.applicationId,
+    recruiterUserId: req.user!.id,
+    body: req.body,
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json({ ok: true });
 });
 
 /** Hiring funnel metrics — paid recruiters only (see RecruiterUsage.planType). */

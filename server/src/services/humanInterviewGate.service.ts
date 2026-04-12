@@ -1,9 +1,12 @@
 import { prisma } from "../config/prisma.js";
-import { sendAiInterviewUnderReviewEmail } from "./resend.js";
+import { sendAiInterviewUnderReviewEmail, sendHumanInterviewApprovedEmail } from "./resend.js";
+import { upsertSkillVerification } from "./skillVerification.service.js";
+import { syncProvenhireResumeFromSources } from "./provenhireResume.service.js";
 
 export const HUMAN_INTERVIEW_PRICE_PAISE = 399 * 100;
 
-export type AdminReviewUiStatus = "none" | "pending" | "approved" | "rejected";
+/** `recruiter_redirected` = employer chose AI JD / company interview instead of ProvenHire human expert */
+export type AdminReviewUiStatus = "none" | "pending" | "approved" | "rejected" | "recruiter_redirected";
 
 export interface HumanInterviewEligibility {
   admin_review_status: AdminReviewUiStatus;
@@ -58,6 +61,92 @@ export async function getLatestAdminQueueForCandidate(candidateId: string) {
   });
 }
 
+/**
+ * Approves the AI→human gate (same logic as admin queue approve). Call when a **recruiter** selects
+ * ProvenHire Human Expert or when an admin approves the queue.
+ */
+export async function approveAdminReviewQueueForHumanExpert(params: {
+  queueId: string;
+  reviewerUserId: string | null;
+}): Promise<void> {
+  const queue = await prisma.adminReviewQueue.findUnique({
+    where: { id: params.queueId },
+    include: { aiInterview: true },
+  });
+  if (!queue) throw new Error("Queue not found");
+  if (queue.status !== "pending") return;
+
+  const score = queue.aiInterview.totalScore ?? 0;
+  const completedAt = queue.aiInterview.completedAt ?? new Date();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.adminReviewQueue.update({
+      where: { id: queue.id },
+      data: { status: "approved", reviewedAt: new Date(), reviewerId: params.reviewerUserId },
+    });
+    await tx.verificationStage.updateMany({
+      where: { userId: queue.candidateId, stageName: "expert_interview" },
+      data: { status: "completed", score },
+    });
+    const priorAttempts = await tx.humanInterviewAttempt.count({ where: { candidateId: queue.candidateId } });
+    const attemptNumber = priorAttempts + 1;
+    const firstAttempt = attemptNumber === 1;
+    await tx.humanInterviewAttempt.create({
+      data: {
+        candidateId: queue.candidateId,
+        adminReviewQueueId: queue.id,
+        attemptNumber,
+        paymentStatus: firstAttempt ? "waived" : "pending",
+        amountPaise: firstAttempt ? null : HUMAN_INTERVIEW_PRICE_PAISE,
+      },
+    });
+
+    if (firstAttempt) {
+      await tx.verificationStage.upsert({
+        where: {
+          userId_stageName: { userId: queue.candidateId, stageName: "human_expert_interview" },
+        },
+        create: {
+          userId: queue.candidateId,
+          stageName: "human_expert_interview",
+          status: "in_progress",
+        },
+        update: { status: "in_progress" },
+      });
+    } else {
+      await tx.verificationStage.updateMany({
+        where: { userId: queue.candidateId, stageName: "human_expert_interview" },
+        data: { status: "locked" },
+      });
+    }
+  });
+
+  await upsertSkillVerification(queue.candidateId, "INTERVIEW", score, completedAt);
+
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: queue.candidateId },
+    select: { verificationStatus: true },
+  });
+  if (profile && profile.verificationStatus !== "expert_verified") {
+    await prisma.jobSeekerProfile.updateMany({
+      where: { userId: queue.candidateId },
+      data: { verificationStatus: "verified" },
+    });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: queue.candidateId },
+    select: { email: true, name: true },
+  });
+  if (user?.email) {
+    void sendHumanInterviewApprovedEmail(user.email, user.name).catch(() => {});
+  }
+
+  syncProvenhireResumeFromSources(queue.candidateId).catch((err) =>
+    console.error(`[approveAdminReviewQueueForHumanExpert] resume sync failed for ${queue.candidateId}:`, err)
+  );
+}
+
 /** Call when the candidate finishes the last AI interview answer (technical track). */
 export async function recordAiInterviewSubmittedForAdminReview(params: {
   userId: string;
@@ -81,10 +170,10 @@ export async function recordAiInterviewSubmittedForAdminReview(params: {
       create: {
         userId: params.userId,
         stageName: "expert_interview",
-        status: "pending_review",
+        status: "completed",
         score: params.score,
       },
-      update: { status: "pending_review", score: params.score },
+      update: { status: "completed", score: params.score },
     });
     await tx.verificationStage.updateMany({
       where: { userId: params.userId, stageName: "human_expert_interview" },
@@ -137,25 +226,6 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
     where: { candidateId: userId },
   });
 
-  if (!latestQueue && expertStage?.status === "completed") {
-    return withExpertRetryCooldown(
-      {
-        admin_review_status: "approved",
-        latest_queue_id: null,
-        requires_payment: false,
-        payment_status: "waived",
-        can_access_slots: true,
-        can_access_payment_page: false,
-        block_human_interview_section: false,
-        human_interview_attempts: humanInterviewAttemptsCount,
-        attempt_id: null,
-        razorpay_key_id: process.env.RAZORPAY_KEY_ID?.trim() || null,
-        expert_interview_stage_status: expertStage.status,
-      },
-      retryAfter
-    );
-  }
-
   const attempt = latestQueue
     ? await prisma.humanInterviewAttempt.findFirst({
         where: { adminReviewQueueId: latestQueue.id },
@@ -167,6 +237,7 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
     if (latestQueue.status === "pending") admin_review_status = "pending";
     else if (latestQueue.status === "approved") admin_review_status = "approved";
     else if (latestQueue.status === "rejected") admin_review_status = "rejected";
+    else if (latestQueue.status === "recruiter_redirected") admin_review_status = "recruiter_redirected";
   }
 
   const payment_status: HumanInterviewEligibility["payment_status"] =
@@ -199,6 +270,7 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
   const block_human_interview_section =
     admin_review_status === "pending" ||
     admin_review_status === "rejected" ||
+    admin_review_status === "recruiter_redirected" ||
     admin_review_status === "none";
 
   const razorpayKey = process.env.RAZORPAY_KEY_ID?.trim() || null;

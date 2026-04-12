@@ -526,6 +526,25 @@ GET /api/jobs/recruiter/applications
   Filter params: ?jobId=&stage=&page=&limit=
 ```
 
+### 7.6 Post–AI Expert: employer chooses the next interview (implemented)
+
+After a candidate completes the **AI Expert Interview** (verification), **the hiring employer** decides the next step for that application — not an automatic ProvenHire default:
+
+| Mode | Meaning |
+|------|---------|
+| **provenhire_ai** | Continue with a ProvenHire AI / JD-aligned screening (product lane as wired). |
+| **human_expert** | Unlock **ProvenHire Human Expert** (booked slot, paid flow as today). |
+| **company_employee** | Employer runs their own on-site / team interview; no ProvenHire Human Expert unlock for that review cycle. |
+
+**API (recruiter, owns job):**
+
+```
+PATCH /api/jobs/recruiter/applications/:applicationId/next-interview
+  Body: { "mode": "provenhire_ai" | "human_expert" | "company_employee" }
+```
+
+**UI:** Job applicants grid (`/dashboard/recruiter/jobs/:jobId/applicants`) — per-applicant selector when the candidate has an AI Expert score. Admin may still approve legacy `adminReviewQueue` rows; recruiter selection is the primary gate for new flows.
+
 ---
 
 ## 8. Company Profile (Public Page)

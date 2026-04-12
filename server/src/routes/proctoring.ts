@@ -71,7 +71,11 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
     eventType: parsed.data.alertType,
   });
 
-  if (parsed.data.testType === "ai_interview") {
+  if (
+    parsed.data.testType === "ai_interview" ||
+    parsed.data.testType === "system_design" ||
+    parsed.data.testType === "data_system_design"
+  ) {
     await prisma.interview
       .updateMany({
         where: { id: parsed.data.testId, userId: parsed.data.userId },

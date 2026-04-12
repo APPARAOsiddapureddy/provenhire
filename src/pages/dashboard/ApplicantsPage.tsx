@@ -3,7 +3,7 @@
  * Compact card design from ProvenHire mockup: cert strip, score rings,
  * hiring readiness, skills, proctoring status, View Full Profile.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
@@ -15,6 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 
 interface Applicant {
   application_id: string;
+  recruiter_next_interview_mode?: string | null;
+  recruiter_interview_path_set_at?: string | null;
   status: string;
   applied_at: string | null;
   resume_url: string | null;
@@ -155,6 +157,12 @@ function ScoreRing({ value, color = "gold" }: { value: number | null | undefined
   );
 }
 
+const NEXT_INTERVIEW_OPTIONS: { value: string; label: string }[] = [
+  { value: "provenhire_ai", label: "ProvenHire AI interview (JD / fit)" },
+  { value: "human_expert", label: "ProvenHire Human Expert interview" },
+  { value: "company_employee", label: "Our company / employee interview (off-platform)" },
+];
+
 const ApplicantsPage = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -162,23 +170,52 @@ const ApplicantsPage = () => {
   const [job, setJob] = useState<{ id: string; title: string; company: string } | null>(null);
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pathDraft, setPathDraft] = useState<Record<string, string>>({});
+  const [savingPathId, setSavingPathId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "shortlisted" | "elite">("all");
   const [verificationStageFilter, setVerificationStageFilter] = useState<"all" | VerificationStageKey>("all");
   const [sortBy, setSortBy] = useState<"newest" | "highest_score" | "stage">("highest_score");
 
+  const refetchApplicants = useCallback(async () => {
+    if (!jobId) return;
+    const r = await api.get<{ job: { id: string; title: string; company: string }; applicants: Applicant[] }>(
+      `/api/jobs/${jobId}/applicants`
+    );
+    setJob(r.job);
+    setApplicants(r.applicants || []);
+    const drafts: Record<string, string> = {};
+    for (const row of r.applicants || []) {
+      if (row.recruiter_next_interview_mode) drafts[row.application_id] = row.recruiter_next_interview_mode;
+    }
+    setPathDraft((prev) => ({ ...drafts, ...prev }));
+  }, [jobId]);
+
   useEffect(() => {
     if (!jobId) return;
-    api
-      .get<{ job: { id: string; title: string; company: string }; applicants: Applicant[] }>(
-        `/api/jobs/${jobId}/applicants`
-      )
-      .then((r) => {
-        setJob(r.job);
-        setApplicants(r.applicants || []);
-      })
+    setLoading(true);
+    refetchApplicants()
       .catch(() => toast({ title: "Failed to load applicants", variant: "destructive" }))
       .finally(() => setLoading(false));
-  }, [jobId, toast]);
+  }, [jobId, toast, refetchApplicants]);
+
+  const saveInterviewPath = async (applicationId: string) => {
+    const mode = pathDraft[applicationId];
+    if (!mode) {
+      toast({ title: "Choose a next interview option", variant: "destructive" });
+      return;
+    }
+    setSavingPathId(applicationId);
+    try {
+      await api.patch(`/api/jobs/recruiter/applications/${applicationId}/next-interview`, { mode });
+      toast({ title: "Next interview step saved for this candidate." });
+      await refetchApplicants();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not save";
+      toast({ title: msg, variant: "destructive" });
+    } finally {
+      setSavingPathId(null);
+    }
+  };
 
   const filtered = applicants.filter((a) => {
     const stageKey = getVerificationStageKey(a);
@@ -511,6 +548,51 @@ const ApplicantsPage = () => {
                     </div>
                     <span className="text-[10px] text-muted-foreground">0 violations</span>
                   </div>
+
+                  {a.ai_interview_score != null && job && (
+                    <div className="px-4 py-3 border-t border-white/5 space-y-2 bg-muted/20">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        After AI Expert — next round (your decision)
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Choose how this candidate continues for <span className="text-foreground font-medium">{job.title}</span>. This
+                        replaces a platform-default path: Human Expert only unlocks when you select it.
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center pt-1">
+                        <select
+                          className="flex-1 text-sm rounded-md bg-background border border-border px-3 py-2 text-foreground"
+                          value={pathDraft[a.application_id] ?? a.recruiter_next_interview_mode ?? ""}
+                          onChange={(e) =>
+                            setPathDraft((p) => ({
+                              ...p,
+                              [a.application_id]: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Select next interview…</option>
+                          {NEXT_INTERVIEW_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={savingPathId === a.application_id}
+                          onClick={() => void saveInterviewPath(a.application_id)}
+                        >
+                          {savingPathId === a.application_id ? "Saving…" : "Save choice"}
+                        </Button>
+                      </div>
+                      {a.recruiter_interview_path_set_at && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Last saved {new Date(a.recruiter_interview_path_set_at).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="p-4 flex items-center gap-2">
                     <Button

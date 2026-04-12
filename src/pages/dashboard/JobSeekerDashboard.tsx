@@ -1169,19 +1169,21 @@ const JobSeekerDashboard = () => {
                     <div className={`flex items-center gap-1.5 dashboard-stage-pill px-3 py-1.5 rounded-[20px] ${humanPillActive ? 'dashboard-pill-active' : 'dashboard-pill-locked'}`}>
                       <span style={{ width: 5, height: 5, borderRadius: '50%', background: humanPillActive ? 'var(--dash-gold)' : 'var(--dash-text-muted)' }} />
                       {humanInterviewGate?.admin_review_status === 'pending'
-                        ? 'Awaiting admin review'
-                        : humanInterviewGate?.requires_payment || humanInterviewGate?.payment_status === 'pending'
-                          ? 'Payment required'
-                          : humanPillActive
-                            ? 'In Progress'
-                            : 'Locked'}
+                        ? 'Waiting for employer'
+                        : humanInterviewGate?.admin_review_status === 'recruiter_redirected'
+                          ? 'Employer chose other path'
+                          : humanInterviewGate?.requires_payment || humanInterviewGate?.payment_status === 'pending'
+                            ? 'Payment required'
+                            : humanPillActive
+                              ? 'In Progress'
+                              : 'Locked'}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-5 items-start">
                     <div>
                       <h3 className="dashboard-stage-card-title">Human expert interview</h3>
                       <p className="dashboard-stage-card-desc">
-                        30–45 minutes with a vetted domain expert. Structured rubric, recorded session, and neutral evaluation — the trust layer employers respect on top of your AI-verified ProvenHire Resume.
+                        Optional Elite step: 30–45 minutes with a vetted domain expert — only when a hiring employer selects the ProvenHire Human Expert path after your AI Expert Interview. Other employers may choose another AI screening or their own team interview instead.
                       </p>
                       <div className="flex flex-wrap gap-1">
                         <span className="dashboard-trust-chip"><span className="dashboard-rec-dot" /> Live Recorded</span>
@@ -1214,9 +1216,13 @@ const JobSeekerDashboard = () => {
                       )}
                     </div>
                     <div className="rounded-xl p-4 bg-white/5 border border-[var(--dash-navy-border)]">
-                      <div className="text-sm font-semibold uppercase tracking-wide text-[var(--dash-text-muted)] mb-2">After AI expert step clears</div>
-                      <div className="text-base font-bold text-[var(--dash-gold)]">Within 4–12 hours</div>
-                      <div className="text-sm text-[var(--dash-text-muted)] mt-1">8 active experts · Morning, Evening & Weekend slots</div>
+                      <div className="text-sm font-semibold uppercase tracking-wide text-[var(--dash-text-muted)] mb-2">Who unlocks this step</div>
+                      <div className="text-sm text-[var(--dash-gold)] font-medium leading-snug">
+                        The employer for roles you applied to — not ProvenHire by default.
+                      </div>
+                      <div className="text-sm text-[var(--dash-text-muted)] mt-2 leading-relaxed">
+                        They choose: ProvenHire AI follow-up, Human Expert here, or their own employee interview. You will see booking here only when Human Expert is selected.
+                      </div>
                     </div>
                   </div>
                 </div>

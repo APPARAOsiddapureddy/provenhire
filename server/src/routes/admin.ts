@@ -24,13 +24,8 @@ import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
 import type { QuestionPlanItem } from "../data/aiInterviewStaticQuestions.js";
 import type { QuestionAnswerPair } from "../services/ai.service.js";
 import { upsertSkillVerification } from "../services/skillVerification.service.js";
-import {
-  HUMAN_INTERVIEW_PRICE_PAISE,
-} from "../services/humanInterviewGate.service.js";
-import {
-  sendHumanInterviewApprovedEmail,
-  sendHumanInterviewRejectedEmail,
-} from "../services/resend.js";
+import { approveAdminReviewQueueForHumanExpert } from "../services/humanInterviewGate.service.js";
+import { sendHumanInterviewRejectedEmail } from "../services/resend.js";
 import { grantRetakeCredits } from "../services/candidateRetake.service.js";
 import { ensureRecruiterUsageRow } from "../utils/recruiterSubscription.js";
 import { syncProvenhireResumeFromSources } from "../services/provenhireResume.service.js";
@@ -1321,79 +1316,14 @@ adminRouter.post("/ai-interview-queue/:id/approve", async (req: AuthedRequest, r
   try {
     const queue = await prisma.adminReviewQueue.findUnique({
       where: { id: req.params.id },
-      include: { aiInterview: true },
     });
     if (!queue) return res.status(404).json({ error: "Queue item not found" });
     if (queue.status !== "pending") return res.status(400).json({ error: "Already processed" });
-    const score = queue.aiInterview.totalScore ?? 0;
-    const completedAt = queue.aiInterview.completedAt ?? new Date();
 
-    await prisma.$transaction(async (tx) => {
-      await tx.adminReviewQueue.update({
-        where: { id: queue.id },
-        data: { status: "approved", reviewedAt: new Date(), reviewerId: req.user?.id ?? null },
-      });
-      await tx.verificationStage.updateMany({
-        where: { userId: queue.candidateId, stageName: "expert_interview" },
-        data: { status: "completed", score },
-      });
-      const priorAttempts = await tx.humanInterviewAttempt.count({ where: { candidateId: queue.candidateId } });
-      const attemptNumber = priorAttempts + 1;
-      const firstAttempt = attemptNumber === 1;
-      await tx.humanInterviewAttempt.create({
-        data: {
-          candidateId: queue.candidateId,
-          adminReviewQueueId: queue.id,
-          attemptNumber,
-          paymentStatus: firstAttempt ? "waived" : "pending",
-          amountPaise: firstAttempt ? null : HUMAN_INTERVIEW_PRICE_PAISE,
-        },
-      });
-
-      if (firstAttempt) {
-        await tx.verificationStage.upsert({
-          where: {
-            userId_stageName: { userId: queue.candidateId, stageName: "human_expert_interview" },
-          },
-          create: {
-            userId: queue.candidateId,
-            stageName: "human_expert_interview",
-            status: "in_progress",
-          },
-          update: { status: "in_progress" },
-        });
-      } else {
-        await tx.verificationStage.updateMany({
-          where: { userId: queue.candidateId, stageName: "human_expert_interview" },
-          data: { status: "locked" },
-        });
-      }
+    await approveAdminReviewQueueForHumanExpert({
+      queueId: queue.id,
+      reviewerUserId: req.user?.id ?? null,
     });
-
-    await upsertSkillVerification(queue.candidateId, "INTERVIEW", score, completedAt);
-
-    const profile = await prisma.jobSeekerProfile.findUnique({
-      where: { userId: queue.candidateId },
-      select: { verificationStatus: true },
-    });
-    if (profile && profile.verificationStatus !== "expert_verified") {
-      await prisma.jobSeekerProfile.updateMany({
-        where: { userId: queue.candidateId },
-        data: { verificationStatus: "verified" },
-      });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: queue.candidateId },
-      select: { email: true, name: true },
-    });
-    if (user?.email) {
-      void sendHumanInterviewApprovedEmail(user.email, user.name).catch(() => {});
-    }
-
-    syncProvenhireResumeFromSources(queue.candidateId).catch((err) =>
-      console.error(`[admin/approve] resume sync failed for ${queue.candidateId}:`, err)
-    );
 
     res.json({ ok: true });
   } catch (e) {
