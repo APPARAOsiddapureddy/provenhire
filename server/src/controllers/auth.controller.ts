@@ -321,7 +321,15 @@ export async function login(req: Request, res: Response) {
       where: { email: { equals: normalizedEmail, mode: "insensitive" } },
     });
     if (!user) {
-      return res.status(401).json({ error: "Invalid email or password" });
+      const isQaDomain = normalizedEmail.endsWith("@test.provenhire.com");
+      const qaHint =
+        isQaDomain
+          ? "This QA email is not in the database for this environment. Run migrations, then `cd server && npm run seed:test-credentials` (see docs/TEST_CREDENTIALS.md), or set SEED_TEST_CREDENTIALS_ON_START=true / SEED_ON_START=true on the host."
+          : undefined;
+      return res.status(401).json({
+        error: "Invalid email or password",
+        ...(qaHint ? { hint: qaHint } : {}),
+      });
     }
     if ((user as { authProvider?: string | null }).authProvider === "GOOGLE") {
       return res.status(400).json({ error: "This account uses Google sign-in. Please use 'Continue with Google'." });

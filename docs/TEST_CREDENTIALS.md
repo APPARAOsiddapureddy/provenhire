@@ -32,7 +32,19 @@ npm run seed:interviewer
 npm run seed:admin
 ```
 
-Main `prisma db seed` runs DSA/data seeds + recruiter + interviewer + skill verifications — it does **not** run `seed-test-credentials` by default (optional on Render via `SEED_ON_START`).
+Main `prisma db seed` runs DSA/data seeds + recruiter + interviewer + skill verifications. To include QA job-seeker accounts in the same run, set:
+
+`INCLUDE_TEST_CREDENTIALS_IN_DB_SEED=true`
+
+**Hosted / staging (Render, etc.):** QA logins only exist after seeds run against that database. Choose one:
+
+| Approach | What to set |
+|----------|-------------|
+| Full seeds on each deploy start | `SEED_ON_START=true` (runs admin, test credentials, DSA, data-round seeds) |
+| **Only** refresh `seed-test-credentials` on start | `SEED_TEST_CREDENTIALS_ON_START=true` (does **not** duplicate when `SEED_ON_START` is already true) |
+| One-off shell | `cd server && npm run seed:test-credentials` with `DATABASE_URL` set |
+
+If login fails with a `@test.provenhire.com` address, the API may return a `hint` explaining that the user row is missing—run seeds against that environment’s database.
 
 ---
 

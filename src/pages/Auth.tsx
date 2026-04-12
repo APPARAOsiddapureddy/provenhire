@@ -175,12 +175,19 @@ const Auth = () => {
         await signIn(normalizedEmail, signInPassword || "");
       }
     } catch (err: any) {
+      const hint = err?.response?.data?.hint as string | undefined;
       const msg = err?.message ?? "Sign in failed";
-      setSignInErrors({
-        form: msg.toLowerCase().includes("invalid")
-          ? "Invalid email or password. Please try again."
-          : msg,
-      });
+      if (hint) {
+        setSignInErrors({
+          form: `Invalid email or password. ${hint}`,
+        });
+      } else {
+        setSignInErrors({
+          form: msg.toLowerCase().includes("invalid")
+            ? "Invalid email or password. Please try again."
+            : msg,
+        });
+      }
     } finally {
       setLoginSubmitting(false);
     }
