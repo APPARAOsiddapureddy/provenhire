@@ -6,6 +6,17 @@
 
 ## April 2026
 
+### Employer next-interview routing + system design UX + shared TTS (code + PRD)
+
+| Change | Location |
+|--------|----------|
+| **Recruiter path after AI Expert** — **`PATCH .../next-interview`**; **`JobApplication.recruiterNextInterviewMode`** (+ timestamps, setter); **`human_expert`** → **`approveAdminReviewQueueForHumanExpert`**; other modes → queue **`recruiter_redirected`**. | `server/src/services/recruiterInterviewPath.service.ts`, `server/src/services/humanInterviewGate.service.ts`, `server/src/routes/jobs.ts`, migration **`20260413120000_job_application_recruiter_interview_path`** |
+| **Verification** — AI Expert completion sets **`expert_interview`** **`completed`**; admin queue for Human Expert routing. | `humanInterviewGate.service.ts` |
+| **Dashboard UI** — **`ApplicantsPage`** next-step selector; **`JobSeekerDashboard`** Human Expert messaging. | `src/pages/dashboard/ApplicantsPage.tsx`, `JobSeekerDashboard.tsx` |
+| **System design** — camera gate, proctoring (**`system_design`** / **`data_system_design`**), shared **`interviewTts`** (MP3 + JSON browser fallback). | `SystemDesignInterviewStage.tsx`, `DataSystemDesignStage.tsx`, `src/lib/interviewTts.ts`, `server/src/routes/proctoring.ts`, `useProctoringRiskMonitor.ts` |
+| **Expert + AI Skills TTS** — deduped via **`interviewTts`**. | `ExpertInterviewStage.tsx`, `AISkillsInterviewStage.tsx` |
+| **Docs** — **`PRD.md`**, **`PRD_CANDIDATE.md`**, **`PRD_AI_INTERVIEW.md`**, **`PRD_RECRUITER.md`** §7.6, **`PRD_BUSINESS.md`** (Human Expert gating). | `docs/` |
+
 ### PRD v6.9 — split PRD + non-tech §3.2 + deployment env (documentation)
 
 | Change | Location |

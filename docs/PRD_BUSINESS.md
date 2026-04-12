@@ -123,6 +123,8 @@ Streams are independent.
 
 Recruiter pays ₹2,500 / human expert session (standard economics); payout process: manual UPI weekly until automated payouts.
 
+**Gating (product):** Human Expert is **not** the automatic next step after the AI Expert interview for **job applications**. The **employer** chooses the next interview (**provenhire_ai**, **human_expert**, or **company_employee**) — see **[PRD_RECRUITER.md](PRD_RECRUITER.md)** §7.6. Pricing above applies when the employer selects Human Expert and the session runs.
+
 **Careers copy:** see main PRD §4 / product marketing; founding program emphasizes ₹750 / session and monthly earning range.
 
 ---

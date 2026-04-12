@@ -543,7 +543,11 @@ PATCH /api/jobs/recruiter/applications/:applicationId/next-interview
   Body: { "mode": "provenhire_ai" | "human_expert" | "company_employee" }
 ```
 
-**UI:** Job applicants grid (`/dashboard/recruiter/jobs/:jobId/applicants`) — per-applicant selector when the candidate has an AI Expert score. Admin may still approve legacy `adminReviewQueue` rows; recruiter selection is the primary gate for new flows.
+**Persistence:** **`JobApplication`**: **`recruiterNextInterviewMode`**, **`recruiterInterviewPathSetAt`**, **`recruiterInterviewPathSetByUserId`** (migration **`20260413120000_job_application_recruiter_interview_path`**). Service: **`server/src/services/recruiterInterviewPath.service.ts`**.
+
+**Queue behavior:** **`human_expert`** calls **`approveAdminReviewQueueForHumanExpert`** (same unlock as admin approve — **`human_expert_interview`** **`in_progress`**, slot request **`eligible`**). **`provenhire_ai`** / **`company_employee`** set **`AdminReviewQueue`** to **`recruiter_redirected`** (no Human Expert unlock). Applicant APIs expose the new fields for dashboards.
+
+**UI:** Job applicants grid (`/dashboard/recruiter/jobs/:jobId/applicants`) — per-applicant selector when the candidate has completed AI Expert. **`JobSeekerDashboard`** Human Expert card reflects employer choice (waiting / in progress / employer chose another path). Admin queue approval remains available for platform operations; employer selection is the primary product gate for hiring flows.
 
 ---
 

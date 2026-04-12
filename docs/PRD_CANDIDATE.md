@@ -63,15 +63,15 @@ ProvenHire is India's first skill-certified hiring platform that connects verifi
 | **Code / task round** | `dsa_round` ✅ | `data_round` ✅ | — |
 | **AI Skills Interview** | `ai_skills_interview` ✅ | `data_skills_interview` ✅ | — |
 | **Role assignment** | — | — | `non_tech_assignment` ✅ — **PDF/DOCX** upload, **48-hour** window from first prompt fetch, **no** proctoring, **no** fullscreen |
-| **System design** | `system_design_interview` ❌ **placeholder UI** (no full software session shipped) | `data_system_design` ✅ | — |
+| **System design** | `system_design_interview` ✅ **LLD → HLD**, typed answers, camera + **`useProctoringRiskMonitor`** (`testType: system_design`), TTS via shared **`src/lib/interviewTts.ts`** + **`/api/interview/tts`** | `data_system_design` ✅ (same UX pattern; `testType: data_system_design`) | — |
 | **AI Expert Interview** | `expert_interview` ✅ | `expert_interview` ✅ (data-calibrated) | `expert_interview` ✅ |
 
-- **Legacy (default when env unset):** `profile_setup` → `aptitude_test` → `dsa_round` → `expert_interview` (AI) → `human_expert_interview` (Stage 5 human).
+- **Legacy (default when env unset):** `profile_setup` → `aptitude_test` → `dsa_round` → `expert_interview` (AI) → `human_expert_interview` (Stage 5 human) — **Human Expert** is not auto-next: for **job applications**, the **employer (recruiter)** selects the next step after AI Expert (**[PRD_RECRUITER.md](PRD_RECRUITER.md)** §7.6); platform/admin queue remains a **secondary** approval path.
 - **Pipeline v2 (when `VERIFICATION_PIPELINE_V2=true`):** Technical stage order is defined in `server/src/constants/verificationPipeline.ts` and enforced in `server/src/routes/verification.ts`.
   - **Default path until Profile Setup completes:** All v2 technical users see the **fresher** stage list and API `stage_order` until verification stage `profile_setup` is **completed**. `GET /api/verification/stages` then realigns rows to the track implied by `experienceYears` (mid/senior drops unused locked `cs_fundamentals`, adds `system_design_interview`, etc.). Response may include `pipeline_pending_profile_setup: true` and `verification_track: null` until then.
   - **After Profile Setup — Fresher tier** (`experienceTierFromYears` &lt; 1y): `profile_setup` → **`cs_fundamentals`** (cognitive; same submit path as legacy aptitude) → `dsa_round` → **`ai_skills_interview`** → `expert_interview` (AI Expert).
   - **After Profile Setup — Mid / Senior:** `profile_setup` → `dsa_round` → **`ai_skills_interview`** → **`system_design_interview`** → `expert_interview` (AI Expert).
-- **Human expert (Stage 5)** remains a separate booking flow where enabled; naming in UI may still say "Stage 5" for the human step.
+- **Human expert (Stage 5)** — separate booking flow when unlocked; **dashboard** copy reflects employer-driven choice (waiting / in progress / employer chose another path). Naming in UI may still say "Stage 5" in legacy copy.
 
 ### 3.0.1 Data track (`JobSeekerProfile.roleType === "data"`)
 
@@ -86,13 +86,15 @@ Pipeline definitions live in **`server/src/constants/verificationPipeline.ts`** 
 
 **AI Skills Interview (data):** Same `interviewType` **`ai_skills`** as software; stage row is **`data_skills_interview`**. Orchestration in **`aiSkillsOrchestrator.ts`** branches on track: Part A uses **Data Round** submission context (not DSA); Part B deepens **SQL / Python / stats / ML / data engineering** skills. Start/turn APIs unchanged paths; turn handler sets verification stage from profile (`data_skills_interview`).
 
-**Data System Design:** Verification stage **`data_system_design`**; interview rows use **`interviewType: "system_design"`**. Implemented in **`server/src/services/interview/systemDesignOrchestrator.ts`** with LLD then HLD phases (typed answers + optional TTS for questions). API: **`POST /api/interview/data-system-design/start`**, **`POST /api/interview/data-system-design/turn`**, **`GET /api/interview/data-system-design/status`**. UI: **`src/pages/verification/stages/DataSystemDesignStage.tsx`**. Prerequisite: **`data_skills_interview`** completed; stage must be **`in_progress`** from verification flow.
+**Data System Design:** Verification stage **`data_system_design`**; interview rows use **`interviewType: "system_design"`**. Implemented in **`server/src/services/interview/systemDesignOrchestrator.ts`** with LLD then HLD phases (**typed answers**; questions spoken via **`/api/interview/tts`** with **JSON fallback** to browser speech when cloud TTS unset). API: **`POST /api/interview/data-system-design/start`**, **`POST /api/interview/data-system-design/turn`**, **`GET /api/interview/data-system-design/status`**. UI: **`DataSystemDesignStage.tsx`** — **enable camera & begin** gate, proctoring strip, replay/play question audio. Prerequisite: **`data_skills_interview`** completed; stage must be **`in_progress`** from verification flow.
+
+**Software System Design (`system_design_interview`):** Same orchestrator family for software; APIs **`/api/interview/system-design/start`**, **`/turn`**, **`/status`**. UI: **`SystemDesignInterviewStage.tsx`** — same patterns as data (camera, proctoring, TTS, typed LLD/HLD). Proctoring events increment **`Interview.proctoringEventCount`** for `testType` **`system_design`** / **`data_system_design`** (**`server/src/routes/proctoring.ts`**).
 
 **AI Expert Interview (data calibration):** Same v2 adversarial entry (`/api/interview/v2/*`). When `roleType === "data"`, **`orchestrator.ts`** uses data-specific sprint names/openers and passes **`dataTrack` / `dataSubtrack`** into **`generateSprintQuestion`** / **`evaluateFullInterview`** (`agents.ts`) so questions and final scoring emphasize **data pipelines, analytics, ML, and data architecture** rather than generic CRUD/API design.
 
 **Profile subtracks (persisted):** On **`profile_setup`** completion, the API sets **`nonTechSubtrack`** and/or **`dataSubtrack`** (string enums from title detection) on **`JobSeekerProfile`**; see schema and **`detectNonTechSubtrack` / `detectDataSubtrack`** in **`verificationPipeline.ts`**.
 
-**Engineering notes (v2 wiring):** Interview types, DSA/Data round tiers, certification levels, paid retakes/cooldowns, and recruiter limits are implemented per **[PRD_BUSINESS.md](PRD_BUSINESS.md)** and `IMPLEMENTATION_CHANGELOG.md`. **`system_design_interview`** (software mid/senior) may still use **`PipelineStagePlaceholder`** in **`VerificationFlow.tsx`** until a software system-design session ships; **`data_system_design`** uses the real flow above.
+**Engineering notes (v2 wiring):** Interview types, DSA/Data round tiers, certification levels, paid retakes/cooldowns, and recruiter limits are implemented per **[PRD_BUSINESS.md](PRD_BUSINESS.md)** and **`IMPLEMENTATION_CHANGELOG.md`**. Both **`system_design_interview`** and **`data_system_design`** use the real verification stages and **`VerificationFlow`** lazy-loaded components (not placeholders).
 
 **Candidate monetization (retakes / cooldowns)** is defined in **[PRD_BUSINESS.md](PRD_BUSINESS.md)** and enforced server-side for paid stages and CS/DSA timing.
 
@@ -241,7 +243,7 @@ Detailed task checklist and data model notes remain in **[PRD_AI_INTERVIEW.md](P
 
 #### 3.4.9 AI interviews — questions asked, relevance, STT/TTS, and answer process
 
-**Scope:** Verification surfaces that use **in-browser voice + server intelligence** together: **AI Expert Interview** (`ExpertInterviewStage`, **v2** adversarial) and **AI Skills Interview** (`AISkillsInterviewStage`). **Data System Design** is primarily **typed** with optional TTS on questions — see §3.0.1. Legacy **`POST /api/interview/start`** + **`respond`** question plans are separate (§3.4.2).
+**Scope:** Verification surfaces that use **in-browser voice + server intelligence** together: **AI Expert Interview** (`ExpertInterviewStage`, **v2** adversarial) and **AI Skills Interview** (`AISkillsInterviewStage`). **Software and Data System Design** stages are **typed** with **spoken questions** (shared **`interviewTts`** client + **`/api/interview/tts`**) and **camera proctoring** — see §3.0.1. Legacy **`POST /api/interview/start`** + **`respond`** question plans are separate (§3.4.2).
 
 ##### What questions are asked (structure and sources)
 
@@ -293,7 +295,7 @@ Detailed task checklist and data model notes remain in **[PRD_AI_INTERVIEW.md](P
 4. **Typed answer:** **`inputMode: typed`**; compose in **textarea**, Submit (no **`whisperLatencyMs`** for that turn).
 5. **Turn:** **`POST /api/interview/v2/turn`** with **answer**, **`inputMode`**, **`turnId`**, optional telemetry. Server **`processTurn`**, persists **`InterviewMessage`**, returns **acknowledgement** + **response** (next question) or completion / **`fragmentRetry`** / **`timeExpired`** / **`pivoting`**.
 6. **Audio chain:** Play acknowledgement TTS, short gap, play question TTS; **abort** if **`turnId`** stale.
-7. **Completion:** Multi-pass **`evaluateFullInterview`**, badge/score UI, human-gate **`pending_review`** where applicable, optional **request-review**.
+7. **Completion:** Multi-pass **`evaluateFullInterview`**, badge/score UI; verification **`expert_interview`** is set **`completed`** with score; **`recordAiInterviewSubmittedForAdminReview`** maintains **`AdminReviewQueue`** (**`pending`**) for Human Expert routing — unlock via **recruiter** (**[PRD_RECRUITER.md](PRD_RECRUITER.md)** §7.6) or **admin approve**; optional **request-review**.
 
 **AI Skills:** Same **Whisper + TTS** pattern; submits to **`/api/interview/ai-skills/turn`** instead of **`v2/turn`**.
 
