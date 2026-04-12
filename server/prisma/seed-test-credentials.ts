@@ -1,20 +1,42 @@
 /**
- * Seed test job seekers for end-to-end verification testing.
- * Apply migrations first (same DATABASE_URL): `npx prisma migrate deploy`
- * Then: cd server && npx tsx prisma/seed-test-credentials.ts
+ * Seed test job seekers (and print credentials) for E2E / QA.
  *
- * Creates:
- * 1. Aptitude user   – profile done, ready to take Aptitude Test
- * 2. DSA user        – profile + aptitude done, ready to take DSA Round
- * 3. Interview user  – ready for AI Expert Interview
- * 4. Interview user 2 – second account, same stage (parallel QA)
+ * Run (after migrations, same DATABASE_URL):
+ *   cd server && npx tsx prisma/seed-test-credentials.ts
+ *
+ * Also available as: npm run seed:test-credentials
+ *
+ * Includes:
+ * - Legacy pipeline users (aptitude → DSA → expert) for older env checks
+ * - V2 software mid/senior path: DSA → AI Skills → System Design → Expert
+ * - Paywall QA: completed AI Skills interview, cooldown passed, no retake credits
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-const PASSWORD = "PhE2E_Apr2026!x7";
+/** Shared password for all seeded test accounts below. */
+export const SEED_TEST_PASSWORD = "PhE2E_Apr2026!x7";
 
-const TEST_USERS = [
+type StageSeed = { stageName: string; status: string; score?: number };
+
+type TestUserSeed = {
+  email: string;
+  name: string;
+  /** Job seeker profile — drives tier (mid/senior vs fresher). Default 2. */
+  experienceYears?: number;
+  stages: StageSeed[];
+  aptitudeScore?: number;
+  dsaScore?: number;
+  /**
+   * Insert a completed `ai_skills` interview row N days ago (cooldown passed).
+   * Use with `ai_skills_interview` = completed to exercise retake paywall (no ledger credits).
+   */
+  completedAiSkillsInterviewDaysAgo?: number;
+};
+
+const PASSWORD = SEED_TEST_PASSWORD;
+
+const LEGACY_TEST_USERS: TestUserSeed[] = [
   {
     email: "qa.apt.apr2026@test.provenhire.com",
     name: "QA Aptitude Apr2026",
@@ -59,14 +81,109 @@ const TEST_USERS = [
   },
 ];
 
+/** V2 software track, mid tier (3y): profile → DSA → AI Skills → System Design → Expert (no aptitude row). */
+const V2_MID_SOFTWARE_USERS: TestUserSeed[] = [
+  {
+    email: "qa.v2.mid.dsa@test.provenhire.com",
+    name: "QA V2 Mid DSA",
+    experienceYears: 3,
+    stages: [
+      { stageName: "profile_setup", status: "completed", score: 100 },
+      { stageName: "dsa_round", status: "in_progress" },
+      { stageName: "ai_skills_interview", status: "locked" },
+      { stageName: "system_design_interview", status: "locked" },
+      { stageName: "expert_interview", status: "locked" },
+    ],
+  },
+  {
+    email: "qa.v2.mid.aiskills@test.provenhire.com",
+    name: "QA V2 Mid AI Skills",
+    experienceYears: 3,
+    stages: [
+      { stageName: "profile_setup", status: "completed", score: 100 },
+      { stageName: "dsa_round", status: "completed", score: 72 },
+      { stageName: "ai_skills_interview", status: "in_progress" },
+      { stageName: "system_design_interview", status: "locked" },
+      { stageName: "expert_interview", status: "locked" },
+    ],
+    dsaScore: 72,
+  },
+  {
+    email: "qa.v2.mid.sysdesign@test.provenhire.com",
+    name: "QA V2 Mid System Design",
+    experienceYears: 3,
+    stages: [
+      { stageName: "profile_setup", status: "completed", score: 100 },
+      { stageName: "dsa_round", status: "completed", score: 72 },
+      { stageName: "ai_skills_interview", status: "completed", score: 78 },
+      { stageName: "system_design_interview", status: "in_progress" },
+      { stageName: "expert_interview", status: "locked" },
+    ],
+    dsaScore: 72,
+  },
+  {
+    email: "qa.v2.mid.expert@test.provenhire.com",
+    name: "QA V2 Mid Expert Interview",
+    experienceYears: 3,
+    stages: [
+      { stageName: "profile_setup", status: "completed", score: 100 },
+      { stageName: "dsa_round", status: "completed", score: 72 },
+      { stageName: "ai_skills_interview", status: "completed", score: 78 },
+      { stageName: "system_design_interview", status: "completed", score: 70 },
+      { stageName: "expert_interview", status: "in_progress" },
+    ],
+    dsaScore: 72,
+  },
+  {
+    email: "qa.v2.paywall.retake@test.provenhire.com",
+    name: "QA V2 Paywall Retake",
+    experienceYears: 3,
+    stages: [
+      { stageName: "profile_setup", status: "completed", score: 100 },
+      { stageName: "dsa_round", status: "completed", score: 72 },
+      { stageName: "ai_skills_interview", status: "completed", score: 78 },
+      { stageName: "system_design_interview", status: "locked" },
+      { stageName: "expert_interview", status: "locked" },
+    ],
+    dsaScore: 72,
+    completedAiSkillsInterviewDaysAgo: 10,
+  },
+];
+
+const TEST_USERS: TestUserSeed[] = [...LEGACY_TEST_USERS, ...V2_MID_SOFTWARE_USERS];
+
+async function seedCompletedAiSkillsInterview(
+  prisma: PrismaClient,
+  userId: string,
+  daysAgo: number
+): Promise<void> {
+  const completedAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  await prisma.interview.deleteMany({
+    where: { userId, interviewType: "ai_skills" },
+  });
+  await prisma.interview.create({
+    data: {
+      userId,
+      jobRole: "Software Engineer",
+      interviewType: "ai_skills",
+      status: "completed",
+      experienceLevel: "mid",
+      totalScore: 78,
+      completedAt,
+      finalVerdict: "passed",
+    },
+  });
+}
+
 async function main() {
   const prisma = new PrismaClient();
   const hash = await bcrypt.hash(PASSWORD, 12);
 
-  console.log("\n--- ProvenHire Test Credentials ---\n");
+  console.log("\n--- ProvenHire test credentials (job seekers) ---\n");
 
   for (const u of TEST_USERS) {
     let user = await prisma.user.findUnique({ where: { email: u.email } });
+    const expYears = u.experienceYears ?? 2;
 
     if (!user) {
       user = await prisma.user.create({
@@ -96,12 +213,12 @@ async function main() {
         email: u.email,
         roleType: "technical",
         targetJobTitle: "Software Engineer",
-        experienceYears: 2,
+        experienceYears: expYears,
       },
       update: {
         roleType: "technical",
         targetJobTitle: "Software Engineer",
-        experienceYears: 2,
+        experienceYears: expYears,
       },
     });
 
@@ -118,9 +235,8 @@ async function main() {
       });
     }
 
-    if ("aptitudeScore" in u && u.aptitudeScore != null) {
+    if (u.aptitudeScore != null) {
       const pct = Math.min(100, Math.max(0, Math.round(u.aptitudeScore)));
-      // Match real POST /aptitude shape: earned/total for display; use 100-scale for synthetic test users
       const answers = {
         earnedMarks: pct,
         totalMarks: 100,
@@ -141,7 +257,7 @@ async function main() {
       }
     }
 
-    if ("dsaScore" in u && u.dsaScore != null) {
+    if (u.dsaScore != null) {
       const existing = await prisma.dsaRoundResult.findFirst({ where: { userId: user.id } });
       if (existing) {
         await prisma.dsaRoundResult.update({ where: { id: existing.id }, data: { score: u.dsaScore } });
@@ -151,16 +267,30 @@ async function main() {
         });
       }
     }
+
+    if (u.completedAiSkillsInterviewDaysAgo != null) {
+      await seedCompletedAiSkillsInterview(prisma, user.id, u.completedAiSkillsInterviewDaysAgo);
+    }
   }
 
-  console.log("\n--- Login at: /auth (select Job Seeker → Sign In) ---\n");
-  console.log("| Test              | Email                          | Password   |");
-  console.log("|-------------------|--------------------------------|------------|");
-  console.log("| 1. Aptitude        | qa.apt.apr2026@test.provenhire.com  | PhE2E_Apr2026!x7 |");
-  console.log("| 2. DSA Round       | qa.dsa.apr2026@test.provenhire.com | PhE2E_Apr2026!x7 |");
-  console.log("| 3. AI Interview    | qa.ai.apr2026@test.provenhire.com  | PhE2E_Apr2026!x7 |");
-  console.log("| 4. AI Interview 2  | qa.ai2.apr2026@test.provenhire.com | PhE2E_Apr2026!x7 |");
-  console.log("\nAfter login, go to Verification — the next stage is ready.\n");
+  console.log(`
+Password (all job seeker seeds above): ${PASSWORD}
+Login: /auth → Job Seeker → Sign In
+
+V2 mid/senior software (verification pipeline v2):
+  qa.v2.mid.dsa@...          — DSA round next
+  qa.v2.mid.aiskills@...     — AI Skills interview next (DSA + skill checkup flow)
+  qa.v2.mid.sysdesign@...    — System design interview next
+  qa.v2.mid.expert@...       — AI Expert (overall) interview next
+  qa.v2.paywall.retake@...   — AI Skills already completed; retake → paywall (no credits)
+
+Recruiter / expert / admin: run separately:
+  npm run seed:recruiter
+  npm run seed:interviewer
+  npm run seed:admin
+
+See docs/TEST_CREDENTIALS.md for full matrix.
+`);
 
   await prisma.$disconnect();
 }
