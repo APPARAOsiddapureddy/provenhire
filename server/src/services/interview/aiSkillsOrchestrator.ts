@@ -423,7 +423,7 @@ TEST RESULTS:
     ? `Your spoken question MUST begin with this exact framing, then continue naturally in the same breath: "${intro.trim()}"`
     : `Continue probing "${problem.title}" without repeating the long opening — stay anchored to their code and pass/fail pattern.`;
 
-  const system = `You are a senior technical interviewer. Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty string","question":"one spoken interview question, no markdown"}`;
+  const system = `You are a senior technical interviewer. Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty string","question":"one spoken interview question, no markdown"}. The question must be 2–3 sentences (~45–95 words), plain clear English for Indian listeners, one main ask — not a lecture.`;
 
   const user = `You are conducting a professional follow-up on the candidate's OWN submission from their assessment round.
 
@@ -464,7 +464,7 @@ This is walkthrough question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS} for P
 async function genPartAWithoutSubmissions(plan: AISkillsPlanV1): Promise<{ question: string; acknowledgement: string | null }> {
   const depth = plan.track === "fresher" ? "fresher" : plan.track === "mid" ? "mid-level" : "senior";
   const sub = plan.dataSubtrack ?? "engineering";
-  const system = `You are a concise technical interviewer (~${depth}). Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty","question":"one spoken interview question, no markdown"}`;
+  const system = `You are a concise technical interviewer (~${depth}). Output ONLY valid JSON: {"acknowledgement":"one short sentence or empty","question":"one spoken interview question, no markdown"}. Question: 2–3 sentences (~45–95 words), plain English for Indian listeners, one main ask.`;
   const user =
     plan.candidateTrack === "data"
       ? `No saved data-round submission text was found. Ask one practical spoken question appropriate for a ${sub} hire at ~${depth} for walkthrough question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS}. Keep it conversational.`
@@ -611,7 +611,7 @@ async function genSkillQuestion(plan: AISkillsPlanV1): Promise<{ question: strin
     const q = generateDataSkillQuestion(skill, plan.skillRound, plan.track, plan.dataSubtrack);
     return { acknowledgement: "Got it.", question: q };
   }
-  const system = `You verify resume skills. Output ONLY JSON: {"acknowledgement":"short or empty","question":"spoken question only"}`;
+  const system = `You verify resume skills. Output ONLY JSON: {"acknowledgement":"short or empty","question":"spoken question only"}. Question: 2–3 sentences (~45–95 words), plain English for Indian listeners, one main ask — not a lecture.`;
   const user = `Skill: ${skill}. Experience band: ${plan.track}. Depth: ${depth}.
 This is follow-up ${round} of 2 for this skill. ${round === 1 ? "Start with foundations." : "Ask for a concrete example or trade-off."}`;
   const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user);

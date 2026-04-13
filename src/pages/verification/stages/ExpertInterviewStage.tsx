@@ -393,6 +393,7 @@ export default function ExpertInterviewStage({
 
   const aiSpeak = useCallback(
     async (text: string) => {
+      unlockInterviewAudioOutput();
       window.speechSynthesis?.cancel();
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -436,6 +437,7 @@ export default function ExpertInterviewStage({
         }
       };
 
+      unlockInterviewAudioOutput();
       window.speechSynthesis?.cancel();
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -797,8 +799,8 @@ export default function ExpertInterviewStage({
       streamRef.current = combinedStream;
       setCameraActive(true);
 
-      await whisperSession.start({ sharedMediaStream: combinedStream });
-
+      await whisperSession.start({ sharedMediaStream: combinedStream, deferMicCapture: true });
+      unlockInterviewAudioOutput();
       await aiSpeakRef.current(res.question);
     } catch (e: unknown) {
       if (combinedStream) {

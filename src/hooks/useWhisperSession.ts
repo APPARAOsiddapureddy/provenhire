@@ -7,7 +7,8 @@ export type FloorState = "idle" | "user_speaking" | "ai_thinking" | "ai_speaking
 export type InterviewSttMode = "whisper" | "idle";
 
 const SILENCE_THRESHOLD = 0.012;
-const SILENCE_DURATION_MS = 1500;
+/** End-of-utterance: wait this long after speech stops before sending audio to Whisper (product default 2s). */
+const SILENCE_DURATION_MS = 2000;
 const MAX_RECORDING_MS = 120_000;
 const MIN_SPEECH_MS = 300;
 
@@ -294,7 +295,7 @@ export function useWhisperSession({
   }, [clearRecordingTimers, transition]);
 
   const start = useCallback(
-    async (opts?: { sharedMediaStream?: MediaStream | null }) => {
+    async (opts?: { sharedMediaStream?: MediaStream | null; deferMicCapture?: boolean }) => {
       stop();
 
       let stream: MediaStream;
@@ -335,9 +336,14 @@ export function useWhisperSession({
       vizFrameRef.current = requestAnimationFrame(vizLoop);
 
       setSttMode("whisper");
-      captureEnabledRef.current = true;
-      transition("user_speaking");
-      startRecordingFnRef.current();
+      if (opts?.deferMicCapture) {
+        captureEnabledRef.current = false;
+        transition("ai_thinking");
+      } else {
+        captureEnabledRef.current = true;
+        transition("user_speaking");
+        startRecordingFnRef.current();
+      }
     },
     [stop, transition],
   );

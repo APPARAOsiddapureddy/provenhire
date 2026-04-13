@@ -78,7 +78,10 @@ export async function synthesizeSpeech(text: string): Promise<TTSResult> {
   }
 
   const elevenKey = process.env.ELEVENLABS_API_KEY?.trim();
-  const elevenVoiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || "EXAVITQu4vr4xnSDxMaL";
+  /** Default: Kartik (Indian English) — clear for Indian audiences; override with ELEVENLABS_VOICE_ID. */
+  const elevenVoiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || "XPqjYvTqfyUQr09yCpCY";
+  const elevenModelId =
+    process.env.ELEVENLABS_MODEL_ID?.trim() || "eleven_multilingual_v2";
 
   if (elevenKey) {
     try {
@@ -90,10 +93,10 @@ export async function synthesizeSpeech(text: string): Promise<TTSResult> {
         },
         body: JSON.stringify({
           text,
-          model_id: "eleven_turbo_v2_5",
+          model_id: elevenModelId,
           voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
+            stability: 0.48,
+            similarity_boost: 0.78,
           },
         }),
         signal: timeoutSignal(10_000),

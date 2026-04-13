@@ -565,7 +565,7 @@ async function generateSoftwareSystemDesignQuestion(
     .join("\n\n");
 
   const text = await callGeminiText(
-    `You are a technical interviewer for SOFTWARE system design. Ask one medium-length question (2–4 sentences). Sound like a senior/staff software engineer — no "thank you" preambles. Output only the question.`,
+    `You are a technical interviewer for SOFTWARE system design. Ask one medium-length question (2–3 sentences, ~45–95 words). Use clear, plain English suitable for Indian professionals. Sound like a senior/staff software engineer — no "thank you" preambles. Output only the question.`,
     `Phase: ${phase.toUpperCase()}
 ${phaseGoal}
 Candidate experience: ${experienceLevel}

@@ -107,6 +107,7 @@ export default function DataSystemDesignStage({
   }, [cameraActive, sessionStarted, interviewId]);
 
   const playQuestion = useCallback(async (text: string) => {
+    unlockInterviewAudioOutput();
     ttsAbortRef.current?.abort();
     const ac = new AbortController();
     ttsAbortRef.current = ac;
@@ -121,60 +122,10 @@ export default function DataSystemDesignStage({
     }
   }, []);
 
-  useEffect(() => {
-    if (!sessionStarted) return;
-
-    let cancelled = false;
-    void (async () => {
-      setLoading(true);
-      try {
-        const status = await api.get<{
-          activeSession?: boolean;
-          interviewId?: string;
-          phase?: "lld" | "hld";
-          lastQuestion?: string;
-        }>("/api/interview/data-system-design/status");
-        if (cancelled || !stageAliveRef.current) return;
-        if (status.activeSession && status.interviewId && status.phase) {
-          setInterviewId(status.interviewId);
-          setPhase(status.phase);
-          setCurrentQuestion(status.lastQuestion ?? "");
-          setLoading(false);
-          return;
-        }
-
-        const res = await api.post<{
-          interviewId: string;
-          question: string;
-          phase: "lld" | "hld";
-        }>("/api/interview/data-system-design/start", {
-          jobRole: targetJobTitle.trim() || "Data Engineer",
-        });
-        if (cancelled || !stageAliveRef.current) return;
-        setInterviewId(res.interviewId);
-        setCurrentQuestion(res.question);
-        setPhase(res.phase);
-        void playQuestion(res.question);
-      } catch (e) {
-        if (!cancelled && stageAliveRef.current) {
-          toast.error(
-            `Could not start session: ${(e as Error)?.message ?? "Try again from the dashboard."}`
-          );
-        }
-      } finally {
-        if (!cancelled && stageAliveRef.current) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      ttsAbortRef.current?.abort();
-    };
-  }, [sessionStarted, targetJobTitle, playQuestion]);
-
   const beginSession = async () => {
     unlockInterviewAudioOutput();
     void document.documentElement.requestFullscreen().catch(() => {});
+    setLoading(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
@@ -183,8 +134,51 @@ export default function DataSystemDesignStage({
       streamRef.current = stream;
       setCameraActive(true);
       setSessionStarted(true);
-    } catch {
-      toast.error("Camera access is required for this interview.", { duration: 3200 });
+
+      const status = await api.get<{
+        activeSession?: boolean;
+        interviewId?: string;
+        phase?: "lld" | "hld";
+        lastQuestion?: string;
+      }>("/api/interview/data-system-design/status");
+      if (!stageAliveRef.current) return;
+
+      let spoken = "";
+      if (status.activeSession && status.interviewId && status.phase) {
+        setInterviewId(status.interviewId);
+        setPhase(status.phase);
+        spoken = status.lastQuestion ?? "";
+        setCurrentQuestion(spoken);
+      } else {
+        const res = await api.post<{
+          interviewId: string;
+          question: string;
+          phase: "lld" | "hld";
+        }>("/api/interview/data-system-design/start", {
+          jobRole: targetJobTitle.trim() || "Data Engineer",
+        });
+        if (!stageAliveRef.current) return;
+        setInterviewId(res.interviewId);
+        spoken = res.question;
+        setCurrentQuestion(spoken);
+        setPhase(res.phase);
+      }
+
+      unlockInterviewAudioOutput();
+      if (spoken.trim()) await playQuestion(spoken);
+    } catch (e) {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setCameraActive(false);
+      setSessionStarted(false);
+      const msg =
+        e instanceof Error && e.name === "NotAllowedError"
+          ? "Camera access is required for this interview."
+          : `Could not start session: ${(e as Error)?.message ?? "Try again from the dashboard."}`;
+      toast.error(msg, { duration: 3600 });
+    } finally {
+      if (stageAliveRef.current) setLoading(false);
     }
   };
 
@@ -283,6 +277,7 @@ export default function DataSystemDesignStage({
           <CardContent className="space-y-4 text-sm text-muted-foreground">
             <ul className="list-disc pl-5 space-y-1.5">
               <li>Camera on for the same integrity checks as other AI verification rounds.</li>
+              <li>The first question plays automatically after you allow camera (same gesture). Use replay if you miss part of a question.</li>
               <li>Cover pipelines, storage, quality, and scale in your written answers.</li>
             </ul>
             <div className="flex flex-wrap gap-2">
@@ -413,7 +408,7 @@ export default function DataSystemDesignStage({
                   disabled={!currentQuestion.trim() || voiceFloor === "ai_speaking"}
                 >
                   <Volume2 className="h-4 w-4" />
-                  Play question audio
+                  Replay question audio
                 </Button>
               </div>
 

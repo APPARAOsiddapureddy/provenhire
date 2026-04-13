@@ -240,6 +240,7 @@ export default function AISkillsInterviewStage({
 
   const aiSpeak = useCallback(
     async (text: string) => {
+      unlockInterviewAudioOutput();
       window.speechSynthesis?.cancel();
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -270,6 +271,7 @@ export default function AISkillsInterviewStage({
         whisperSession.resumeListening();
       };
 
+      unlockInterviewAudioOutput();
       window.speechSynthesis?.cancel();
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -554,7 +556,8 @@ export default function AISkillsInterviewStage({
       setStarted(true);
       streamRef.current = combinedStream;
       setCameraActive(true);
-      await whisperSession.start({ sharedMediaStream: combinedStream });
+      await whisperSession.start({ sharedMediaStream: combinedStream, deferMicCapture: true });
+      unlockInterviewAudioOutput();
       await aiSpeakRef.current(res.firstQuestion);
     } catch (e: unknown) {
       if (combinedStream) combinedStream.getTracks().forEach((t) => t.stop());

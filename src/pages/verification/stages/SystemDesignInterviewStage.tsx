@@ -114,6 +114,7 @@ export function SystemDesignInterviewStage({
   }, [cameraActive, sessionStarted, interviewId]);
 
   const playQuestion = useCallback(async (text: string) => {
+    unlockInterviewAudioOutput();
     ttsAbortRef.current?.abort();
     const ac = new AbortController();
     ttsAbortRef.current = ac;
@@ -128,64 +129,10 @@ export function SystemDesignInterviewStage({
     }
   }, []);
 
-  useEffect(() => {
-    if (!sessionStarted) return;
-
-    let cancelled = false;
-    void (async () => {
-      setLoading(true);
-      try {
-        const status = await api.get<{
-          activeSession?: boolean;
-          interviewId?: string;
-          phase?: "lld" | "hld";
-          lastQuestion?: string;
-          title?: string;
-        }>("/api/interview/system-design/status");
-        if (cancelled || !stageAliveRef.current) return;
-        if (status.activeSession && status.interviewId && status.phase) {
-          setInterviewId(status.interviewId);
-          setPhase(status.phase);
-          setCurrentQuestion(status.lastQuestion ?? "");
-          if (status.title) setProblemTitle(status.title);
-          setLoading(false);
-          return;
-        }
-
-        const res = await api.post<{
-          interviewId: string;
-          question: string;
-          title?: string;
-          phase: "lld" | "hld";
-        }>("/api/interview/system-design/start", {
-          jobRole: targetJobTitle.trim() || "Software Engineer",
-        });
-        if (cancelled || !stageAliveRef.current) return;
-        setInterviewId(res.interviewId);
-        if (res.title) setProblemTitle(res.title);
-        setCurrentQuestion(res.question);
-        setPhase(res.phase);
-        void playQuestion(res.question);
-      } catch (e) {
-        if (!cancelled && stageAliveRef.current) {
-          toast.error(
-            `Could not start session: ${(e as Error)?.message ?? "Try again from the dashboard."}`
-          );
-        }
-      } finally {
-        if (!cancelled && stageAliveRef.current) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      ttsAbortRef.current?.abort();
-    };
-  }, [sessionStarted, targetJobTitle, playQuestion]);
-
   const beginSession = async () => {
     unlockInterviewAudioOutput();
     void document.documentElement.requestFullscreen().catch(() => {});
+    setLoading(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
@@ -194,8 +141,55 @@ export function SystemDesignInterviewStage({
       streamRef.current = stream;
       setCameraActive(true);
       setSessionStarted(true);
-    } catch {
-      toast.error("Camera access is required for this interview.", { duration: 3200 });
+
+      const status = await api.get<{
+        activeSession?: boolean;
+        interviewId?: string;
+        phase?: "lld" | "hld";
+        lastQuestion?: string;
+        title?: string;
+      }>("/api/interview/system-design/status");
+      if (!stageAliveRef.current) return;
+
+      let spoken = "";
+      if (status.activeSession && status.interviewId && status.phase) {
+        setInterviewId(status.interviewId);
+        setPhase(status.phase);
+        spoken = status.lastQuestion ?? "";
+        setCurrentQuestion(spoken);
+        if (status.title) setProblemTitle(status.title);
+      } else {
+        const res = await api.post<{
+          interviewId: string;
+          question: string;
+          title?: string;
+          phase: "lld" | "hld";
+        }>("/api/interview/system-design/start", {
+          jobRole: targetJobTitle.trim() || "Software Engineer",
+        });
+        if (!stageAliveRef.current) return;
+        setInterviewId(res.interviewId);
+        if (res.title) setProblemTitle(res.title);
+        spoken = res.question;
+        setCurrentQuestion(spoken);
+        setPhase(res.phase);
+      }
+
+      unlockInterviewAudioOutput();
+      if (spoken.trim()) await playQuestion(spoken);
+    } catch (e) {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setCameraActive(false);
+      setSessionStarted(false);
+      const msg =
+        e instanceof Error && e.name === "NotAllowedError"
+          ? "Camera access is required for this interview."
+          : `Could not start session: ${(e as Error)?.message ?? "Try again from the dashboard."}`;
+      toast.error(msg, { duration: 3600 });
+    } finally {
+      if (stageAliveRef.current) setLoading(false);
     }
   };
 
@@ -311,7 +305,7 @@ export function SystemDesignInterviewStage({
             <ul className="list-disc pl-5 space-y-1.5">
               <li>Camera stays on for integrity checks (tab, focus, face in frame — same family as AI Expert).</li>
               <li>Use the text area for structured answers: assumptions, APIs, data model, then scale and trade-offs.</li>
-              <li>Replay audio if you miss part of a question.</li>
+              <li>The first question plays automatically after you allow camera (same gesture). Use replay if you miss part of a question.</li>
             </ul>
             <div className="flex flex-wrap gap-2">
               <Button size="lg" onClick={() => void beginSession()}>
@@ -449,7 +443,7 @@ export function SystemDesignInterviewStage({
                   disabled={!currentQuestion.trim() || voiceFloor === "ai_speaking"}
                 >
                   <Volume2 className="h-4 w-4" />
-                  Play question audio
+                  Replay question audio
                 </Button>
               </div>
 

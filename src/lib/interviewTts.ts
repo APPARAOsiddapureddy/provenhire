@@ -32,13 +32,20 @@ export function fallbackBrowserTTS(text: string, signal?: AbortSignal): Promise<
     }
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95;
+    u.rate = 0.92;
     const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(
-      (v) =>
-        v.name.includes("Samantha") || v.name.includes("Karen") || v.name.includes("Google US English")
-    );
-    if (preferred) u.voice = preferred;
+    const scoreVoice = (v: SpeechSynthesisVoice) => {
+      const lang = (v.lang || "").toLowerCase();
+      const name = v.name.toLowerCase();
+      if (lang === "en-in" || name.includes("india") || name.includes("indian")) return 4;
+      if (lang === "en-gb" || name.includes("uk english") || name.includes("british")) return 3;
+      if (name.includes("sangeeta") || name.includes("veena") || name.includes("lekha")) return 4;
+      if (lang === "en-us" && (name.includes("samantha") || name.includes("google us english"))) return 1;
+      if (lang.startsWith("en")) return 2;
+      return 0;
+    };
+    const preferred = [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
+    if (preferred && scoreVoice(preferred) >= 2) u.voice = preferred;
     const onAbort = () => {
       window.speechSynthesis.cancel();
       signal?.removeEventListener("abort", onAbort);
