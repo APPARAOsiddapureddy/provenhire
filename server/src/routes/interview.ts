@@ -665,7 +665,7 @@ const EXPERIENCE_LEVELS = ["junior", "mid", "senior"] as const;
 
 async function buildQuestionPlan(jobRole: string, experienceLevel: string): Promise<QuestionPlanItem[]> {
   if (QUESTION_BANK_SOURCE !== "db") {
-    return buildStaticQuestionPlan(jobRole);
+    return buildStaticQuestionPlan(jobRole, experienceLevel);
   }
   try {
     const bankRole = resolveInterviewBankRole(jobRole);
@@ -707,7 +707,7 @@ async function buildQuestionPlan(jobRole: string, experienceLevel: string): Prom
       LIMIT 4
     `;
     if (tech.length < 7 || behavioral.length < 4) {
-      return buildStaticQuestionPlan(jobRole);
+      return buildStaticQuestionPlan(jobRole, experienceLevel);
     }
     const mapRow = (row: (typeof tech)[0]): QuestionPlanItem => ({
       type: row.type,
@@ -720,7 +720,7 @@ async function buildQuestionPlan(jobRole: string, experienceLevel: string): Prom
     return [...tech.map(mapRow), ...behavioral.map(mapRow)];
   } catch (e) {
     console.error("[interview/buildQuestionPlan db]", e);
-    return buildStaticQuestionPlan(jobRole);
+    return buildStaticQuestionPlan(jobRole, experienceLevel);
   }
 }
 

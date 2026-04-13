@@ -6,18 +6,11 @@ import { PrismaClient } from "@prisma/client";
 import {
   HR_QUESTIONS,
   ROLE_PLANS,
+  difficultyForStaticQuestion,
   resolveInterviewBankRole,
 } from "../../src/data/aiInterviewStaticQuestions.js";
 
 const prisma = new PrismaClient();
-
-function difficultyForType(type: string): number {
-  if (type === "behavioral") return 1;
-  if (type === "conceptual") return 2;
-  if (type === "scenario") return 3;
-  if (type === "problem_solving") return 4;
-  return 2;
-}
 
 async function main() {
   const levels = ["junior", "mid", "senior"] as const;
@@ -42,7 +35,7 @@ async function main() {
             type: q.type,
             prompt: q.prompt,
             keyPoints: q.keyPoints,
-            difficulty: difficultyForType(q.type),
+            difficulty: difficultyForStaticQuestion(q.type, experienceLevel),
             isActive: true,
             tags: [],
             followups: (q as { followups?: string[] }).followups ?? [],
@@ -70,16 +63,19 @@ async function main() {
           type: "behavioral",
           prompt: q.prompt,
           keyPoints: q.keyPoints,
-          difficulty: 1,
+          difficulty: difficultyForStaticQuestion("behavioral", experienceLevel),
           isActive: true,
           tags: ["hr"],
+          followups: (q as { followups?: string[] }).followups ?? [],
         },
       });
       created++;
     }
   }
 
-  console.log(`InterviewQuestionBank seed: created ${created} new row(s). resolveInterviewBankRole still maps titles → ${resolveInterviewBankRole("Backend Developer")}`);
+  console.log(
+    `InterviewQuestionBank seed: created ${created} new row(s). resolveInterviewBankRole samples — backend: ${resolveInterviewBankRole("Backend Developer")}, ml: ${resolveInterviewBankRole("Senior ML Platform Engineer")}, design: ${resolveInterviewBankRole("Lead Product Designer")}, pm: ${resolveInterviewBankRole("Group Product Manager")}`
+  );
 }
 
 main()
