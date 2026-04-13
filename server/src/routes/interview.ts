@@ -30,7 +30,12 @@ import {
   processTurn,
   handlePartialTranscript,
 } from "../services/interview/orchestrator.js";
-import { getPreCachedFillerMp3, getRandomFiller, synthesizeSpeech } from "../services/tts.service.js";
+import {
+  getPreCachedFillerMp3,
+  getPreCachedFillerMp3ByIndex,
+  getRandomFiller,
+  synthesizeSpeech,
+} from "../services/tts.service.js";
 import { transcribeAudio, whisperOpenAIErrorMessage } from "../services/whisper.service.js";
 import { interviewTurnLimiter, interviewTranscribeLimiter } from "../middleware/interviewRateLimit.js";
 import { gateExpertInterviewStart } from "../services/candidateRetake.service.js";
@@ -260,8 +265,10 @@ interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRe
   });
 });
 
-interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res: Response) => {
-  const precached = getPreCachedFillerMp3();
+interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (req: AuthedRequest, res: Response) => {
+  const rawIdx = typeof req.query.index === "string" ? Number.parseInt(req.query.index, 10) : NaN;
+  const useIndex = Number.isFinite(rawIdx) && rawIdx >= 0 && rawIdx <= 3;
+  const precached = useIndex ? getPreCachedFillerMp3ByIndex(rawIdx) : getPreCachedFillerMp3();
   if (precached) {
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-cache");
@@ -383,7 +390,7 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, interviewTurnLim
       console.warn("[interview/v2/turn] prefetch warmup", err)
     );
 
-    const result = await processTurn(parsed.data.interviewId, parsed.data.answer, req.user!.id, {
+    const { result, slowWork } = await processTurn(parsed.data.interviewId, parsed.data.answer, req.user!.id, {
       audioUrl: parsed.data.audioUrl,
       transcriptionConfidence: parsed.data.transcriptionConfidence,
       inputMode: parsed.data.inputMode,
@@ -393,7 +400,11 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, interviewTurnLim
       whisperLatencyMs: parsed.data.whisperLatencyMs,
     });
 
-    return res.json(result);
+    res.json(result);
+    if (slowWork) {
+      void slowWork.catch((err) => console.error("[interview/v2/turn] slow path", err));
+    }
+    return;
   } catch (e) {
     console.error("[interview/v2/turn]", e);
     const msg = e instanceof Error ? e.message : "Failed to process turn";

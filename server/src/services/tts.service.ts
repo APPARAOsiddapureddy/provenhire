@@ -127,8 +127,19 @@ const FILLER_PHRASES = [
   "Go on.",
 ];
 
+/** Rotating bridge lines for `GET /api/interview/tts-filler?index=0..3` (interview latency UX). */
+export const CONVERSATIONAL_BRIDGE_FILLERS = [
+  "Hmm, let me think about that.",
+  "Interesting — give me a moment.",
+  "Right, let's explore that.",
+  "Got it.",
+] as const;
+
 /** Pre-generated MP3 per phrase — populated by `warmInterviewFillerCache()` at startup. */
 const fillerMp3ByPhrase = new Map<string, Buffer>();
+
+/** Indexed bridge clips (parallel to CONVERSATIONAL_BRIDGE_FILLERS). */
+const fillerBridgeMp3: Array<{ buffer: Buffer; text: string } | null> = [null, null, null, null];
 
 async function streamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
   const reader = stream.getReader();
@@ -162,8 +173,27 @@ export async function warmInterviewFillerCache(): Promise<void> {
       }
     }
   }
+
+  for (let i = 0; i < CONVERSATIONAL_BRIDGE_FILLERS.length; i += 1) {
+    if (fillerBridgeMp3[i]) continue;
+    const phrase = CONVERSATIONAL_BRIDGE_FILLERS[i]!;
+    const result = await synthesizeSpeech(phrase);
+    if (result.stream) {
+      try {
+        const buf = await streamToBuffer(result.stream);
+        if (buf.length > 0) fillerBridgeMp3[i] = { buffer: buf, text: phrase };
+      } catch (e) {
+        console.warn("[tts] bridge filler warm failed:", phrase.slice(0, 24), e);
+      }
+    }
+  }
+
   if (fillerMp3ByPhrase.size > 0) {
     console.log(`[tts] Pre-cached ${fillerMp3ByPhrase.size}/${FILLER_PHRASES.length} filler MP3 clips`);
+  }
+  const bridgeReady = fillerBridgeMp3.filter(Boolean).length;
+  if (bridgeReady > 0) {
+    console.log(`[tts] Pre-cached ${bridgeReady}/${CONVERSATIONAL_BRIDGE_FILLERS.length} bridge filler clips`);
   }
 }
 
@@ -175,6 +205,14 @@ export function getPreCachedFillerMp3(): { buffer: Buffer; text: string } | null
   const buffer = fillerMp3ByPhrase.get(text);
   if (!buffer?.length) return null;
   return { buffer, text };
+}
+
+/** Bridge filler by stable index 0–3 (matches CONVERSATIONAL_BRIDGE_FILLERS). */
+export function getPreCachedFillerMp3ByIndex(index: number): { buffer: Buffer; text: string } | null {
+  const i = Math.max(0, Math.min(3, Math.floor(Number.isFinite(index) ? index : 0)));
+  const row = fillerBridgeMp3[i];
+  if (row?.buffer?.length) return row;
+  return getPreCachedFillerMp3();
 }
 
 export function getRandomFiller(): string {

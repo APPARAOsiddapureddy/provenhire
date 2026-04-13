@@ -19,7 +19,7 @@ import {
   generateDiscrepancyFollowup,
   generateSprintQuestion,
   prefetchFollowups,
-  adaptFollowup,
+  adaptFollowupFast,
   applyReasoningHonestyCap,
 } from "./agents.js";
 import { findFollowupsForQuestionText } from "./questionBankService.js";
@@ -203,7 +203,7 @@ type TurnLogEntry = {
   turnId: string;
   questionIndex: number;
   weaknessSeverity: string;
-  followupDecision: FollowupBranch;
+  followupDecision: FollowupBranch | "fast_path";
   questionSource: string;
   agentOutputsSnapshot: string;
   timestamp: string;
@@ -215,6 +215,19 @@ type TurnLogEntry = {
   pasteCount?: number;
   timeToSubmitSeconds?: number | null;
   answerSnapshot?: string;
+  echoGuardTriggered?: boolean;
+  agentCacheHit?: boolean;
+  /** Set when async slow path finishes merging agent telemetry into this turn. */
+  slowPathComplete?: boolean;
+  /** Populated if the async slow path throws after the HTTP response was sent. */
+  slowPathError?: string;
+};
+
+/** Staging only — written by async slow path; consumed by fast path when fresh (JSON in questionPlan). */
+export type PreppedTurnAnalysis = {
+  weakness: unknown | null;
+  discrepancy: unknown | null;
+  reasoning: unknown | null;
 };
 
 type AdversarialState = {
@@ -249,7 +262,157 @@ type AdversarialState = {
   currentQuestionFollowups?: string[];
   currentQuestionFollowupAsked?: boolean;
   turnLog?: TurnLogEntry[];
+  /** Async slow-track staging — never mutate canonical history/counters here. */
+  prepped_next_question?: string | null;
+  prepped_turn_analysis?: PreppedTurnAnalysis | null;
 };
+
+function looksLikeEcho(transcript: string, lastQuestion: string): boolean {
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+  const t = normalize(transcript);
+  const q = normalize(lastQuestion);
+  if (t.length < 20) return false;
+  const tWords = new Set(t.split(/\s+/).filter(Boolean));
+  const qWords = new Set(q.split(/\s+/).filter(Boolean));
+  if (tWords.size === 0 || qWords.size === 0) return false;
+  const intersection = [...tWords].filter((w) => qWords.has(w)).length;
+  const union = new Set([...tWords, ...qWords]).size;
+  return union > 0 && intersection / union > 0.72;
+}
+
+export function hasSubstantialOverlap(full: string, partial: string): boolean {
+  const normalize = (s: string) => s.toLowerCase().trim();
+  const f = normalize(full);
+  const p = normalize(partial);
+  if (!p.length) return false;
+  if (f.includes(p)) return true;
+  const pWords = p.split(/\s+/).filter(Boolean);
+  if (!pWords.length) return false;
+  const hits = pWords.filter((w) => f.includes(w)).length;
+  return hits / pWords.length > 0.6;
+}
+
+type WeaknessAgentOutput = {
+  weakness: string;
+  type: string;
+  severity: "low" | "medium" | "high";
+  attackStrategy: string;
+  suggestedFollowup?: string;
+};
+
+type DiscrepancyAgentOutput = {
+  conflict: boolean;
+  description: string;
+  severity: "low" | "high";
+  resumeClaim: string;
+  actualStatement: string;
+};
+
+type PartialAgentCacheEntry = {
+  weakness: WeaknessAgentOutput;
+  discrepancy: DiscrepancyAgentOutput;
+  partial_text: string;
+  ts: number;
+};
+
+const partialAgentCache = new Map<string, PartialAgentCacheEntry>();
+
+function prunePartialAgentCache(): void {
+  const now = Date.now();
+  for (const [k, v] of partialAgentCache) {
+    if (now - v.ts > 12_000) partialAgentCache.delete(k);
+  }
+}
+
+/** Per-sprint static follow-up when staging + template race are unavailable (fast path only; no LLM). */
+const FAST_STATIC_FALLBACK_BY_SPRINT: Record<number, string> = {
+  1: DISTINCT_FALLBACK_QUESTIONS[0]!,
+  2: DISTINCT_FALLBACK_QUESTIONS[1]!,
+  3: DISTINCT_FALLBACK_QUESTIONS[2]!,
+};
+
+function pickFastStaticFallback(state: AdversarialState): string {
+  const s = Math.min(3, Math.max(1, state.sprint));
+  const pool = [FAST_STATIC_FALLBACK_BY_SPRINT[s]!, ...DISTINCT_FALLBACK_QUESTIONS].filter(Boolean);
+  const i = Math.max(0, (state.questionCount ?? 0) % pool.length);
+  return pool[i] ?? DISTINCT_FALLBACK_QUESTIONS[0]!;
+}
+
+type FastQuestionPick = {
+  question: string;
+  questionSource: string;
+  followupDecision: FollowupBranch | "fast_path";
+};
+
+/**
+ * Strict fast path: staging → timed adaptFollowupFast → static fallback.
+ * Does not call weakness/discrepancy/reasoning agents or extractConcepts.
+ */
+async function chooseFastPathQuestion(
+  state: AdversarialState,
+  answer: string,
+  askedForPrompt: string[]
+): Promise<FastQuestionPick> {
+  const preppedRaw = typeof state.prepped_next_question === "string" ? state.prepped_next_question.trim() : "";
+  if (preppedRaw && !isNearDuplicateQuestion(preppedRaw, askedForPrompt)) {
+    return {
+      question: preppedRaw,
+      questionSource: "fast_prepped",
+      followupDecision: "fast_path",
+    };
+  }
+
+  const templates = state.currentQuestionFollowups ?? [];
+  if (templates.length > 0 && !state.currentQuestionFollowupAsked) {
+    const template = templates[0]!;
+    const raced = await Promise.race([
+      adaptFollowupFast(template, answer, state.persona)
+        .then((q) => q?.trim() || null)
+        .catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+    ]);
+    if (raced && raced.length > 8) {
+      return {
+        question: sanitizeAiInterviewQuestionText(raced),
+        questionSource: "fast_template",
+        followupDecision: "followup_deepen",
+      };
+    }
+  }
+
+  const q = sanitizeAiInterviewQuestionText(pickFastStaticFallback(state));
+  return { question: q, questionSource: "fast_static", followupDecision: "fast_path" };
+}
+
+async function mergeLastTurnLogWithSlowPath(
+  interviewId: string,
+  userId: string,
+  turnId: string,
+  patch: Partial<TurnLogEntry>
+): Promise<void> {
+  const row = await prisma.interview.findUnique({
+    where: { id: interviewId },
+    select: { questionPlan: true, userId: true },
+  });
+  if (!row || row.userId !== userId) return;
+  const raw = row.questionPlan;
+  if (!Array.isArray(raw) || !raw[0] || typeof raw[0] !== "object") return;
+  const st = { ...(raw[0] as object) } as AdversarialState;
+  const tls = [...(st.turnLog ?? [])];
+  let idx = -1;
+  for (let i = tls.length - 1; i >= 0; i--) {
+    if (tls[i]!.turnId === turnId) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) return;
+  tls[idx] = { ...tls[idx]!, ...patch };
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: { questionPlan: [{ ...st, turnLog: tls }] as object[] },
+  });
+}
 
 function normalizeQuestionLine(q: string): string {
   return q
@@ -408,6 +571,8 @@ export async function startAdversarialInterview(
     currentQuestionFollowups: findFollowupsForQuestionText(opener, jobRole),
     currentQuestionFollowupAsked: false,
     turnLog: [],
+    prepped_next_question: null,
+    prepped_turn_analysis: null,
   };
 
   await prisma.interview.update({
@@ -454,23 +619,12 @@ function defaultState(): AdversarialState {
     currentQuestionFollowups: [],
     currentQuestionFollowupAsked: false,
     turnLog: [],
+    prepped_next_question: null,
+    prepped_turn_analysis: null,
   };
 }
 
-export async function processTurn(
-  interviewId: string,
-  answer: string,
-  userId: string,
-  options?: {
-    audioUrl?: string;
-    transcriptionConfidence?: number;
-    inputMode?: "voice" | "typed";
-    pasteCount?: number;
-    timeToSubmitSeconds?: number;
-    clientTurnId?: string;
-    whisperLatencyMs?: number;
-  }
-): Promise<{
+export type ProcessTurnHttpPayload = {
   response: string;
   /** Short neutral transition for TTS before `response`; empty when fragment retry or interview complete. */
   acknowledgement: string;
@@ -492,7 +646,309 @@ export async function processTurn(
   /** True when interview.status is evaluating and scoring runs in the background. */
   evaluating?: boolean;
   message?: string;
-}> {
+};
+
+export type ProcessTurnRouteResult = {
+  result: ProcessTurnHttpPayload;
+  /** When non-null, run after `res.json(result)` so the HTTP response is not blocked on agents. */
+  slowWork: Promise<void> | null;
+};
+
+type RunInterviewSlowPathInput = {
+  interviewId: string;
+  userId: string;
+  answeredQuestion: string;
+  answeredSprint: number;
+  answeredPersona: string;
+  answer: string;
+  resume: string;
+  resumeContext: string;
+  turnIdForLogMerge: string;
+  whisperLatencyMs?: number | null;
+  /** Last turn: only merge agent outputs + weakness list; skip generating the next question. */
+  skipNextQuestion: boolean;
+};
+
+async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<void> {
+  const slowPathStart = Date.now();
+  let agentCacheHit = false;
+  try {
+    const interview = await prisma.interview.findUnique({
+      where: { id: input.interviewId },
+      include: { user: { include: { jobSeekerProfile: true } } },
+    });
+    if (!interview || interview.userId !== input.userId) return;
+
+    const rawPlan = interview.questionPlan;
+    const state =
+      Array.isArray(rawPlan) && rawPlan[0] && typeof rawPlan[0] === "object"
+        ? ({ ...(rawPlan[0] as AdversarialState) } as AdversarialState)
+        : null;
+    if (!state) return;
+
+    const weaknesses = state.weaknesses ?? [];
+    const wasChallenged =
+      weaknesses.length > 0 && weaknesses[weaknesses.length - 1]?.severity === "high";
+
+    prunePartialAgentCache();
+    const cachedPartial = partialAgentCache.get(input.interviewId);
+    let weakness: Awaited<ReturnType<typeof detectWeakness>>;
+    let discrepancy: Awaited<ReturnType<typeof checkDiscrepancy>>;
+    let reasoning: Awaited<ReturnType<typeof evaluateReasoning>>;
+    let concepts: string[];
+
+    const trimmedAns = input.answer.trim();
+    if (cachedPartial && hasSubstantialOverlap(trimmedAns, cachedPartial.partial_text)) {
+      weakness = cachedPartial.weakness;
+      discrepancy = cachedPartial.discrepancy;
+      [reasoning, concepts] = await Promise.all([
+        evaluateReasoning(input.answer, wasChallenged),
+        extractConcepts(input.answer),
+      ]);
+      agentCacheHit = true;
+      partialAgentCache.delete(input.interviewId);
+    } else {
+      [weakness, discrepancy, reasoning, concepts] = await Promise.all([
+        detectWeakness(input.answeredQuestion, input.answer, input.answeredSprint, weaknesses),
+        checkDiscrepancy(input.resume, input.answer),
+        evaluateReasoning(input.answer, wasChallenged),
+        extractConcepts(input.answer),
+      ]);
+    }
+
+    applyReasoningHonestyCap(weakness, reasoning);
+
+    let consec = state.consecutiveHighWeaknessCount ?? 0;
+    let lastWT = state.lastWeaknessType ?? null;
+    if (weakness.severity === "high") {
+      if (weakness.type === lastWT) consec += 1;
+      else {
+        consec = 1;
+        lastWT = weakness.type ?? null;
+      }
+    } else {
+      consec = 0;
+      lastWT = null;
+    }
+    if (reasoning.behavior_marker === "pivoted_elegantly") {
+      consec = 0;
+      lastWT = null;
+    }
+    if (reasoning.behavior_marker === "deflecting") {
+      consec += 1;
+    }
+    const forceSprintQuestion = consec >= MAX_CONSECUTIVE_HIGH_SAME_TYPE;
+
+    if (input.skipNextQuestion) {
+      const row0 = await prisma.interview.findUnique({
+        where: { id: input.interviewId },
+        select: { questionPlan: true, userId: true },
+      });
+      if (!row0 || row0.userId !== input.userId) return;
+      const raw0 = row0.questionPlan;
+      if (!Array.isArray(raw0) || !raw0[0] || typeof raw0[0] !== "object") return;
+      const b0 = { ...(raw0[0] as AdversarialState) } as AdversarialState;
+      const newWeaknesses0 = weakness.type ? [...(b0.weaknesses ?? []), weakness] : (b0.weaknesses ?? []);
+      const newReasoningSignals0 = [
+        ...(b0.reasoningSignals ?? []),
+        reasoning as unknown as Record<string, unknown>,
+      ];
+      await prisma.interview.update({
+        where: { id: input.interviewId },
+        data: {
+          questionPlan: [
+            {
+              ...b0,
+              weaknesses: newWeaknesses0,
+              reasoningSignals: newReasoningSignals0,
+              consecutiveHighWeaknessCount: consec,
+              lastWeaknessType: lastWT,
+              prepped_next_question: null,
+              prepped_turn_analysis: null,
+            },
+          ] as object[],
+        },
+      });
+      await mergeLastTurnLogWithSlowPath(input.interviewId, input.userId, input.turnIdForLogMerge, {
+        agentPipelineMs: Date.now() - slowPathStart,
+        agentCacheHit,
+        weaknessSeverity: String(weakness.severity ?? ""),
+        followupDecision: "sprint_question",
+        questionSource: "slow_path_terminal",
+        agentOutputsSnapshot: JSON.stringify({
+          weakness,
+          discrepancy: { conflict: discrepancy.conflict, severity: discrepancy.severity },
+          reasoning,
+        }).slice(0, 8000),
+        slowPathComplete: true,
+      });
+      return;
+    }
+
+    const history = state.history ?? [];
+    const askedForPrompt = priorAskedQuestions(history, input.answeredQuestion);
+    let probedClaims = [...(state.probedClaims ?? [])];
+
+    let followup: string;
+    let followupBranch: FollowupBranch = "sprint_question";
+    const claimKey = discrepancy.resumeClaim?.trim() || "";
+
+    if (
+      discrepancy.conflict &&
+      discrepancy.severity === "high" &&
+      !forceSprintQuestion &&
+      claimKey &&
+      !probedClaims.includes(claimKey)
+    ) {
+      followupBranch = "discrepancy_probe";
+      probedClaims = [...probedClaims, claimKey];
+      followup = await resolveDistinctQuestion(askedForPrompt, () =>
+        generateDiscrepancyFollowup(
+          input.answeredQuestion,
+          input.answer,
+          discrepancy,
+          state.persona,
+          input.resumeContext,
+          askedForPrompt
+        )
+      );
+    } else if (weakness.severity === "high" && !forceSprintQuestion) {
+      followupBranch = "weakness_probe";
+      followup = await resolveDistinctQuestion(askedForPrompt, () =>
+        generateWeaknessFollowup(
+          input.answeredQuestion,
+          input.answer,
+          weakness,
+          state.persona,
+          input.resumeContext,
+          askedForPrompt
+        )
+      );
+    } else if (
+      weakness.severity !== "high" &&
+      (state.currentQuestionFollowups ?? []).length > 0 &&
+      !state.currentQuestionFollowupAsked
+    ) {
+      followupBranch = "followup_deepen";
+      const template = state.currentQuestionFollowups![0]!;
+      followup = await adaptFollowupFast(template, input.answer, state.persona);
+    } else {
+      const preppedQ =
+        typeof state.prepped_next_question === "string" && state.prepped_next_question.trim().length > 0
+          ? state.prepped_next_question.trim()
+          : "";
+      if (
+        preppedQ &&
+        !isNearDuplicateQuestion(preppedQ, askedForPrompt) &&
+        isStillRelevant(preppedQ, input.answer, concepts)
+      ) {
+        followup = preppedQ;
+        followupBranch = "prefetch";
+      } else {
+        let prefetched: string | undefined;
+        do {
+          prefetched = popPrefetchQuestion(input.interviewId);
+        } while (prefetched && isNearDuplicateQuestion(prefetched, askedForPrompt));
+
+        if (prefetched && isStillRelevant(prefetched, input.answer, concepts)) {
+          followupBranch = "prefetch";
+          followup = prefetched;
+        } else {
+          followup = await resolveDistinctQuestion(askedForPrompt, () =>
+            generateSprintQuestion(state.sprint, state.persona, input.resumeContext, history, askedForPrompt, {
+              nonTechnical: Boolean(state.trackNonTechnical),
+              subtrack: state.nonTechSubtrack,
+              dataTrack: Boolean(state.trackData),
+              dataSubtrack: state.dataSubtrack,
+            })
+          );
+          if (forceSprintQuestion) {
+            followupBranch = "forced_sprint";
+          } else {
+            followupBranch = "sprint_question";
+          }
+        }
+      }
+    }
+
+    followup = sanitizeAiInterviewQuestionText(followup);
+
+    const prefetchBatch = await prefetchFollowups(concepts, input.resumeContext, state.sprint, state.persona);
+    if (prefetchBatch.length) {
+      setPrefetchQuestions(input.interviewId, prefetchBatch);
+    }
+
+    const row = await prisma.interview.findUnique({
+      where: { id: input.interviewId },
+      select: { questionPlan: true, userId: true },
+    });
+    if (!row || row.userId !== input.userId) return;
+    const raw = row.questionPlan;
+    if (!Array.isArray(raw) || !raw[0] || typeof raw[0] !== "object") return;
+    const b = { ...(raw[0] as AdversarialState) } as AdversarialState;
+
+    const newWeaknesses = weakness.type ? [...(b.weaknesses ?? []), weakness] : (b.weaknesses ?? []);
+    const newReasoningSignals = [...(b.reasoningSignals ?? []), reasoning as unknown as Record<string, unknown>];
+
+    await prisma.interview.update({
+      where: { id: input.interviewId },
+      data: {
+        questionPlan: [
+          {
+            ...b,
+            weaknesses: newWeaknesses,
+            reasoningSignals: newReasoningSignals,
+            consecutiveHighWeaknessCount: consec,
+            lastWeaknessType: lastWT,
+            probedClaims,
+            prepped_next_question: followup,
+            prepped_turn_analysis: {
+              weakness,
+              discrepancy,
+              reasoning,
+            },
+          },
+        ] as object[],
+      },
+    });
+
+    await mergeLastTurnLogWithSlowPath(input.interviewId, input.userId, input.turnIdForLogMerge, {
+      agentPipelineMs: Date.now() - slowPathStart,
+      agentCacheHit,
+      questionSource: followupBranch,
+      followupDecision: followupBranch,
+      weaknessSeverity: String(weakness.severity ?? ""),
+      agentOutputsSnapshot: JSON.stringify({
+        weakness,
+        discrepancy: { conflict: discrepancy.conflict, severity: discrepancy.severity },
+        reasoning,
+      }).slice(0, 8000),
+      slowPathComplete: true,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[interview/slow-path]", err);
+    await mergeLastTurnLogWithSlowPath(input.interviewId, input.userId, input.turnIdForLogMerge, {
+      slowPathError: msg.slice(0, 500),
+      slowPathComplete: true,
+    }).catch(() => {});
+  }
+}
+
+export async function processTurn(
+  interviewId: string,
+  answer: string,
+  userId: string,
+  options?: {
+    audioUrl?: string;
+    transcriptionConfidence?: number;
+    inputMode?: "voice" | "typed";
+    pasteCount?: number;
+    timeToSubmitSeconds?: number;
+    clientTurnId?: string;
+    whisperLatencyMs?: number;
+  }
+): Promise<ProcessTurnRouteResult> {
   const interview = await prisma.interview.findUnique({
     where: { id: interviewId },
     include: { user: { include: { jobSeekerProfile: true } } },
@@ -560,18 +1016,62 @@ export async function processTurn(
     const remainingMinutes = Math.ceil(remainingMs / 60_000);
     const tid = options?.clientTurnId?.trim() || userMessage.id;
     return {
-      response: prompt,
-      acknowledgement: "",
-      sprint,
-      sprintName:
-        stateSprintName ??
-        (state.trackNonTechnical ? NON_TECH_SPRINTS[1].name : state.trackData ? DATA_SPRINTS[1].name : SPRINTS[1].name),
-      persona,
-      complete: false,
-      questionCount: prevQCount,
-      turnId: tid,
-      fragmentRetry: true,
-      remainingMinutes,
+      result: {
+        response: prompt,
+        acknowledgement: "",
+        sprint,
+        sprintName:
+          stateSprintName ??
+          (state.trackNonTechnical ? NON_TECH_SPRINTS[1].name : state.trackData ? DATA_SPRINTS[1].name : SPRINTS[1].name),
+        persona,
+        complete: false,
+        questionCount: prevQCount,
+        turnId: tid,
+        fragmentRetry: true,
+        remainingMinutes,
+      },
+      slowWork: null,
+    };
+  }
+
+  if (trimmed.length >= 20 && looksLikeEcho(trimmed, lastQuestion)) {
+    const remainingMsEcho = Math.max(0, MAX_INTERVIEW_MINUTES * 60_000 - (Date.now() - interviewStartedAt));
+    const remainingMinutesEcho = Math.ceil(remainingMsEcho / 60_000);
+    const tidEcho = options?.clientTurnId?.trim() || crypto.randomUUID();
+    const echoLog: TurnLogEntry = {
+      turnId: tidEcho,
+      questionIndex: prevQCount,
+      weaknessSeverity: "",
+      followupDecision: "sprint_question",
+      questionSource: "echo_guard",
+      agentOutputsSnapshot: "",
+      timestamp: new Date().toISOString(),
+      whisperLatencyMs: options?.whisperLatencyMs ?? null,
+      echoGuardTriggered: true,
+    };
+    const turnLogEcho = [...(state.turnLog ?? []), echoLog];
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        questionPlan: [{ ...state, turnLog: turnLogEcho }] as object[],
+      },
+    });
+    return {
+      result: {
+        response: "It sounds like your mic may have picked up my question. Could you share your answer?",
+        acknowledgement: "",
+        sprint,
+        sprintName:
+          stateSprintName ??
+          (state.trackNonTechnical ? NON_TECH_SPRINTS[1].name : state.trackData ? DATA_SPRINTS[1].name : SPRINTS[1].name),
+        persona,
+        complete: false,
+        questionCount: prevQCount,
+        turnId: tidEcho,
+        fragmentRetry: true,
+        remainingMinutes: remainingMinutesEcho,
+      },
+      slowWork: null,
     };
   }
 
@@ -580,6 +1080,10 @@ export async function processTurn(
   const resume =
     [jp?.about, jp?.workExperience, jp?.skills ? JSON.stringify(jp.skills) : ""].filter(Boolean).join("\n") ||
     resumeContext;
+
+  const answeredQuestion = lastQuestion;
+  const answeredSprint = sprint;
+  const answeredPersona = persona;
 
   const turnStartMs = Date.now();
   const userMessage = await prisma.interviewMessage.create({
@@ -597,129 +1101,25 @@ export async function processTurn(
     },
   });
 
-  const wasChallenged =
-    weaknesses.length > 0 && weaknesses[weaknesses.length - 1]?.severity === "high";
-
-  const [weakness, discrepancy, reasoning, concepts] = await Promise.all([
-    detectWeakness(lastQuestion, answer, sprint, weaknesses),
-    checkDiscrepancy(resume, answer),
-    evaluateReasoning(answer, wasChallenged),
-    extractConcepts(answer),
-  ]);
-
-  const agentCompleteMs = Date.now();
-  applyReasoningHonestyCap(weakness, reasoning);
-
-  let consec = state.consecutiveHighWeaknessCount ?? 0;
-  let lastWT = state.lastWeaknessType ?? null;
-  if (weakness.severity === "high") {
-    if (weakness.type === lastWT) consec += 1;
-    else {
-      consec = 1;
-      lastWT = weakness.type ?? null;
-    }
-  } else {
-    consec = 0;
-    lastWT = null;
+  const staged = state.prepped_turn_analysis ?? null;
+  const historyRow: AdversarialState["history"][number] = {
+    question: answeredQuestion,
+    answer,
+    sprint,
+    persona,
+  };
+  if (staged?.weakness != null) {
+    historyRow.weakness = staged.weakness;
   }
-  const forceSprintQuestion = consec >= MAX_CONSECUTIVE_HIGH_SAME_TYPE;
-
-  const askedForPrompt = priorAskedQuestions(history, lastQuestion);
-  let probedClaims = [...(state.probedClaims ?? [])];
-  let currentQuestionFollowups = [...(state.currentQuestionFollowups ?? [])];
-  let currentQuestionFollowupAsked = state.currentQuestionFollowupAsked ?? false;
-
-  let followup: string;
-  let followupBranch: FollowupBranch = "sprint_question";
-  let pivoting = false;
-  const claimKey = discrepancy.resumeClaim?.trim() || "";
-
-  if (
-    discrepancy.conflict &&
-    discrepancy.severity === "high" &&
-    !forceSprintQuestion &&
-    claimKey &&
-    !probedClaims.includes(claimKey)
-  ) {
-    followupBranch = "discrepancy_probe";
-    probedClaims = [...probedClaims, claimKey];
-    followup = await resolveDistinctQuestion(askedForPrompt, () =>
-      generateDiscrepancyFollowup(
-        lastQuestion,
-        answer,
-        discrepancy,
-        persona,
-        resumeContext,
-        askedForPrompt
-      )
-    );
-  } else if (weakness.severity === "high" && !forceSprintQuestion) {
-    followupBranch = "weakness_probe";
-    followup = await resolveDistinctQuestion(askedForPrompt, () =>
-      generateWeaknessFollowup(
-        lastQuestion,
-        answer,
-        weakness,
-        persona,
-        resumeContext,
-        askedForPrompt
-      )
-    );
-  } else if (
-    weakness.severity !== "high" &&
-    currentQuestionFollowups.length > 0 &&
-    !currentQuestionFollowupAsked
-  ) {
-    followupBranch = "followup_deepen";
-    const template = currentQuestionFollowups[0]!;
-    followup = await adaptFollowup(template, answer, persona);
-    currentQuestionFollowups = currentQuestionFollowups.slice(1);
-    currentQuestionFollowupAsked = true;
-  } else {
-    let prefetched: string | undefined;
-    do {
-      prefetched = popPrefetchQuestion(interviewId);
-    } while (prefetched && isNearDuplicateQuestion(prefetched, askedForPrompt));
-
-    if (prefetched && isStillRelevant(prefetched, answer, concepts)) {
-      followupBranch = "prefetch";
-      followup = prefetched;
-    } else {
-      followup = await resolveDistinctQuestion(askedForPrompt, () =>
-        generateSprintQuestion(sprint, persona, resumeContext, history, askedForPrompt, {
-          nonTechnical: Boolean(state.trackNonTechnical),
-          subtrack: state.nonTechSubtrack,
-          dataTrack: Boolean(state.trackData),
-          dataSubtrack: state.dataSubtrack,
-        })
-      );
-      if (forceSprintQuestion) {
-        followupBranch = "forced_sprint";
-        pivoting = true;
-      } else {
-        followupBranch = "sprint_question";
-      }
-      currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
-      currentQuestionFollowupAsked = false;
-    }
+  if (staged?.discrepancy != null) {
+    historyRow.discrepancy = staged.discrepancy;
+  }
+  if (staged?.reasoning != null) {
+    historyRow.reasoning = staged.reasoning;
   }
 
-  const newHistory = [
-    ...history,
-    {
-      question: lastQuestion,
-      answer,
-      weakness,
-      concepts,
-      discrepancy,
-      reasoning,
-      sprint,
-      persona,
-    },
-  ];
+  const newHistory = [...history, historyRow];
 
-  const newWeaknesses = weakness.type ? [...weaknesses, weakness] : weaknesses;
-  const newReasoningSignals = [...reasoningSignals, reasoning as unknown as Record<string, unknown>];
   const newQuestionCount = prevQCount + 1;
   let newSprintQuestionCount = prevSprintQ + 1;
 
@@ -728,6 +1128,11 @@ export async function processTurn(
   let currentSprintName = stateSprintName;
   let currentSprintQuestionCount = newSprintQuestionCount;
   let sprintAdvanced = false;
+  let pivoting = false;
+  let currentQuestionFollowups = [...(state.currentQuestionFollowups ?? [])];
+  let currentQuestionFollowupAsked = state.currentQuestionFollowupAsked ?? false;
+
+  let followup = "";
 
   if (newSprintQuestionCount >= QUESTIONS_PER_SPRINT) {
     const nextSprint = sprint + 1;
@@ -742,6 +1147,7 @@ export async function processTurn(
       currentSprintName = sprintDef.name;
       currentSprintQuestionCount = 0;
       sprintAdvanced = true;
+      pivoting = true;
       followup = state.trackNonTechnical
         ? NON_TECH_OPENERS[nextSprint]
         : state.trackData
@@ -749,43 +1155,60 @@ export async function processTurn(
           : SPRINT_OPENERS[nextSprint];
       currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
       currentQuestionFollowupAsked = false;
-      consec = 0;
-      lastWT = null;
-      pivoting = true;
     }
   }
 
-  const questionReadyMs = Date.now();
   const completionCheck = isInterviewComplete({
     questionCount: newQuestionCount,
     sprint: currentSprint,
     sprintQuestionCount: currentSprintQuestionCount,
     interviewStartTime: interviewStartedAt,
   });
-
   const isComplete = completionCheck.complete;
+
+  const sprintClosing =
+    "That wraps up our interview. Well done for getting through all three sprints. Your report is being generated now.";
+  const timeClosing =
+    "We've reached the end of our time together. Thank you for the conversation — your report is being generated now.";
+  const closingMessage = completionCheck.reason === "time_limit" ? timeClosing : sprintClosing;
+
+  let pick: FastQuestionPick | null = null;
+
+  if (isComplete) {
+    followup = closingMessage;
+  } else if (sprintAdvanced) {
+    /* followup already set to sprint opener */
+  } else {
+    const asked = priorAskedQuestions(history, answeredQuestion);
+    pick = await chooseFastPathQuestion(state, answer, asked);
+    followup = pick.question;
+    if (pick.followupDecision === "followup_deepen") {
+      currentQuestionFollowups = (state.currentQuestionFollowups ?? []).slice(1);
+      currentQuestionFollowupAsked = true;
+    } else {
+      currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
+      currentQuestionFollowupAsked = false;
+    }
+  }
 
   if (!isComplete) {
     followup = sanitizeAiInterviewQuestionText(followup);
   }
 
   const logTurnId = options?.clientTurnId?.trim() || userMessage.id;
+  const fastPathReadyMs = Date.now();
   const turnLogEntry: TurnLogEntry = {
     turnId: logTurnId,
     questionIndex: prevQCount,
-    weaknessSeverity: String(weakness.severity ?? ""),
-    followupDecision: followupBranch,
-    questionSource: followupBranch,
-    agentOutputsSnapshot: JSON.stringify({
-      weakness,
-      discrepancy: { conflict: discrepancy.conflict, severity: discrepancy.severity },
-      reasoning,
-    }).slice(0, 8000),
+    weaknessSeverity: "",
+    followupDecision: sprintAdvanced ? "fast_path" : pick?.followupDecision === "followup_deepen" ? "followup_deepen" : "fast_path",
+    questionSource: sprintAdvanced ? "sprint_opener" : pick?.questionSource ?? "fast_path",
+    agentOutputsSnapshot: "",
     timestamp: new Date().toISOString(),
     whisperLatencyMs: options?.whisperLatencyMs ?? null,
-    agentPipelineMs: agentCompleteMs - turnStartMs,
-    questionGenerationMs: questionReadyMs - agentCompleteMs,
-    totalTurnLatencyMs: questionReadyMs - turnStartMs,
+    agentPipelineMs: null,
+    questionGenerationMs: null,
+    totalTurnLatencyMs: fastPathReadyMs - turnStartMs,
     answerLengthChars: answer.length,
     pasteCount: options?.pasteCount ?? 0,
     timeToSubmitSeconds: options?.timeToSubmitSeconds ?? null,
@@ -793,11 +1216,6 @@ export async function processTurn(
   };
   const turnLog = [...(state.turnLog ?? []), turnLogEntry];
 
-  const sprintClosing =
-    "That wraps up our interview. Well done for getting through all three sprints. Your report is being generated now.";
-  const timeClosing =
-    "We've reached the end of our time together. Thank you for the conversation — your report is being generated now.";
-  const closingMessage = completionCheck.reason === "time_limit" ? timeClosing : sprintClosing;
   const aiText = isComplete ? closingMessage : followup;
 
   if (isComplete) {
@@ -812,7 +1230,7 @@ export async function processTurn(
       sender: "ai",
       message: aiText,
       questionType: `sprint_${currentSprint}`,
-      isFollowup: !sprintAdvanced && weakness.severity === "high",
+      isFollowup: false,
     },
   });
 
@@ -827,32 +1245,70 @@ export async function processTurn(
     questionCount: newQuestionCount,
     sprintQuestionCount: currentSprintQuestionCount,
     history: newHistory,
-    weaknesses: newWeaknesses,
-    reasoningSignals: newReasoningSignals,
+    weaknesses,
+    reasoningSignals,
     lastQuestion: isComplete ? "" : followup,
     interviewStartTime: interviewStartedAt,
-    consecutiveHighWeaknessCount: consec,
-    lastWeaknessType: lastWT,
-    probedClaims,
+    consecutiveHighWeaknessCount: state.consecutiveHighWeaknessCount ?? 0,
+    lastWeaknessType: state.lastWeaknessType ?? null,
+    probedClaims: state.probedClaims ?? [],
     currentQuestionFollowups,
     currentQuestionFollowupAsked,
     turnLog,
+    prepped_next_question: null,
+    prepped_turn_analysis: null,
   };
 
   const responseTurnId = options?.clientTurnId?.trim() || userMessage.id;
 
+  const slowInputBase = {
+    interviewId,
+    userId: interview.userId,
+    answeredQuestion,
+    answeredSprint,
+    answeredPersona,
+    answer,
+    resume,
+    resumeContext,
+    turnIdForLogMerge: logTurnId,
+    whisperLatencyMs: options?.whisperLatencyMs ?? null,
+  } as const;
+
   if (isComplete) {
+    await prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        questionPlan: [newState] as object[],
+        questionIndex: newQuestionCount,
+      },
+    });
+
+    await runInterviewSlowPath({ ...slowInputBase, skipNextQuestion: true });
+
+    const fresh = await prisma.interview.findUnique({
+      where: { id: interviewId },
+      include: { user: { include: { jobSeekerProfile: true } } },
+    });
+    if (!fresh) {
+      throw new Error("Interview not found after slow path");
+    }
+    const rawFresh = fresh.questionPlan;
+    const stFresh: AdversarialState =
+      Array.isArray(rawFresh) && rawFresh[0] && typeof rawFresh[0] === "object"
+        ? ({ ...(rawFresh[0] as AdversarialState) } as AdversarialState)
+        : newState;
+
     const finalizePayload: FinalizeAiInterviewParams = {
       interviewId,
-      userId: interview.userId,
-      newHistory,
+      userId: fresh.userId,
+      newHistory: stFresh.history,
       resume,
-      newWeaknesses,
-      newReasoningSignals,
+      newWeaknesses: stFresh.weaknesses,
+      newReasoningSignals: stFresh.reasoningSignals,
       newQuestionCount,
-      newState,
-      jobRole: interview.jobRole,
-      experienceLevel: interview.experienceLevel,
+      newState: stFresh,
+      jobRole: fresh.jobRole,
+      experienceLevel: fresh.experienceLevel,
     };
 
     const useSyncEval =
@@ -863,7 +1319,7 @@ export async function processTurn(
         where: { id: interviewId },
         data: {
           status: "evaluating",
-          questionPlan: [newState] as object[],
+          questionPlan: [stFresh] as object[],
           questionIndex: newQuestionCount,
         },
       });
@@ -883,20 +1339,22 @@ export async function processTurn(
       });
 
       return {
-        response: closingMessage,
-        acknowledgement: "",
-        sprint: currentSprint,
-        sprintName: currentSprintName,
-        persona: currentPersona,
-        complete: true,
-        evaluating: true,
-        weakness,
-        questionCount: newQuestionCount,
-        turnId: responseTurnId,
-        completionReason: completionCheck.reason,
-        timeExpired: completionCheck.reason === "time_limit",
-        message:
-          "Your interview is being evaluated. Your results will appear shortly — please keep this page open.",
+        result: {
+          response: closingMessage,
+          acknowledgement: "",
+          sprint: currentSprint,
+          sprintName: currentSprintName,
+          persona: currentPersona,
+          complete: true,
+          evaluating: true,
+          questionCount: newQuestionCount,
+          turnId: responseTurnId,
+          completionReason: completionCheck.reason,
+          timeExpired: completionCheck.reason === "time_limit",
+          message:
+            "Your interview is being evaluated. Your results will appear shortly — please keep this page open.",
+        },
+        slowWork: null,
       };
     }
 
@@ -904,20 +1362,22 @@ export async function processTurn(
       await finalizeAiInterviewInBackground(finalizePayload);
 
     return {
-      response: closingMessage,
-      acknowledgement: "",
-      sprint: currentSprint,
-      sprintName: currentSprintName,
-      persona: currentPersona,
-      complete: true,
-      weakness,
-      questionCount: newQuestionCount,
-      turnId: responseTurnId,
-      totalScore: overallScore,
-      badgeLevel: badge,
-      evaluation,
-      completionReason: completionCheck.reason,
-      timeExpired: completionCheck.reason === "time_limit",
+      result: {
+        response: closingMessage,
+        acknowledgement: "",
+        sprint: currentSprint,
+        sprintName: currentSprintName,
+        persona: currentPersona,
+        complete: true,
+        questionCount: newQuestionCount,
+        turnId: responseTurnId,
+        totalScore: overallScore,
+        badgeLevel: badge,
+        evaluation,
+        completionReason: completionCheck.reason,
+        timeExpired: completionCheck.reason === "time_limit",
+      },
+      slowWork: null,
     };
   }
 
@@ -932,19 +1392,24 @@ export async function processTurn(
   const remainingMs = Math.max(0, MAX_INTERVIEW_MINUTES * 60_000 - (Date.now() - interviewStartedAt));
   const remainingMinutes = Math.ceil(remainingMs / 60_000);
 
+  const slowWork = runInterviewSlowPath({ ...slowInputBase, skipNextQuestion: false });
+
   return {
-    response: followup,
-    acknowledgement: pickTurnAcknowledgement(),
-    sprint: currentSprint,
-    sprintName: currentSprintName,
-    persona: currentPersona,
-    complete: false,
-    weakness,
-    questionCount: newQuestionCount,
-    turnId: responseTurnId,
-    pivoting,
-    remainingMinutes,
+    result: {
+      response: followup,
+      acknowledgement: pickTurnAcknowledgement(),
+      sprint: currentSprint,
+      sprintName: currentSprintName,
+      persona: currentPersona,
+      complete: false,
+      questionCount: newQuestionCount,
+      turnId: responseTurnId,
+      pivoting,
+      remainingMinutes,
+    },
+    slowWork,
   };
+
 }
 
 export type FinalizeAiInterviewParams = {
@@ -1193,5 +1658,28 @@ export async function handlePartialTranscript(interviewId: string, text: string,
 
   if (questions.length) {
     setPrefetchQuestions(interviewId, questions);
+  }
+
+  const t = text.trim();
+  if (t.length >= 12) {
+    prunePartialAgentCache();
+    const jp = interview.user?.jobSeekerProfile;
+    const resume =
+      [jp?.about, jp?.workExperience, jp?.skills ? JSON.stringify(jp.skills) : ""].filter(Boolean).join("\n") ||
+      resumeContext;
+    try {
+      const [weakness, discrepancy] = await Promise.all([
+        detectWeakness(st.lastQuestion, t, st.sprint, st.weaknesses ?? [], { tier: "fast" }),
+        checkDiscrepancy(resume, t, { tier: "fast" }),
+      ]);
+      partialAgentCache.set(interviewId, {
+        weakness,
+        discrepancy,
+        partial_text: t,
+        ts: Date.now(),
+      });
+    } catch (e) {
+      console.warn("[interview/v2/partial agents]", e);
+    }
   }
 }

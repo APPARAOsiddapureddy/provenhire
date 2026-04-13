@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -112,10 +112,13 @@ export interface ExpertInterviewStageProps {
   onPaywallRequired?: (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => void;
 }
 
-async function speakFiller(signal?: AbortSignal): Promise<void> {
+const FILLER_COUNT = 4;
+
+async function speakFiller(signal: AbortSignal | undefined, index: number): Promise<void> {
   if (signal?.aborted) return;
+  const idx = Math.max(0, Math.min(FILLER_COUNT - 1, index));
   try {
-    const res = await fetch("/api/interview/tts-filler", {
+    const res = await fetch(`/api/interview/tts-filler?index=${idx}`, {
       headers: { Authorization: `Bearer ${getAuthToken()}` },
       signal,
     });
@@ -260,6 +263,8 @@ export default function ExpertInterviewStage({
   /** Last segment Whisper round-trip (ms), sent with v2/turn for turnLog instrumentation. */
   const lastWhisperLatencyMsRef = useRef<number | undefined>(undefined);
   const silenceNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deafUntilRef = useRef(0);
+  const fillerIndexRef = useRef(0);
   /** Scrollable answer panel: keep viewport near bottom when new text arrives unless user scrolled up. */
   const answerScrollRef = useRef<HTMLDivElement>(null);
   const [pivotBanner, setPivotBanner] = useState(false);
@@ -337,6 +342,7 @@ export default function ExpertInterviewStage({
 
   const onPartialWrapped = useCallback(
     (p: string) => {
+      if (Date.now() < deafUntilRef.current) return;
       if (p.trim()) clearSilenceNudgeTimer();
       setPartial(p);
     },
@@ -346,6 +352,7 @@ export default function ExpertInterviewStage({
   /** Voice end-of-utterance only extends the local draft; user submits explicitly to advance. */
   const appendFinalToDraft = useCallback(
     (text: string, meta?: { whisperLatencyMs: number }) => {
+      if (Date.now() < deafUntilRef.current) return;
       const t = scrubSttEcho(text);
       if (!t) return;
       clearSilenceNudgeTimer();
@@ -356,12 +363,33 @@ export default function ExpertInterviewStage({
     [clearSilenceNudgeTimer],
   );
 
+  const bargeHandlerRef = useRef<(text: string) => void>(() => {});
+
   const whisperSession = useWhisperSession({
     interviewId,
     onPartial: onPartialWrapped,
     onError: (err) => toast.error(err, { duration: 8000 }),
     onFinal: appendFinalToDraft,
+    onBargeInTranscript:
+      answerInputMode === "typed"
+        ? undefined
+        : (text: string) => {
+            bargeHandlerRef.current(text);
+          },
   });
+
+  useLayoutEffect(() => {
+    bargeHandlerRef.current = (text: string) => {
+      if (Date.now() < deafUntilRef.current) return;
+      const t = text.trim();
+      if (t.length <= 8) return;
+      abortRef.current?.abort();
+      deafUntilRef.current = Date.now() + 500;
+      currentTurnIdRef.current = crypto.randomUUID();
+      whisperSession.transition("user_speaking");
+      void t;
+    };
+  }, [whisperSession]);
 
   const aiSpeak = useCallback(
     async (text: string) => {
@@ -414,7 +442,7 @@ export default function ExpertInterviewStage({
       abortRef.current = ac;
       whisperSession.setAbortController(ac);
       whisperSession.setCaptureEnabled(false);
-      whisperSession.transition("ai_speaking");
+      whisperSession.transition("ai_thinking");
       const ack = acknowledgement?.trim() ?? "";
       try {
         if (expectedTurnId !== currentTurnIdRef.current) {
@@ -441,6 +469,12 @@ export default function ExpertInterviewStage({
         if (!ac.signal.aborted) {
           setCurrentQuestion(question);
           questionShownAtRef.current = Date.now();
+          if (answerInputModeRef.current !== "typed") {
+            whisperSession.transition("ai_speaking");
+            whisperSession.beginBargeWhileAiSpeaking();
+          } else {
+            whisperSession.transition("ai_speaking");
+          }
           await speakText(question, ac.signal);
         }
       } catch {
@@ -495,12 +529,12 @@ export default function ExpertInterviewStage({
       abortRef.current = fillerAc;
       whisperSession.setAbortController(fillerAc);
       whisperSession.transition("ai_thinking");
-      void speakFiller(fillerAc.signal);
-    } catch {
-      fillerAc = new AbortController();
-    }
 
-    try {
+      const qcAtSubmit = questionCount;
+      const fillerIdx = fillerIndexRef.current;
+      const fillerPromise =
+        qcAtSubmit > 0 ? speakFiller(fillerAc.signal, fillerIdx) : Promise.resolve(undefined);
+
       const timeToSubmit = Math.floor((Date.now() - questionShownAtRef.current) / 1000);
 
       const turnResult = await api.post<{
@@ -532,7 +566,15 @@ export default function ExpertInterviewStage({
         ...(typed ? {} : { whisperLatencyMs: lastWhisperLatencyMsRef.current }),
       });
 
-      fillerAc.abort();
+      if (turnResult.fragmentRetry) {
+        fillerAc.abort();
+        await fillerPromise.catch(() => {});
+      } else {
+        await fillerPromise;
+        if (qcAtSubmit > 0) {
+          fillerIndexRef.current = (fillerIndexRef.current + 1) % FILLER_COUNT;
+        }
+      }
 
       if (turnResult.turnId && turnResult.turnId !== currentTurnIdRef.current) {
         whisperSession.setCaptureEnabled(true);
@@ -1145,14 +1187,20 @@ export default function ExpertInterviewStage({
                           <div
                             key={i}
                             className={`flex-1 rounded-full transition-all duration-75 min-h-[5px] ${
-                              whisperSession.floor === "user_speaking" ? "bg-primary/70" : "bg-muted-foreground/25"
+                              whisperSession.floor === "user_speaking"
+                                ? "bg-primary/70"
+                                : whisperSession.floor === "ai_thinking"
+                                  ? "bg-amber-500/45 animate-pulse"
+                                  : "bg-muted-foreground/25"
                             }`}
                             style={{
                               height: `${Math.max(
                                 12,
                                 whisperSession.floor === "user_speaking"
                                   ? Math.min(100, whisperSession.micLevel * 100 + (i % 3) * 6)
-                                  : 14
+                                  : whisperSession.floor === "ai_thinking"
+                                    ? 22 + ((i * 7) % 18)
+                                    : 14
                               )}%`,
                             }}
                           />

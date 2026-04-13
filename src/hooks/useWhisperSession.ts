@@ -16,11 +16,14 @@ export function useWhisperSession({
   onFinal,
   onPartial,
   onError,
+  onBargeInTranscript,
 }: {
   interviewId: string | null;
   onFinal: (text: string, meta?: { whisperLatencyMs: number }) => void;
   onPartial: (text: string) => void;
   onError: (err: string) => void;
+  /** When set, segmented STT during `ai_speaking` with text length > 8 routes here (barge-in) instead of `onFinal`. */
+  onBargeInTranscript?: (text: string, meta: { whisperLatencyMs: number }) => void;
 }) {
   const [floor, setFloor] = useState<FloorState>("idle");
   const [micLevel, setMicLevel] = useState(0);
@@ -45,6 +48,8 @@ export function useWhisperSession({
   const captureEnabledRef = useRef(true);
   const pendingDiscardRef = useRef(false);
   const startRecordingFnRef = useRef<() => void>(() => {});
+  const onBargeInRef = useRef(onBargeInTranscript);
+  onBargeInRef.current = onBargeInTranscript;
 
   const transition = useCallback((next: FloorState) => {
     floorRef.current = next;
@@ -117,7 +122,8 @@ export function useWhisperSession({
     const audioBlob = new Blob(audioChunksRef.current, { type: mime });
     audioChunksRef.current = [];
 
-    transition("ai_thinking");
+    const bargeFloor = floorRef.current === "ai_speaking" && Boolean(onBargeInRef.current);
+    if (!bargeFloor) transition("ai_thinking");
 
     const whisperStartedAt = Date.now();
     try {
@@ -154,10 +160,25 @@ export function useWhisperSession({
       onPartial("");
       isTranscribingRef.current = false;
 
-      transition("user_speaking");
       const whisperLatencyMs = Date.now() - whisperStartedAt;
-      if (!data.empty && data.transcript.trim()) {
-        onFinal(data.transcript.trim(), { whisperLatencyMs });
+      const t = data.transcript.trim();
+      if (
+        bargeFloor &&
+        onBargeInRef.current &&
+        !data.empty &&
+        t.length > 8
+      ) {
+        transition("user_speaking");
+        onBargeInRef.current(t, { whisperLatencyMs });
+        if (captureEnabledRef.current && floorRef.current === "user_speaking") {
+          startRecordingFnRef.current();
+        }
+        return;
+      }
+
+      transition("user_speaking");
+      if (!data.empty && t) {
+        onFinal(t, { whisperLatencyMs });
       }
       if (captureEnabledRef.current && floorRef.current === "user_speaking") {
         startRecordingFnRef.current();
@@ -176,7 +197,8 @@ export function useWhisperSession({
   const startRecording = useCallback(() => {
     const stream = mediaStreamRef.current;
     if (!stream || isTranscribingRef.current || !captureEnabledRef.current) return;
-    if (floorRef.current !== "user_speaking") return;
+    const allowBarge = floorRef.current === "ai_speaking" && Boolean(onBargeInRef.current);
+    if (floorRef.current !== "user_speaking" && !allowBarge) return;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") return;
 
     const audioTracks = stream.getAudioTracks();
@@ -209,7 +231,9 @@ export function useWhisperSession({
     }, MAX_RECORDING_MS);
 
     const vadLoop = () => {
-      if (floorRef.current !== "user_speaking" || !mediaRecorderRef.current) return;
+      const barge = floorRef.current === "ai_speaking" && Boolean(onBargeInRef.current);
+      if (!mediaRecorderRef.current) return;
+      if (floorRef.current !== "user_speaking" && !barge) return;
 
       const rms = getRMS();
       const speaking = rms > SILENCE_THRESHOLD;
@@ -340,7 +364,11 @@ export function useWhisperSession({
         mediaRecorderRef.current = null;
         audioChunksRef.current = [];
         isTranscribingRef.current = false;
-      } else if (floorRef.current === "user_speaking" && !isTranscribingRef.current && mediaStreamRef.current) {
+      } else if (
+        (floorRef.current === "user_speaking" || (floorRef.current === "ai_speaking" && Boolean(onBargeInRef.current))) &&
+        !isTranscribingRef.current &&
+        mediaStreamRef.current
+      ) {
         startRecordingFnRef.current();
       }
     },
@@ -356,6 +384,16 @@ export function useWhisperSession({
     transition("user_speaking");
     captureEnabledRef.current = true;
     startRecordingFnRef.current();
+  }, [transition]);
+
+  /** Start mic + VAD while floor is `ai_speaking` so barge-in transcription can run (Expert TTS question phase). */
+  const beginBargeWhileAiSpeaking = useCallback(() => {
+    if (isTranscribingRef.current) return;
+    captureEnabledRef.current = true;
+    transition("ai_speaking");
+    if (mediaStreamRef.current) {
+      startRecordingFnRef.current();
+    }
   }, [transition]);
 
   useEffect(() => {
@@ -374,5 +412,6 @@ export function useWhisperSession({
     setAbortController,
     setCaptureEnabled,
     resumeListening,
+    beginBargeWhileAiSpeaking,
   };
 }

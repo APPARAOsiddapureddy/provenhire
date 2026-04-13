@@ -40,7 +40,12 @@ export async function callGeminiJson(system: string, user: string, tier: "fast" 
   }
 }
 
-export async function callGeminiText(system: string, user: string, tier: "fast" | "balanced" | "deep"): Promise<string> {
+export async function callGeminiText(
+  system: string,
+  user: string,
+  tier: "fast" | "balanced" | "deep",
+  opts?: { maxOutputTokens?: number }
+): Promise<string> {
   if (!gemini) return "";
   const model =
     tier === "fast" ? "gemini-2.0-flash" : tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
@@ -48,7 +53,10 @@ export async function callGeminiText(system: string, user: string, tier: "fast" 
     const response = await gemini.models.generateContent({
       model,
       contents: `${system}\n\n${user}`,
-      config: { temperature: 0.35 },
+      config: {
+        temperature: 0.35,
+        ...(opts?.maxOutputTokens != null ? { maxOutputTokens: opts.maxOutputTokens } : {}),
+      },
     });
     return responseText(response);
   } catch (e) {
@@ -72,7 +80,8 @@ export async function detectWeakness(
   question: string,
   answer: string,
   sprint: number,
-  priorWeaknesses: { type?: string }[]
+  priorWeaknesses: { type?: string }[],
+  opts?: { tier?: "fast" | "balanced" }
 ): Promise<{
   weakness: string;
   type: string;
@@ -113,7 +122,7 @@ Return JSON only:
   "suggestedFollowup": "<short probe idea, optional>"
 }`,
     `Sprint ${sprint} — ${focus}\n${priorContext}\n\nQuestion: ${question}\n\nCandidate Answer: ${answer}`,
-    "balanced"
+    opts?.tier ?? "balanced"
   )) as {
     weakness?: string;
     type?: string;
@@ -153,7 +162,8 @@ Return JSON only:
 // ── DISCREPANCY AGENT ─────────────────────────────────────────────────────────
 export async function checkDiscrepancy(
   resume: string,
-  answer: string
+  answer: string,
+  opts?: { tier?: "fast" | "balanced" }
 ): Promise<{
   conflict: boolean;
   description: string;
@@ -165,7 +175,7 @@ export async function checkDiscrepancy(
     `Compare resume claims vs candidate explanation. Detect inconsistencies between what they claim to have built/know and what they demonstrate.
 Return JSON: {"conflict": true/false, "description": "...", "severity": "low | high", "resumeClaim": "short quote or paraphrase of resume claim being tested", "actualStatement": "what they said in this answer that conflicts"}`,
     `Resume:\n${resume.slice(0, 2000)}\n\nCandidate Explanation:\n${answer}`,
-    "balanced"
+    opts?.tier ?? "balanced"
   )) as {
     conflict?: boolean;
     description?: string;
@@ -183,40 +193,114 @@ Return JSON: {"conflict": true/false, "description": "...", "severity": "low | h
   };
 }
 
+/** Markers suggesting intellectual honesty — do not treat as evasion. */
+const HONEST_ADMISSION_RE =
+  /to be honest|i don't know|i do not know|i should be clear|it's basically just|it is basically just|actually it's more like|actually it is more like|i should be precise|i am not sure|i'm not sure|i was wrong|i made a mistake/i;
+
 // ── REASONING BEHAVIOR AGENT ──────────────────────────────────────────────────
+export type ReasoningBehaviorMarker =
+  | "admitted_gap"
+  | "pivoted_elegantly"
+  | "confident"
+  | "distressed"
+  | "overconfident"
+  | "deflecting";
+
 export type ReasoningBehaviorOutput = {
   structureScore: number;
   clarificationBehavior: string;
   adaptability: "flexible" | "rigid" | "defensive";
   confidenceCalibration: "calibrated" | "overconfident" | "underconfident";
+  /** Full behavioral classification (Gemini + defaults). */
+  behavior_marker: ReasoningBehaviorMarker;
+  /** True when the candidate showed explicit intellectual honesty (subset of markers). */
+  honesty_signal: boolean;
+  tone: "composed" | "uncertain" | "defensive" | "engaged";
+  escalation_recommendation: "de-escalate" | "maintain" | "probe_deeper";
+  /** Optional flags used by orchestrator / eval (keep for backward compat). */
+  calibration_success?: boolean;
+  explore_depth?: boolean;
 };
+
+function normalizeReasoningBehavior(raw: Record<string, unknown>, answer: string): ReasoningBehaviorOutput {
+  const adapt = String(raw.adaptability ?? "rigid");
+  const conf = String(raw.confidenceCalibration ?? "calibrated");
+  const markerRaw = String(raw.behavior_marker ?? "").toLowerCase();
+  const allowed: ReasoningBehaviorMarker[] = [
+    "admitted_gap",
+    "pivoted_elegantly",
+    "confident",
+    "distressed",
+    "overconfident",
+    "deflecting",
+  ];
+  let behavior_marker: ReasoningBehaviorMarker = allowed.includes(markerRaw as ReasoningBehaviorMarker)
+    ? (markerRaw as ReasoningBehaviorMarker)
+    : "confident";
+  if (HONEST_ADMISSION_RE.test(answer)) {
+    behavior_marker = "admitted_gap";
+  }
+  const honesty_signal = Boolean(raw.honesty_signal) || behavior_marker === "admitted_gap" || behavior_marker === "pivoted_elegantly";
+  const toneRaw = String(raw.tone ?? "composed").toLowerCase();
+  const tone: ReasoningBehaviorOutput["tone"] =
+    toneRaw === "uncertain" || toneRaw === "defensive" || toneRaw === "engaged" ? toneRaw : "composed";
+  const escRaw = String(raw.escalation_recommendation ?? "maintain").toLowerCase();
+  const escalation_recommendation: ReasoningBehaviorOutput["escalation_recommendation"] =
+    escRaw === "de-escalate" || escRaw === "probe_deeper" ? escRaw : "maintain";
+
+  return {
+    structureScore: Math.min(3, Math.max(0, Number(raw.structureScore) || 0)),
+    clarificationBehavior: String(raw.clarificationBehavior ?? "answers_directly"),
+    adaptability: adapt === "flexible" || adapt === "defensive" ? adapt : "rigid",
+    confidenceCalibration: conf === "overconfident" || conf === "underconfident" ? conf : "calibrated",
+    behavior_marker,
+    honesty_signal,
+    tone,
+    escalation_recommendation,
+    calibration_success: Boolean(raw.calibration_success),
+    explore_depth: Boolean(raw.explore_depth),
+  };
+}
 
 export async function evaluateReasoning(answer: string, wasChallenged: boolean): Promise<ReasoningBehaviorOutput> {
   const result = (await callGeminiJson(
-    `Evaluate HOW the candidate thinks and communicates. Do NOT evaluate technical accuracy.
-Track: structure (do they enumerate steps?), clarification behavior, adaptability, confidence calibration.
-Return JSON: {"structureScore": 0-3, "clarificationBehavior": "asks_clarification|answers_directly|avoids|mixed", "adaptability": "flexible|rigid|defensive", "confidenceCalibration": "calibrated|overconfident|underconfident"}`,
+    `Evaluate HOW the candidate thinks and communicates. Do NOT score technical correctness.
+Return JSON only with this shape:
+{
+  "structureScore": 0-3,
+  "clarificationBehavior": "asks_clarification|answers_directly|avoids|mixed",
+  "adaptability": "flexible|rigid|defensive",
+  "confidenceCalibration": "calibrated|overconfident|underconfident",
+  "behavior_marker": "admitted_gap|pivoted_elegantly|confident|distressed|overconfident|deflecting",
+  "honesty_signal": true/false,
+  "tone": "composed|uncertain|defensive|engaged",
+  "escalation_recommendation": "de-escalate|maintain|probe_deeper",
+  "calibration_success": true/false,
+  "explore_depth": true/false
+}
+Definitions:
+- admitted_gap: explicitly says they don't know or are unsure of a key part.
+- pivoted_elegantly: redirects to an adjacent strength credibly without evading.
+- deflecting: answers a different question than asked or refuses the frame without negotiating.
+- distressed: fragmented, heavy hedging, or self-contradictory under pressure.
+- escalation_recommendation: de-escalate if they are honest or overwhelmed; probe_deeper if they are hand-waving with false confidence; maintain otherwise.`,
     `Candidate was challenged: ${wasChallenged}\n\nAnswer:\n${answer}`,
     "balanced"
   )) as Record<string, unknown> | null;
   const r = result && typeof result === "object" ? result : {};
-  const adapt = String(r.adaptability ?? "rigid");
-  const conf = String(r.confidenceCalibration ?? "calibrated");
-  return {
-    structureScore: Math.min(3, Math.max(0, Number(r.structureScore) || 0)),
-    clarificationBehavior: String(r.clarificationBehavior ?? "answers_directly"),
-    adaptability:
-      adapt === "flexible" || adapt === "defensive" ? adapt : "rigid",
-    confidenceCalibration:
-      conf === "overconfident" || conf === "underconfident" ? conf : "calibrated",
-  };
+  return normalizeReasoningBehavior(r, answer);
 }
 
-/** Soften model weakness when reasoning shows honest calibration (in addition to regex in detectWeakness). */
+/** Soften or sharpen weakness severity using reasoning behavior (honesty loop + escalation policy). */
 export function applyReasoningHonestyCap(
   weakness: { type?: string; severity?: string; attackStrategy?: string },
   reasoning: ReasoningBehaviorOutput
 ): void {
+  if (reasoning.escalation_recommendation === "de-escalate") {
+    if (weakness.severity === "high") weakness.severity = "medium";
+  } else if (reasoning.escalation_recommendation === "probe_deeper") {
+    if (weakness.severity === "medium") weakness.severity = "high";
+  }
   if (reasoning.adaptability === "flexible" && reasoning.confidenceCalibration === "calibrated") {
     if (weakness.severity === "high") weakness.severity = "medium";
     weakness.type = "calibration_success";
@@ -274,10 +358,6 @@ const ATTACK_INSTRUCTIONS: Record<string, string> = {
   explore_depth:
     "In 2–4 sentences, ask one precise follow-up that deepens understanding without repeating prior questions.",
 };
-
-/** Markers suggesting intellectual honesty — do not treat as evasion. */
-const HONEST_ADMISSION_RE =
-  /to be honest|i don't know|i do not know|i should be clear|it's basically just|it is basically just|actually it's more like|actually it is more like|i should be precise|i am not sure|i'm not sure|i was wrong|i made a mistake/i;
 
 const SPRINT_GOALS: Record<number, string> = {
   1: "Build a clear picture of the candidate's most significant project — the problem it solved, why they built it this way, what they personally contributed, and what challenges they faced.",
@@ -399,6 +479,21 @@ Rewrite into ONE medium-length spoken question (2–4 sentences). Same intent as
   return q || template;
 }
 
+/** Fast inline bank follow-up hydration (Gemini Flash, short output) for fast-track fallback. */
+export async function adaptFollowupFast(template: string, answer: string, persona: string): Promise<string> {
+  const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead;
+  const text = await callGeminiText(
+    system,
+    `Bank follow-up template: ${template}
+Candidate just said: ${answer.slice(0, 1200)}
+Rewrite into ONE medium-length spoken question (2–4 sentences). Same intent as the template. No thanks or filler — output only the question.`,
+    "fast",
+    { maxOutputTokens: 256 }
+  );
+  const q = text.replace(/^["']|["']$/g, "").trim();
+  return q || template;
+}
+
 export async function generateSprintQuestion(
   sprint: number,
   persona: string,
@@ -492,6 +587,11 @@ const EXPERIENCE_EVAL_HINT: Record<string, string> = {
     "Senior benchmark: score 70+ only with ownership, architectural awareness, and mentoring signal. Penalize surface-level answers.",
 };
 
+/**
+ * Final interview adjudication from Q/A transcript + aggregated weakness/reasoning signals.
+ * Note: per-turn `history` rows may attach weakness/discrepancy/reasoning metadata up to one turn
+ * after the answer (strict fast/slow staging); the Q/A text itself is always the canonical pair.
+ */
 export async function evaluateFullInterview(
   history: {
     sprint?: number;
