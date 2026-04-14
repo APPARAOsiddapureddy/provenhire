@@ -118,6 +118,10 @@ export function SystemDesignInterviewStage({
     },
   });
 
+  // `useWhisperSession` returns a new object each render — don't use it in effect deps.
+  const whisperSessionRef = useRef(whisperSession);
+  whisperSessionRef.current = whisperSession;
+
   useEffect(() => {
     const el = videoRef.current;
     const stream = streamRef.current;
@@ -134,9 +138,10 @@ export function SystemDesignInterviewStage({
     ttsAbortRef.current?.abort();
     const ac = new AbortController();
     ttsAbortRef.current = ac;
-    whisperSession.setAbortController(ac);
-    whisperSession.setCaptureEnabled(false);
-    whisperSession.transition("ai_speaking");
+    const w = whisperSessionRef.current;
+    w.setAbortController(ac);
+    w.setCaptureEnabled(false);
+    w.transition("ai_speaking");
     try {
       await speakText(text, ac.signal);
       if (!ac.signal.aborted) {
@@ -144,12 +149,12 @@ export function SystemDesignInterviewStage({
       }
     } finally {
       if (!ac.signal.aborted) {
-        whisperSession.setCaptureEnabled(true);
-        whisperSession.transition("user_speaking");
-        whisperSession.resumeListening();
+        w.setCaptureEnabled(true);
+        w.transition("user_speaking");
+        w.resumeListening();
       }
     }
-  }, [whisperSession]);
+  }, []);
 
   // Speak only after the question is rendered (avoids TTS starting while the UI is still blank).
   useEffect(() => {
@@ -172,7 +177,7 @@ export function SystemDesignInterviewStage({
       streamRef.current = stream;
       setCameraActive(true);
       setSessionStarted(true);
-      await whisperSession.start({ sharedMediaStream: stream, deferMicCapture: true });
+      await whisperSessionRef.current.start({ sharedMediaStream: stream, deferMicCapture: true });
 
       const status = await api.get<{
         activeSession?: boolean;
@@ -215,7 +220,7 @@ export function SystemDesignInterviewStage({
       if (videoRef.current) videoRef.current.srcObject = null;
       setCameraActive(false);
       setSessionStarted(false);
-      whisperSession.stop();
+      whisperSessionRef.current.stop();
       const msg =
         e instanceof Error && e.name === "NotAllowedError"
           ? "Camera access is required for this interview."
@@ -236,10 +241,10 @@ export function SystemDesignInterviewStage({
   useEffect(() => {
     return () => {
       ttsAbortRef.current?.abort();
-      whisperSession.stop();
+      whisperSessionRef.current.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [whisperSession]);
+  }, []);
 
   const submit = async () => {
     const id = interviewId;
@@ -250,7 +255,7 @@ export function SystemDesignInterviewStage({
       return;
     }
     setTurnBusy(true);
-    whisperSession.setCaptureEnabled(false);
+    whisperSessionRef.current.setCaptureEnabled(false);
     try {
       const turn = await api.post<{
         response: string;
@@ -295,9 +300,10 @@ export function SystemDesignInterviewStage({
     } finally {
       setTurnBusy(false);
       if (!complete && !proctoringTerminated) {
-        whisperSession.setCaptureEnabled(true);
-        whisperSession.transition("user_speaking");
-        whisperSession.resumeListening();
+        const w = whisperSessionRef.current;
+        w.setCaptureEnabled(true);
+        w.transition("user_speaking");
+        w.resumeListening();
       }
     }
   };
