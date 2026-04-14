@@ -10,14 +10,14 @@ export type InterviewSttMode = "whisper" | "idle";
  * VAD threshold in RMS units (0..1). This must be low enough to detect quieter mics/laptops.
  * We also adapt it per-recording using a short noise-floor sample.
  */
-const BASE_SILENCE_THRESHOLD = 0.0025;
+const BASE_SILENCE_THRESHOLD = 0.001;
 /** End-of-utterance: wait this long after speech stops before sending audio to Whisper (product default 2s). */
-const SILENCE_DURATION_MS = 2000;
+const SILENCE_DURATION_MS = 1200;
 // Hard cap so we always flush some audio even if VAD never detects "speaking" on a quiet mic.
 const MAX_RECORDING_MS = 20_000;
 // Additional safety: force a flush periodically even without an RMS threshold crossing.
 const FORCE_FLUSH_MS = 10_000;
-const MIN_SPEECH_MS = 300;
+const MIN_SPEECH_MS = 150;
 
 export function useWhisperSession({
   interviewId: _interviewId,

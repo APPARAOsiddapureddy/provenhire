@@ -469,84 +469,135 @@ export default function DataSystemDesignStage({
                 </Button>
               </div>
 
-              <Textarea
-                value={answerDraft}
-                onChange={(e) => setAnswerDraft(e.target.value)}
-                placeholder="Speak your answer (recommended). Pause ~2s to transcribe. You can also type here."
-                rows={10}
-                disabled={complete}
-                className="font-sans text-sm"
-              />
-              <div className="rounded-lg border border-primary/25 bg-primary/5 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-2">
-                    <div className="mt-0.5 rounded-md bg-primary/10 text-primary p-1.5">
-                      <Mic className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">Answer by voice</p>
-                      <p className="text-xs text-muted-foreground">
-                        Start speaking now. After you pause for about 2 seconds, your speech will appear in the answer box.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {Array.from({ length: 10 }).map((_, i) => {
-                      const level =
-                        whisperSession.floor === "user_speaking"
-                          ? Math.min(100, whisperSession.micLevel * 100 + (i % 3) * 6)
-                          : 0;
-                      const active = level > i * 10;
-                      return (
-                        <span
-                          key={i}
-                          className={`h-3 w-1.5 rounded-full ${
-                            whisperSession.floor === "ai_speaking"
-                              ? "bg-muted-foreground/20"
-                              : active
-                                ? "bg-primary/70"
-                                : "bg-muted-foreground/25"
-                          }`}
-                        />
-                      );
-                    })}
-                  </div>
+              <div className="rounded-xl border bg-card p-4 space-y-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Radio className="h-4 w-4 text-primary shrink-0" />
+                  <h3 className="text-sm font-semibold">Voice session</h3>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-2 py-0.5">
-                    Status:{" "}
-                    <span className="font-medium text-foreground">
-                      {whisperSession.floor === "ai_speaking"
-                        ? "AI speaking (mic paused)"
-                        : whisperSession.sttMode === "whisper"
-                          ? "Listening"
-                          : "Off"}
-                    </span>
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-2 py-0.5">
-                    Mic level: <span className="tabular-nums font-medium text-foreground">{Math.round(whisperSession.micLevel * 100)}%</span>
-                  </span>
-                </div>
-              </div>
-              {!!partial.trim() && (
-                <div className="text-xs text-muted-foreground">
-                  Transcribing: <span className="italic">{partial}</span>
-                </div>
-              )}
 
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => void submit()}
-                  disabled={turnBusy || complete || whisperSession.floor === "ai_speaking"}
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  {turnBusy ? "Sending…" : "Submit answer"}
-                </Button>
-                {onReturnToDashboard && (
-                  <Button type="button" variant="ghost" onClick={onReturnToDashboard}>
-                    Dashboard
-                  </Button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border ${
+                      whisperSession.floor === "user_speaking"
+                        ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-300 ring-2 ring-green-500/20"
+                        : whisperSession.floor === "ai_thinking"
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                          : whisperSession.floor === "ai_speaking"
+                            ? "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/15"
+                            : "border-muted bg-muted/40 text-muted-foreground"
+                    }`}
+                  >
+                    <Mic className={`h-4 w-4 shrink-0 ${whisperSession.floor === "ai_speaking" ? "opacity-60" : ""}`} />
+                    <span className="text-xs font-semibold uppercase tracking-wide">
+                      {whisperSession.floor === "user_speaking"
+                        ? "Listening — speak your answer"
+                        : whisperSession.floor === "ai_thinking"
+                          ? "AI thinking…"
+                          : whisperSession.floor === "ai_speaking"
+                            ? "AI speaking — listen"
+                            : whisperSession.sttMode === "idle"
+                              ? "Starting microphone…"
+                              : "Ready"}
+                    </span>
+                    {whisperSession.sttMode === "whisper" && (
+                      <span className="text-[10px] font-normal normal-case opacity-85 border-l pl-2 ml-1 border-current/25">
+                        Whisper (segmented)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Input level</p>
+                  <div className="flex items-end gap-0.5 h-10 px-1">
+                    {Array.from({ length: 24 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className={`flex-1 rounded-full transition-all duration-75 min-h-[5px] ${
+                          whisperSession.floor === "user_speaking"
+                            ? "bg-primary/70"
+                            : whisperSession.floor === "ai_thinking"
+                              ? "bg-amber-500/45 animate-pulse"
+                              : "bg-muted-foreground/25"
+                        }`}
+                        style={{
+                          height: `${Math.max(
+                            12,
+                            whisperSession.floor === "user_speaking"
+                              ? Math.min(100, whisperSession.micLevel * 100 + (i % 3) * 6)
+                              : whisperSession.floor === "ai_thinking"
+                                ? 22 + ((i * 7) % 18)
+                                : 14
+                          )}%`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {whisperSession.floor === "user_speaking"
+                      ? "Pause ~1.2s after a phrase to transcribe; multiple segments combine in your answer."
+                      : "When the AI finishes, you can speak again."}
+                  </p>
+                </div>
+
+                {sessionStarted && interviewId && !complete && (
+                  <div className="rounded-lg border border-dashed border-primary/25 bg-muted/20 px-3 py-2 space-y-2">
+                    <p className="text-[10px] font-medium text-primary uppercase tracking-wide">Your answer</p>
+                    <div className="max-h-[min(40vh,18rem)] min-h-[5.5rem] overflow-y-auto rounded-md border border-border/80 bg-background px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words">
+                      {answerDraft || partial ? (
+                        <>
+                          {answerDraft}
+                          {partial ? (
+                            <>
+                              {answerDraft ? " " : ""}
+                              <span className="text-muted-foreground italic">{partial}</span>
+                            </>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground italic text-[13px]">
+                          Your speech is transcribed here after each pause. You can also type below.
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 )}
+
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="Optional: type or edit your answer…"
+                    value={answerDraft}
+                    onChange={(e) => setAnswerDraft(e.target.value)}
+                    className="min-h-[72px] rounded-lg border-border/80"
+                    disabled={complete}
+                  />
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+                  <Button
+                    type="button"
+                    size="default"
+                    className="gap-2 shrink-0"
+                    onClick={() => void submit()}
+                    disabled={
+                      !interviewId ||
+                      whisperSession.floor !== "user_speaking" ||
+                      turnBusy ||
+                      ![answerDraft, partial].filter(Boolean).join(" ").trim()
+                    }
+                  >
+                    <Send className="h-4 w-4" />
+                    Submit answer
+                  </Button>
+                  {onReturnToDashboard && (
+                    <Button type="button" variant="ghost" onClick={onReturnToDashboard}>
+                      Dashboard
+                    </Button>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Submit when your full answer is ready. Short pauses send each phrase to transcription; they do not submit automatically.
+                  </p>
+                </div>
               </div>
 
               {complete && outcome && (
