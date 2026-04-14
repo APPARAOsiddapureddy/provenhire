@@ -13,7 +13,10 @@ export type InterviewSttMode = "whisper" | "idle";
 const BASE_SILENCE_THRESHOLD = 0.006;
 /** End-of-utterance: wait this long after speech stops before sending audio to Whisper (product default 2s). */
 const SILENCE_DURATION_MS = 2000;
-const MAX_RECORDING_MS = 120_000;
+// Hard cap so we always flush some audio even if VAD never detects "speaking" on a quiet mic.
+const MAX_RECORDING_MS = 20_000;
+// Additional safety: force a flush periodically even without an RMS threshold crossing.
+const FORCE_FLUSH_MS = 10_000;
 const MIN_SPEECH_MS = 300;
 
 export function useWhisperSession({
@@ -43,6 +46,7 @@ export function useWhisperSession({
   const audioChunksRef = useRef<Blob[]>([]);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxRecordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const forceFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const vizFrameRef = useRef<number | null>(null);
   const vadFrameRef = useRef<number | null>(null);
   const currentAbortRef = useRef<AbortController | null>(null);
@@ -81,6 +85,10 @@ export function useWhisperSession({
     if (maxRecordingTimerRef.current) {
       clearTimeout(maxRecordingTimerRef.current);
       maxRecordingTimerRef.current = null;
+    }
+    if (forceFlushTimerRef.current) {
+      clearTimeout(forceFlushTimerRef.current);
+      forceFlushTimerRef.current = null;
     }
     if (vadFrameRef.current != null) {
       cancelAnimationFrame(vadFrameRef.current);
@@ -238,6 +246,13 @@ export function useWhisperSession({
     maxRecordingTimerRef.current = setTimeout(() => {
       void stopAndTranscribe();
     }, MAX_RECORDING_MS);
+
+    forceFlushTimerRef.current = setTimeout(() => {
+      // If we captured any chunks but VAD never detected speech, still send something to STT.
+      if (mediaRecorderRef.current && audioChunksRef.current.length > 0 && !isTranscribingRef.current) {
+        void stopAndTranscribe();
+      }
+    }, FORCE_FLUSH_MS);
 
     // Calibrate a per-recording threshold based on ambient noise floor (first ~350ms).
     // This improves voice detection on quiet mics and avoids "never detects speaking".
