@@ -31,11 +31,21 @@ interface AssignmentEvaluation {
   gaps?: string[];
 }
 
+interface HobbyCategoryOption {
+  id: string;
+  label: string;
+  description: string;
+}
+
 interface PromptPayload {
-  prompt: string;
-  threshold: number;
+  needsHobbySelection?: boolean;
+  hobbyCategories?: HobbyCategoryOption[];
+  prompt?: string;
+  threshold?: number;
   timeLimitMinutes?: number;
   subtrack?: string;
+  hobbyCategory?: string;
+  hobbyCategoryLabel?: string;
   experienceTier?: string;
   issuedAt?: string;
   deadline?: string;
@@ -72,8 +82,14 @@ const NonTechnicalAssignmentStage = ({
   const [promptError, setPromptError] = useState<string | null>(null);
   const [expiredDeadline, setExpiredDeadline] = useState<string | null>(null);
   const [subtrackLabel, setSubtrackLabel] = useState<string>("");
+  const [topicLabel, setTopicLabel] = useState<string>("");
+  const [needsTopic, setNeedsTopic] = useState(false);
+  const [hobbyCategories, setHobbyCategories] = useState<HobbyCategoryOption[]>([]);
+  const [topicPicking, setTopicPicking] = useState(false);
+  const [suggestedMinutes, setSuggestedMinutes] = useState<number | null>(null);
   const [deadline, setDeadline] = useState<Date | null>(null);
   const [hoursRemaining, setHoursRemaining] = useState<number | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(true);
 
   const isFailed = stageStatus === "failed" || (assignmentJustSubmitted && evaluation && !evaluation.qualified);
   const displayScore = evaluation?.score ?? stageScore ?? 0;
@@ -91,19 +107,44 @@ const NonTechnicalAssignmentStage = ({
     return () => globalThis.clearInterval(interval);
   }, [deadline, refreshHoursRemaining]);
 
+  const applyPromptPayload = useCallback((r: PromptPayload) => {
+    setPromptError(null);
+    setExpiredDeadline(null);
+    if (r.needsHobbySelection) {
+      setNeedsTopic(true);
+      setHobbyCategories(Array.isArray(r.hobbyCategories) ? r.hobbyCategories : []);
+      setPrompt("");
+      setDeadline(null);
+      setHoursRemaining(null);
+      setSubtrackLabel("");
+      setTopicLabel("");
+      setSuggestedMinutes(null);
+      return;
+    }
+    setNeedsTopic(false);
+    setHobbyCategories([]);
+    setPrompt(r.prompt ?? "");
+    setPassThreshold(r.threshold ?? 60);
+    if (typeof r.timeLimitMinutes === "number") setSuggestedMinutes(r.timeLimitMinutes);
+    else setSuggestedMinutes(null);
+    if (r.deadline) setDeadline(new Date(r.deadline));
+    else setDeadline(null);
+    if (typeof r.hoursRemaining === "number") setHoursRemaining(r.hoursRemaining);
+    if (r.subtrack) setSubtrackLabel(r.subtrack);
+    else setSubtrackLabel("");
+    if (r.hobbyCategoryLabel) setTopicLabel(r.hobbyCategoryLabel);
+    else if (r.hobbyCategory) setTopicLabel(r.hobbyCategory.replace(/_/g, " "));
+    else setTopicLabel("");
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
+    setBootstrapping(true);
     void api
       .get<PromptPayload>("/api/verification/non-tech-assignment/prompt")
       .then((r) => {
         if (cancelled) return;
-        setPromptError(null);
-        setExpiredDeadline(null);
-        setPrompt(r.prompt ?? "");
-        setPassThreshold(r.threshold ?? 60);
-        if (r.deadline) setDeadline(new Date(r.deadline));
-        if (typeof r.hoursRemaining === "number") setHoursRemaining(r.hoursRemaining);
-        if (r.subtrack) setSubtrackLabel(r.subtrack);
+        applyPromptPayload(r);
       })
       .catch((err: Error & { response?: { data?: Record<string, unknown> }; status?: number }) => {
         if (cancelled) return;
@@ -120,11 +161,33 @@ const NonTechnicalAssignmentStage = ({
           return;
         }
         setPromptError("Could not load your assignment prompt. Refresh the page or try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setBootstrapping(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [targetJobTitle, isRetry]);
+  }, [targetJobTitle, isRetry, applyPromptPayload]);
+
+  const selectHobbyCategory = (id: string) => {
+    setTopicPicking(true);
+    setPromptError(null);
+    void api
+      .get<PromptPayload>(`/api/verification/non-tech-assignment/prompt?hobby=${encodeURIComponent(id)}`)
+      .then((r) => {
+        applyPromptPayload(r);
+      })
+      .catch((err: Error & { response?: { data?: Record<string, unknown> } }) => {
+        const data = err.response?.data as Record<string, unknown> | undefined;
+        const msg =
+          typeof data?.message === "string"
+            ? data.message
+            : "Could not start that topic. Try again or pick another.";
+        toast.error(msg);
+      })
+      .finally(() => setTopicPicking(false));
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -229,6 +292,17 @@ const NonTechnicalAssignmentStage = ({
     );
   }
 
+  if (bootstrapping) {
+    return (
+      <Card>
+        <CardContent className="py-12 flex flex-col items-center gap-3">
+          <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Loading your assessment…</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (promptError && expiredDeadline) {
     return (
       <Card>
@@ -249,11 +323,52 @@ const NonTechnicalAssignmentStage = ({
     );
   }
 
-  if (promptError && !prompt) {
+  if (promptError && !prompt && !needsTopic) {
     return (
       <Card>
         <CardContent className="py-8">
           <p className="text-sm text-destructive text-center">{promptError}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (needsTopic) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Choose your topic area</CardTitle>
+          <CardDescription>
+            This writing assessment is generic: you will draft a blog-style article for an online hobby magazine in a
+            field you enjoy. Pick the category that best matches what you want to write about — you will brainstorm,
+            outline, add references, then polish the final post.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Your choice starts the 48-hour submission window. You can use any research tools; evaluation focuses on
+            creativity, clarity, expertise, engagement, and polish.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {hobbyCategories.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                disabled={topicPicking}
+                onClick={() => selectHobbyCategory(c.id)}
+                className="text-left rounded-lg border border-border bg-muted/20 p-4 hover:bg-muted/40 hover:border-primary/40 transition-colors disabled:opacity-60"
+              >
+                <p className="font-medium text-foreground">{c.label}</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">{c.description}</p>
+              </button>
+            ))}
+          </div>
+          {topicPicking && (
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              Preparing your brief…
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -269,15 +384,19 @@ const NonTechnicalAssignmentStage = ({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Role Assignment</CardTitle>
+        <CardTitle>Written assessment</CardTitle>
         <CardDescription>
-          {subtrackLabel ? (
+          {topicLabel ? (
+            <span className="inline-flex items-center rounded-md border border-primary/30 px-2 py-0.5 text-xs font-medium">
+              Topic: {topicLabel}
+            </span>
+          ) : subtrackLabel ? (
             <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium capitalize">
               {subtrackLabel.replace(/_/g, " ")}
             </span>
           ) : null}
-          {subtrackLabel ? " · " : ""}
-          Complete your written assignment and upload a PDF or Word document. Need {passThreshold}/100 to pass.
+          {(topicLabel || subtrackLabel) ? " · " : ""}
+          Hobby-magazine blog task — upload one PDF or Word file. Pass mark: {passThreshold}/100.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -306,9 +425,15 @@ const NonTechnicalAssignmentStage = ({
             <div className="rounded-lg border bg-background/50 p-4 space-y-2 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">Instructions</p>
               <ul className="list-disc pl-5 space-y-1">
-                <li>Prepare your response in a document (Word or PDF).</li>
-                <li>You may use any tools, resources, or references.</li>
-                <li>Save your document and upload it below when ready.</li>
+                <li>Follow the brief: brainstorm, outline, references, then the polished blog post (all in one file).</li>
+                <li>State your target reader clearly; use any research tools you need.</li>
+                {suggestedMinutes != null && (
+                  <li>
+                    Suggested total effort (research + drafting + editing): about {suggestedMinutes} minutes — treat this
+                    as flexible; depth and polish matter more than speed.
+                  </li>
+                )}
+                <li>Save as one Word or PDF document and upload when ready.</li>
                 <li>Maximum file size: 10MB. Accepted: PDF, .docx, .doc.</li>
               </ul>
             </div>

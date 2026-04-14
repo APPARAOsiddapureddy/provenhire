@@ -36,10 +36,10 @@ export type DataSystemDesignPlan = {
 };
 
 const LLD_OPENER =
-  "We will start with low-level data design. Imagine you need to build a daily revenue reporting dataset for product and finance — multiple source systems, late-arriving rows, and strict audit requirements. Walk me through the core tables or data model you would propose, how you would handle incremental updates, and how you would validate correctness before the numbers reach executives.";
+  "We start with low-level data design. Build a daily revenue dataset for finance from several messy sources, with late rows and audit needs. In two or three short beats: core tables or model, how you incrementally refresh, and how you prove numbers are right before executives trust them.";
 
 const HLD_OPENER =
-  "Now let's zoom out to platform design. Same org is growing fast — you must support near-real-time experimentation metrics plus batch regulatory extracts. Outline the end-to-end architecture: ingestion, processing, storage, orchestration, and how you would monitor data quality and recover from failures at scale.";
+  "Now zoom out. The same org needs near-real-time experiment metrics plus batch regulatory extracts as it scales. Outline ingestion, processing, storage, and orchestration — and how you watch data quality and recover when jobs fail.";
 
 function parsePlan(raw: unknown): DataSystemDesignPlan | null {
   if (!raw || typeof raw !== "object") return null;
@@ -70,79 +70,35 @@ const SOFTWARE_SYSTEM_DESIGN_PROBLEMS = {
   mid: [
     {
       title: "URL Shortener Service",
-      lldPrompt: `Design the class structure and API for a URL shortening service like bit.ly.
-Focus on: the core entities (URL mapping, user, analytics), the API contracts
-(create short URL, redirect, get stats), and the database schema.
-How do you generate unique short codes? What data do you store per URL?`,
-      hldPrompt: `Now design this at scale — 100 million URLs, 10 billion redirects per month.
-Walk me through: the system architecture (which components exist and how they communicate),
-your database choice and why (read-heavy workload), where you add caching and what you cache,
-how you handle the redirect at low latency, and what breaks first at 10x load.`,
+      lldPrompt: `Design core entities and APIs for a URL shortener: create short link, redirect, basic analytics. How do you generate short codes safely, and what do you persist per URL?`,
+      hldPrompt: `Scale it: massive redirect reads and growing writes. Outline services, storage, caching for hot links, low-latency redirects, and what breaks first at 10× load.`,
     },
     {
       title: "Notification Service",
-      lldPrompt: `Design the class structure and API for a notification service that sends
-email, SMS, and push notifications. Focus on: the notification entity (type, recipient,
-content, status), how you model different channel types, the send API contract,
-and retry logic for failed sends.`,
-      hldPrompt: `Scale this to 10 million notifications per day across email, SMS, and push.
-How do you: decouple the notification request from actual sending (queue design),
-handle rate limits from third-party providers, track delivery status reliably,
-ensure at-least-once delivery without duplicates, and monitor failures?`,
+      lldPrompt: `Model notifications across email, SMS, and push: entity fields, channel types, send API, and retries when a provider fails.`,
+      hldPrompt: `At tens of millions of messages per day: queues between API and senders, provider rate limits, delivery tracking, at-least-once without annoying duplicates, and how you observe failures.`,
     },
     {
       title: "Rate Limiter",
-      lldPrompt: `Design the class and interface structure for a rate limiter that can be used
-as middleware in an API service. Support: per-user limits, per-IP limits, and per-endpoint
-limits. Focus on the interface contract, the configuration model, and the core algorithm
-(token bucket, sliding window, or fixed window — explain your choice).`,
-      hldPrompt: `Now design this as a distributed rate limiter that works across 20 API servers.
-The challenge: each server handles different requests from the same user.
-Walk me through: where you store the counter state (Redis vs database vs in-memory),
-how you handle the race condition of concurrent requests, the trade-off between strict
-accuracy and performance, and what happens when your rate limit store goes down.`,
+      lldPrompt: `Design middleware for per-user, per-IP, and per-endpoint limits: public interface, config shape, and algorithm (token bucket, sliding window, or fixed window) with why.`,
+      hldPrompt: `Distribute it across many API nodes: where counters live, races on concurrent requests, accuracy vs latency trade-off, and behaviour if the limiter store is unavailable.`,
     },
   ],
   senior: [
     {
       title: "Distributed Job Scheduler",
-      lldPrompt: `Design the class and interface structure for a distributed job scheduler
-that supports: one-time jobs, recurring jobs (cron-style), job priorities, and
-retry policies. Focus on: the Job definition model, the scheduling policy interface,
-how executor nodes register and receive work, and how job state is tracked
-through its lifecycle (pending → running → completed/failed → retrying).`,
-      hldPrompt: `This scheduler runs across 50 data centers globally with 99.99% uptime.
-Walk me through: how leader election works for the scheduler (consensus mechanism),
-how you handle network partitions (split-brain scenarios), cross-region job routing,
-what your monitoring and alerting strategy looks like, and how you do a zero-downtime
-upgrade of the scheduler itself.`,
+      lldPrompt: `Model jobs (one-off and cron), priorities, retries, and executor registration. How does state move from pending through running to terminal states?`,
+      hldPrompt: `Across many regions: leader election or consensus, split-brain risk, routing work, monitoring, and upgrading the scheduler without stopping jobs.`,
     },
     {
       title: "Event Sourcing Payment System",
-      lldPrompt: `Design the domain model and event structure for a payment system using
-event sourcing. Core entities: Account, Transaction, Payment, Refund.
-Focus on: how you model immutable events vs mutable projections/read models,
-what events are emitted for a payment lifecycle (initiated → authorized → captured → settled),
-how you handle idempotency keys, and your aggregate design.`,
-      hldPrompt: `Scale this to process 50,000 transactions per second globally.
-Walk me through: your event store design (choice and partitioning strategy),
-how you rebuild projections when a read model becomes corrupt,
-handling consistency across services that subscribe to payment events,
-your approach to regulatory compliance (audit trail, PII handling),
-and how you handle the dual-write problem between your event store and downstream services.`,
+      lldPrompt: `Event-sourced payments: key aggregates, lifecycle events (authorize, capture, settle, refund), idempotency keys, and how read models stay derived from events.`,
+      hldPrompt: `At very high TPS: event store partitioning, rebuilding corrupt projections, cross-service consistency, audit/PII boundaries, and avoiding dual-write traps.`,
     },
     {
       title: "Search Service",
-      lldPrompt: `Design the indexing and query interface for a search service that supports
-full-text search, faceted filtering, and ranking. Focus on: the document model
-and how it maps to an inverted index structure, the query API contract (what a search
-request and response look like), how you handle ranking signals, and how you model
-the indexing pipeline (document in → indexed and searchable).`,
-      hldPrompt: `This search service powers a marketplace with 500 million products.
-Walk me through: your indexing architecture (how new products appear in search within
-seconds of being created), sharding strategy for the index, how you handle index updates
-without downtime, your approach to query latency SLA (p99 < 200ms), and
-how you A/B test ranking algorithm changes without degrading user experience.`,
+      lldPrompt: `Full-text plus facets: document model mapping to an inverted index, query/response API shape, ranking signals, and the ingest path from document to searchable.`,
+      hldPrompt: `Huge catalog: near-real-time indexing, index sharding, updates without long outages, p99 latency discipline, and safe A/B of ranking changes.`,
     },
   ],
 } as const;
@@ -577,7 +533,8 @@ ${histBlock || "(first follow-up after phase opener)"}
 ${formatAskedQuestionsBlock(recentQuestions)}
 
 Generate the NEXT question only. It must advance the design discussion — not repeat prior angles.`,
-    "balanced"
+    "balanced",
+    { maxOutputTokens: 340 }
   );
   return (
     text.replace(/^["']|["']$/g, "").trim() ||

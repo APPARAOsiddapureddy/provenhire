@@ -125,7 +125,7 @@ const VerificationFlow = () => {
     system_design_interview: "System Design Interview",
     expert_interview: "Expert Interview",
     human_expert_interview: "Expert Interview",
-    non_tech_assignment: "Assignment",
+    non_tech_assignment: "Written assessment",
     data_fundamentals: "Data Fundamentals + Aptitude",
     domain_fundamentals: "Domain Fundamentals",
     data_round: "Data Round (SQL + Python)",
@@ -481,16 +481,17 @@ const VerificationFlow = () => {
         return !testStageStarted.non_tech_assignment ? (
           <Card className="border-2 border-primary/30 bg-primary/5">
             <CardContent className="pt-6">
-              <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Assignment</h3>
+              <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Written assessment</h3>
               <p className="text-muted-foreground mb-4">
-                Start the non-technical assignment when you're ready, or return to the homepage and come back later.
+                You will choose a hobby-style topic, then write a magazine blog with brainstorm, outline, and references.
+                Start when you have a focused block of time, or return later from the dashboard.
               </p>
               <div className="flex flex-wrap gap-3">
                 <Button variant="outline" onClick={() => navigate("/")}>
                   Go to Homepage
                 </Button>
                 <Button onClick={() => setTestStageStarted((p) => ({ ...p, non_tech_assignment: true }))}>
-                  Start Assignment
+                  Start written assessment
                 </Button>
               </div>
             </CardContent>

@@ -56,11 +56,12 @@ model User {
   nonTechAssignments         NonTechAssignment[]
 }
 
-/// Issued when a non-technical candidate first fetches the role assignment prompt; 48h window from issuedAt.
+/// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
 model NonTechAssignment {
   id               String    @id @default(uuid())
   userId           String
   subtrack         String
+  hobbyCategory    String?
   experienceTier   String
   prompt           String    @db.Text
   issuedAt         DateTime  @default(now())

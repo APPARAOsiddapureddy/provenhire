@@ -29,6 +29,7 @@ import {
   startAdversarialInterview,
   processTurn,
   handlePartialTranscript,
+  type ProcessTurnHttpPayload,
 } from "../services/interview/orchestrator.js";
 import {
   getPreCachedFillerMp3,
@@ -37,7 +38,20 @@ import {
   synthesizeSpeech,
 } from "../services/tts.service.js";
 import { transcribeAudio, whisperOpenAIErrorMessage } from "../services/whisper.service.js";
-import { interviewTurnLimiter, interviewTranscribeLimiter } from "../middleware/interviewRateLimit.js";
+import {
+  interviewTurnLimiter,
+  interviewTranscribeLimiter,
+  interviewStartLimiter,
+  interviewTtsLimiter,
+  interviewPartialLimiter,
+} from "../middleware/interviewRateLimit.js";
+import { logInterviewEvent, interviewUserRef } from "../utils/interviewTelemetry.js";
+import {
+  getCachedTurnPayload,
+  setCachedTurnPayload,
+  turnDedupKey,
+  aiSkillsTurnDedupKey,
+} from "../utils/interviewTurnDedup.js";
 import { gateExpertInterviewStart } from "../services/candidateRetake.service.js";
 import {
   startAiSkillsInterview,
@@ -124,6 +138,8 @@ async function resolveSystemDesignInterviewRow(
 
 export const interviewRouter = Router();
 
+const MAX_TTS_CHARS = 10_000;
+
 const audioUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
@@ -158,14 +174,44 @@ async function deepgramCreateEphemeralJwt(apiKey: string): Promise<string | null
  * Short-lived JWT for browser WebSocket (subprotocol bearer + token) when possible.
  * Falls back to returning the raw key with auth "token" if /v1/auth/grant fails (e.g. key permissions).
  */
-interviewRouter.get("/deepgram-token", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res) => {
+interviewRouter.get("/deepgram-token", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+  const t0 = Date.now();
   const key = process.env.DEEPGRAM_API_KEY?.trim();
-  if (!key) return res.json({ token: null as string | null, auth: null as "bearer" | "token" | null });
+  if (!key) {
+    logInterviewEvent({
+      event: "interview_deepgram_token",
+      userRef: interviewUserRef(req.user!.id),
+      route: "GET /deepgram-token",
+      status: 200,
+      durationMs: Date.now() - t0,
+      deepgramAuth: "none",
+      errorCode: "deepgram_unconfigured",
+    });
+    return res.json({ token: null as string | null, auth: null as "bearer" | "token" | null });
+  }
 
   const jwt = await deepgramCreateEphemeralJwt(key);
+  const durationMs = Date.now() - t0;
   if (jwt) {
+    logInterviewEvent({
+      event: "interview_deepgram_token",
+      userRef: interviewUserRef(req.user!.id),
+      route: "GET /deepgram-token",
+      status: 200,
+      durationMs,
+      deepgramAuth: "bearer",
+    });
     return res.json({ token: jwt, auth: "bearer" as const });
   }
+  logInterviewEvent({
+    event: "interview_deepgram_token",
+    userRef: interviewUserRef(req.user!.id),
+    route: "GET /deepgram-token",
+    status: 200,
+    durationMs,
+    deepgramAuth: "token",
+    errorCode: "deepgram_grant_fallback",
+  });
   return res.json({ token: key, auth: "token" as const });
 });
 
@@ -208,16 +254,43 @@ interviewRouter.post(
         return res.status(400).json({ error: "No audio file provided" });
       }
 
+      const t0 = Date.now();
       const { transcript, confidence } = await transcribeAudio(req.file.buffer, req.file.mimetype);
+      const durationMs = Date.now() - t0;
 
       if (!transcript.trim()) {
+        logInterviewEvent({
+          event: "interview_transcribe",
+          userRef: interviewUserRef(req.user!.id),
+          route: "POST /transcribe",
+          status: 200,
+          audioBytes: req.file.buffer.length,
+          transcriptEmpty: true,
+          durationMs,
+        });
         return res.json({ transcript: "", confidence: "low", empty: true });
       }
 
+      logInterviewEvent({
+        event: "interview_transcribe",
+        userRef: interviewUserRef(req.user!.id),
+        route: "POST /transcribe",
+        status: 200,
+        audioBytes: req.file.buffer.length,
+        transcriptEmpty: false,
+        durationMs,
+      });
       return res.json({ transcript, confidence, empty: false });
     } catch (e) {
       const message = whisperOpenAIErrorMessage(e);
       console.error("[interview/transcribe]", message, e);
+      logInterviewEvent({
+        event: "interview_transcribe_error",
+        userRef: interviewUserRef(req.user!.id),
+        route: "POST /transcribe",
+        status: 500,
+        errorCode: "transcribe_failed",
+      });
       return res.status(500).json({
         error: "Transcription failed",
         message,
@@ -226,13 +299,25 @@ interviewRouter.post(
   }
 );
 
-interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRequest, res: Response) => {
+interviewRouter.post(
+  "/tts",
+  requireAuth,
+  requireJobSeeker,
+  interviewTtsLimiter,
+  async (req: AuthedRequest, res: Response) => {
   const text = (req.body as { text?: unknown })?.text;
   if (typeof text !== "string" || !text.trim()) {
     return res.status(400).json({ error: "text is required" });
   }
+  const trimmed = text.trim();
+  if (trimmed.length > MAX_TTS_CHARS) {
+    return res.status(413).json({
+      error: "text_too_long",
+      message: `TTS text exceeds ${MAX_TTS_CHARS} characters. Split the question or shorten the copy.`,
+    });
+  }
 
-  const result = await synthesizeSpeech(text.trim());
+  const result = await synthesizeSpeech(trimmed);
 
   if (result.stream) {
     res.setHeader("Content-Type", "audio/mpeg");
@@ -247,8 +332,23 @@ interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRe
         res.write(Buffer.from(value));
       }
       res.end();
+      logInterviewEvent({
+        event: "interview_tts",
+        userRef: interviewUserRef(req.user!.id),
+        route: "POST /tts",
+        status: 200,
+        ttsChars: trimmed.length,
+        ttsProvider: result.provider,
+      });
     } catch (e) {
       console.error("[tts] Stream write error:", e);
+      logInterviewEvent({
+        event: "interview_tts_error",
+        userRef: interviewUserRef(req.user!.id),
+        route: "POST /tts",
+        status: 500,
+        errorCode: "stream_failed",
+      });
       if (!res.headersSent) {
         res.status(500).json({ error: "Stream failed" });
       } else {
@@ -258,14 +358,24 @@ interviewRouter.post("/tts", requireAuth, requireJobSeeker, async (req: AuthedRe
     return;
   }
 
+  logInterviewEvent({
+    event: "interview_tts_fallback",
+    userRef: interviewUserRef(req.user!.id),
+    route: "POST /tts",
+    status: 200,
+    ttsChars: trimmed.length,
+    ttsProvider: "browser_fallback",
+  });
   return res.status(200).json({
     fallback: true,
-    text: text.trim(),
+    text: trimmed,
     provider: "browser_fallback",
   });
-});
+  }
+);
 
 interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (req: AuthedRequest, res: Response) => {
+  const t0 = Date.now();
   const rawIdx = typeof req.query.index === "string" ? Number.parseInt(req.query.index, 10) : NaN;
   const useIndex = Number.isFinite(rawIdx) && rawIdx >= 0 && rawIdx <= 3;
   const precached = useIndex ? getPreCachedFillerMp3ByIndex(rawIdx) : getPreCachedFillerMp3();
@@ -274,6 +384,16 @@ interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (req: Au
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("X-Filler-Text", encodeURIComponent(precached.text));
     res.setHeader("X-TTS-Provider", "precached");
+    logInterviewEvent({
+      event: "interview_tts_filler",
+      userRef: interviewUserRef(req.user!.id),
+      route: "GET /tts-filler",
+      status: 200,
+      durationMs: Date.now() - t0,
+      fillerPrecached: true,
+      fillerIndex: useIndex ? rawIdx : undefined,
+      ttsProvider: "precached",
+    });
     return res.status(200).send(precached.buffer);
   }
 
@@ -294,12 +414,42 @@ interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (req: Au
         res.write(Buffer.from(value));
       }
       res.end();
-    } catch {
+      logInterviewEvent({
+        event: "interview_tts_filler",
+        userRef: interviewUserRef(req.user!.id),
+        route: "GET /tts-filler",
+        status: 200,
+        durationMs: Date.now() - t0,
+        fillerPrecached: false,
+        fillerIndex: useIndex ? rawIdx : undefined,
+        ttsProvider: result.provider,
+      });
+    } catch (e) {
+      console.error("[interview/tts-filler] stream", e);
+      logInterviewEvent({
+        event: "interview_tts_filler_error",
+        userRef: interviewUserRef(req.user!.id),
+        route: "GET /tts-filler",
+        status: 500,
+        errorCode: "stream_failed",
+        fillerIndex: useIndex ? rawIdx : undefined,
+        ttsProvider: result.provider,
+      });
       res.end();
     }
     return;
   }
 
+  logInterviewEvent({
+    event: "interview_tts_filler",
+    userRef: interviewUserRef(req.user!.id),
+    route: "GET /tts-filler",
+    status: 200,
+    durationMs: Date.now() - t0,
+    fillerPrecached: false,
+    fillerIndex: useIndex ? rawIdx : undefined,
+    ttsProvider: "browser_fallback",
+  });
   return res.status(200).json({
     fallback: true,
     text: fillerText,
@@ -307,7 +457,7 @@ interviewRouter.get("/tts-filler", requireAuth, requireJobSeeker, async (req: Au
   });
 });
 
-interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, interviewStartLimiter, async (req: AuthedRequest, res) => {
   try {
     const schema = z.object({
       jobRole: z.string().min(1),
@@ -336,7 +486,7 @@ interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: Aut
       });
       if (!assign || expertSt?.status !== "in_progress") {
         return res.status(403).json({
-          error: "Pass the role assignment and open the AI Expert Interview step before starting.",
+          error: "Pass the written assessment and open the AI Expert Interview step before starting.",
         });
       }
     }
@@ -355,6 +505,14 @@ interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: Aut
 
     const result = await startAdversarialInterview(interview.id);
 
+    logInterviewEvent({
+      event: "interview_expert_start",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: interview.id,
+      route: "POST /v2/start",
+      status: 200,
+      sprint: result.sprint,
+    });
     return res.json({
       interviewId: interview.id,
       question: result.question,
@@ -366,6 +524,13 @@ interviewRouter.post("/v2/start", requireAuth, requireJobSeeker, async (req: Aut
     });
   } catch (e) {
     console.error("[interview/v2/start]", e);
+    logInterviewEvent({
+      event: "interview_expert_start_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /v2/start",
+      status: 500,
+      errorCode: "start_failed",
+    });
     return res.status(500).json({ error: "Failed to start interview" });
   }
 });
@@ -390,6 +555,23 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, interviewTurnLim
       console.warn("[interview/v2/turn] prefetch warmup", err)
     );
 
+    const clientTid = parsed.data.turnId?.trim();
+    if (clientTid && clientTid.length >= 8) {
+      const dedupKey = turnDedupKey(req.user!.id, parsed.data.interviewId, clientTid);
+      const cached = getCachedTurnPayload(dedupKey) as ProcessTurnHttpPayload | undefined;
+      if (cached) {
+        logInterviewEvent({
+          event: "interview_expert_turn_dedup",
+          userRef: interviewUserRef(req.user!.id),
+          interviewId: parsed.data.interviewId,
+          route: "POST /v2/turn",
+          status: 200,
+          turnId: clientTid,
+        });
+        return res.json(cached);
+      }
+    }
+
     const { result, slowWork } = await processTurn(parsed.data.interviewId, parsed.data.answer, req.user!.id, {
       audioUrl: parsed.data.audioUrl,
       transcriptionConfidence: parsed.data.transcriptionConfidence,
@@ -400,6 +582,23 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, interviewTurnLim
       whisperLatencyMs: parsed.data.whisperLatencyMs,
     });
 
+    if (clientTid && clientTid.length >= 8) {
+      setCachedTurnPayload(turnDedupKey(req.user!.id, parsed.data.interviewId, clientTid), result);
+    }
+
+    logInterviewEvent({
+      event: "interview_expert_turn",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: parsed.data.interviewId,
+      route: "POST /v2/turn",
+      status: 200,
+      answerChars: parsed.data.answer.length,
+      whisperLatencyMs: parsed.data.whisperLatencyMs,
+      turnId: clientTid,
+      fragmentRetry: Boolean(result.fragmentRetry),
+      complete: Boolean(result.complete),
+      sprint: result.sprint,
+    });
     res.json(result);
     if (slowWork) {
       void slowWork.catch((err) => console.error("[interview/v2/turn] slow path", err));
@@ -408,12 +607,19 @@ interviewRouter.post("/v2/turn", requireAuth, requireJobSeeker, interviewTurnLim
   } catch (e) {
     console.error("[interview/v2/turn]", e);
     const msg = e instanceof Error ? e.message : "Failed to process turn";
+    logInterviewEvent({
+      event: "interview_expert_turn_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /v2/turn",
+      status: msg === "Interview not found" ? 404 : 500,
+      errorCode: msg === "Interview not found" ? "not_found" : "turn_failed",
+    });
     if (msg === "Interview not found") return res.status(404).json({ error: msg });
     return res.status(500).json({ error: "Failed to process turn" });
   }
 });
 
-interviewRouter.post("/v2/partial", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+interviewRouter.post("/v2/partial", requireAuth, requireJobSeeker, interviewPartialLimiter, async (req: AuthedRequest, res) => {
   try {
     const interviewId = (req.body as { interviewId?: string })?.interviewId;
     const text = (req.body as { text?: string })?.text;
@@ -429,7 +635,7 @@ interviewRouter.post("/v2/partial", requireAuth, requireJobSeeker, async (req: A
   }
 });
 
-interviewRouter.post("/ai-skills/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+interviewRouter.post("/ai-skills/start", requireAuth, requireJobSeeker, interviewStartLimiter, async (req: AuthedRequest, res) => {
   try {
     const schema = z.object({
       jobRole: z.string().min(1),
@@ -448,12 +654,26 @@ interviewRouter.post("/ai-skills/start", requireAuth, requireJobSeeker, async (r
     const isData = parsed.data.isDataTrack ?? profile?.roleType === "data";
 
     const result = await startAiSkillsInterview(req.user!.id, parsed.data.jobRole, track, { isDataTrack: isData });
+    logInterviewEvent({
+      event: "interview_ai_skills_start",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: result.interviewId,
+      route: "POST /ai-skills/start",
+      status: 200,
+    });
     return res.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to start";
     if (msg.includes("must be in progress")) return res.status(403).json({ error: msg });
     if (msg.includes("Complete the DSA") || msg.includes("Complete the Data Round")) return res.status(400).json({ error: msg });
     console.error("[interview/ai-skills/start]", e);
+    logInterviewEvent({
+      event: "interview_ai_skills_start_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /ai-skills/start",
+      status: 500,
+      errorCode: "start_failed",
+    });
     return res.status(500).json({ error: "Failed to start AI Skills interview" });
   }
 });
@@ -470,6 +690,23 @@ interviewRouter.post("/ai-skills/turn", requireAuth, requireJobSeeker, interview
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
 
+    const clientTid = parsed.data.turnId?.trim();
+    if (clientTid && clientTid.length >= 8) {
+      const dedupKey = aiSkillsTurnDedupKey(req.user!.id, parsed.data.interviewId, clientTid);
+      const cached = getCachedTurnPayload(dedupKey) as Record<string, unknown> | undefined;
+      if (cached) {
+        logInterviewEvent({
+          event: "interview_ai_skills_turn_dedup",
+          userRef: interviewUserRef(req.user!.id),
+          interviewId: parsed.data.interviewId,
+          route: "POST /ai-skills/turn",
+          status: 200,
+          turnId: clientTid,
+        });
+        return res.json(cached);
+      }
+    }
+
     const profile = await prisma.jobSeekerProfile.findUnique({
       where: { userId: req.user!.id },
       select: { roleType: true },
@@ -477,7 +714,22 @@ interviewRouter.post("/ai-skills/turn", requireAuth, requireJobSeeker, interview
     const overrideStageName = profile?.roleType === "data" ? "data_skills_interview" : undefined;
 
     const result = await processAiSkillsTurn(parsed.data.interviewId, req.user!.id, parsed.data.answer, { overrideStageName });
-    return res.json({ ...result, turnId: parsed.data.turnId });
+    const body = { ...result, turnId: parsed.data.turnId };
+    if (clientTid && clientTid.length >= 8) {
+      setCachedTurnPayload(aiSkillsTurnDedupKey(req.user!.id, parsed.data.interviewId, clientTid), body);
+    }
+    logInterviewEvent({
+      event: "interview_ai_skills_turn",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: parsed.data.interviewId,
+      route: "POST /ai-skills/turn",
+      status: 200,
+      answerChars: parsed.data.answer.length,
+      whisperLatencyMs: parsed.data.whisperLatencyMs,
+      turnId: clientTid,
+      complete: Boolean(result.complete),
+    });
+    return res.json(body);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to process turn";
     if (msg === "Interview not found") return res.status(404).json({ error: msg });
@@ -485,6 +737,13 @@ interviewRouter.post("/ai-skills/turn", requireAuth, requireJobSeeker, interview
       return res.status(400).json({ error: msg });
     }
     console.error("[interview/ai-skills/turn]", e);
+    logInterviewEvent({
+      event: "interview_ai_skills_turn_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /ai-skills/turn",
+      status: 500,
+      errorCode: "turn_failed",
+    });
     return res.status(500).json({ error: "Failed to process AI Skills turn" });
   }
 });
@@ -508,7 +767,12 @@ function adversarialLevelFromTier(tier: ExperienceTier): "junior" | "mid" | "sen
   return "mid";
 }
 
-interviewRouter.post("/data-system-design/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+interviewRouter.post(
+  "/data-system-design/start",
+  requireAuth,
+  requireJobSeeker,
+  interviewStartLimiter,
+  async (req: AuthedRequest, res) => {
   try {
     const schema = z.object({
       jobRole: z.string().min(1),
@@ -527,6 +791,13 @@ interviewRouter.post("/data-system-design/start", requireAuth, requireJobSeeker,
     const level = adversarialLevelFromTier(tier);
 
     const result = await startDataSystemDesignInterview(req.user!.id, parsed.data.jobRole, level);
+    logInterviewEvent({
+      event: "interview_data_sd_start",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: result.interviewId,
+      route: "POST /data-system-design/start",
+      status: 200,
+    });
     return res.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to start";
@@ -535,6 +806,13 @@ interviewRouter.post("/data-system-design/start", requireAuth, requireJobSeeker,
     }
     if (msg.includes("only available")) return res.status(403).json({ error: msg });
     console.error("[interview/data-system-design/start]", e);
+    logInterviewEvent({
+      event: "interview_data_sd_start_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /data-system-design/start",
+      status: 500,
+      errorCode: "start_failed",
+    });
     return res.status(500).json({ error: "Failed to start Data System Design session" });
   }
 });
@@ -551,18 +829,53 @@ interviewRouter.post(
         answer: z.string().min(1),
       });
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+      if (!parsed.success) {
+        logInterviewEvent({
+          event: "interview_data_sd_turn",
+          userRef: interviewUserRef(req.user!.id),
+          route: "POST /data-system-design/turn",
+          status: 400,
+          errorCode: "invalid_payload",
+        });
+        return res.status(400).json({ error: "Invalid payload" });
+      }
 
       const result = await processDataSystemDesignTurn(
         parsed.data.interviewId,
         req.user!.id,
         parsed.data.answer
       );
+      logInterviewEvent({
+        event: "interview_data_sd_turn",
+        userRef: interviewUserRef(req.user!.id),
+        interviewId: parsed.data.interviewId,
+        route: "POST /data-system-design/turn",
+        status: 200,
+        answerChars: parsed.data.answer.length,
+        phase: result.phase,
+        complete: result.complete,
+      });
       return res.json(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to process turn";
-      if (msg === "Interview not found") return res.status(404).json({ error: msg });
+      if (msg === "Interview not found") {
+        logInterviewEvent({
+          event: "interview_data_sd_turn",
+          userRef: interviewUserRef(req.user!.id),
+          route: "POST /data-system-design/turn",
+          status: 404,
+          errorCode: "not_found",
+        });
+        return res.status(404).json({ error: msg });
+      }
       console.error("[interview/data-system-design/turn]", e);
+      logInterviewEvent({
+        event: "interview_data_sd_turn_error",
+        userRef: interviewUserRef(req.user!.id),
+        route: "POST /data-system-design/turn",
+        status: 500,
+        errorCode: "turn_failed",
+      });
       return res.status(500).json({ error: "Failed to process turn" });
     }
   }
@@ -574,20 +887,62 @@ interviewRouter.get("/data-system-design/status", requireAuth, requireJobSeeker,
     const interviewId = q.length > 0 ? q : undefined;
     const row = await resolveSystemDesignInterviewRow(req.user!.id, interviewId, "data");
     if (!row) {
+      logInterviewEvent({
+        event: "interview_data_sd_status",
+        userRef: interviewUserRef(req.user!.id),
+        route: "GET /data-system-design/status",
+        status: 200,
+        interviewId,
+        activeSession: false,
+      });
       return res.json({ activeSession: false });
     }
     const payload = buildSystemDesignSessionPayload(row, "data");
     if (!payload) {
-      return interviewId ? res.status(404).json({ error: "Not found" }) : res.json({ activeSession: false });
+      if (interviewId) {
+        logInterviewEvent({
+          event: "interview_data_sd_status",
+          userRef: interviewUserRef(req.user!.id),
+          route: "GET /data-system-design/status",
+          status: 404,
+          interviewId,
+          errorCode: "not_found",
+        });
+        return res.status(404).json({ error: "Not found" });
+      }
+      logInterviewEvent({
+        event: "interview_data_sd_status",
+        userRef: interviewUserRef(req.user!.id),
+        route: "GET /data-system-design/status",
+        status: 200,
+        activeSession: false,
+      });
+      return res.json({ activeSession: false });
     }
+    logInterviewEvent({
+      event: "interview_data_sd_status",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: payload.interviewId,
+      route: "GET /data-system-design/status",
+      status: 200,
+      phase: payload.phase ?? undefined,
+      activeSession: payload.activeSession,
+    });
     return res.json(payload);
   } catch (e) {
     console.error("[interview/data-system-design/status]", e);
+    logInterviewEvent({
+      event: "interview_data_sd_status_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "GET /data-system-design/status",
+      status: 500,
+      errorCode: "status_failed",
+    });
     return res.status(500).json({ error: "Failed to load status" });
   }
 });
 
-interviewRouter.post("/system-design/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+interviewRouter.post("/system-design/start", requireAuth, requireJobSeeker, interviewStartLimiter, async (req: AuthedRequest, res) => {
   try {
     const schema = z.object({
       jobRole: z.string().min(1),
@@ -610,6 +965,13 @@ interviewRouter.post("/system-design/start", requireAuth, requireJobSeeker, asyn
     const level = tier === "senior" ? "senior" : "mid";
 
     const result = await startSoftwareSystemDesignInterview(req.user!.id, parsed.data.jobRole, level);
+    logInterviewEvent({
+      event: "interview_software_sd_start",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: result.interviewId,
+      route: "POST /system-design/start",
+      status: 200,
+    });
     return res.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to start";
@@ -618,6 +980,13 @@ interviewRouter.post("/system-design/start", requireAuth, requireJobSeeker, asyn
     }
     if (msg.includes("only available")) return res.status(403).json({ error: msg });
     console.error("[interview/system-design/start]", e);
+    logInterviewEvent({
+      event: "interview_software_sd_start_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /system-design/start",
+      status: 500,
+      errorCode: "start_failed",
+    });
     return res.status(500).json({ error: "Failed to start System Design session" });
   }
 });
@@ -634,18 +1003,53 @@ interviewRouter.post(
         answer: z.string().min(1),
       });
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+      if (!parsed.success) {
+        logInterviewEvent({
+          event: "interview_software_sd_turn",
+          userRef: interviewUserRef(req.user!.id),
+          route: "POST /system-design/turn",
+          status: 400,
+          errorCode: "invalid_payload",
+        });
+        return res.status(400).json({ error: "Invalid payload" });
+      }
 
       const result = await processSoftwareSystemDesignTurn(
         parsed.data.interviewId,
         req.user!.id,
         parsed.data.answer
       );
+      logInterviewEvent({
+        event: "interview_software_sd_turn",
+        userRef: interviewUserRef(req.user!.id),
+        interviewId: parsed.data.interviewId,
+        route: "POST /system-design/turn",
+        status: 200,
+        answerChars: parsed.data.answer.length,
+        phase: result.phase,
+        complete: result.complete,
+      });
       return res.json(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to process turn";
-      if (msg === "Interview not found") return res.status(404).json({ error: msg });
+      if (msg === "Interview not found") {
+        logInterviewEvent({
+          event: "interview_software_sd_turn",
+          userRef: interviewUserRef(req.user!.id),
+          route: "POST /system-design/turn",
+          status: 404,
+          errorCode: "not_found",
+        });
+        return res.status(404).json({ error: msg });
+      }
       console.error("[interview/system-design/turn]", e);
+      logInterviewEvent({
+        event: "interview_software_sd_turn_error",
+        userRef: interviewUserRef(req.user!.id),
+        route: "POST /system-design/turn",
+        status: 500,
+        errorCode: "turn_failed",
+      });
       return res.status(500).json({ error: "Failed to process turn" });
     }
   }
@@ -657,15 +1061,57 @@ interviewRouter.get("/system-design/status", requireAuth, requireJobSeeker, asyn
     const interviewId = q.length > 0 ? q : undefined;
     const row = await resolveSystemDesignInterviewRow(req.user!.id, interviewId, "software");
     if (!row) {
+      logInterviewEvent({
+        event: "interview_software_sd_status",
+        userRef: interviewUserRef(req.user!.id),
+        route: "GET /system-design/status",
+        status: 200,
+        interviewId,
+        activeSession: false,
+      });
       return res.json({ activeSession: false });
     }
     const payload = buildSystemDesignSessionPayload(row, "software");
     if (!payload) {
-      return interviewId ? res.status(404).json({ error: "Not found" }) : res.json({ activeSession: false });
+      if (interviewId) {
+        logInterviewEvent({
+          event: "interview_software_sd_status",
+          userRef: interviewUserRef(req.user!.id),
+          route: "GET /system-design/status",
+          status: 404,
+          interviewId,
+          errorCode: "not_found",
+        });
+        return res.status(404).json({ error: "Not found" });
+      }
+      logInterviewEvent({
+        event: "interview_software_sd_status",
+        userRef: interviewUserRef(req.user!.id),
+        route: "GET /system-design/status",
+        status: 200,
+        activeSession: false,
+      });
+      return res.json({ activeSession: false });
     }
+    logInterviewEvent({
+      event: "interview_software_sd_status",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: payload.interviewId,
+      route: "GET /system-design/status",
+      status: 200,
+      phase: payload.phase ?? undefined,
+      activeSession: payload.activeSession,
+    });
     return res.json(payload);
   } catch (e) {
     console.error("[interview/system-design/status]", e);
+    logInterviewEvent({
+      event: "interview_software_sd_status_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "GET /system-design/status",
+      status: 500,
+      errorCode: "status_failed",
+    });
     return res.status(500).json({ error: "Failed to load status" });
   }
 });
@@ -753,7 +1199,7 @@ function normalizeFollowups(raw: unknown): string[] | undefined {
 const PENDING_REVIEW_MESSAGE =
   "Your interview responses have been recorded successfully. Our evaluation system encountered a technical issue — your interview has been flagged for manual review and you will receive your result within 24 hours. This does not affect your application status.";
 
-interviewRouter.post("/start", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
+interviewRouter.post("/start", requireAuth, requireJobSeeker, interviewStartLimiter, async (req: AuthedRequest, res) => {
   try {
     // experienceLevel optional for backward compatibility (older/cached clients that only send jobRole).
     const schema = z.object({
@@ -796,6 +1242,13 @@ interviewRouter.post("/start", requireAuth, requireJobSeeker, async (req: Authed
     },
   });
 
+    logInterviewEvent({
+      event: "interview_legacy_start",
+      userRef: interviewUserRef(req.user!.id),
+      interviewId: interview.id,
+      route: "POST /start",
+      status: 200,
+    });
     return res.json({
       interviewId: interview.id,
       question,
@@ -806,6 +1259,13 @@ interviewRouter.post("/start", requireAuth, requireJobSeeker, async (req: Authed
     });
   } catch (e) {
     console.error("[interview/start]", e);
+    logInterviewEvent({
+      event: "interview_legacy_start_error",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /start",
+      status: 500,
+      errorCode: "start_failed",
+    });
     return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to start interview" });
   }
 });

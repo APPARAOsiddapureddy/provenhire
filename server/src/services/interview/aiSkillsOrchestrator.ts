@@ -451,12 +451,14 @@ Write ONE conversational question that:
 
 This is walkthrough question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS} for Part A.`;
 
-  const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user);
+  const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user, {
+    maxOutputTokens: 768,
+  });
   if (parsed?.question?.trim()) {
     return { question: parsed.question.trim(), acknowledgement: parsed.acknowledgement?.trim() || null };
   }
   return {
-    acknowledgement: "Thanks.",
+    acknowledgement: "Got it.",
     question: fallbackPartAWalkthrough(problem, angle, intro, isFirstOnProblem),
   };
 }
@@ -469,7 +471,9 @@ async function genPartAWithoutSubmissions(plan: AISkillsPlanV1): Promise<{ quest
     plan.candidateTrack === "data"
       ? `No saved data-round submission text was found. Ask one practical spoken question appropriate for a ${sub} hire at ~${depth} for walkthrough question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS}. Keep it conversational.`
       : `No saved coding submission was found. Ask one spoken problem-solving question appropriate for ~${depth} for question ${plan.dsaIndex + 1} of ${DSA_PART_QUESTIONS}. Keep it conversational and scenario-grounded.`;
-  const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user);
+  const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user, {
+    maxOutputTokens: 768,
+  });
   if (parsed?.question?.trim()) {
     return { question: parsed.question.trim(), acknowledgement: parsed.acknowledgement?.trim() || null };
   }
@@ -477,7 +481,7 @@ async function genPartAWithoutSubmissions(plan: AISkillsPlanV1): Promise<{ quest
     plan.candidateTrack === "data"
       ? "Walk me through how you would sanity-check a SQL result before sending it to stakeholders."
       : "Walk me through how you would decompose a concrete array or map problem before writing code.";
-  return { acknowledgement: "Thanks.", question: fb };
+  return { acknowledgement: "Got it.", question: fb };
 }
 
 async function genDsaQuestion(plan: AISkillsPlanV1): Promise<{ question: string; acknowledgement: string | null }> {
@@ -614,7 +618,9 @@ async function genSkillQuestion(plan: AISkillsPlanV1): Promise<{ question: strin
   const system = `You verify resume skills. Output ONLY JSON: {"acknowledgement":"short or empty","question":"spoken question only"}. Question: 2–3 sentences (~45–95 words), plain English for Indian listeners, one main ask — not a lecture.`;
   const user = `Skill: ${skill}. Experience band: ${plan.track}. Depth: ${depth}.
 This is follow-up ${round} of 2 for this skill. ${round === 1 ? "Start with foundations." : "Ask for a concrete example or trade-off."}`;
-  const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user);
+  const parsed = await runGeminiJson<{ acknowledgement?: string; question?: string }>(system, user, {
+    maxOutputTokens: 768,
+  });
   if (parsed?.question?.trim()) {
     return { question: parsed.question.trim(), acknowledgement: parsed.acknowledgement?.trim() || null };
   }

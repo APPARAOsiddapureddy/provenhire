@@ -458,6 +458,7 @@ export default function AISkillsInterviewStage({
         whisperSession.setCaptureEnabled(false);
         whisperSession.transition("ai_speaking");
         try {
+          unlockInterviewAudioOutput();
           await speakText(nudge, ac.signal);
         } catch {
           /* */

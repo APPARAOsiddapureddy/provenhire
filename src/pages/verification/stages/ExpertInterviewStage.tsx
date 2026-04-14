@@ -860,6 +860,7 @@ export default function ExpertInterviewStage({
         w.setCaptureEnabled(false);
         w.transition("ai_speaking");
         try {
+          unlockInterviewAudioOutput();
           await speakText(nudge, ac.signal);
         } catch {
           /* speakText handles fallback */

@@ -35,7 +35,12 @@ import {
   type VerificationTrack,
   type NonTechSubtrack,
 } from "../constants/verificationPipeline.js";
-import { pickNonTechAssignmentPrompt } from "../data/nonTechAssignmentPrompts.js";
+import {
+  buildHobbyMagazineAssignmentPrompt,
+  hobbyCategoriesForClient,
+  isValidHobbyCategoryId,
+  getHobbyCategoryMeta,
+} from "../data/nonTechAssignmentPrompts.js";
 import { storeAptitudeSession, getAptitudeSession, clearAptitudeSession, updateAptitudeDraft } from "../data/aptitude-session-db.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
 import { evaluateNonTechnicalAssignment } from "../services/ai.service.js";
@@ -1737,6 +1742,9 @@ verificationRouter.get("/technical-scorecard", requireAuth, requireJobSeeker, as
 
 verificationRouter.get("/non-tech-assignment/prompt", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
   const userId = req.user!.id;
+  const rawHobby = req.query["hobby"];
+  const hobbyQuery = typeof rawHobby === "string" ? rawHobby.trim() : "";
+
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
     select: {
@@ -1789,11 +1797,23 @@ verificationRouter.get("/non-tech-assignment/prompt", requireAuth, requireJobSee
   }
 
   if (!row) {
+    if (!hobbyQuery) {
+      return res.json({
+        needsHobbySelection: true as const,
+        hobbyCategories: hobbyCategoriesForClient(),
+      });
+    }
+    if (!isValidHobbyCategoryId(hobbyQuery)) {
+      return res.status(400).json({
+        error: "invalid_hobby",
+        message: "Choose a valid topic category from the list.",
+      });
+    }
     const sub: NonTechSubtrack =
       (profile.nonTechSubtrack as NonTechSubtrack | null) ?? detectNonTechSubtrack(profile.targetJobTitle);
     const attemptIndex = submitCount;
-    const promptText = pickNonTechAssignmentPrompt({
-      subtrack: sub,
+    const promptText = buildHobbyMagazineAssignmentPrompt({
+      hobbyCategoryId: hobbyQuery,
       experienceTier: tier,
       attemptIndex,
     });
@@ -1803,6 +1823,7 @@ verificationRouter.get("/non-tech-assignment/prompt", requireAuth, requireJobSee
       data: {
         userId,
         subtrack: sub,
+        hobbyCategory: hobbyQuery,
         experienceTier: tier,
         prompt: promptText,
         issuedAt,
@@ -1822,12 +1843,16 @@ verificationRouter.get("/non-tech-assignment/prompt", requireAuth, requireJobSee
   }
 
   const hoursRemaining = Math.max(0, (row.deadline.getTime() - Date.now()) / (1000 * 60 * 60));
-  const timeLimitMinutes = tier === "fresher" ? 45 : tier === "mid" ? 60 : 75;
+  const timeLimitMinutes = tier === "fresher" ? 120 : tier === "mid" ? 150 : 180;
+  const hobbyMeta = row.hobbyCategory ? getHobbyCategoryMeta(row.hobbyCategory) : undefined;
   return res.json({
+    needsHobbySelection: false as const,
     prompt: row.prompt,
     threshold,
     timeLimitMinutes,
     subtrack: row.subtrack,
+    hobbyCategory: row.hobbyCategory ?? undefined,
+    hobbyCategoryLabel: hobbyMeta?.label,
     experienceTier: tier,
     issuedAt: row.issuedAt.toISOString(),
     deadline: row.deadline.toISOString(),
@@ -1924,11 +1949,16 @@ verificationRouter.post(
     const usedPaidRetake = nBefore >= 2;
 
     const subtrack = detectNonTechSubtrack(profile?.targetJobTitle);
+    const hobbyMeta = activeAssignment.hobbyCategory
+      ? getHobbyCategoryMeta(activeAssignment.hobbyCategory)
+      : undefined;
     const evalResult = await evaluateNonTechnicalAssignment({
       prompt: activeAssignment.prompt,
       response: extractedText,
       targetJobTitle: profile?.targetJobTitle ?? undefined,
       subtrack,
+      hobbyCategory: activeAssignment.hobbyCategory ?? undefined,
+      hobbyCategoryLabel: hobbyMeta?.label,
       threshold,
     });
 

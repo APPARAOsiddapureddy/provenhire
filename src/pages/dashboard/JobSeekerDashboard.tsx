@@ -47,7 +47,7 @@ const STAGE_LABELS: Record<string, string> = {
   data_fundamentals: 'Data Fundamentals',
   dsa_round: 'DSA Round',
   data_round: 'Data Round',
-  non_tech_assignment: 'Assignment',
+  non_tech_assignment: 'Written assessment',
   ai_skills_interview: 'AI Skills Interview',
   data_skills_interview: 'AI Skills (Data)',
   system_design_interview: 'System Design',
@@ -973,7 +973,7 @@ const JobSeekerDashboard = () => {
                             : code === "L1"
                               ? "Profile and (for early-career) domain fundamentals"
                               : code === "L2"
-                                ? "Role-based written assignment"
+                                ? "Written assessment — hobby magazine blog in a topic you choose"
                                 : "AI Expert Interview — capstone on this track"}
                         </p>
                       )}
@@ -1059,7 +1059,8 @@ const JobSeekerDashboard = () => {
                       'Timed aptitude plus data-focused fundamentals (SQL, Python, stats basics) for early-career data paths.',
                     dsa_round: 'Proctored live coding: algorithmic problems matched to your experience tier.',
                     data_round: 'Proctored SQL and Python data tasks executed in a sandbox — core gate for Level 1 on the data track.',
-                    non_tech_assignment: 'Role-based written assignment tailored to your target job title.',
+                    non_tech_assignment:
+                      'Generic writing gate: pick a hobby topic, then brainstorm, outline, reference, and polish a blog-style article (PDF/DOCX).',
                     ai_skills_interview:
                       'AI-led deep dive on your stack and decisions — adaptive, proctored, feeds your ProvenHire Resume.',
                     data_skills_interview:
@@ -1108,7 +1109,11 @@ const JobSeekerDashboard = () => {
                             <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Sandbox Executed</span>
                           </>
                         )}
-                        {stageName === 'non_tech_assignment' && <span className="dashboard-trust-chip"><span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Job-Specific</span>}
+                        {stageName === 'non_tech_assignment' && (
+                          <span className="dashboard-trust-chip">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--dash-emerald)]" /> Topic-led
+                          </span>
+                        )}
                         {(stageName === 'ai_skills_interview' ||
                           stageName === 'system_design_interview' ||
                           stageName === 'data_skills_interview' ||

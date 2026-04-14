@@ -70,10 +70,11 @@ const SPRINTS: Record<number, { name: string; persona: string }> = {
   3: { name: "System Design", persona: "senior_peer" },
 };
 
+/** First question per sprint: medium length for TTS, plain English, India-first clarity (same rubric as dynamic questions). */
 const SPRINT_OPENERS: Record<number, string> = {
-  1: `Let's start with something concrete from your background. Tell me about a project you've worked on that you're genuinely proud of — what problem were you solving, what did you personally build, and what made it technically interesting to you?`,
-  2: `Now let's go a level deeper into the concepts behind your work. Pick one technical idea that sits at the core of something you've built — something you really had to understand to get it right. How would you explain it to someone encountering it for the first time?`,
-  3: `Let's think through a design problem together. Imagine you're building a system that needs to serve real-time predictions for a few million users — the kind of scale where simple solutions start breaking. Where would you start, and what do you think the hardest parts would be to get right?`,
+  1: `I want to anchor in real work you shipped. Pick one project you are proud of: what problem it solved, what you personally built or owned, and what made the technical side interesting. Stay concrete — names, constraints, and outcomes help me follow.`,
+  2: `Go one level deeper on concepts. Choose one technical idea that was central to that work — something you had to get right, not hand-waving. Explain it as if I am strong but new to that stack: what it does, why you needed it, and where it gets subtle.`,
+  3: `Let us stress-test design instincts. Imagine you must serve low-latency predictions to millions of users as load grows. Where would you start designing, and what do you think breaks first — latency, consistency, cost, or operations?`,
 };
 
 const NON_TECH_SPRINTS: Record<number, { name: string; persona: string }> = {
@@ -83,9 +84,9 @@ const NON_TECH_SPRINTS: Record<number, { name: string; persona: string }> = {
 };
 
 const NON_TECH_OPENERS: Record<number, string> = {
-  1: `Let's start with something concrete from your background. Tell me about work you're proud of — a project, internship, or initiative. What was your role, what problem did you solve, and what did you learn?`,
-  2: `Let's go deeper into how you think in your role. Pick one framework, principle, or concept you rely on when making decisions, and walk me through a real example of applying it.`,
-  3: `Here's a scenario: you're facing a tough deadline with unclear priorities and several stakeholders pulling in different directions. How would you approach it — what would you clarify first, and what would you do in the first week?`,
+  1: `Start with something real you owned. Describe work you are proud of — a project, internship, or initiative. What was your role, what problem did you solve for users or the business, and what did you learn that you would apply again?`,
+  2: `Go deeper on how you decide under ambiguity. Pick one framework, principle, or habit you actually use — not a buzzword. Walk me through one real situation where you applied it, what trade-offs you faced, and how you knew you were done.`,
+  3: `Scenario: a tough deadline, unclear priorities, and stakeholders pulling in different directions. What would you clarify first, how would you sequence the first week, and how would you communicate so execution does not stall?`,
 };
 
 const DATA_SPRINTS: Record<number, { name: string; persona: string }> = {
@@ -95,9 +96,9 @@ const DATA_SPRINTS: Record<number, { name: string; persona: string }> = {
 };
 
 const DATA_OPENERS: Record<number, string> = {
-  1: `Let's anchor in real work. Tell me about a data project you're proud of — the business or analytics problem, what data you used, what you built or shipped, and what you personally owned end to end.`,
-  2: `Pick one technical idea that was central to that work — something you really had to understand to ship a correct pipeline, metric, or model. How would you explain it to a strong engineer who doesn't know your domain?`,
-  3: `Imagine you need to serve reliable, fresh analytics or features to downstream teams at serious scale — where latency, cost, and data quality all matter. Where would you start designing that system, and what do you think breaks first as you grow?`,
+  1: `Anchor in a data project you are proud of. What business or analytics problem was it, which data sources and transformations mattered, what you shipped, and what you personally owned end to end?`,
+  2: `Pick one technical idea that was central to that work — something you had to understand to ship a correct pipeline, metric, or model. Explain it to a strong engineer who does not know your domain: inputs, outputs, and where correctness gets hard.`,
+  3: `Imagine you must serve reliable, fresh analytics or features to downstream teams at serious scale — latency, cost, and data quality all bite. Where would you start designing that system, and what breaks first as volume or consumers grow?`,
 };
 
 /** Spoken after each accepted answer, before the next question (TTS only; not stored on InterviewMessage). */
@@ -161,12 +162,12 @@ function popPrefetchQuestion(interviewId: string): string | undefined {
 
 /** If Gemini keeps emitting the same short probe, use a different angle without another model round-trip. */
 const DISTINCT_FALLBACK_QUESTIONS: string[] = [
-  "I'd like to understand how you actually chased that down in production. What was the hardest bug or incident you debugged on that system, and what did you learn from it?",
-  "If you had to rebuild that today with what you know now, what would you simplify first, and what would you definitely keep?",
-  "Which part of that design or implementation are you least comfortable defending in depth if a senior engineer pressed you on it?",
-  "What trade-off did you accept on that project that others on the team might have questioned — and why was it still the right call for your constraints?",
-  "How would you prove to yourself — not just on paper — that that design really worked in production under real load?",
-  "If traffic or data volume jumped 10x overnight, what breaks first in your approach, and what would you change first to survive?",
+  "What was the hardest production bug or incident you debugged on that system, and what did you change afterward so it would not repeat?",
+  "If you rebuilt it today with what you know now, what would you simplify first, and what would you definitely keep?",
+  "Which part of that design or implementation would you least like to defend in depth if a senior engineer pressed you — and why?",
+  "What trade-off did teammates question that you still believe was right for your constraints?",
+  "How would you prove in production — not on paper — that the design actually held under real load?",
+  "If traffic or data jumped tenfold overnight, what breaks first in your approach, and what is the first change you would make?",
 ];
 
 function firstNonDuplicateFromPool(asked: string[]): string | null {
@@ -548,7 +549,8 @@ export async function startAdversarialInterview(
   const jobRole = row?.jobRole ?? "Software Engineer";
   const isNonTech = profile?.roleType === "non_technical";
   const isData = profile?.roleType === "data";
-  const opener = isNonTech ? NON_TECH_OPENERS[1] : isData ? DATA_OPENERS[1] : SPRINT_OPENERS[1];
+  const openerRaw = isNonTech ? NON_TECH_OPENERS[1] : isData ? DATA_OPENERS[1] : SPRINT_OPENERS[1];
+  const opener = sanitizeAiInterviewQuestionText(openerRaw);
   const cfg1 = isNonTech ? NON_TECH_SPRINTS[1] : isData ? DATA_SPRINTS[1] : SPRINTS[1];
   const initial: AdversarialState = {
     sprint: 1,
@@ -611,7 +613,7 @@ function defaultState(): AdversarialState {
     history: [],
     weaknesses: [],
     reasoningSignals: [],
-    lastQuestion: SPRINT_OPENERS[1],
+    lastQuestion: sanitizeAiInterviewQuestionText(SPRINT_OPENERS[1]),
     interviewStartTime: Date.now(),
     consecutiveHighWeaknessCount: 0,
     lastWeaknessType: null,

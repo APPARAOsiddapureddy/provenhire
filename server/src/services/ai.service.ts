@@ -25,13 +25,21 @@ async function geminiChat(messages: ChatMessage[]): Promise<string> {
 }
 
 /** Structured JSON from Gemini; returns null if API unavailable or parse fails. */
-export async function runGeminiJson<T>(system: string, user: string): Promise<T | null> {
+export async function runGeminiJson<T>(
+  system: string,
+  user: string,
+  options?: { maxOutputTokens?: number }
+): Promise<T | null> {
   if (!gemini) return null;
   try {
     const response = await gemini.models.generateContent({
       model: "gemini-2.5-flash",
       contents: `${system}\n\n${user}`,
-      config: { responseMimeType: "application/json", temperature: 0.2 },
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.2,
+        ...(options?.maxOutputTokens != null ? { maxOutputTokens: options.maxOutputTokens } : {}),
+      },
     });
     const raw = ((response as { text?: string })?.text ?? "")
       .trim()
@@ -486,12 +494,14 @@ export interface NonTechnicalAssignmentEvaluation {
 }
 
 /**
- * Evaluate non-technical assignment answers (role assignment gate). Score 0–100.
- * Rubric: structure 25%, domain knowledge 30%, problem analysis 25%, actionability 20%.
+ * Evaluate non-technical assignment answers (writing assessment gate). Score 0–100.
+ * Rubric: creativity, clarity, expertise, engagement, polish (equal weighting unless prompt specifies otherwise).
  */
 export async function evaluateNonTechnicalAssignment(params: {
   targetJobTitle?: string;
   subtrack?: string;
+  hobbyCategory?: string;
+  hobbyCategoryLabel?: string;
   prompt: string;
   response: string;
   threshold?: number;
@@ -513,24 +523,31 @@ export async function evaluateNonTechnicalAssignment(params: {
   // Fallback deterministic heuristic when Gemini is unavailable.
   if (!gemini) {
     const wordCount = trimmedResponse.split(/\s+/).filter(Boolean).length;
-    const score = Math.max(0, Math.min(100, Math.round((wordCount / 350) * 100)));
+    const score = Math.max(0, Math.min(100, Math.round((wordCount / 500) * 100)));
     return {
       score,
       qualified: score >= threshold,
       threshold,
       summary: "AI evaluator unavailable; fallback rubric used based on response completeness.",
-      strengths: score >= threshold ? ["Response has sufficient detail and structure"] : [],
-      gaps: score < threshold ? ["Add more concrete examples and role-specific depth"] : [],
+      strengths: score >= threshold ? ["Response has sufficient length and likely covers the required sections"] : [],
+      gaps: score < threshold ? ["Expand the draft, strengthen outline/references, and improve clarity"] : [],
     };
   }
 
-  const sub = params.subtrack ? `Subtrack: ${params.subtrack}\n` : "";
-  const system = `You are an expert evaluator for non-technical hiring (PM, design, ops, marketing, people, business).
-Score the written assignment 0-100 using this rubric (weights must guide the final score):
-- Structure (25%): clear organization, logical flow, appropriate sections.
-- Domain knowledge (30%): correct use of role-specific frameworks, terminology, concepts for the subtrack.
-- Problem analysis (25%): identifies the right problem, sound hypotheses, sound reasoning.
-- Actionability (20%): specific, realistic recommendations — not vague generalities.
+  const sub = params.subtrack ? `Career subtrack (context only): ${params.subtrack}\n` : "";
+  const hobby =
+    params.hobbyCategoryLabel || params.hobbyCategory
+      ? `Candidate topic area: ${params.hobbyCategoryLabel ?? params.hobbyCategory}\n`
+      : "";
+  const system = `You are an expert evaluator for a GENERIC writing assessment (hobby magazine blog), not a corporate role-play.
+Score the submission 0-100. Use this rubric; each pillar should materially influence the score:
+- Creativity (20%): fresh angle, interesting examples, avoids tired clichés as the whole substance of the piece.
+- Clarity (20%): logical flow, signposting, plain language where appropriate; reader can follow without confusion.
+- Expertise / credibility (20%): convincing depth in the chosen hobby topic; specifics beat vague claims; honest limits where relevant.
+- Engagement (20%): voice, pacing, and structure suited to the stated target reader; would a real reader keep reading?
+- Polish (20%): grammar, spelling, formatting, headlines/scannability, satisfying intro and close.
+
+The candidate was asked to include brainstorm, outline, references, and a polished blog post. Reward clear evidence of process when present.
 
 Return ONLY strict JSON with keys:
 {
@@ -540,12 +557,12 @@ Return ONLY strict JSON with keys:
   "gaps": ["..."]
 }
 Rules:
-- Do not penalize writing style or grammar unless it obscures meaning. Judge quality of thinking.
+- Penalize unclear writing or sloppy polish when it hurts comprehension or professionalism.
 - Be fair and strict. Do not inflate scores.
 - No markdown, no extra text.`;
 
-  const user = `Target role: ${params.targetJobTitle || "Non-technical role"}
-${sub}
+  const user = `Target job title (background only; this is not a job simulation): ${params.targetJobTitle || "Non-technical candidate"}
+${sub}${hobby}
 Assignment prompt:
 ${params.prompt}
 
@@ -573,14 +590,14 @@ ${trimmedResponse}`;
   } catch (e) {
     console.error("[evaluateNonTechnicalAssignment]", e);
     const wordCount = trimmedResponse.split(/\s+/).filter(Boolean).length;
-    const score = Math.max(0, Math.min(100, Math.round((wordCount / 350) * 100)));
+    const score = Math.max(0, Math.min(100, Math.round((wordCount / 500) * 100)));
     return {
       score,
       qualified: score >= threshold,
       threshold,
       summary: "Evaluation service was unstable; fallback rubric used.",
       strengths: score >= threshold ? ["Response appears reasonably complete"] : [],
-      gaps: score < threshold ? ["Provide stronger structure and examples"] : [],
+      gaps: score < threshold ? ["Strengthen outline, references, and final article polish"] : [],
     };
   }
 }

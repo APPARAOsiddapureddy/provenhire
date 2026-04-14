@@ -432,7 +432,8 @@ Attack strategy: ${attackInstruction}
 Generate ONE follow-up executing this strategy; ground it in something specific from their answer.
 ${formatAskedQuestionsBlock(recentAsked)}
 Follow the medium-length rubric in your system instructions.`,
-    "balanced"
+    "balanced",
+    { maxOutputTokens: 320 }
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
   return q || "Can you walk me through that in more detail?";
@@ -457,7 +458,8 @@ Discrepancy: ${discrepancy.description ?? ""}
 Generate ONE question that surfaces this inconsistency — curious and direct, not accusatory. Give them a chance to explain.
 ${formatAskedQuestionsBlock(recentAsked)}
 Generate ONE question. Curious not accusatory. Follow the medium-length rubric in your system instructions.`,
-    "balanced"
+    "balanced",
+    { maxOutputTokens: 320 }
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
   return q || "Can you tell me more about your specific role in that?";
@@ -470,7 +472,8 @@ export async function adaptFollowup(template: string, answer: string, persona: s
     `Bank follow-up template: ${template}
 Candidate just said: ${answer.slice(0, 1200)}
 Rewrite into ONE medium-length spoken question (2–3 sentences, ~45–95 words). Same intent as the template. No thanks or filler — output only the question.`,
-    "balanced"
+    "balanced",
+    { maxOutputTokens: 320 }
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
   return q || template;
@@ -547,7 +550,8 @@ Questions already asked — do NOT repeat or ask the same angle again:
 Your next question must open a meaningfully different line of inquiry (new sub-topic, trade-off, or concrete detail), not a minor rewording of any line above.
 
 Generate ONE question that opens a meaningfully new line of inquiry. Follow the medium-length rubric in your system instructions.`,
-    "balanced"
+    "balanced",
+    { maxOutputTokens: 340 }
   );
   const q = text.replace(/^["']|["']$/g, "").trim();
   return q || (opts?.nonTechnical ? "Walk me through a situation where you had to align stakeholders under ambiguity — what did you do first?" : "Tell me about a technical challenge you faced recently.");
@@ -757,7 +761,8 @@ ${histBlock || "(first follow-up after phase opener)"}
 ${formatAskedQuestionsBlock(recentQuestions)}
 
 Generate the NEXT question only. It must advance the design discussion — not repeat prior angles.`,
-    "balanced"
+    "balanced",
+    { maxOutputTokens: 340 }
   );
   return text.replace(/^["']|["']$/g, "").trim() || "What is the core entity model you would use, and how would you enforce data quality at ingest?";
 }
