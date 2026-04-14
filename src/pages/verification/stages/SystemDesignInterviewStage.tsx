@@ -7,12 +7,13 @@ import { unlockInterviewAudioOutput, speakText } from "@/lib/interviewTts";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+import { useWhisperSession } from "@/hooks/useWhisperSession";
 import {
   useProctoringRiskMonitor,
   type ProctoringEventCode,
   type StrikeTerminationMode,
 } from "@/hooks/useProctoringRiskMonitor";
-import { Volume2, ArrowLeft, Send, Shield, Video, VideoOff, RotateCcw, Radio } from "lucide-react";
+import { Volume2, ArrowLeft, Send, Shield, Video, VideoOff, RotateCcw, Radio, Mic } from "lucide-react";
 
 /** Brief pause after TTS before focusing on writing (typed round; no live mic). */
 const POST_AI_SPEECH_COOLDOWN_MS = 400;
@@ -38,7 +39,8 @@ export function SystemDesignInterviewStage({
   const [problemTitle, setProblemTitle] = useState<string | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState("");
   const [phase, setPhase] = useState<"lld" | "hld">("lld");
-  const [answer, setAnswer] = useState("");
+  const [answerDraft, setAnswerDraft] = useState("");
+  const [partial, setPartial] = useState("");
   const [loading, setLoading] = useState(false);
   const [turnBusy, setTurnBusy] = useState(false);
   const [complete, setComplete] = useState(false);
@@ -50,13 +52,14 @@ export function SystemDesignInterviewStage({
   } | null>(null);
 
   const [cameraActive, setCameraActive] = useState(false);
-  const [voiceFloor, setVoiceFloor] = useState<"idle" | "ai_speaking">("idle");
   const [proctoringTerminated, setProctoringTerminated] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const ttsAbortRef = useRef<AbortController | null>(null);
   const stageAliveRef = useRef(true);
+  const pendingSpeakRef = useRef<string>("");
+  const lastWhisperLatencyMsRef = useRef<number>(0);
 
   useEffect(() => {
     stageAliveRef.current = true;
@@ -89,7 +92,7 @@ export function SystemDesignInterviewStage({
     testId: interviewId ?? `SD_${Date.now()}`,
     testType: "system_design",
     cameraStream: cameraActive ? streamRef.current : null,
-    microphoneStream: null,
+    microphoneStream: streamRef.current,
     tabSwitchDetectionEnabled: isFlagEnabled("tab_switch_detection"),
     copyPasteDetectionEnabled: isFlagEnabled("copy_paste_detection"),
     devtoolsDetectionEnabled: isFlagEnabled("devtools_detection"),
@@ -100,6 +103,19 @@ export function SystemDesignInterviewStage({
     maxTabSwitches: 999,
     strikeTerminationMode,
     onProctoringTerminated: strikeTerminationMode === "STRICT" ? terminateForProctoring : undefined,
+  });
+
+  const whisperSession = useWhisperSession({
+    interviewId,
+    onPartial: (p) => setPartial(p),
+    onError: (err) => toast.error(err, { duration: 8000 }),
+    onFinal: (text, meta) => {
+      if (meta?.whisperLatencyMs != null) lastWhisperLatencyMsRef.current = meta.whisperLatencyMs;
+      const t = text.trim();
+      if (!t) return;
+      setAnswerDraft((prev) => (prev ? `${prev} ${t}` : t));
+      setPartial("");
+    },
   });
 
   useEffect(() => {
@@ -118,16 +134,31 @@ export function SystemDesignInterviewStage({
     ttsAbortRef.current?.abort();
     const ac = new AbortController();
     ttsAbortRef.current = ac;
-    setVoiceFloor("ai_speaking");
+    whisperSession.setAbortController(ac);
+    whisperSession.setCaptureEnabled(false);
+    whisperSession.transition("ai_speaking");
     try {
       await speakText(text, ac.signal);
       if (!ac.signal.aborted) {
         await new Promise<void>((r) => setTimeout(r, POST_AI_SPEECH_COOLDOWN_MS));
       }
     } finally {
-      if (!ac.signal.aborted) setVoiceFloor("idle");
+      if (!ac.signal.aborted) {
+        whisperSession.setCaptureEnabled(true);
+        whisperSession.transition("user_speaking");
+        whisperSession.resumeListening();
+      }
     }
-  }, []);
+  }, [whisperSession]);
+
+  // Speak only after the question is rendered (avoids TTS starting while the UI is still blank).
+  useEffect(() => {
+    if (!sessionStarted || !interviewId || complete || proctoringTerminated) return;
+    const toSpeak = pendingSpeakRef.current;
+    if (!toSpeak || toSpeak.trim() !== currentQuestion.trim()) return;
+    pendingSpeakRef.current = "";
+    void playQuestion(toSpeak);
+  }, [sessionStarted, interviewId, complete, proctoringTerminated, currentQuestion, playQuestion]);
 
   const beginSession = async () => {
     unlockInterviewAudioOutput();
@@ -136,11 +167,12 @@ export function SystemDesignInterviewStage({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
-        audio: false,
+        audio: { echoCancellation: true, noiseSuppression: true },
       });
       streamRef.current = stream;
       setCameraActive(true);
       setSessionStarted(true);
+      await whisperSession.start({ sharedMediaStream: stream, deferMicCapture: true });
 
       const status = await api.get<{
         activeSession?: boolean;
@@ -176,13 +208,14 @@ export function SystemDesignInterviewStage({
       }
 
       unlockInterviewAudioOutput();
-      if (spoken.trim()) await playQuestion(spoken);
+      if (spoken.trim()) pendingSpeakRef.current = spoken;
     } catch (e) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
       setCameraActive(false);
       setSessionStarted(false);
+      whisperSession.stop();
       const msg =
         e instanceof Error && e.name === "NotAllowedError"
           ? "Camera access is required for this interview."
@@ -203,19 +236,21 @@ export function SystemDesignInterviewStage({
   useEffect(() => {
     return () => {
       ttsAbortRef.current?.abort();
+      whisperSession.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, []);
+  }, [whisperSession]);
 
   const submit = async () => {
     const id = interviewId;
-    const composed = answer.trim();
+    const composed = [answerDraft, partial].filter(Boolean).join(" ").trim();
     if (!id || !composed || turnBusy || complete || proctoringTerminated) return;
     if (composed.length < 25) {
       toast.error("Please write a bit more detail before submitting.", { duration: 3000 });
       return;
     }
     setTurnBusy(true);
+    whisperSession.setCaptureEnabled(false);
     try {
       const turn = await api.post<{
         response: string;
@@ -229,9 +264,12 @@ export function SystemDesignInterviewStage({
       }>("/api/interview/system-design/turn", {
         interviewId: id,
         answer: composed,
+        inputMode: "voice",
+        whisperLatencyMs: lastWhisperLatencyMsRef.current,
       });
       setPhase(turn.phase);
-      setAnswer("");
+      setAnswerDraft("");
+      setPartial("");
       if (turn.complete) {
         setComplete(true);
         setOutcome({
@@ -251,11 +289,16 @@ export function SystemDesignInterviewStage({
         return;
       }
       setCurrentQuestion(turn.response);
-      void playQuestion(turn.response);
+      pendingSpeakRef.current = turn.response;
     } catch (err) {
       toast.error((err as Error)?.message ?? "Submit failed. Try again.");
     } finally {
       setTurnBusy(false);
+      if (!complete && !proctoringTerminated) {
+        whisperSession.setCaptureEnabled(true);
+        whisperSession.transition("user_speaking");
+        whisperSession.resumeListening();
+      }
     }
   };
 
@@ -342,14 +385,14 @@ export function SystemDesignInterviewStage({
                 <Shield className="h-5 w-5 text-primary shrink-0" />
                 System Design Interview
               </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Software design — 30 minutes · typed answers</p>
+              <p className="text-sm text-muted-foreground mt-1">Software design — 30 minutes · voice or typed answers</p>
             </div>
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => void playQuestion(currentQuestion)}
-              disabled={!currentQuestion || voiceFloor === "ai_speaking"}
+              disabled={!currentQuestion || whisperSession.floor === "ai_speaking"}
             >
               <RotateCcw className="h-4 w-4 mr-1" />
               Replay question
@@ -386,14 +429,24 @@ export function SystemDesignInterviewStage({
             <span className="tabular-nums text-muted-foreground">({totalLoggedViolations} alerts)</span>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-medium ${
-                voiceFloor === "ai_speaking"
+                whisperSession.floor === "ai_speaking"
                   ? "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300"
                   : "border-muted bg-muted/40 text-muted-foreground"
               }`}
             >
               <Radio className="h-3.5 w-3.5" />
-              {voiceFloor === "ai_speaking" ? "AI speaking" : "Ready — read & type your answer"}
+              {whisperSession.floor === "ai_speaking"
+                ? "AI speaking"
+                : whisperSession.sttMode === "whisper"
+                  ? "Mic on — speak or type"
+                  : "Mic off"}
             </span>
+            {whisperSession.sttMode === "whisper" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-muted bg-muted/30 px-2 py-0.5 text-muted-foreground">
+                <Mic className="h-3.5 w-3.5" />
+                <span className="tabular-nums">{Math.round(whisperSession.micLevel * 100)}%</span>
+              </span>
+            )}
           </div>
 
           <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
@@ -440,7 +493,7 @@ export function SystemDesignInterviewStage({
                   size="sm"
                   className="mt-3 gap-1.5 text-primary"
                   onClick={() => void playQuestion(currentQuestion)}
-                  disabled={!currentQuestion.trim() || voiceFloor === "ai_speaking"}
+                  disabled={!currentQuestion.trim() || whisperSession.floor === "ai_speaking"}
                 >
                   <Volume2 className="h-4 w-4" />
                   Replay question audio
@@ -448,16 +501,21 @@ export function SystemDesignInterviewStage({
               </div>
 
               <Textarea
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
+                value={answerDraft}
+                onChange={(e) => setAnswerDraft(e.target.value)}
                 placeholder="Structure your answer: assumptions, design, trade-offs, and how you would validate in production."
                 rows={10}
                 disabled={complete}
                 className="font-sans text-sm"
               />
+              {!!partial.trim() && (
+                <div className="text-xs text-muted-foreground">
+                  Transcribing: <span className="italic">{partial}</span>
+                </div>
+              )}
 
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => void submit()} disabled={turnBusy || complete || voiceFloor === "ai_speaking"}>
+                <Button onClick={() => void submit()} disabled={turnBusy || complete || whisperSession.floor === "ai_speaking"}>
                   <Send className="h-4 w-4 mr-2" />
                   {turnBusy ? "Sending…" : "Submit answer"}
                 </Button>
