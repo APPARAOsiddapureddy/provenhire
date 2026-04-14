@@ -1,6 +1,6 @@
 import { Suspense, lazy, useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ const DataSystemDesignStage = lazy(() => import("./stages/DataSystemDesignStage"
 const SystemDesignInterviewStage = lazy(() => import("./stages/SystemDesignInterviewStage"));
 import PracticeStageDialog from "@/components/PracticeStageDialog";
 import { checkInvalidatedTests, checkCooldownStatus } from "@/utils/recordingUpload";
+import { stopInterviewAudioOutput } from "@/lib/interviewTts";
 import {
   normalizeTechnicalStageOrderForDisplay,
   technicalStageOrderFallback,
@@ -60,6 +61,7 @@ interface VerificationStagesApiResponse {
 const VerificationFlow = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [stages, setStages] = useState<VerificationStage[]>([]);
   const [currentStage, setCurrentStage] = useState<string>('profile_setup');
@@ -83,6 +85,11 @@ const VerificationFlow = () => {
   const [paywallStage, setPaywallStage] = useState("");
   const [paywallCooldown, setPaywallCooldown] = useState<Date | null>(null);
   const [paywallPricing, setPaywallPricing] = useState({ singleInr: 399, bundleInr: 649 });
+
+  // If the user navigates away mid-question, stop any in-flight interview audio immediately.
+  useEffect(() => {
+    stopInterviewAudioOutput();
+  }, [location.pathname]);
 
   const handlePaywallRequired = useCallback(
     (stage: string, pricing: { singleInr: number; bundleInr: number }, cooldown: Date | null) => {

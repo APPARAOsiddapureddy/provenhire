@@ -5,6 +5,35 @@
  */
 import { getAuthToken } from "@/lib/api";
 
+let currentAudio: HTMLAudioElement | null = null;
+let currentObjectUrl: string | null = null;
+
+export function stopInterviewAudioOutput(): void {
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.src = "";
+      currentAudio.load();
+    }
+  } catch {
+    /* ignore */
+  } finally {
+    currentAudio = null;
+  }
+  try {
+    if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+  } catch {
+    /* ignore */
+  } finally {
+    currentObjectUrl = null;
+  }
+}
+
 /** Tiny silent WAV — call from a click/tap before awaits so later `Audio.play()` is not blocked by autoplay policy. */
 export function unlockInterviewAudioOutput(): void {
   try {
@@ -84,15 +113,25 @@ export async function speakText(text: string, signal?: AbortSignal): Promise<voi
         await fallbackBrowserTTS(text, signal);
         return;
       }
+      // Ensure no previous question keeps playing across navigation.
+      stopInterviewAudioOutput();
       const url = URL.createObjectURL(blob);
+      currentObjectUrl = url;
       await new Promise<void>((resolve) => {
         const audio = new Audio();
+        currentAudio = audio;
         audio.preload = "auto";
         audio.setAttribute("playsinline", "");
         audio.volume = 1;
         audio.src = url;
         const cleanup = () => {
-          URL.revokeObjectURL(url);
+          if (currentObjectUrl) {
+            URL.revokeObjectURL(currentObjectUrl);
+            currentObjectUrl = null;
+          } else {
+            URL.revokeObjectURL(url);
+          }
+          if (currentAudio === audio) currentAudio = null;
           signal?.removeEventListener("abort", onAbort);
           resolve();
         };
