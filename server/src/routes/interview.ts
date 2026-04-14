@@ -305,72 +305,106 @@ interviewRouter.post(
   requireJobSeeker,
   interviewTtsLimiter,
   async (req: AuthedRequest, res: Response) => {
-  const text = (req.body as { text?: unknown })?.text;
-  if (typeof text !== "string" || !text.trim()) {
-    return res.status(400).json({ error: "text is required" });
-  }
-  const trimmed = text.trim();
-  if (trimmed.length > MAX_TTS_CHARS) {
-    return res.status(413).json({
-      error: "text_too_long",
-      message: `TTS text exceeds ${MAX_TTS_CHARS} characters. Split the question or shorten the copy.`,
-    });
-  }
-
-  const result = await synthesizeSpeech(trimmed);
-
-  if (result.stream) {
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("X-TTS-Provider", result.provider);
-
-    const reader = result.stream.getReader();
     try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(Buffer.from(value));
-      }
-      res.end();
+    const t0 = Date.now();
+    const text = (req.body as { text?: unknown })?.text;
+    if (typeof text !== "string" || !text.trim()) {
       logInterviewEvent({
-        event: "interview_tts",
+        event: "interview_tts_error",
         userRef: interviewUserRef(req.user!.id),
         route: "POST /tts",
-        status: 200,
-        ttsChars: trimmed.length,
-        ttsProvider: result.provider,
+        status: 400,
+        errorCode: "text_required",
       });
+      return res.status(400).json({ error: "text is required" });
+    }
+    const trimmed = text.trim();
+    if (trimmed.length > MAX_TTS_CHARS) {
+      logInterviewEvent({
+        event: "interview_tts_error",
+        userRef: interviewUserRef(req.user!.id),
+        route: "POST /tts",
+        status: 413,
+        ttsChars: trimmed.length,
+        errorCode: "text_too_long",
+      });
+      return res.status(413).json({
+        error: "text_too_long",
+        message: `TTS text exceeds ${MAX_TTS_CHARS} characters. Split the question or shorten the copy.`,
+      });
+    }
+
+    const result = await synthesizeSpeech(trimmed);
+
+    if (result.stream) {
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("X-TTS-Provider", result.provider);
+
+      const reader = result.stream.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
+        }
+        res.end();
+        logInterviewEvent({
+          event: "interview_tts",
+          userRef: interviewUserRef(req.user!.id),
+          route: "POST /tts",
+          status: 200,
+          ttsChars: trimmed.length,
+          ttsProvider: result.provider,
+          durationMs: Date.now() - t0,
+        });
+      } catch (e) {
+        console.error("[tts] Stream write error:", e);
+        logInterviewEvent({
+          event: "interview_tts_error",
+          userRef: interviewUserRef(req.user!.id),
+          route: "POST /tts",
+          status: 500,
+          errorCode: "stream_failed",
+        });
+        if (!res.headersSent) {
+          // Never hard-fail the UX: fall back to browser TTS on the client.
+          return res.status(200).json({ fallback: true, text: trimmed, provider: "browser_fallback" });
+        }
+        res.end();
+      }
+      return;
+    }
+
+    logInterviewEvent({
+      event: "interview_tts_fallback",
+      userRef: interviewUserRef(req.user!.id),
+      route: "POST /tts",
+      status: 200,
+      ttsChars: trimmed.length,
+      ttsProvider: "browser_fallback",
+      durationMs: Date.now() - t0,
+      errorCode: result.error ? "provider_unavailable" : undefined,
+    });
+    return res.status(200).json({
+      fallback: true,
+      text: trimmed,
+      provider: "browser_fallback",
+    });
     } catch (e) {
-      console.error("[tts] Stream write error:", e);
+      console.error("[interview/tts]", e);
       logInterviewEvent({
         event: "interview_tts_error",
         userRef: interviewUserRef(req.user!.id),
         route: "POST /tts",
         status: 500,
-        errorCode: "stream_failed",
+        errorCode: "tts_handler_failed",
       });
-      if (!res.headersSent) {
-        res.status(500).json({ error: "Stream failed" });
-      } else {
-        res.end();
-      }
+      // Always return a safe fallback response so the client can still speak via SpeechSynthesis.
+      const text = (req.body as { text?: unknown })?.text;
+      const safeText = typeof text === "string" ? text.trim().slice(0, MAX_TTS_CHARS) : "";
+      return res.status(200).json({ fallback: true, text: safeText, provider: "browser_fallback" });
     }
-    return;
-  }
-
-  logInterviewEvent({
-    event: "interview_tts_fallback",
-    userRef: interviewUserRef(req.user!.id),
-    route: "POST /tts",
-    status: 200,
-    ttsChars: trimmed.length,
-    ttsProvider: "browser_fallback",
-  });
-  return res.status(200).json({
-    fallback: true,
-    text: trimmed,
-    provider: "browser_fallback",
-  });
   }
 );
 
