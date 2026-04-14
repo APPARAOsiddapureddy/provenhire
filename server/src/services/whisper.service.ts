@@ -3,6 +3,7 @@ import OpenAI, { toFile, APIError } from "openai";
 const openai = process.env.OPENAI_API_KEY?.trim()
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY.trim() })
   : null;
+const deepgramKey = process.env.DEEPGRAM_API_KEY?.trim() || null;
 
 export interface WhisperResult {
   transcript: string;
@@ -63,8 +64,50 @@ async function whisperToFile(buffer: Buffer, mimeType: string) {
   return toFile(buffer, filename, { type });
 }
 
+async function deepgramTranscribe(audioBuffer: Buffer, mimeType: string): Promise<WhisperResult> {
+  if (!deepgramKey) throw new Error("DEEPGRAM_API_KEY not configured");
+  const { type } = normalizeWhisperMime(mimeType);
+
+  const url = new URL("https://api.deepgram.com/v1/listen");
+  url.searchParams.set("model", "nova-2");
+  url.searchParams.set("smart_format", "true");
+  url.searchParams.set("punctuate", "true");
+  url.searchParams.set("language", "en");
+
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: `Token ${deepgramKey}`,
+      "Content-Type": type,
+    },
+    // `fetch` typings don't accept Node's Buffer, but Undici runtime does.
+    // Use a Uint8Array view to satisfy types and preserve bytes.
+    body: new Uint8Array(audioBuffer),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Deepgram STT failed (${res.status}): ${t.slice(0, 180)}`);
+  }
+  const data = (await res.json()) as {
+    results?: {
+      channels?: Array<{
+        alternatives?: Array<{ transcript?: string; confidence?: number }>;
+      }>;
+    };
+  };
+  const alt = data.results?.channels?.[0]?.alternatives?.[0];
+  const transcript = String(alt?.transcript ?? "").trim();
+  const conf = typeof alt?.confidence === "number" ? alt.confidence : 0.6;
+  const confidence: WhisperResult["confidence"] = conf >= 0.85 ? "high" : conf >= 0.65 ? "medium" : "low";
+  return { transcript, confidence };
+}
+
 export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = "audio/webm"): Promise<WhisperResult> {
-  if (!openai) throw new Error("OPENAI_API_KEY not configured");
+  if (!openai) {
+    // No OpenAI configured (common in prod misconfig). If Deepgram is configured, still allow voice input.
+    if (deepgramKey) return deepgramTranscribe(audioBuffer, mimeType);
+    throw new Error("OPENAI_API_KEY not configured");
+  }
 
   const file = await whisperToFile(audioBuffer, mimeType);
 
@@ -108,6 +151,14 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = "a
               : "";
         return { transcript: text.trim(), confidence: "medium" };
       } catch (third) {
+        // If OpenAI STT fails (quota, auth, transient), fall back to Deepgram when configured.
+        if (deepgramKey) {
+          try {
+            return await deepgramTranscribe(audioBuffer, mimeType);
+          } catch {
+            // Prefer the OpenAI failure message for the UI.
+          }
+        }
         throw new Error(whisperOpenAIErrorMessage(third));
       }
     }
