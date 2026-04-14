@@ -10,6 +10,13 @@ import {
   CANDIDATE_NON_TECH_ASSIGNMENT_RETAKE_BUNDLE_INR,
 } from "../constants/revenue.js";
 
+async function isQaBypassRetakesUser(userId: string): Promise<boolean> {
+  const v = process.env.QA_BYPASS_RETAKES?.trim().toLowerCase();
+  if (v !== "1" && v !== "true" && v !== "on") return false;
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  return Boolean(u?.email?.toLowerCase().endsWith("@test.provenhire.com"));
+}
+
 export async function countAvailableRetakeCredits(userId: string): Promise<number> {
   const now = new Date();
   return prisma.candidateRetakeLedger.count({
@@ -70,6 +77,10 @@ export async function gateExpertInterviewStart(userId: string): Promise<
       status: 400,
       body: { error: "You already have an expert interview in progress.", code: "INTERVIEW_OPEN" },
     };
+  }
+
+  if (await isQaBypassRetakesUser(userId)) {
+    return { ok: true };
   }
 
   const priorCount = await prisma.interview.count({

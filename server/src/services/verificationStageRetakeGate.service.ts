@@ -12,6 +12,13 @@ const pricingBody = {
   bundleInr: CANDIDATE_RETAKE_BUNDLE_INR,
 };
 
+async function isQaBypassRetakesUser(userId: string): Promise<boolean> {
+  const v = process.env.QA_BYPASS_RETAKES?.trim().toLowerCase();
+  if (v !== "1" && v !== "true" && v !== "on") return false;
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  return Boolean(u?.email?.toLowerCase().endsWith("@test.provenhire.com"));
+}
+
 function interviewTypeForStage(stageName: string): "ai_skills" | "system_design" | null {
   if (stageName === "ai_skills_interview" || stageName === "data_skills_interview") return "ai_skills";
   if (stageName === "system_design_interview" || stageName === "data_system_design") return "system_design";
@@ -36,6 +43,10 @@ export async function gatePaidVerificationStageInProgress(
   }
 
   if (previousStatus === "locked") {
+    return { ok: true };
+  }
+
+  if (await isQaBypassRetakesUser(userId)) {
     return { ok: true };
   }
 
