@@ -472,11 +472,62 @@ export default function DataSystemDesignStage({
               <Textarea
                 value={answerDraft}
                 onChange={(e) => setAnswerDraft(e.target.value)}
-                placeholder="Structure your answer: assumptions, design, trade-offs, and how you would validate in production."
+                placeholder="Speak your answer (recommended). Pause ~2s to transcribe. You can also type here."
                 rows={10}
                 disabled={complete}
                 className="font-sans text-sm"
               />
+              <div className="rounded-lg border border-primary/25 bg-primary/5 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <div className="mt-0.5 rounded-md bg-primary/10 text-primary p-1.5">
+                      <Mic className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Answer by voice</p>
+                      <p className="text-xs text-muted-foreground">
+                        Start speaking now. After you pause for about 2 seconds, your speech will appear in the answer box.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {Array.from({ length: 10 }).map((_, i) => {
+                      const level =
+                        whisperSession.floor === "user_speaking"
+                          ? Math.min(100, whisperSession.micLevel * 100 + (i % 3) * 6)
+                          : 0;
+                      const active = level > i * 10;
+                      return (
+                        <span
+                          key={i}
+                          className={`h-3 w-1.5 rounded-full ${
+                            whisperSession.floor === "ai_speaking"
+                              ? "bg-muted-foreground/20"
+                              : active
+                                ? "bg-primary/70"
+                                : "bg-muted-foreground/25"
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-2 py-0.5">
+                    Status:{" "}
+                    <span className="font-medium text-foreground">
+                      {whisperSession.floor === "ai_speaking"
+                        ? "AI speaking (mic paused)"
+                        : whisperSession.sttMode === "whisper"
+                          ? "Listening"
+                          : "Off"}
+                    </span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-2 py-0.5">
+                    Mic level: <span className="tabular-nums font-medium text-foreground">{Math.round(whisperSession.micLevel * 100)}%</span>
+                  </span>
+                </div>
+              </div>
               {!!partial.trim() && (
                 <div className="text-xs text-muted-foreground">
                   Transcribing: <span className="italic">{partial}</span>
