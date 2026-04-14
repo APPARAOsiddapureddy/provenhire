@@ -6,7 +6,11 @@ export type FloorState = "idle" | "user_speaking" | "ai_thinking" | "ai_speaking
 /** UI label for voice session badge (Expert Interview). */
 export type InterviewSttMode = "whisper" | "idle";
 
-const SILENCE_THRESHOLD = 0.012;
+/**
+ * VAD threshold in RMS units (0..1). This must be low enough to detect quieter mics/laptops.
+ * We also adapt it per-recording using a short noise-floor sample.
+ */
+const BASE_SILENCE_THRESHOLD = 0.006;
 /** End-of-utterance: wait this long after speech stops before sending audio to Whisper (product default 2s). */
 const SILENCE_DURATION_MS = 2000;
 const MAX_RECORDING_MS = 120_000;
@@ -47,6 +51,8 @@ export function useWhisperSession({
   const floorRef = useRef<FloorState>("idle");
   const isTranscribingRef = useRef(false);
   const captureEnabledRef = useRef(true);
+  const vadThresholdRef = useRef<number>(BASE_SILENCE_THRESHOLD);
+  const vadCalibratedRef = useRef(false);
   const pendingDiscardRef = useRef(false);
   const startRecordingFnRef = useRef<() => void>(() => {});
   const onBargeInRef = useRef(onBargeInTranscript);
@@ -219,6 +225,8 @@ export function useWhisperSession({
     audioChunksRef.current = [];
     recordingStartRef.current = Date.now();
     isSpeakingRef.current = false;
+    vadThresholdRef.current = BASE_SILENCE_THRESHOLD;
+    vadCalibratedRef.current = false;
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunksRef.current.push(e.data);
@@ -231,13 +239,33 @@ export function useWhisperSession({
       void stopAndTranscribe();
     }, MAX_RECORDING_MS);
 
+    // Calibrate a per-recording threshold based on ambient noise floor (first ~350ms).
+    // This improves voice detection on quiet mics and avoids "never detects speaking".
+    const calibrateStart = Date.now();
+    let noiseSum = 0;
+    let noiseN = 0;
+
     const vadLoop = () => {
       const barge = floorRef.current === "ai_speaking" && Boolean(onBargeInRef.current);
       if (!mediaRecorderRef.current) return;
       if (floorRef.current !== "user_speaking" && !barge) return;
 
       const rms = getRMS();
-      const speaking = rms > SILENCE_THRESHOLD;
+      if (!vadCalibratedRef.current) {
+        const dt = Date.now() - calibrateStart;
+        // Sample only when we are likely still silent (before first detected speaking).
+        if (!isSpeakingRef.current && dt < 350) {
+          noiseSum += rms;
+          noiseN += 1;
+        } else {
+          const noiseAvg = noiseN > 0 ? noiseSum / noiseN : 0;
+          // Threshold: at least BASE, otherwise 3x noise floor.
+          vadThresholdRef.current = Math.max(BASE_SILENCE_THRESHOLD, noiseAvg * 3);
+          vadCalibratedRef.current = true;
+        }
+      }
+
+      const speaking = rms > vadThresholdRef.current;
 
       if (speaking) {
         isSpeakingRef.current = true;
