@@ -14,8 +14,8 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-/** Shared password for all seeded test accounts below. */
-export const SEED_TEST_PASSWORD = "PhE2E_Apr2026!x7";
+/** Shared password for all seeded test accounts below (override with env for new batches). */
+export const SEED_TEST_PASSWORD = process.env.SEED_TEST_PASSWORD?.trim() || "PhE2E_Apr2026!x7";
 
 type StageSeed = { stageName: string; status: string; score?: number };
 
@@ -36,18 +36,29 @@ type TestUserSeed = {
 
 const PASSWORD = SEED_TEST_PASSWORD;
 
+/**
+ * QA email namespace tag so you can mint fresh accounts without touching old ones.
+ * Example:
+ *   QA_SEED_TAG=apr2026b SEED_TEST_PASSWORD='PhE2E_Apr2026b!x7' npm run seed:test-credentials
+ */
+const QA_SEED_TAG = (process.env.QA_SEED_TAG?.trim().toLowerCase() || "apr2026b").replace(/[^a-z0-9_-]/g, "");
+
+function qaEmail(prefix: string): string {
+  return `qa.${prefix}.${QA_SEED_TAG}@test.provenhire.com`;
+}
+
 const LEGACY_TEST_USERS: TestUserSeed[] = [
   {
-    email: "qa.apt.apr2026@test.provenhire.com",
-    name: "QA Aptitude Apr2026",
+    email: qaEmail("apt"),
+    name: `QA Aptitude ${QA_SEED_TAG}`,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "in_progress" },
     ],
   },
   {
-    email: "qa.dsa.apr2026@test.provenhire.com",
-    name: "QA DSA Apr2026",
+    email: qaEmail("dsa"),
+    name: `QA DSA ${QA_SEED_TAG}`,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "completed", score: 75 },
@@ -56,8 +67,8 @@ const LEGACY_TEST_USERS: TestUserSeed[] = [
     aptitudeScore: 75,
   },
   {
-    email: "qa.ai.apr2026@test.provenhire.com",
-    name: "QA AI Interview Apr2026",
+    email: qaEmail("ai"),
+    name: `QA AI Interview ${QA_SEED_TAG}`,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "completed", score: 80 },
@@ -68,8 +79,8 @@ const LEGACY_TEST_USERS: TestUserSeed[] = [
     dsaScore: 70,
   },
   {
-    email: "qa.ai2.apr2026@test.provenhire.com",
-    name: "QA AI Interview 2 Apr2026",
+    email: qaEmail("ai2"),
+    name: `QA AI Interview 2 ${QA_SEED_TAG}`,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
       { stageName: "aptitude_test", status: "completed", score: 80 },
@@ -84,8 +95,8 @@ const LEGACY_TEST_USERS: TestUserSeed[] = [
 /** V2 software track, mid tier (3y): profile → DSA → AI Skills → System Design → Expert (no aptitude row). */
 const V2_MID_SOFTWARE_USERS: TestUserSeed[] = [
   {
-    email: "qa.v2.mid.dsa@test.provenhire.com",
-    name: "QA V2 Mid DSA",
+    email: qaEmail("v2.mid.dsa"),
+    name: `QA V2 Mid DSA ${QA_SEED_TAG}`,
     experienceYears: 3,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
@@ -96,8 +107,8 @@ const V2_MID_SOFTWARE_USERS: TestUserSeed[] = [
     ],
   },
   {
-    email: "qa.v2.mid.aiskills@test.provenhire.com",
-    name: "QA V2 Mid AI Skills",
+    email: qaEmail("v2.mid.aiskills"),
+    name: `QA V2 Mid AI Skills ${QA_SEED_TAG}`,
     experienceYears: 3,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
@@ -109,8 +120,8 @@ const V2_MID_SOFTWARE_USERS: TestUserSeed[] = [
     dsaScore: 72,
   },
   {
-    email: "qa.v2.mid.sysdesign@test.provenhire.com",
-    name: "QA V2 Mid System Design",
+    email: qaEmail("v2.mid.sysdesign"),
+    name: `QA V2 Mid System Design ${QA_SEED_TAG}`,
     experienceYears: 3,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
@@ -122,8 +133,8 @@ const V2_MID_SOFTWARE_USERS: TestUserSeed[] = [
     dsaScore: 72,
   },
   {
-    email: "qa.v2.mid.expert@test.provenhire.com",
-    name: "QA V2 Mid Expert Interview",
+    email: qaEmail("v2.mid.expert"),
+    name: `QA V2 Mid Expert Interview ${QA_SEED_TAG}`,
     experienceYears: 3,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
@@ -135,8 +146,8 @@ const V2_MID_SOFTWARE_USERS: TestUserSeed[] = [
     dsaScore: 72,
   },
   {
-    email: "qa.v2.paywall.retake@test.provenhire.com",
-    name: "QA V2 Paywall Retake",
+    email: qaEmail("v2.paywall.retake"),
+    name: `QA V2 Paywall Retake ${QA_SEED_TAG}`,
     experienceYears: 3,
     stages: [
       { stageName: "profile_setup", status: "completed", score: 100 },
@@ -274,15 +285,16 @@ async function main() {
   }
 
   console.log(`
+QA_SEED_TAG: ${QA_SEED_TAG}
 Password (all job seeker seeds above): ${PASSWORD}
 Login: /auth → Job Seeker → Sign In
 
 V2 mid/senior software (verification pipeline v2):
-  qa.v2.mid.dsa@...          — DSA round next
-  qa.v2.mid.aiskills@...     — AI Skills interview next (DSA + skill checkup flow)
-  qa.v2.mid.sysdesign@...    — System design interview next
-  qa.v2.mid.expert@...       — AI Expert (overall) interview next
-  qa.v2.paywall.retake@...   — AI Skills already completed; retake → paywall (no credits)
+  ${qaEmail("v2.mid.dsa")}          — DSA round next
+  ${qaEmail("v2.mid.aiskills")}     — AI Skills interview next (DSA + skill checkup flow)
+  ${qaEmail("v2.mid.sysdesign")}    — System design interview next
+  ${qaEmail("v2.mid.expert")}       — AI Expert (overall) interview next
+  ${qaEmail("v2.paywall.retake")}   — AI Skills already completed; retake → paywall (no credits)
 
 Recruiter / expert / admin: run separately:
   npm run seed:recruiter
