@@ -23,6 +23,27 @@ export const SOFTWARE_SYSTEM_DESIGN_STAGE = "system_design_interview";
 
 type Phase = "lld" | "hld";
 
+// Keep SD questions "medium" for UX and TTS latency.
+const MAX_SD_QUESTION_CHARS = 650;
+
+function clampSystemDesignQuestion(text: string): string {
+  const t = sanitizeAiInterviewQuestionText(text || "");
+  if (t.length <= MAX_SD_QUESTION_CHARS) return t;
+
+  // Prefer cutting at sentence boundaries.
+  const sentences = t.split(/(?<=[.?!])\s+/);
+  let out = "";
+  for (const s of sentences) {
+    const next = out ? `${out} ${s}` : s;
+    if (next.length > MAX_SD_QUESTION_CHARS) break;
+    out = next;
+  }
+  if (out && out.length >= 120) return out.trim();
+
+  // Fallback: hard cut with ellipsis.
+  return `${t.slice(0, MAX_SD_QUESTION_CHARS - 1).trimEnd()}…`;
+}
+
 export type DataSystemDesignPlan = {
   phase: Phase;
   /** User answers completed in the current phase (0..ANSWERS_PER_PHASE). */
@@ -325,7 +346,7 @@ export async function processDataSystemDesignTurn(
       plan.experienceLevel,
       asked
     );
-    nextQuestion = sanitizeAiInterviewQuestionText(nextQuestion);
+    nextQuestion = clampSystemDesignQuestion(nextQuestion);
     await prisma.interviewMessage.create({
       data: {
         interviewId,
@@ -918,7 +939,7 @@ export async function processSoftwareSystemDesignTurn(
       plan.problemTitle,
       asked
     );
-    nextQuestion = sanitizeAiInterviewQuestionText(nextQuestion);
+    nextQuestion = clampSystemDesignQuestion(nextQuestion);
     await prisma.interviewMessage.create({
       data: {
         interviewId,
