@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import DashboardShell from "@/components/DashboardShell";
 import { useAuth } from "@/contexts/AuthContext";
-import { api } from "@/lib/api";
+import { api, getAuthToken } from "@/lib/api";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -558,13 +558,32 @@ export default function AntigravityInterviewPage() {
     if (!targetRole.trim()) { setActionError("Add the target role so Antigravity can calibrate the interview."); return; }
 
     setStarting(true);
+    // Warm-up message shown after 4s if service hasn't responded yet (Render cold start ~60s)
+    const warmupTimer = setTimeout(() => {
+      setActionError("Service is warming up — this takes up to 60s on first launch. Hang tight...");
+    }, 4000);
+
     try {
-      const data = await api.post<StartResponse>("/api/antigravity/start", {
-        resume,
-        githubLinks: githubLinks.split("\n").map((l) => l.trim()).filter(Boolean),
-        targetRole: targetRole.trim(),
-        yearsExperience,
-      });
+      const ac = new AbortController();
+      const coldStartTimeout = setTimeout(() => ac.abort(), 150_000);
+      let res: Response;
+      try {
+        res = await fetch("/api/antigravity/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken()}` },
+          body: JSON.stringify({
+            resume,
+            githubLinks: githubLinks.split("\n").map((l) => l.trim()).filter(Boolean),
+            targetRole: targetRole.trim(),
+            yearsExperience,
+          }),
+          signal: ac.signal,
+        });
+      } finally {
+        clearTimeout(coldStartTimeout);
+      }
+      if (!res.ok) throw new Error(`Service returned ${res.status}`);
+      const data: StartResponse = await res.json();
       setSessionId(data.session_id);
       setSprint(data.sprint);
       setPersona("curious_lead");
@@ -575,8 +594,12 @@ export default function AntigravityInterviewPage() {
         { role: "ai", text: data.opening_question },
       ]);
       openingQuestionRef.current = data.opening_question;
+      clearTimeout(warmupTimer);
+      setActionError(null);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Could not start Antigravity interview.");
+      clearTimeout(warmupTimer);
+      const msg = error instanceof Error ? error.message : "Could not start Antigravity interview.";
+      setActionError(msg.includes("aborted") ? "Service took too long to respond. Try again in a moment." : msg);
     } finally {
       setStarting(false);
     }
