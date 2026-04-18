@@ -22,6 +22,7 @@ import { cronRouter } from "./routes/cron.js";
 import { settingsRouter } from "./routes/settings.js";
 import { humanInterviewRouter } from "./routes/humanInterview.js";
 import { publicApiRouter } from "./routes/public.js";
+import { antigravityRouter } from "./routes/antigravity.js";
 
 export function createApp() {
   const app = express();
@@ -166,6 +167,7 @@ export function createApp() {
         "/api/settings",
         "/api/human-interview",
         "/api/public",
+        "/api/antigravity",
       ],
     });
   });
@@ -190,6 +192,7 @@ export function createApp() {
   app.use("/api/cron", cronRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/public", publicApiRouter);
+  app.use("/api/antigravity", antigravityRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Route not found" });

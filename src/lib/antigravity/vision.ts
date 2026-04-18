@@ -1,5 +1,6 @@
-// Loaded dynamically at runtime — avoids bundling native WASM binaries at build time
-type FaceLandmarkerType = import("@mediapipe/tasks-vision").FaceLandmarker;
+// MediaPipe loads entirely from CDN at runtime — no npm package needed at build time.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FaceLandmarker = any;
 
 export interface VisionPrediction {
   lipClosureScore: number;
@@ -8,7 +9,7 @@ export interface VisionPrediction {
 }
 
 export class CVSensor {
-  private faceLandmarker: FaceLandmarkerType | null = null;
+  private faceLandmarker: FaceLandmarker | null = null;
   private initState: "idle" | "loading" | "ready" | "failed" = "idle";
   private lastTimestampMs = 0;
 
