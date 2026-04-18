@@ -35,14 +35,96 @@ export interface ParsedResume {
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 
+// ── LLM ROUTER ─────────────────────────────────────────────────────────────────
+// fast  → Claude Haiku 4.5 via OpenRouter (low-latency, cheap: ~50ms target)
+// balanced → Gemini 2.5 Flash
+// deep  → Gemini 2.5 Pro
+
+const openrouterApiKey = process.env.OPENROUTER_API_KEY;
+const HAIKU_MODEL = "anthropic/claude-haiku-4-5";
+
+async function callHaikuJson(system: string, user: string, maxTokens = 400): Promise<unknown> {
+  if (!openrouterApiKey) return null;
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openrouterApiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://provenhire.in",
+        "X-Title": "ProvenHire Interview",
+      },
+      body: JSON.stringify({
+        model: HAIKU_MODEL,
+        max_tokens: maxTokens,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
+    const text = (data.choices?.[0]?.message?.content ?? "").trim();
+    try {
+      return JSON.parse(text.replace(/^```json\n?|```$/g, "").trim());
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        try { return JSON.parse(match[0]); } catch { /* fall through */ }
+      }
+      return null;
+    }
+  } catch (e) {
+    console.error("[interview/haiku] JSON generation failed:", e);
+    return null;
+  }
+}
+
+async function callHaikuText(system: string, user: string, maxTokens = 200): Promise<string> {
+  if (!openrouterApiKey) return "";
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openrouterApiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://provenhire.in",
+        "X-Title": "ProvenHire Interview",
+      },
+      body: JSON.stringify({
+        model: HAIKU_MODEL,
+        max_tokens: maxTokens,
+        temperature: 0.35,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+    if (!res.ok) return "";
+    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
+    return (data.choices?.[0]?.message?.content ?? "").trim();
+  } catch (e) {
+    console.error("[interview/haiku] text generation failed:", e);
+    return "";
+  }
+}
+
 function responseText(response: unknown): string {
   return String((response as { text?: string })?.text ?? "").trim();
 }
 
 export async function callGeminiJson(system: string, user: string, tier: "fast" | "balanced" | "deep"): Promise<unknown> {
+  // fast tier → Haiku via OpenRouter; fall back to Gemini Flash if no OpenRouter key
+  if (tier === "fast") {
+    const result = await callHaikuJson(system, user, 400);
+    if (result !== null) return result;
+    // fallback to Gemini Flash
+  }
   if (!gemini) return null;
-  const model =
-    tier === "fast" ? "gemini-2.0-flash" : tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
+  const model = tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
   try {
     const response = await gemini.models.generateContent({
       model,
@@ -73,9 +155,14 @@ export async function callGeminiText(
   tier: "fast" | "balanced" | "deep",
   opts?: { maxOutputTokens?: number }
 ): Promise<string> {
+  // fast tier → Haiku via OpenRouter; fall back to Gemini Flash if no OpenRouter key
+  if (tier === "fast") {
+    const result = await callHaikuText(system, user, opts?.maxOutputTokens ?? 200);
+    if (result) return result;
+    // fallback to Gemini Flash
+  }
   if (!gemini) return "";
-  const model =
-    tier === "fast" ? "gemini-2.0-flash" : tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
+  const model = tier === "deep" ? "gemini-2.5-pro" : "gemini-2.5-flash";
   try {
     const response = await gemini.models.generateContent({
       model,
