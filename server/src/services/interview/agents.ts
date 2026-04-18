@@ -222,9 +222,11 @@ export async function detectWeakness(
 Do NOT validate or praise. Find the most significant weakness.
 
 Weakness types: missing_step | vague | incorrect | shallow | overconfidence | calibration_success
-Attack strategies: implementation_probe | edge_case | scaling | contradiction | step_by_step | explore_depth
+Attack strategies: implementation_probe | edge_case | scaling | contradiction | step_by_step | explore_depth | clarification | ownership_probe
 Severity: high (must probe) | medium (worth following up) | low (minor)
 If the candidate explicitly admits uncertainty, corrects themselves, or shows honest calibration, use type **calibration_success**, severity at most **medium**, attackStrategy **explore_depth**.
+Use **clarification** when the answer is ambiguous or uses vague pronouns ("we did it", "the system handles it") — caller will ask a lightweight clarifying question.
+Use **ownership_probe** when the candidate's contribution to a claimed achievement is unclear.
 Use **high** only for a clear substantive gap. Routine brevity, oral fillers, or minor vagueness → **medium** or **low** so the interview does not over-probe.
 
 Return JSON only:
@@ -232,7 +234,7 @@ Return JSON only:
   "weakness": "<one sentence describing the specific gap>",
   "type": "missing_step | vague | incorrect | shallow | overconfidence | calibration_success",
   "severity": "low | medium | high",
-  "attackStrategy": "implementation_probe | edge_case | scaling | contradiction | step_by_step | explore_depth",
+  "attackStrategy": "implementation_probe | edge_case | scaling | contradiction | step_by_step | explore_depth | clarification | ownership_probe",
   "suggestedFollowup": "<short probe idea, optional>"
 }`,
     `Sprint ${sprint} — ${focus}\n${priorContext}\n\nQuestion: ${question}\n\nCandidate Answer: ${answer}`,
