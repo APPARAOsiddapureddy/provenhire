@@ -1862,10 +1862,23 @@ export async function finalizeAiInterviewInBackground(
 
   prefetchCache.delete(interviewId);
 
-  if (nonTechnical) {
+  // Determine which verification stage this interview is completing.
+  // Skill-stage interviews (ai_skills_interview, data_skills_interview) complete immediately;
+  // expert_interview for technical users goes to pending_review for admin scoring.
+  const inProgressSkillsStage = await prisma.verificationStage.findFirst({
+    where: {
+      userId,
+      stageName: { in: ["ai_skills_interview", "data_skills_interview"] },
+      status: "in_progress",
+    },
+  });
+  const targetStageName = inProgressSkillsStage?.stageName ?? "expert_interview";
+  const isSkillsStage = targetStageName === "ai_skills_interview" || targetStageName === "data_skills_interview";
+
+  if (isSkillsStage || nonTechnical) {
     await prisma.verificationStage.upsert({
-      where: { userId_stageName: { userId, stageName: "expert_interview" } },
-      create: { userId, stageName: "expert_interview", status: "completed", score: overallScore },
+      where: { userId_stageName: { userId, stageName: targetStageName } },
+      create: { userId, stageName: targetStageName, status: "completed", score: overallScore },
       update: { status: "completed", score: overallScore },
     });
     try {
