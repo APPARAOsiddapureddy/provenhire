@@ -830,6 +830,17 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
     let concepts: string[];
 
     const parsedResume = (state.parsed_resume ?? null) as ParsedResume | null;
+
+    // Compute focus context early — feeds weakness detection + followup generation
+    const _trajectoryMapSlow = (state.interview_trajectory_map ?? null) as InterviewMap | null;
+    const _focusKeyEarly = _inferFocusKey(input.answeredQuestion, input.answer, parsedResume);
+    const _focusCtxEarly = _trajectoryMapSlow
+      ? getInterviewMapFocusContext(_trajectoryMapSlow, _focusKeyEarly, {
+          queryText: `${input.answeredQuestion} ${input.answer}`,
+          history: (state.history ?? []).map((h) => ({ focus_key: h.focus_key, answer: h.answer })),
+        })
+      : null;
+
     const trimmedAns = input.answer.trim();
     if (cachedPartial && hasSubstantialOverlap(trimmedAns, cachedPartial.partial_text)) {
       weakness = cachedPartial.weakness;
@@ -844,7 +855,10 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
       const structuredResumeCtx = buildStructuredResumeContext(parsedResume, input.resume);
       [weakness, discrepancy, reasoning, concepts] = await Promise.all([
         parsedResume
-          ? detectWeaknessWithResume(input.answeredQuestion, input.answer, input.answeredSprint, weaknesses, parsedResume)
+          ? detectWeaknessWithResume(input.answeredQuestion, input.answer, input.answeredSprint, weaknesses, parsedResume, {
+              focusContext: _focusCtxEarly?.prompt_context,
+              resumeSnippets: _focusCtxEarly?.resume_snippets,
+            })
           : detectWeakness(input.answeredQuestion, input.answer, input.answeredSprint, weaknesses),
         checkDiscrepancy(structuredResumeCtx || input.resume, input.answer),
         evaluateReasoning(input.answer, wasChallenged),
@@ -925,15 +939,10 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
     const askedForPrompt = priorAskedQuestions(history, input.answeredQuestion);
     let probedClaims = [...(state.probedClaims ?? [])];
 
-    // Infer focus key from the current question/answer to look up trajectory map context
-    const currentFocusKey = _inferFocusKey(input.answeredQuestion, input.answer, parsedResume);
-    const trajectoryMap = (state.interview_trajectory_map ?? null) as InterviewMap | null;
-    const focusCtx = trajectoryMap
-      ? getInterviewMapFocusContext(trajectoryMap, currentFocusKey, {
-          queryText: `${input.answeredQuestion} ${input.answer}`,
-          history: history.map((h) => ({ focus_key: h.focus_key, answer: h.answer })),
-        })
-      : null;
+    // Reuse focus key/context already computed before agent calls
+    const currentFocusKey = _focusKeyEarly;
+    const focusCtx = _focusCtxEarly;
+    const trajectoryMap = _trajectoryMapSlow;
     const structuredResCtx = buildStructuredResumeContext(parsedResume, input.resume);
 
     // Build avoid-topic list to prevent hammering the same focus area >2 turns
@@ -962,6 +971,13 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
           askedForPrompt
         )
       );
+    } else if (weakness.severity === "medium" && !forceSprintQuestion && weakness.attackStrategy === "clarification") {
+      // Lightweight clarification path — fast, ≤20 words, doesn't escalate (matches Antigravity's generate_clarification)
+      followupBranch = "weakness_probe";
+      const clarificationTemplate = weakness.suggestedFollowup
+        ? weakness.suggestedFollowup
+        : `You said "${input.answer.slice(0, 80).trim()}…" — can you be more specific about the exact step/mechanism you used?`;
+      followup = await adaptFollowupFast(clarificationTemplate, input.answer, state.persona);
     } else if (weakness.severity === "high" && !forceSprintQuestion) {
       followupBranch = "weakness_probe";
       followup = await resolveDistinctQuestion(askedForPrompt, () =>
@@ -1899,10 +1915,14 @@ export async function handlePartialTranscript(interviewId: string, text: string,
     const resume =
       [jp?.about, jp?.workExperience, jp?.skills ? JSON.stringify(jp.skills) : ""].filter(Boolean).join("\n") ||
       resumeContext;
+    const parsedResumeSt = (st.parsed_resume ?? null) as ParsedResume | null;
+    const structuredCtx = buildStructuredResumeContext(parsedResumeSt, resume);
     try {
       const [weakness, discrepancy] = await Promise.all([
-        detectWeakness(st.lastQuestion, t, st.sprint, st.weaknesses ?? [], { tier: "fast" }),
-        checkDiscrepancy(resume, t, { tier: "fast" }),
+        parsedResumeSt
+          ? detectWeaknessWithResume(st.lastQuestion, t, st.sprint, st.weaknesses ?? [], parsedResumeSt, { tier: "fast" })
+          : detectWeakness(st.lastQuestion, t, st.sprint, st.weaknesses ?? [], { tier: "fast" }),
+        checkDiscrepancy(structuredCtx || resume, t, { tier: "fast" }),
       ]);
       partialAgentCache.set(interviewId, {
         weakness,
@@ -1912,6 +1932,34 @@ export async function handlePartialTranscript(interviewId: string, text: string,
       });
     } catch (e) {
       console.warn("[interview/v2/partial agents]", e);
+    }
+
+    // Speculative next-question generation — fires when enough text + new entities appear
+    // Non-blocking: writes to prepped_next_question if result improves on current staging
+    const wordCount = t.split(/\s+/).filter(Boolean).length;
+    if (concepts.length >= 2 && wordCount >= 20 && !st.prepped_next_question) {
+      const _trajectoryMapPartial = (st.interview_trajectory_map ?? null) as InterviewMap | null;
+      const _focusKeyPartial = _inferFocusKey(st.lastQuestion, t, parsedResumeSt);
+      const _focusCtxPartial = _trajectoryMapPartial
+        ? getInterviewMapFocusContext(_trajectoryMapPartial, _focusKeyPartial, { queryText: `${st.lastQuestion} ${t}` })
+        : null;
+      const admission = /to be honest|i don't know|i do not know|i'm not sure|i haven't/i.test(t);
+      generateSpeculative(t, concepts, st.lastQuestion, st.persona, st.sprint, structuredCtx, {
+        admission,
+        focusContext: _focusCtxPartial?.prompt_context,
+        shortAnswerRescue: wordCount <= 8,
+      })
+        .then(async (result) => {
+          if (result.action !== "replace" || !result.question) return;
+          const row = await prisma.interview.findUnique({ where: { id: interviewId }, select: { questionPlan: true } });
+          if (!row?.questionPlan || !Array.isArray(row.questionPlan) || !row.questionPlan[0]) return;
+          const freshState = { ...(row.questionPlan[0] as AdversarialState) };
+          if (!freshState.prepped_next_question) {
+            freshState.prepped_next_question = result.question;
+            await prisma.interview.update({ where: { id: interviewId }, data: { questionPlan: [freshState] as object[] } });
+          }
+        })
+        .catch(() => {});
     }
   }
 }

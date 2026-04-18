@@ -985,7 +985,7 @@ export async function detectWeaknessWithResume(
   sprint: number,
   priorWeaknesses: { type?: string }[],
   parsedResume: ParsedResume | null,
-  opts?: { tier?: "fast" | "balanced" }
+  opts?: { tier?: "fast" | "balanced"; focusContext?: string; resumeSnippets?: string[] }
 ): Promise<{
   weakness: string;
   type: string;
@@ -1014,6 +1014,13 @@ export async function detectWeaknessWithResume(
     if (ownershipSignals.length) calibrationContext += "\nOwnership signals:\n- " + ownershipSignals.join("\n- ");
   }
 
+  const focusSection = opts?.focusContext
+    ? `\nFocus area context (ground your analysis here):\n${opts.focusContext}`
+    : "";
+  const snippetSection = opts?.resumeSnippets?.length
+    ? `\nExact resume snippets for this focus area:\n${opts.resumeSnippets.map((s) => `- ${s}`).join("\n")}`
+    : "";
+
   const result = await callGeminiJson(
     `You are a technical interviewer analyzing a candidate's answer for reasoning gaps.
 
@@ -1025,6 +1032,7 @@ Severity: high (fundamental gap) | medium (incomplete) | low (minor)
 
 IMPORTANT: If the candidate admits a gap or shows intellectual honesty, set severity to medium or low. Do NOT punish honesty.
 Calibration: Use resume ownership signals to adjust bar. If candidate only had supporting/contributing ownership, do NOT hold them to a senior ownership bar.
+When focus area context is provided, ground your analysis in those specific claims — do not flag general vagueness if it is not relevant to what the candidate actually claimed on their resume.
 
 Return JSON only:
 {
@@ -1034,7 +1042,7 @@ Return JSON only:
   "attack_strategy": "clarification|implementation_probe|ownership_probe|edge_case|scaling|contradiction|step_by_step",
   "suggestedFollowup": "<short probe idea, optional>"
 }`,
-    `Sprint ${sprint} — ${focus}\n${priorContext}${calibrationContext}\n\nQuestion: ${question}\n\nCandidate Answer: ${answer}`,
+    `Sprint ${sprint} — ${focus}\n${priorContext}${calibrationContext}${focusSection}${snippetSection}\n\nQuestion: ${question}\n\nCandidate Answer: ${answer}`,
     opts?.tier ?? "balanced"
   ) as { weakness?: string; type?: string; severity?: string; attack_strategy?: string; suggestedFollowup?: string } | null;
 
