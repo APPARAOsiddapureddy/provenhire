@@ -52,11 +52,14 @@ export function useDeepgramSession({
   onFinal,
   onPartial,
   onError,
+  onUtteranceEnd,
 }: {
   interviewId: string | null;
   onFinal: (text: string) => void;
   onPartial: (text: string) => void;
   onError: (err: string) => void;
+  /** Called after a completed utterance is flushed — use to auto-submit the turn. */
+  onUtteranceEnd?: () => void;
 }) {
   const [floor, setFloor] = useState<FloorState>("idle");
   const [micLevel, setMicLevel] = useState(0);
@@ -124,6 +127,9 @@ export function useDeepgramSession({
     setFloor(next);
   }, []);
 
+  const onUtteranceEndRef = useRef(onUtteranceEnd);
+  useEffect(() => { onUtteranceEndRef.current = onUtteranceEnd; }, [onUtteranceEnd]);
+
   const flushUtterance = useCallback(() => {
     if (!captureEnabledRef.current) {
       utteranceBufferRef.current = [];
@@ -133,6 +139,7 @@ export function useDeepgramSession({
     utteranceBufferRef.current = [];
     if (text) {
       onFinal(text);
+      onUtteranceEndRef.current?.();
     }
   }, [onFinal]);
 

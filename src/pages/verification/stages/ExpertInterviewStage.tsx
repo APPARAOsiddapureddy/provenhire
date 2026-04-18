@@ -257,6 +257,7 @@ export default function ExpertInterviewStage({
   const processingRef = useRef(false);
   const questionShownAtRef = useRef(Date.now());
   const aiSpeakRef = useRef<(text: string) => Promise<void>>(async () => {});
+  const submitAnswerRef = useRef<() => Promise<void>>(async () => {});
   const answerDraftRef = useRef("");
   const interviewIdRef = useRef<string | null>(null);
   const currentTurnIdRef = useRef("");
@@ -365,6 +366,7 @@ export default function ExpertInterviewStage({
     onPartial: onPartialWrapped,
     onError: (err) => toast.error(err, { duration: 8000 }),
     onFinal: appendFinalToDraft,
+    onUtteranceEnd: () => void submitAnswerRef.current(),
   });
 
   const aiSpeak = useCallback(
@@ -684,6 +686,10 @@ export default function ExpertInterviewStage({
   useEffect(() => {
     aiSpeakRef.current = aiSpeak;
   }, [aiSpeak]);
+
+  useEffect(() => {
+    submitAnswerRef.current = submitAnswer;
+  }, [submitAnswer]);
 
   /** Video mounts only after `cameraActive` is true, so binding must run after that render (ref was null in the same tick as getUserMedia). */
   useEffect(() => {
@@ -1224,7 +1230,7 @@ export default function ExpertInterviewStage({
                         {questionCount >= 14 ? "Submit & complete round" : "Submit answer"}
                         </Button>
                       <p className="text-[11px] text-muted-foreground">
-                        Submit when your full answer is ready. Short pauses send each segment to transcription; they do not submit automatically.
+                        Auto-submits after ~2.5s of silence. Tap to submit early.
                       </p>
                       </div>
                   </div>
