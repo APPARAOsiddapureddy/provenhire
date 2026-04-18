@@ -184,6 +184,7 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     rollupOptions: {
+      external: ["@mediapipe/tasks-vision"],
       output: {
         manualChunks: {
           "react-vendor": ["react", "react-dom", "react-router-dom"],
