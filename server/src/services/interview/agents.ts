@@ -5,6 +5,33 @@
 import type { DataSubtrack, NonTechSubtrack } from "../../constants/verificationPipeline.js";
 import { GoogleGenAI } from "@google/genai";
 
+// ── PARSED RESUME TYPE ─────────────────────────────────────────────────────────
+export interface ParsedResume {
+  skills: string[];
+  tools: string[];
+  projects: Array<{
+    name: string;
+    description: string;
+    technologies: string[];
+    ownership_level: "primary" | "shared" | "supporting";
+    contribution_type: "led" | "built" | "contributed" | "assisted";
+  }>;
+  claims: Array<{
+    text: string;
+    project: string;
+    strength: "modest" | "strong" | "flagship";
+    contribution_type: "led" | "built" | "contributed" | "assisted";
+  }>;
+  experiences: Array<{
+    title: string;
+    company: string;
+    duration: string;
+    contribution_type: "led" | "built" | "contributed" | "assisted";
+  }>;
+  experience: { ml: number; swe: number; data_eng: number };
+  experience_tier: "junior" | "mid" | "senior";
+}
+
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 
@@ -822,4 +849,524 @@ Return JSON only:
     pass,
     summary: String(result.summary ?? "").trim() || "Evaluation complete.",
   };
+}
+
+// ── RESUME AGENT ───────────────────────────────────────────────────────────────
+
+function _heuristicParseResume(resumeText: string, yearsExperience = ""): ParsedResume {
+  const lines = resumeText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const skills: string[] = [];
+  const tools: string[] = [];
+  const experiences: ParsedResume["experiences"] = [];
+  const projects: ParsedResume["projects"] = [];
+  const claims: ParsedResume["claims"] = [];
+  let currentProject = "";
+  let currentContribution: "led" | "built" | "contributed" | "assisted" = "contributed";
+
+  const splitTokens = (text: string) =>
+    text.split(/[,•|/]+/).map((t) => t.trim().replace(/^[-:\s]+|[-:\s]+$/g, "")).filter((t) => t.length > 1);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const lower = line.toLowerCase();
+
+    if (lower.includes("top skills:") || lower.startsWith("skills:") || lower.startsWith("technical skills")) {
+      const payload = line.includes(":") ? line.split(":").slice(1).join(":") : line;
+      for (const t of splitTokens(payload)) if (!skills.includes(t)) skills.push(t);
+      continue;
+    }
+    if (["aws", "docker", "linux", "gcp", "git", "deployment"].some((kw) => lower.includes(kw))) {
+      for (const t of splitTokens(line)) if (!tools.includes(t) && t.length > 1) tools.push(t);
+    }
+    if (!line.startsWith("•") && !line.startsWith("-") && !line.startsWith("*") &&
+      (line.includes("@") || lower.includes("intern") || lower.includes("engineer") || lower.includes("research assistant"))) {
+      const company = line.includes("@") ? line.split("@")[1]?.split(/\s+\d{4}/)[0]?.trim().replace(/\s+-\s*$/, "") ?? "" : "";
+      const title = line.split("@")[0]?.trim().replace(/\s{2,}/g, " ") ?? line;
+      const durMatch = /((19|20)\d{2}[^@]*)$/.exec(line);
+      const duration = durMatch?.[1]?.trim() ?? "";
+      const contrib = lower.includes("assistant") ? "assisted" : lower.includes("engineer") ? "built" : "contributed";
+      currentProject = company || title;
+      currentContribution = contrib as typeof currentContribution;
+      experiences.push({ title: title.slice(0, 120), company: company.slice(0, 120), duration: duration.slice(0, 80), contribution_type: currentContribution });
+      projects.push({ name: currentProject.slice(0, 120), description: title.slice(0, 200), technologies: [], ownership_level: contrib === "assisted" ? "supporting" : "shared", contribution_type: currentContribution });
+      continue;
+    }
+    if (line.startsWith("•") || line.startsWith("-") || line.startsWith("*")) {
+      const bullet = line.replace(/^[•\-*]\s*/, "").trim();
+      if (!bullet) continue;
+      claims.push({ text: bullet.slice(0, 240), project: currentProject.slice(0, 120), strength: /[%×x]|95|200\+|12,/.test(bullet) ? "flagship" : "strong", contribution_type: currentContribution });
+      if (projects.length > 0) {
+        const techHits = splitTokens(bullet).filter((t) => /[A-Z]/.test(t) || ["python","c++","sql","docker","linux","tensorflow","mediapipe"].includes(t.toLowerCase()));
+        const p = projects[projects.length - 1]!;
+        for (const tech of techHits.slice(0, 8)) if (!p.technologies.includes(tech)) p.technologies.push(tech);
+      }
+    }
+  }
+
+  const yl = yearsExperience.toLowerCase();
+  const tier: ParsedResume["experience_tier"] = /4|5|senior|staff/.test(yl) ? "senior" : /2|3|mid/.test(yl) ? "mid" : experiences.some((e) => e.title.toLowerCase().includes("intern")) ? "junior" : "junior";
+  return { skills: skills.slice(0, 20), tools: tools.slice(0, 15), projects: projects.slice(0, 6), claims: claims.slice(0, 10), experiences: experiences.slice(0, 6), experience: { ml: 0, swe: 0, data_eng: 0 }, experience_tier: tier };
+}
+
+function _mergeResumeWithFallback(parsed: Partial<ParsedResume>, fallback: ParsedResume): ParsedResume {
+  const merge = <T>(a: T | undefined, b: T): T => (Array.isArray(a) && (a as unknown[]).length > 0 ? a : Array.isArray(b) && (b as unknown[]).length > 0 ? b : (a ?? b)) as T;
+  return {
+    skills: merge(parsed.skills, fallback.skills),
+    tools: merge(parsed.tools, fallback.tools),
+    projects: merge(parsed.projects, fallback.projects),
+    claims: merge(parsed.claims, fallback.claims),
+    experiences: merge(parsed.experiences, fallback.experiences),
+    experience: parsed.experience ?? fallback.experience,
+    experience_tier: (parsed.experience_tier as ParsedResume["experience_tier"]) ?? fallback.experience_tier,
+  };
+}
+
+export async function parseResume(resumeText: string, targetRole = "", yearsExperience = ""): Promise<ParsedResume> {
+  const result = await callGeminiJson(
+    `You are a resume parser. Extract ownership and contribution signals to calibrate interview pressure fairly.
+
+Extract:
+- skills (list of strings)
+- tools (list of strings)
+- projects (list) each with: name, description, technologies[], ownership_level (primary|shared|supporting), contribution_type (led|built|contributed|assisted)
+- experiences (list) each with: title, company, duration, contribution_type (led|built|contributed|assisted)
+- claims (list) each with: text, project, strength (modest|strong|flagship), contribution_type (led|built|contributed|assisted)
+- experience: {ml: 0, swe: 0, data_eng: 0} (years per domain, estimate from context)
+- experience_tier: junior|mid|senior
+
+Return JSON only. No commentary.`,
+    `Target role: ${targetRole || "not provided"}
+Expected years of experience: ${yearsExperience || "not provided"}
+
+Resume:
+${resumeText.slice(0, 4000)}`,
+    "fast"
+  ) as Partial<ParsedResume> | null;
+
+  const fallback = _heuristicParseResume(resumeText, yearsExperience);
+  if (!result || typeof result !== "object") return fallback;
+  return _mergeResumeWithFallback(result, fallback);
+}
+
+/** Build rich structured context from ParsedResume for LLM prompts — more specific than the profile-based version. */
+export function buildStructuredResumeContext(parsedResume: ParsedResume | null | undefined, resumeText = ""): string {
+  if (!parsedResume) return resumeText.slice(0, 2000);
+  const { projects = [], skills = [], claims = [], tools = [], experiences = [], experience = {}, experience_tier = "" } = parsedResume;
+
+  const claimText = (c: ParsedResume["claims"][number]) =>
+    `${c.text} (project: ${c.project}) [${c.strength}/${c.contribution_type}]`;
+
+  let ctx = `Skills: ${skills.slice(0, 15).join(", ")}\n`;
+  ctx += `Tools: ${tools.slice(0, 10).join(", ")}\n`;
+  if (Object.keys(experience).length) ctx += `Experience domain years: ${JSON.stringify(experience)}\n`;
+  if (experience_tier) ctx += `Experience tier: ${experience_tier}\n`;
+  if (experiences.length) {
+    ctx += "Roles:\n" + experiences.slice(0, 4).map((e) =>
+      `  - ${e.title} @ ${e.company} (${e.duration}) [${e.contribution_type}]`
+    ).join("\n") + "\n";
+  }
+  if (projects.length) {
+    ctx += "Projects:\n" + projects.slice(0, 5).map((p) =>
+      `  - ${p.name}: ${p.description} [${p.technologies.slice(0, 5).join(", ")}] ownership=${p.ownership_level} contribution=${p.contribution_type}`
+    ).join("\n") + "\n";
+  }
+  if (claims.length) {
+    ctx += "Key claims: " + claims.slice(0, 6).map(claimText).join("; ");
+  }
+  return ctx;
+}
+
+// ── RESUME-AWARE WEAKNESS DETECTION ───────────────────────────────────────────
+
+/** detectWeaknessWithResume — like detectWeakness but uses structured resume for ownership calibration. */
+export async function detectWeaknessWithResume(
+  question: string,
+  answer: string,
+  sprint: number,
+  priorWeaknesses: { type?: string }[],
+  parsedResume: ParsedResume | null,
+  opts?: { tier?: "fast" | "balanced" }
+): Promise<{
+  weakness: string;
+  type: string;
+  severity: "low" | "medium" | "high";
+  attackStrategy: string;
+  suggestedFollowup?: string;
+}> {
+  const sprintFocus: Record<number, string> = {
+    1: "Focus on: did they actually build this? Are they vague about their own contribution?",
+    2: "Focus on: are they hand-waving fundamentals? Is reasoning mechanically correct?",
+    3: "Focus on: are they ignoring trade-offs, failure modes, or scale implications?",
+  };
+  const focus = sprintFocus[sprint] ?? "";
+  const priorContext = priorWeaknesses.length > 0
+    ? `Already probed: ${priorWeaknesses.slice(-3).map((w) => w.type).join(", ")}. Avoid redundant detection.`
+    : "";
+
+  let calibrationContext = "";
+  if (parsedResume) {
+    const { experience_tier = "", projects = [], experiences = [] } = parsedResume;
+    const ownershipSignals = [
+      ...projects.slice(0, 3).map((p) => `${p.name}: ownership=${p.ownership_level} contribution=${p.contribution_type}`),
+      ...experiences.slice(0, 2).map((e) => `${e.title} @ ${e.company}: contribution=${e.contribution_type}`),
+    ];
+    calibrationContext = `\nResume experience tier: ${experience_tier || "unknown"}`;
+    if (ownershipSignals.length) calibrationContext += "\nOwnership signals:\n- " + ownershipSignals.join("\n- ");
+  }
+
+  const result = await callGeminiJson(
+    `You are a technical interviewer analyzing a candidate's answer for reasoning gaps.
+
+Do NOT validate or praise. Find the most important next probe.
+
+Weakness types: missing_step | vague | incorrect | shallow | overconfidence | deflection | ambiguous_but_promising
+Attack strategies: clarification | implementation_probe | ownership_probe | edge_case | scaling | contradiction | step_by_step
+Severity: high (fundamental gap) | medium (incomplete) | low (minor)
+
+IMPORTANT: If the candidate admits a gap or shows intellectual honesty, set severity to medium or low. Do NOT punish honesty.
+Calibration: Use resume ownership signals to adjust bar. If candidate only had supporting/contributing ownership, do NOT hold them to a senior ownership bar.
+
+Return JSON only:
+{
+  "weakness": "<one sentence>",
+  "type": "missing_step|vague|incorrect|shallow|overconfidence|deflection|ambiguous_but_promising",
+  "severity": "low|medium|high",
+  "attack_strategy": "clarification|implementation_probe|ownership_probe|edge_case|scaling|contradiction|step_by_step",
+  "suggestedFollowup": "<short probe idea, optional>"
+}`,
+    `Sprint ${sprint} — ${focus}\n${priorContext}${calibrationContext}\n\nQuestion: ${question}\n\nCandidate Answer: ${answer}`,
+    opts?.tier ?? "balanced"
+  ) as { weakness?: string; type?: string; severity?: string; attack_strategy?: string; suggestedFollowup?: string } | null;
+
+  if (!result?.weakness) {
+    return { weakness: "Vague answer", type: "vague", severity: "low", attackStrategy: "step_by_step" };
+  }
+
+  const HONEST_ADMISSION_RE = /to be honest|i don't know|i do not know|i didn't implement|i didn't build|i'm not sure|i haven't/i;
+  let sev: "low" | "medium" | "high" = result.severity === "high" || result.severity === "medium" ? result.severity : "low";
+  let wType = String(result.type ?? "vague");
+  let atk = String(result.attack_strategy ?? "step_by_step");
+  if (HONEST_ADMISSION_RE.test(answer)) {
+    if (sev === "high") sev = "medium";
+    wType = "ambiguous_but_promising";
+    if (!atk.includes("clarif")) atk = "clarification";
+  }
+
+  return {
+    weakness: String(result.weakness),
+    type: wType,
+    severity: sev,
+    attackStrategy: atk,
+    suggestedFollowup: typeof result.suggestedFollowup === "string" ? result.suggestedFollowup : undefined,
+  };
+}
+
+// ── SEED QUESTION ─────────────────────────────────────────────────────────────
+
+/** Generate the first follow-up question from resume BEFORE the candidate has answered. Pre-seeds Turn 1 fast path. */
+export async function generateSeedQuestion(sprint: number, persona: string, resumeContext: string): Promise<string> {
+  const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead!;
+  const text = await callGeminiText(
+    system,
+    `Sprint ${sprint} — ${SPRINT_GOALS[sprint] ?? ""}
+
+Candidate background:
+${resumeContext}
+
+The candidate has just been asked: "Tell me about a project you're genuinely proud of."
+Before they've answered, generate ONE follow-up you'll ask after they respond.
+The question should:
+- Reference a specific project, technology, or claim from their resume
+- Dig into personal contribution or a key implementation decision
+- Be ≤20 words, conversational
+
+Output only the question.`,
+    "fast",
+    { maxOutputTokens: 120 }
+  );
+  const q = text.replace(/^["']|["']$/g, "").trim();
+  return q || "What part of that project was most dependent on your own implementation choices?";
+}
+
+// ── SPRINT OPENER ─────────────────────────────────────────────────────────────
+
+/** Generate a smooth sprint-transition question that builds on the prior sprint. */
+export async function generateSprintOpener(
+  sprint: number,
+  persona: string,
+  resumeContext: string,
+  priorSprintHistory: { question?: string; answer?: string; focus_label?: string }[],
+  opts?: {
+    transitionBrief?: string;
+    avoidTopics?: string[];
+    focusContext?: string;
+  }
+): Promise<string> {
+  const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead!;
+
+  const priorSummary = priorSprintHistory.length > 0
+    ? "What we just covered:\n" + priorSprintHistory.slice(-4).map((t, i) =>
+        `  Q${i + 1}: ${(t.question ?? "").slice(0, 120)}\n  A${i + 1}: ${(t.answer ?? "").slice(0, 180)}`
+      ).join("\n")
+    : "";
+
+  const transitionContext: Record<number, string> = {
+    2: "Transition from project exploration into the technical concepts underlying the work. Reference a specific technology or decision from the previous sprint.",
+    3: "Transition from conceptual discussion into system design and trade-offs. Reference something concrete — scale it up, introduce a constraint, or ask about failure modes.",
+  };
+
+  const avoidSection = opts?.avoidTopics?.length
+    ? `⚠️ Do NOT re-center on these already-exhausted topics:\n${opts.avoidTopics.map((t) => `- ${t}`).join("\n")}\n`
+    : "";
+
+  const text = await callGeminiText(
+    system,
+    `You are opening Sprint ${sprint} of the interview.
+
+Sprint ${sprint} goal: ${SPRINT_GOALS[sprint] ?? ""}
+Transition guidance: ${transitionContext[sprint] ?? ""}
+
+Candidate background:
+${resumeContext}
+
+${opts?.focusContext ? `Current focus context:\n${opts.focusContext}\n` : ""}
+${priorSummary}
+${opts?.transitionBrief ? `Transition memory:\n${opts.transitionBrief}\n` : ""}${avoidSection}
+
+Write ONE transition question that:
+- Feels like a natural continuation (not a cold start)
+- References something specific from the prior sprint or the candidate's resume
+- Opens the new sprint goal without immediately going deep
+- Signals the transition explicitly: "Staying with...", "Switching to...", or "On the systems side of..."
+- Is conversational and clear — a senior engineer talking to a peer
+
+Output only the question.`,
+    "balanced",
+    { maxOutputTokens: 200 }
+  );
+
+  const fallbacks: Record<number, string> = {
+    2: "You mentioned technical work in your background — let's go deeper on one concept that made it actually work. What's the core idea you had to understand most deeply?",
+    3: "Based on what you've described, if that system had to scale sharply, what part would you redesign first to handle the load?",
+  };
+  const q = text.replace(/^["']|["']$/g, "").trim();
+  return q || fallbacks[sprint] || "What aspect of your technical work best shows your depth?";
+}
+
+// ── SPECULATIVE PRE-GENERATION ─────────────────────────────────────────────────
+
+/**
+ * Event-driven speculative question from partial transcript — fast model only, never blocks the fast path.
+ * Triggered by new entities appearing in partial transcript or admission/gap signals.
+ */
+export async function generateSpeculative(
+  partialText: string,
+  newEntities: string[],
+  lastQuestion: string,
+  persona: string,
+  sprint: number,
+  resumeContext: string,
+  opts?: {
+    admission?: boolean;
+    currentBestQuestion?: string;
+    shortAnswerRescue?: boolean;
+    focusContext?: string;
+    currentMapCandidate?: string;
+  }
+): Promise<{ action: "keep" | "replace"; question: string }> {
+  const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead!;
+  const existing = opts?.currentBestQuestion?.trim() ?? "";
+  const mapCandidate = opts?.currentMapCandidate?.trim() ?? "";
+  const fallback = opts?.admission
+    ? "What part of that are you most confident about, even if the rest was handled by the framework?"
+    : opts?.shortAnswerRescue
+      ? "What exactly in that answer is the key detail you want me to understand?"
+      : "Say more about the specific mechanism you used there.";
+
+  let direction: string;
+  if (opts?.admission) {
+    direction = "The candidate appears to be admitting a gap. Generate a curious follow-up that rewards honesty — pivot to what they DO know.";
+  } else if (newEntities.length > 0) {
+    direction = `The candidate just introduced: ${newEntities.slice(0, 3).join(", ")}. Generate a follow-up that digs one level deeper into one of these.`;
+  } else if (opts?.shortAnswerRescue) {
+    direction = "The candidate gave a very short answer. Generate a light rescue follow-up that stays attached to what they said.";
+  } else {
+    direction = "Generate a deepening follow-up grounded in what the candidate just said.";
+  }
+
+  const currentBestSection = existing
+    ? `\nCurrent best speculative follow-up:\n"${existing.slice(0, 180)}"\n\nIf the new transcript does NOT materially improve this, keep it.`
+    : "";
+  const mapSection = mapCandidate
+    ? `\nInterview-map candidate question:\n"${mapCandidate.slice(0, 180)}"\n\nIf this is more grounded than the current speculative, prefer it.`
+    : "";
+
+  const text = await callGeminiText(
+    system,
+    `Sprint ${sprint} — partial transcript so far:
+"${partialText.slice(-400)}"
+
+Last question asked: ${lastQuestion.slice(0, 150)}
+
+Candidate background:
+${resumeContext.slice(0, 300)}
+
+${opts?.focusContext ? `Focus context:\n${opts.focusContext}\n` : ""}
+${direction}
+${currentBestSection}
+${mapSection}
+
+Return ONLY one of these three responses (no commentary):
+- If current best is still good: KEEP
+- If map candidate is better: USE_MAP
+- Otherwise: output the replacement question text (≤20 words, specific, grounded)`,
+    "fast",
+    { maxOutputTokens: 80 }
+  );
+
+  const raw = text.replace(/^["']|["']$/g, "").trim();
+
+  if (/^keep$/i.test(raw) && existing) return { action: "keep", question: existing };
+  if (/^use_map$/i.test(raw) && mapCandidate) return { action: "replace", question: mapCandidate };
+  if (raw.length > 8) return { action: "replace", question: raw };
+  if (existing) return { action: "keep", question: existing };
+  return { action: "replace", question: fallback };
+}
+
+// ── RESUME-AWARE FOLLOWUP GENERATION ──────────────────────────────────────────
+
+/**
+ * Generate a targeted attack probe using resume context and focus area.
+ * Richer than generateWeaknessFollowup — grounds the question in a specific resume snippet.
+ */
+export async function generateWeaknessFollowupWithResume(
+  question: string,
+  answer: string,
+  weakness: { weakness?: string; attackStrategy?: string; type?: string },
+  persona: string,
+  parsedResume: ParsedResume | null,
+  resumeText: string,
+  opts?: {
+    focusContext?: string;
+    resumeSnippets?: string[];
+    recentAsked?: string[];
+  }
+): Promise<string> {
+  const system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead!;
+  const resumeContext = buildStructuredResumeContext(parsedResume, resumeText);
+  const attackStrategy = weakness.attackStrategy ?? "step_by_step";
+  const strategyInstructions: Record<string, string> = {
+    clarification: "Ask one exploratory clarifying question that establishes mechanism, scope, or ownership before escalating.",
+    implementation_probe: "Ask them to walk through the actual implementation step-by-step. Push for the specific mechanism.",
+    ownership_probe: "Pin down their personal contribution versus team contribution. Ask exactly what they themselves built.",
+    step_by_step: "Ask them to reason through it explicitly, step by step.",
+    contradiction: "Surface a contradiction between what they said and what's true — direct but not accusatory.",
+    edge_case: "Introduce a specific edge case that breaks their assumption and ask how their approach holds.",
+    scaling: "Push the scale until their approach breaks. Ask what fails first.",
+  };
+  const focusBlock = opts?.focusContext
+    ? `\nCurrent focus: ${opts.focusContext}`
+    : opts?.resumeSnippets?.length
+      ? `\nExact resume snippets:\n${opts.resumeSnippets.slice(0, 3).map((s) => `- ${s}`).join("\n")}`
+      : "";
+
+  const text = await callGeminiText(
+    system,
+    `Candidate background:
+${resumeContext.slice(0, 900)}
+${focusBlock}
+
+Previous question: ${question}
+Candidate's answer: ${answer}
+
+Weakness: ${weakness.weakness ?? ""}
+Attack strategy: ${attackStrategy}
+How to execute: ${strategyInstructions[attackStrategy] ?? strategyInstructions.step_by_step}
+
+Generate ONE follow-up question executing this attack strategy.
+Ground it in something specific from their resume or answer.
+${formatAskedQuestionsBlock(opts?.recentAsked ?? [])}
+Follow the medium-length rubric in your system instructions.`,
+    "balanced",
+    { maxOutputTokens: 320 }
+  );
+  const q = text.replace(/^["']|["']$/g, "").trim();
+  return q || "Can you walk me through that in more concrete detail?";
+}
+
+/** Generate a sprint question with trajectory map hint and avoid-topic guardrails. */
+export async function generateSprintQuestionWithResume(
+  sprint: number,
+  persona: string,
+  parsedResume: ParsedResume | null,
+  resumeText: string,
+  history: { question?: string }[],
+  opts?: {
+    recentAsked?: string[];
+    nonTechnical?: boolean;
+    subtrack?: NonTechSubtrack;
+    dataTrack?: boolean;
+    dataSubtrack?: DataSubtrack;
+    trajectoryHintQuestion?: string;
+    avoidTopics?: string[];
+    pivotingHint?: boolean;
+    focusContext?: string;
+    resumeSnippets?: string[];
+  }
+): Promise<string> {
+  const resumeContext = buildStructuredResumeContext(parsedResume, resumeText);
+  const fromHist = history.map((h) => h.question).filter(Boolean) as string[];
+  const merged = [...new Set([...(opts?.recentAsked ?? []), ...fromHist].filter(Boolean))].slice(-18);
+  const covered = merged.length ? merged.join("\n- ") : "(none yet)";
+
+  let system = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS.curious_lead!;
+  if (opts?.nonTechnical) {
+    system += "\n\nYou are interviewing for a non-technical professional role. Emphasize communication, stakeholder dynamics, and domain judgment.";
+  } else if (opts?.dataTrack) {
+    system += "\n\nYou are interviewing a DATA TRACK candidate. Prioritize data pipelines, SQL/analytical reasoning, stats/ML, and data quality.";
+  }
+
+  const sprintGoal = opts?.nonTechnical
+    ? (NON_TECH_SPRINT_GOALS[sprint] ?? "")
+    : opts?.dataTrack
+      ? (DATA_SPRINT_GOALS[sprint] ?? "")
+      : (SPRINT_GOALS[sprint] ?? "");
+
+  const trajectorySection = opts?.trajectoryHintQuestion?.trim()
+    ? `\nInterview-map candidate question (use as grounded backbone if helpful):\n- ${opts.trajectoryHintQuestion}`
+    : "";
+
+  const avoidSection = opts?.avoidTopics?.length
+    ? `\n⚠️ MANDATORY — Do NOT ask about these already-exhausted topics:\n${opts.avoidTopics.map((t) => `- ${t}`).join("\n")}\nPick a different project or claim.`
+    : "";
+
+  const focusBlock = opts?.focusContext
+    ? `\nCurrent focus context:\n${opts.focusContext}`
+    : opts?.resumeSnippets?.length
+      ? `\nExact resume snippets:\n${opts.resumeSnippets.slice(0, 3).map((s) => `- ${s}`).join("\n")}`
+      : "";
+
+  const text = await callGeminiText(
+    system,
+    `Sprint goal: ${sprintGoal}
+
+Candidate background:
+${resumeContext.slice(0, 900)}
+${focusBlock}
+Questions already asked — do NOT repeat:
+- ${covered}
+${trajectorySection}${avoidSection}
+
+Generate ONE question that:
+- Directly references something specific from their resume (project by name, technology, claim)
+- Aligns with the sprint goal
+- Has not been covered already
+${opts?.pivotingHint ? "- This is a pivot turn. Explicitly name the new project/tech context in the question." : "- If staying on the same project, explicit continuity phrasing is preferred."}
+
+Output only the question. Follow the medium-length rubric in your system instructions.`,
+    "balanced",
+    { maxOutputTokens: 340 }
+  );
+  const q = text.replace(/^["']|["']$/g, "").trim();
+  return q || (opts?.nonTechnical ? "Walk me through a situation where you aligned stakeholders under ambiguity." : "Tell me about a technical challenge you faced recently.");
 }

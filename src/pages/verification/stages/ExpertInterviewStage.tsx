@@ -6,7 +6,7 @@ import { api, getAuthToken } from "@/lib/api";
 import { unlockInterviewAudioOutput, speakText, fallbackBrowserTTS } from "@/lib/interviewTts";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { useWhisperSession } from "@/hooks/useWhisperSession";
+import { useDeepgramSession } from "@/hooks/useDeepgramSession";
 import { useProctoringRiskMonitor, type ProctoringEventCode, type StrikeTerminationMode } from "@/hooks/useProctoringRiskMonitor";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { Mic, Video, VideoOff, Shield, RotateCcw, Radio, Clock, Send, Keyboard } from "lucide-react";
@@ -260,8 +260,6 @@ export default function ExpertInterviewStage({
   const answerDraftRef = useRef("");
   const interviewIdRef = useRef<string | null>(null);
   const currentTurnIdRef = useRef("");
-  /** Last segment Whisper round-trip (ms), sent with v2/turn for turnLog instrumentation. */
-  const lastWhisperLatencyMsRef = useRef<number | undefined>(undefined);
   const silenceNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deafUntilRef = useRef(0);
   const fillerIndexRef = useRef(0);
@@ -351,45 +349,23 @@ export default function ExpertInterviewStage({
 
   /** Voice end-of-utterance only extends the local draft; user submits explicitly to advance. */
   const appendFinalToDraft = useCallback(
-    (text: string, meta?: { whisperLatencyMs: number }) => {
+    (text: string) => {
       if (Date.now() < deafUntilRef.current) return;
       const t = scrubSttEcho(text);
       if (!t) return;
       clearSilenceNudgeTimer();
-      if (meta?.whisperLatencyMs != null) lastWhisperLatencyMsRef.current = meta.whisperLatencyMs;
       setAnswerDraft((prev) => (prev ? `${prev} ${t}` : t));
       setPartial("");
     },
     [clearSilenceNudgeTimer],
   );
 
-  const bargeHandlerRef = useRef<(text: string) => void>(() => {});
-
-  const whisperSession = useWhisperSession({
+  const deepgramSession = useDeepgramSession({
     interviewId,
     onPartial: onPartialWrapped,
     onError: (err) => toast.error(err, { duration: 8000 }),
     onFinal: appendFinalToDraft,
-    onBargeInTranscript:
-      answerInputMode === "typed"
-        ? undefined
-        : (text: string) => {
-            bargeHandlerRef.current(text);
-          },
   });
-
-  useLayoutEffect(() => {
-    bargeHandlerRef.current = (text: string) => {
-      if (Date.now() < deafUntilRef.current) return;
-      const t = text.trim();
-      if (t.length <= 8) return;
-      abortRef.current?.abort();
-      deafUntilRef.current = Date.now() + 500;
-      currentTurnIdRef.current = crypto.randomUUID();
-      whisperSession.transition("user_speaking");
-      void t;
-    };
-  }, [whisperSession]);
 
   const aiSpeak = useCallback(
     async (text: string) => {
@@ -398,9 +374,9 @@ export default function ExpertInterviewStage({
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
-      whisperSession.setAbortController(ac);
-      whisperSession.setCaptureEnabled(false);
-      whisperSession.transition("ai_speaking");
+      deepgramSession.setAbortController(ac);
+      deepgramSession.setCaptureEnabled(false);
+      deepgramSession.transition("ai_speaking");
       try {
         await speakText(text, ac.signal);
       } catch {
@@ -411,29 +387,27 @@ export default function ExpertInterviewStage({
       }
       if (!ac.signal.aborted) {
         if (answerInputModeRef.current === "typed") {
-          whisperSession.setCaptureEnabled(false);
-          whisperSession.transition("user_speaking");
+          deepgramSession.setCaptureEnabled(false);
+          deepgramSession.transition("user_speaking");
         } else {
-          whisperSession.setCaptureEnabled(true);
-          whisperSession.transition("user_speaking");
-          whisperSession.resumeListening();
+          deepgramSession.setCaptureEnabled(true);
+          deepgramSession.transition("user_speaking");
         }
       }
     },
-    [whisperSession]
+    [deepgramSession]
   );
 
   /** Sequential TTS: optional short acknowledgement fully finishes, gap, then question (barge-in aborts all). */
   const speakAckThenQuestion = useCallback(
     async (expectedTurnId: string, acknowledgement: string | null | undefined, question: string) => {
-      const resumeListeningAfterStale = () => {
+      const resumeAfterStale = () => {
         if (answerInputModeRef.current === "typed") {
-          whisperSession.setCaptureEnabled(false);
-          whisperSession.transition("user_speaking");
+          deepgramSession.setCaptureEnabled(false);
+          deepgramSession.transition("user_speaking");
         } else {
-          whisperSession.setCaptureEnabled(true);
-          whisperSession.transition("user_speaking");
-          whisperSession.resumeListening();
+          deepgramSession.setCaptureEnabled(true);
+          deepgramSession.transition("user_speaking");
         }
       };
 
@@ -442,14 +416,14 @@ export default function ExpertInterviewStage({
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
-      whisperSession.setAbortController(ac);
-      whisperSession.setCaptureEnabled(false);
-      whisperSession.transition("ai_thinking");
+      deepgramSession.setAbortController(ac);
+      deepgramSession.setCaptureEnabled(false);
+      deepgramSession.transition("ai_thinking");
       const ack = acknowledgement?.trim() ?? "";
       try {
         if (expectedTurnId !== currentTurnIdRef.current) {
           ac.abort();
-          resumeListeningAfterStale();
+          resumeAfterStale();
           return;
         }
         if (ack && !ac.signal.aborted) {
@@ -457,7 +431,7 @@ export default function ExpertInterviewStage({
         }
         if (expectedTurnId !== currentTurnIdRef.current) {
           ac.abort();
-          resumeListeningAfterStale();
+          resumeAfterStale();
           return;
         }
         if (ack && !ac.signal.aborted) {
@@ -465,18 +439,13 @@ export default function ExpertInterviewStage({
         }
         if (expectedTurnId !== currentTurnIdRef.current) {
           ac.abort();
-          resumeListeningAfterStale();
+          resumeAfterStale();
           return;
         }
         if (!ac.signal.aborted) {
           setCurrentQuestion(question);
           questionShownAtRef.current = Date.now();
-          if (answerInputModeRef.current !== "typed") {
-            whisperSession.transition("ai_speaking");
-            whisperSession.beginBargeWhileAiSpeaking();
-          } else {
-            whisperSession.transition("ai_speaking");
-          }
+          deepgramSession.transition("ai_speaking");
           await speakText(question, ac.signal);
         }
       } catch {
@@ -487,23 +456,22 @@ export default function ExpertInterviewStage({
       }
       if (!ac.signal.aborted) {
         if (answerInputModeRef.current === "typed") {
-          whisperSession.setCaptureEnabled(false);
-          whisperSession.transition("user_speaking");
+          deepgramSession.setCaptureEnabled(false);
+          deepgramSession.transition("user_speaking");
         } else {
-          whisperSession.setCaptureEnabled(true);
-          whisperSession.transition("user_speaking");
-          whisperSession.resumeListening();
+          deepgramSession.setCaptureEnabled(true);
+          deepgramSession.transition("user_speaking");
         }
       }
     },
-    [whisperSession]
+    [deepgramSession]
   );
 
   const submitAnswer = useCallback(async () => {
     const id = interviewIdRef.current;
     if (processingRef.current || !id) return;
     const typed = answerInputModeRef.current === "typed";
-    if (!typed && whisperSession.floor !== "user_speaking") return;
+    if (!typed && deepgramSession.floor !== "user_speaking") return;
     if (turnInFlight) return;
 
     const composed = typed
@@ -520,7 +488,7 @@ export default function ExpertInterviewStage({
     processingRef.current = true;
     setTurnInFlight(true);
     clearSilenceNudgeTimer();
-    whisperSession.setCaptureEnabled(false);
+    deepgramSession.setCaptureEnabled(false);
 
     const turnId = crypto.randomUUID();
     currentTurnIdRef.current = turnId;
@@ -529,8 +497,8 @@ export default function ExpertInterviewStage({
     try {
       fillerAc = new AbortController();
       abortRef.current = fillerAc;
-      whisperSession.setAbortController(fillerAc);
-      whisperSession.transition("ai_thinking");
+      deepgramSession.setAbortController(fillerAc);
+      deepgramSession.transition("ai_thinking");
 
       const qcAtSubmit = questionCount;
       const fillerIdx = fillerIndexRef.current;
@@ -565,7 +533,6 @@ export default function ExpertInterviewStage({
         inputMode: typed ? "typed" : "voice",
         timeToSubmitSeconds: timeToSubmit,
         turnId,
-        ...(typed ? {} : { whisperLatencyMs: lastWhisperLatencyMsRef.current }),
       });
 
       if (turnResult.fragmentRetry) {
@@ -579,9 +546,8 @@ export default function ExpertInterviewStage({
       }
 
       if (turnResult.turnId && turnResult.turnId !== currentTurnIdRef.current) {
-        whisperSession.setCaptureEnabled(true);
-        whisperSession.transition("user_speaking");
-        whisperSession.resumeListening();
+        deepgramSession.setCaptureEnabled(true);
+        deepgramSession.transition("user_speaking");
         return;
       }
 
@@ -607,7 +573,7 @@ export default function ExpertInterviewStage({
         questionShownAtRef.current = Date.now();
         streamRef.current?.getTracks().forEach((t) => t.stop());
         setCameraActive(false);
-        whisperSession.stop();
+        deepgramSession.stop();
 
         const timeExpired = turnResult.timeExpired === true;
 
@@ -699,22 +665,21 @@ export default function ExpertInterviewStage({
       const fallback = "Could not submit your answer. Check your connection and try again.";
       const msg = e instanceof Error && e.message && e.message !== "Request failed" ? e.message : fallback;
       toast.error(msg, { duration: 4500 });
-      whisperSession.setCaptureEnabled(true);
-      whisperSession.transition("user_speaking");
-      whisperSession.resumeListening();
+      deepgramSession.setCaptureEnabled(true);
+      deepgramSession.transition("user_speaking");
     } finally {
       processingRef.current = false;
       setTurnInFlight(false);
     }
-  }, [whisperSession, partial, turnInFlight, onInterviewAwaitingReview, speakAckThenQuestion, clearSilenceNudgeTimer]);
+  }, [deepgramSession, partial, turnInFlight, onInterviewAwaitingReview, speakAckThenQuestion, clearSilenceNudgeTimer]);
 
   const replayQuestion = useCallback(() => {
     unlockInterviewAudioOutput();
     if (!currentQuestion.trim()) return;
-    if (whisperSession.floor === "ai_thinking" || whisperSession.floor === "ai_speaking") return;
+    if (deepgramSession.floor === "ai_thinking" || deepgramSession.floor === "ai_speaking") return;
     if (turnInFlight) return;
     void aiSpeak(currentQuestion);
-  }, [aiSpeak, currentQuestion, whisperSession.floor, turnInFlight]);
+  }, [aiSpeak, currentQuestion, deepgramSession.floor, turnInFlight]);
 
   useEffect(() => {
     aiSpeakRef.current = aiSpeak;
@@ -734,7 +699,7 @@ export default function ExpertInterviewStage({
 
   const startCamera = async () => {
     try {
-      whisperSession.stop();
+      deepgramSession.stop();
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
         audio: { echoCancellation: true, noiseSuppression: true },
@@ -742,7 +707,7 @@ export default function ExpertInterviewStage({
       streamRef.current = stream;
       setCameraActive(true);
       if (started && interviewId && !outcome) {
-        await whisperSession.start({ sharedMediaStream: stream });
+        await deepgramSession.start({ sharedMediaStream: stream });
       }
     } catch {
       toast.error("Camera and microphone access is required.", { duration: 2600 });
@@ -750,7 +715,7 @@ export default function ExpertInterviewStage({
   };
 
   const stopCamera = () => {
-    whisperSession.stop();
+    deepgramSession.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -799,7 +764,7 @@ export default function ExpertInterviewStage({
       streamRef.current = combinedStream;
       setCameraActive(true);
 
-      await whisperSession.start({ sharedMediaStream: combinedStream, deferMicCapture: true });
+      await deepgramSession.start({ sharedMediaStream: combinedStream });
       unlockInterviewAudioOutput();
       await aiSpeakRef.current(res.question);
     } catch (e: unknown) {
@@ -829,28 +794,28 @@ export default function ExpertInterviewStage({
     }
   };
 
-  /** Only run on real unmount. `whisperSession` is a new object every render — deps on it re-fired cleanup after every state tick and killed camera/mic. */
-  const whisperSessionRef = useRef(whisperSession);
-  whisperSessionRef.current = whisperSession;
+  /** Only run on real unmount. `deepgramSession` is a new object every render — deps on it re-fired cleanup after every state tick and killed camera/mic. */
+  const deepgramSessionRef = useRef(deepgramSession);
+  deepgramSessionRef.current = deepgramSession;
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
-      whisperSessionRef.current.stop();
+      deepgramSessionRef.current.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
 
   useEffect(() => {
-    if (!started || outcome || whisperSession.floor !== "user_speaking" || turnInFlight) {
+    if (!started || outcome || deepgramSession.floor !== "user_speaking" || turnInFlight) {
       clearSilenceNudgeTimer();
       return;
     }
     clearSilenceNudgeTimer();
     silenceNudgeTimerRef.current = setTimeout(() => {
       if (processingRef.current || turnInFlight) return;
-      if (whisperSessionRef.current.floor !== "user_speaking") return;
+      if (deepgramSessionRef.current.floor !== "user_speaking") return;
       void (async () => {
-        const w = whisperSessionRef.current;
+        const w = deepgramSessionRef.current;
         const nudge = SILENCE_NUDGES[Math.floor(Math.random() * SILENCE_NUDGES.length)]!;
         window.speechSynthesis?.cancel();
         abortRef.current?.abort();
@@ -871,12 +836,11 @@ export default function ExpertInterviewStage({
         if (!ac.signal.aborted) {
           w.setCaptureEnabled(true);
           w.transition("user_speaking");
-          w.resumeListening();
         }
       })();
     }, SILENCE_NUDGE_MS);
     return () => clearSilenceNudgeTimer();
-  }, [whisperSession.floor, started, outcome, turnInFlight, clearSilenceNudgeTimer]);
+  }, [deepgramSession.floor, started, outcome, turnInFlight, clearSilenceNudgeTimer]);
 
   useEffect(() => {
     if (!interviewId || !outcome || outcome.terminatedByProctoring) {
@@ -1123,8 +1087,8 @@ export default function ExpertInterviewStage({
                           onClick={() => replayQuestion()}
                           disabled={
                             !currentQuestion.trim() ||
-                            whisperSession.floor === "ai_thinking" ||
-                            whisperSession.floor === "ai_speaking" ||
+                            deepgramSession.floor === "ai_thinking" ||
+                            deepgramSession.floor === "ai_speaking" ||
                             turnInFlight
                           }
                         >
@@ -1145,34 +1109,34 @@ export default function ExpertInterviewStage({
                     <div className="flex flex-wrap items-center gap-3">
                       <div
                         className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border ${
-                          whisperSession.floor === "user_speaking"
+                          deepgramSession.floor === "user_speaking"
                             ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-300 ring-2 ring-green-500/20"
-                            : whisperSession.floor === "ai_thinking"
+                            : deepgramSession.floor === "ai_thinking"
                               ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                              : whisperSession.floor === "ai_speaking"
+                              : deepgramSession.floor === "ai_speaking"
                                 ? "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/15"
                                 : "border-muted bg-muted/40 text-muted-foreground"
                         }`}
                       >
                         <Mic
                           className={`h-4 w-4 shrink-0 ${
-                            whisperSession.floor === "ai_speaking" ? "opacity-60" : ""
+                            deepgramSession.floor === "ai_speaking" ? "opacity-60" : ""
                           }`}
                         />
                         <span className="text-xs font-semibold uppercase tracking-wide">
-                          {whisperSession.floor === "user_speaking"
+                          {deepgramSession.floor === "user_speaking"
                             ? "Listening — speak your answer"
-                            : whisperSession.floor === "ai_thinking"
+                            : deepgramSession.floor === "ai_thinking"
                               ? "AI thinking…"
-                              : whisperSession.floor === "ai_speaking"
+                              : deepgramSession.floor === "ai_speaking"
                                 ? "AI speaking — listen"
-                                : whisperSession.sttMode === "idle"
+                                : deepgramSession.sttMode === "idle"
                                   ? "Starting microphone…"
                                   : "Ready"}
                         </span>
-                        {whisperSession.sttMode === "whisper" && (
+                        {deepgramSession.sttMode === "browser" && (
                           <span className="text-[10px] font-normal normal-case opacity-85 border-l pl-2 ml-1 border-current/25">
-                            Whisper (segmented)
+                            Browser speech (fallback)
                           </span>
                         )}
                       </div>
@@ -1190,18 +1154,18 @@ export default function ExpertInterviewStage({
                           <div
                             key={i}
                             className={`flex-1 rounded-full transition-all duration-75 min-h-[5px] ${
-                              whisperSession.floor === "user_speaking"
+                              deepgramSession.floor === "user_speaking"
                                 ? "bg-primary/70"
-                                : whisperSession.floor === "ai_thinking"
+                                : deepgramSession.floor === "ai_thinking"
                                   ? "bg-amber-500/45 animate-pulse"
                                   : "bg-muted-foreground/25"
                             }`}
                             style={{
                               height: `${Math.max(
                                 12,
-                                whisperSession.floor === "user_speaking"
-                                  ? Math.min(100, whisperSession.micLevel * 100 + (i % 3) * 6)
-                                  : whisperSession.floor === "ai_thinking"
+                                deepgramSession.floor === "user_speaking"
+                                  ? Math.min(100, deepgramSession.micLevel * 100 + (i % 3) * 6)
+                                  : deepgramSession.floor === "ai_thinking"
                                     ? 22 + ((i * 7) % 18)
                                     : 14
                               )}%`,
@@ -1210,7 +1174,7 @@ export default function ExpertInterviewStage({
                         ))}
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        {whisperSession.floor === "user_speaking"
+                        {deepgramSession.floor === "user_speaking"
                           ? "Pause ~1.5s after a phrase to transcribe; multiple segments combine in your answer."
                           : "When the AI finishes, you can speak again."}
                       </p>
@@ -1251,7 +1215,7 @@ export default function ExpertInterviewStage({
                         onClick={() => void submitAnswer()}
                         disabled={
                           !interviewId ||
-                          whisperSession.floor !== "user_speaking" ||
+                          deepgramSession.floor !== "user_speaking" ||
                           turnInFlight ||
                           ![answerDraft, partial].filter(Boolean).join(" ").trim()
                         }

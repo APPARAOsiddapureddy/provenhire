@@ -21,7 +21,22 @@ import {
   prefetchFollowups,
   adaptFollowupFast,
   applyReasoningHonestyCap,
+  parseResume,
+  buildStructuredResumeContext,
+  detectWeaknessWithResume,
+  generateSeedQuestion,
+  generateSprintOpener,
+  generateSpeculative,
+  generateWeaknessFollowupWithResume,
+  generateSprintQuestionWithResume,
+  type ParsedResume,
 } from "./agents.js";
+import {
+  generateInterviewMap,
+  getInterviewMapFocusContext,
+  selectFromTrajectoryMap,
+  type InterviewMap,
+} from "./interviewMap.js";
 import { findFollowupsForQuestionText } from "./questionBankService.js";
 import { computeWeaknessCoverageRatio, evaluateFullInterviewMultiPass } from "./evaluationService.js";
 import {
@@ -252,6 +267,8 @@ type AdversarialState = {
     reasoning?: unknown;
     sprint: number;
     persona: string;
+    focus_key?: string;
+    focus_label?: string;
   }[];
   weaknesses: { weakness?: string; type?: string; severity?: string; attackStrategy?: string }[];
   reasoningSignals: Record<string, unknown>[];
@@ -266,6 +283,13 @@ type AdversarialState = {
   /** Async slow-track staging — never mutate canonical history/counters here. */
   prepped_next_question?: string | null;
   prepped_turn_analysis?: PreppedTurnAnalysis | null;
+  /** Resume-parsed structured data — populated at session start, used to calibrate all agents. */
+  parsed_resume?: import("./agents.js").ParsedResume | null;
+  /** Resume-grounded fallback question spine — populated async at session start. */
+  interview_trajectory_map?: import("./interviewMap.js").InterviewMap | null;
+  /** Last inferred focus key from question/answer pair (drives trajectory map lookup). */
+  last_focus_key?: string;
+  last_focus_label?: string;
 };
 
 function looksLikeEcho(transcript: string, lastQuestion: string): boolean {
@@ -538,6 +562,52 @@ export function buildResumeContext(profile: {
   return parts.join("\n");
 }
 
+/** Infer the current focus area key from question/answer text by matching against parsed resume tokens. */
+function _inferFocusKey(question: string, answer: string, parsedResume: ParsedResume | null): string {
+  if (!parsedResume) return "general";
+  const combined = `${question} ${answer}`.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const combinedTokens = new Set(combined.split(" ").filter((w) => w.length > 2));
+
+  const stopwords = new Set(["project", "projects", "engineer", "assistant", "intern", "built", "using", "with", "present", "current"]);
+  let bestKey = "general";
+  let bestScore = 0;
+
+  const candidates: Array<{ label: string; key: string; tokens: Set<string> }> = [];
+  for (const proj of parsedResume.projects ?? []) {
+    const tokens = new Set([proj.name, proj.description, ...proj.technologies].join(" ").toLowerCase().match(/[a-z0-9]+/g)?.filter((t) => t.length > 2 && !stopwords.has(t)) ?? []);
+    candidates.push({ label: proj.name, key: proj.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"), tokens });
+  }
+  for (const exp of parsedResume.experiences ?? []) {
+    const label = `${exp.title} at ${exp.company}`;
+    const tokens = new Set(label.toLowerCase().match(/[a-z0-9]+/g)?.filter((t) => t.length > 2 && !stopwords.has(t)) ?? []);
+    candidates.push({ label, key: label.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 40), tokens });
+  }
+
+  for (const cand of candidates) {
+    const score = [...cand.tokens].filter((t) => combinedTokens.has(t)).length;
+    if (score > bestScore) { bestScore = score; bestKey = cand.key; }
+  }
+  return bestScore > 0 ? bestKey : "general";
+}
+
+/** Collect topics probed >2 turns to prevent hammering the same area. */
+function _collectOverprobedTopics(
+  history: Array<{ focus_label?: string; focus_key?: string; answer?: string }>,
+  currentFocusLabel = ""
+): string[] {
+  const counts: Record<string, number> = {};
+  for (const turn of history) {
+    const label = turn.focus_label ?? turn.focus_key ?? "";
+    if (label) counts[label] = (counts[label] ?? 0) + 1;
+  }
+  if (currentFocusLabel) counts[currentFocusLabel] = (counts[currentFocusLabel] ?? 0) + 1;
+  return Object.entries(counts)
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([label]) => label);
+}
+
 export async function startAdversarialInterview(
   interviewId: string
 ): Promise<{ question: string; sprint: number; sprintName: string; persona: string }> {
@@ -552,6 +622,19 @@ export async function startAdversarialInterview(
   const openerRaw = isNonTech ? NON_TECH_OPENERS[1] : isData ? DATA_OPENERS[1] : SPRINT_OPENERS[1];
   const opener = sanitizeAiInterviewQuestionText(openerRaw);
   const cfg1 = isNonTech ? NON_TECH_SPRINTS[1] : isData ? DATA_SPRINTS[1] : SPRINTS[1];
+
+  // Assemble raw resume text from profile fields for parsing
+  const resumeRaw = [
+    profile?.about,
+    profile?.workExperience ? JSON.stringify(profile.workExperience) : "",
+    profile?.skills ? (Array.isArray(profile.skills) ? (profile.skills as string[]).join(", ") : JSON.stringify(profile.skills)) : "",
+  ].filter(Boolean).join("\n");
+
+  // Parse resume at session start — grounds all future questions
+  const parsedResume = resumeRaw.length > 30
+    ? await parseResume(resumeRaw, profile?.targetJobTitle ?? jobRole, String(profile?.experienceYears ?? "")).catch(() => null)
+    : null;
+
   const initial: AdversarialState = {
     sprint: 1,
     persona: cfg1.persona,
@@ -575,6 +658,10 @@ export async function startAdversarialInterview(
     turnLog: [],
     prepped_next_question: null,
     prepped_turn_analysis: null,
+    parsed_resume: parsedResume,
+    interview_trajectory_map: null,
+    last_focus_key: "",
+    last_focus_label: "",
   };
 
   await prisma.interview.update({
@@ -584,6 +671,14 @@ export async function startAdversarialInterview(
       questionIndex: 0,
     },
   });
+
+  // Build interview map + seed question in background — does NOT block the HTTP response.
+  // The map is written to questionPlan.interview_trajectory_map once ready.
+  if (resumeRaw.length > 30) {
+    _buildInterviewMapBackground(interviewId, resumeRaw, opener, cfg1.persona, parsedResume).catch((err) =>
+      console.warn("[InterviewMap] Background build failed:", err)
+    );
+  }
 
   await prisma.interviewMessage.create({
     data: {
@@ -601,6 +696,41 @@ export async function startAdversarialInterview(
     sprintName: cfg1.name,
     persona: cfg1.persona,
   };
+}
+
+/** Build interview map + seed question after session start — writes to DB when ready, never blocks HTTP. */
+async function _buildInterviewMapBackground(
+  interviewId: string,
+  resumeRaw: string,
+  opener: string,
+  persona: string,
+  parsedResume: ParsedResume | null
+): Promise<void> {
+  const resumeContext = buildStructuredResumeContext(parsedResume, resumeRaw);
+
+  const [map, seedQuestion] = await Promise.allSettled([
+    generateInterviewMap(resumeRaw),
+    generateSeedQuestion(1, persona, resumeContext),
+  ]);
+
+  const row = await prisma.interview.findUnique({ where: { id: interviewId }, select: { questionPlan: true } });
+  if (!row?.questionPlan) return;
+  const raw = row.questionPlan;
+  if (!Array.isArray(raw) || !raw[0] || typeof raw[0] !== "object") return;
+  const state = { ...(raw[0] as AdversarialState) };
+
+  if (map.status === "fulfilled") {
+    state.interview_trajectory_map = map.value;
+  }
+  if (seedQuestion.status === "fulfilled" && seedQuestion.value) {
+    state.prepped_next_question = state.prepped_next_question || seedQuestion.value;
+  }
+
+  await prisma.interview.update({
+    where: { id: interviewId },
+    data: { questionPlan: [state] as object[] },
+  });
+  console.log(`[InterviewMap] Background build complete for ${interviewId.slice(0, 8)}`);
 }
 
 function defaultState(): AdversarialState {
@@ -699,6 +829,7 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
     let reasoning: Awaited<ReturnType<typeof evaluateReasoning>>;
     let concepts: string[];
 
+    const parsedResume = (state.parsed_resume ?? null) as ParsedResume | null;
     const trimmedAns = input.answer.trim();
     if (cachedPartial && hasSubstantialOverlap(trimmedAns, cachedPartial.partial_text)) {
       weakness = cachedPartial.weakness;
@@ -710,9 +841,12 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
       agentCacheHit = true;
       partialAgentCache.delete(input.interviewId);
     } else {
+      const structuredResumeCtx = buildStructuredResumeContext(parsedResume, input.resume);
       [weakness, discrepancy, reasoning, concepts] = await Promise.all([
-        detectWeakness(input.answeredQuestion, input.answer, input.answeredSprint, weaknesses),
-        checkDiscrepancy(input.resume, input.answer),
+        parsedResume
+          ? detectWeaknessWithResume(input.answeredQuestion, input.answer, input.answeredSprint, weaknesses, parsedResume)
+          : detectWeakness(input.answeredQuestion, input.answer, input.answeredSprint, weaknesses),
+        checkDiscrepancy(structuredResumeCtx || input.resume, input.answer),
         evaluateReasoning(input.answer, wasChallenged),
         extractConcepts(input.answer),
       ]);
@@ -791,6 +925,20 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
     const askedForPrompt = priorAskedQuestions(history, input.answeredQuestion);
     let probedClaims = [...(state.probedClaims ?? [])];
 
+    // Infer focus key from the current question/answer to look up trajectory map context
+    const currentFocusKey = _inferFocusKey(input.answeredQuestion, input.answer, parsedResume);
+    const trajectoryMap = (state.interview_trajectory_map ?? null) as InterviewMap | null;
+    const focusCtx = trajectoryMap
+      ? getInterviewMapFocusContext(trajectoryMap, currentFocusKey, {
+          queryText: `${input.answeredQuestion} ${input.answer}`,
+          history: history.map((h) => ({ focus_key: h.focus_key, answer: h.answer })),
+        })
+      : null;
+    const structuredResCtx = buildStructuredResumeContext(parsedResume, input.resume);
+
+    // Build avoid-topic list to prevent hammering the same focus area >2 turns
+    const overprobed = _collectOverprobedTopics(history, focusCtx?.focus_label ?? "");
+
     let followup: string;
     let followupBranch: FollowupBranch = "sprint_question";
     const claimKey = discrepancy.resumeClaim?.trim() || "";
@@ -810,21 +958,24 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
           input.answer,
           discrepancy,
           state.persona,
-          input.resumeContext,
+          structuredResCtx || input.resumeContext,
           askedForPrompt
         )
       );
     } else if (weakness.severity === "high" && !forceSprintQuestion) {
       followupBranch = "weakness_probe";
       followup = await resolveDistinctQuestion(askedForPrompt, () =>
-        generateWeaknessFollowup(
-          input.answeredQuestion,
-          input.answer,
-          weakness,
-          state.persona,
-          input.resumeContext,
-          askedForPrompt
-        )
+        parsedResume
+          ? generateWeaknessFollowupWithResume(
+              input.answeredQuestion,
+              input.answer,
+              weakness,
+              state.persona,
+              parsedResume,
+              input.resume,
+              { focusContext: focusCtx?.prompt_context, resumeSnippets: focusCtx?.resume_snippets, recentAsked: askedForPrompt }
+            )
+          : generateWeaknessFollowup(input.answeredQuestion, input.answer, weakness, state.persona, input.resumeContext, askedForPrompt)
       );
     } else if (
       weakness.severity !== "high" &&
@@ -835,39 +986,75 @@ async function runInterviewSlowPath(input: RunInterviewSlowPathInput): Promise<v
       const template = state.currentQuestionFollowups![0]!;
       followup = await adaptFollowupFast(template, input.answer, state.persona);
     } else {
-      const preppedQ =
-        typeof state.prepped_next_question === "string" && state.prepped_next_question.trim().length > 0
-          ? state.prepped_next_question.trim()
-          : "";
-      if (
-        preppedQ &&
-        !isNearDuplicateQuestion(preppedQ, askedForPrompt) &&
-        isStillRelevant(preppedQ, input.answer, concepts)
-      ) {
-        followup = preppedQ;
+      // Try trajectory map first — resume-grounded fallback beats generic sprint question
+      const mapSelection = !forceSprintQuestion && trajectoryMap
+        ? selectFromTrajectoryMap(trajectoryMap, {
+            sprint: input.answeredSprint,
+            focusKey: currentFocusKey,
+            answer: input.answer,
+            entities: concepts,
+            history: history.map((h) => ({ question: h.question, focus_key: h.focus_key, answer: h.answer })),
+            admission: /i don'?t know|i'?m not sure|i haven'?t|i didn'?t/i.test(input.answer),
+            hasDiscrepancy: discrepancy.conflict && discrepancy.severity === "high",
+          })
+        : null;
+
+      if (mapSelection && !isNearDuplicateQuestion(mapSelection.question, askedForPrompt)) {
+        followup = mapSelection.question;
         followupBranch = "prefetch";
       } else {
-        let prefetched: string | undefined;
-        do {
-          prefetched = popPrefetchQuestion(input.interviewId);
-        } while (prefetched && isNearDuplicateQuestion(prefetched, askedForPrompt));
-
-        if (prefetched && isStillRelevant(prefetched, input.answer, concepts)) {
+        const preppedQ =
+          typeof state.prepped_next_question === "string" && state.prepped_next_question.trim().length > 0
+            ? state.prepped_next_question.trim()
+            : "";
+        if (
+          preppedQ &&
+          !isNearDuplicateQuestion(preppedQ, askedForPrompt) &&
+          isStillRelevant(preppedQ, input.answer, concepts)
+        ) {
+          followup = preppedQ;
           followupBranch = "prefetch";
-          followup = prefetched;
         } else {
-          followup = await resolveDistinctQuestion(askedForPrompt, () =>
-            generateSprintQuestion(state.sprint, state.persona, input.resumeContext, history, askedForPrompt, {
-              nonTechnical: Boolean(state.trackNonTechnical),
-              subtrack: state.nonTechSubtrack,
-              dataTrack: Boolean(state.trackData),
-              dataSubtrack: state.dataSubtrack,
-            })
-          );
-          if (forceSprintQuestion) {
-            followupBranch = "forced_sprint";
+          let prefetched: string | undefined;
+          do {
+            prefetched = popPrefetchQuestion(input.interviewId);
+          } while (prefetched && isNearDuplicateQuestion(prefetched, askedForPrompt));
+
+          if (prefetched && isStillRelevant(prefetched, input.answer, concepts)) {
+            followupBranch = "prefetch";
+            followup = prefetched;
           } else {
-            followupBranch = "sprint_question";
+            followup = await resolveDistinctQuestion(askedForPrompt, () =>
+              parsedResume
+                ? generateSprintQuestionWithResume(
+                    state.sprint,
+                    state.persona,
+                    parsedResume,
+                    input.resume,
+                    history,
+                    {
+                      recentAsked: askedForPrompt,
+                      nonTechnical: Boolean(state.trackNonTechnical),
+                      subtrack: state.nonTechSubtrack,
+                      dataTrack: Boolean(state.trackData),
+                      dataSubtrack: state.dataSubtrack,
+                      avoidTopics: overprobed,
+                      focusContext: focusCtx?.prompt_context,
+                      resumeSnippets: focusCtx?.resume_snippets,
+                    }
+                  )
+                : generateSprintQuestion(state.sprint, state.persona, input.resumeContext, history, askedForPrompt, {
+                    nonTechnical: Boolean(state.trackNonTechnical),
+                    subtrack: state.nonTechSubtrack,
+                    dataTrack: Boolean(state.trackData),
+                    dataSubtrack: state.dataSubtrack,
+                  })
+            );
+            if (forceSprintQuestion) {
+              followupBranch = "forced_sprint";
+            } else {
+              followupBranch = "sprint_question";
+            }
           }
         }
       }
@@ -1103,12 +1290,25 @@ export async function processTurn(
     },
   });
 
+  // Infer focus key/label here so they can be written into the history row and newState
+  const currentFocusKey = _inferFocusKey(answeredQuestion, answer, (state.parsed_resume ?? null) as ParsedResume | null);
+  const _trajectoryMapFast = (state.interview_trajectory_map ?? null) as InterviewMap | null;
+  const _focusAreaFast = _trajectoryMapFast?.focus_areas.find((a) => {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const mk = norm(a.focus_key);
+    const fk = norm(currentFocusKey);
+    return mk === fk || mk.includes(fk) || fk.includes(mk);
+  });
+  const currentFocusLabel = _focusAreaFast?.label ?? currentFocusKey;
+
   const staged = state.prepped_turn_analysis ?? null;
   const historyRow: AdversarialState["history"][number] = {
     question: answeredQuestion,
     answer,
     sprint,
     persona,
+    focus_key: currentFocusKey,
+    focus_label: currentFocusLabel,
   };
   if (staged?.weakness != null) {
     historyRow.weakness = staged.weakness;
@@ -1150,11 +1350,37 @@ export async function processTurn(
       currentSprintQuestionCount = 0;
       sprintAdvanced = true;
       pivoting = true;
+
+      // Use the static opener immediately (fast path) — sprint opener generation happens in slow path
       followup = state.trackNonTechnical
-        ? NON_TECH_OPENERS[nextSprint]
+        ? NON_TECH_OPENERS[nextSprint]!
         : state.trackData
-          ? DATA_OPENERS[nextSprint]
-          : SPRINT_OPENERS[nextSprint];
+          ? DATA_OPENERS[nextSprint]!
+          : SPRINT_OPENERS[nextSprint]!;
+
+      // Kick off a contextual sprint opener generation in background to upgrade the static opener
+      // The result is written to prepped_next_question for the NEXT turn if it arrives fast enough
+      const parsedRsm = (state.parsed_resume ?? null) as ParsedResume | null;
+      if (parsedRsm && !state.trackNonTechnical) {
+        const priorSprintHistory = history.slice(-5).map((h) => ({ question: h.question, answer: h.answer, focus_label: h.focus_label }));
+        const overprobed = _collectOverprobedTopics(history);
+        const resumeContext = buildStructuredResumeContext(parsedRsm, resume);
+        generateSprintOpener(nextSprint, currentPersona, resumeContext, priorSprintHistory, { avoidTopics: overprobed })
+          .then((openerQ) => {
+            if (!openerQ || openerQ === followup) return;
+            return prisma.interview.findUnique({ where: { id: interviewId }, select: { questionPlan: true } })
+              .then((r) => {
+                if (!r?.questionPlan || !Array.isArray(r.questionPlan) || !r.questionPlan[0]) return;
+                const st = { ...(r.questionPlan[0] as AdversarialState) };
+                if (!st.prepped_next_question) {
+                  st.prepped_next_question = openerQ;
+                  return prisma.interview.update({ where: { id: interviewId }, data: { questionPlan: [st] as object[] } });
+                }
+              });
+          })
+          .catch(() => {});
+      }
+
       currentQuestionFollowups = findFollowupsForQuestionText(followup, interview.jobRole);
       currentQuestionFollowupAsked = false;
     }
@@ -1259,6 +1485,10 @@ export async function processTurn(
     turnLog,
     prepped_next_question: null,
     prepped_turn_analysis: null,
+    parsed_resume: (state.parsed_resume ?? null) as ParsedResume | null,
+    interview_trajectory_map: (state.interview_trajectory_map ?? null) as InterviewMap | null,
+    last_focus_key: currentFocusKey,
+    last_focus_label: currentFocusLabel,
   };
 
   const responseTurnId = options?.clientTurnId?.trim() || userMessage.id;
