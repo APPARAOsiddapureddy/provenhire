@@ -20,7 +20,6 @@ const ProfileSetupStage = lazy(() => import("./stages/ProfileSetupStage"));
 const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
 const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
 const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"));
-const AISkillsInterviewStage = lazy(() => import("./stages/AISkillsInterviewStage"));
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 const DataRoundStage = lazy(() => import("./stages/DataRoundStage"));
@@ -744,13 +743,13 @@ const VerificationFlow = () => {
                 </CardContent>
               </Card>
             ) : (
-              <AISkillsInterviewStage
+              <ExpertInterviewStage
                 targetJobTitle={targetJobTitle || undefined}
                 experienceYears={experienceYears}
-                onSessionComplete={() => void loadVerificationStages()}
+                verificationRoleType="technical"
+                onInterviewAwaitingReview={() => void loadVerificationStages()}
                 onReturnToDashboard={handleReturnToDashboard}
                 onPaywallRequired={handlePaywallRequired}
-                nextStageLabel={getNextStageInfo("ai_skills_interview")?.label}
               />
             )}
           </div>
@@ -1100,13 +1099,13 @@ const VerificationFlow = () => {
                 </CardContent>
               </Card>
             ) : (
-              <AISkillsInterviewStage
+              <ExpertInterviewStage
                 targetJobTitle={targetJobTitle || undefined}
                 experienceYears={experienceYears}
-                onSessionComplete={() => void loadVerificationStages()}
+                verificationRoleType="data"
+                onInterviewAwaitingReview={() => void loadVerificationStages()}
                 onReturnToDashboard={handleReturnToDashboard}
                 onPaywallRequired={handlePaywallRequired}
-                nextStageLabel={getNextStageInfo("data_skills_interview")?.label}
               />
             )}
           </div>
