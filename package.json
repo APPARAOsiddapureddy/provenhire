@@ -22,7 +22,6 @@
     "@daily-co/daily-react": "^0.24.0",
     "@deepgram/sdk": "^3.13.0",
     "@hookform/resolvers": "^3.10.0",
-    "@mediapipe/tasks-vision": "^0.10.34",
     "@monaco-editor/react": "^4.6.0",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",

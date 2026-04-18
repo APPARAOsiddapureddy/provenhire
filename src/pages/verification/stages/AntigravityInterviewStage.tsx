@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { InterviewSession, processTurn, prefetchAudio, prefetchFillerAudio, playAudioUrl, FloorState } from "@/lib/antigravityAudio";
-import { AIOrb, Waveform } from "@/components/AntigravityWaveform";
+import { InterviewSession, processTurn, prefetchAudio, prefetchFillerAudio, playAudioUrl, FloorState } from "@/lib/antigravity/audio";
+import { AIOrb, Waveform } from "@/components/antigravity/AIOrb";
 import { getAuthToken } from "@/lib/api";
 
 type Phase = "idle" | "listening" | "thinking" | "speaking";

@@ -1,4 +1,5 @@
-import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+// Loaded dynamically at runtime — avoids bundling native WASM binaries at build time
+type FaceLandmarkerType = import("@mediapipe/tasks-vision").FaceLandmarker;
 
 export interface VisionPrediction {
   lipClosureScore: number;
@@ -7,7 +8,7 @@ export interface VisionPrediction {
 }
 
 export class CVSensor {
-  private faceLandmarker: FaceLandmarker | null = null;
+  private faceLandmarker: FaceLandmarkerType | null = null;
   private initState: "idle" | "loading" | "ready" | "failed" = "idle";
   private lastTimestampMs = 0;
 
@@ -43,6 +44,7 @@ export class CVSensor {
     if (this.initState !== "idle") return;
     this.initState = "loading";
     try {
+      const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
       const filesetResolver = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm",
       );
