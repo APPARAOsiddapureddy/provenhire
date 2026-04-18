@@ -20,6 +20,7 @@ const ProfileSetupStage = lazy(() => import("./stages/ProfileSetupStage"));
 const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
 const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
 const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"));
+const AntigravityInterviewStage = lazy(() => import("./stages/AntigravityInterviewStage"));
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 const DataRoundStage = lazy(() => import("./stages/DataRoundStage"));
@@ -743,7 +744,7 @@ const VerificationFlow = () => {
                 </CardContent>
               </Card>
             ) : (
-              <ExpertInterviewStage
+              <AntigravityInterviewStage
                 targetJobTitle={targetJobTitle || undefined}
                 experienceYears={experienceYears}
                 verificationRoleType="technical"

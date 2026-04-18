@@ -48,3 +48,4 @@ proctoring/screenshots/
 *.sln
 *.sw?
 .vercel
+scripts/.antigravity-env
