@@ -163,7 +163,7 @@ export class InterviewSession {
     await new Promise<void>((resolve, reject) => {
       this.dgConnection!.on(LiveTranscriptionEvents.Open, () => resolve());
       this.dgConnection!.on(LiveTranscriptionEvents.Error, (e) => reject(e));
-      setTimeout(() => reject(new Error("Deepgram connection timeout")), 8000);
+      setTimeout(() => reject(new Error("Deepgram connection timeout")), 20000);
     });
 
     this.transition(FloorState.USER_SPEAKING);

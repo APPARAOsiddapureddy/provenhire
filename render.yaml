@@ -39,3 +39,13 @@ services:
         sync: false
       - key: ANTIGRAVITY_CORS_ORIGINS
         sync: false
+      - key: CARTESIA_API_KEY
+        sync: false
+      - key: CARTESIA_VOICE_ID
+        sync: false
+      - key: OPENROUTER_SMALL_MODEL
+        value: anthropic/claude-haiku-4-5
+      - key: OPENROUTER_MEDIUM_MODEL
+        value: anthropic/claude-sonnet-4-5
+      - key: OPENROUTER_LARGE_MODEL
+        value: anthropic/claude-sonnet-4-5

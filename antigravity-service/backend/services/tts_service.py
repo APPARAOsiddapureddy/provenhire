@@ -197,8 +197,9 @@ class TTSService:
             return audio, "audio/mpeg", "elevenlabs"
         except Exception as e:
             self._last_error = str(e)[:500]
-            if self._should_fallback_to_cartesia(e):
-                print(f"[TTS] ElevenLabs unavailable ({type(e).__name__}); falling back to Cartesia.")
+            # Fall back to Cartesia on any ElevenLabs failure when key is available
+            if self._cartesia_api_key:
+                print(f"[TTS] ElevenLabs failed ({type(e).__name__}); falling back to Cartesia.")
                 audio = await self._cartesia_bytes(text)
                 self._last_provider_used = "cartesia"
                 return audio, "audio/wav", "cartesia"
