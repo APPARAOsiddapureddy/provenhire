@@ -455,6 +455,25 @@ async function finalizeDataSystemDesignComplete(
     /* ignore */
   }
 
+  // Fire-and-forget: publish to unified performance pipeline
+  import("../performancePipeline.js").then(({ publishRunResult }) =>
+    publishRunResult(userId, {
+      module: "system_design_data",
+      status: pass ? "completed" : "failed",
+      score: totalScore,
+      pass,
+      meta: {
+        lldScore: fallback.lldScore,
+        hldScore: fallback.hldScore,
+        summary: fallback.summary,
+      },
+      signals: [
+        { competency: "SYSTEM_DESIGN_LLD" as const, score: fallback.lldScore, pass },
+        { competency: "SYSTEM_DESIGN_HLD" as const, score: fallback.hldScore, pass },
+      ],
+    })
+  ).catch((e) => console.warn("[pipeline/system_design_data]", e));
+
   const closing = pass
     ? "Strong work — your Data System Design session is complete and saved to your verification profile."
     : "This session is complete. You did not meet the verification bar for this attempt; you can retry after the cooldown and retake policy.";
@@ -696,6 +715,25 @@ async function finalizeSoftwareSystemDesignComplete(
   } catch {
     /* ignore */
   }
+
+  // Fire-and-forget: publish to unified performance pipeline
+  import("../performancePipeline.js").then(({ publishRunResult }) =>
+    publishRunResult(userId, {
+      module: "system_design_software",
+      status: pass ? "completed" : "failed",
+      score: totalScore,
+      pass,
+      meta: {
+        lldScore: evalResult.lldScore ?? 0,
+        hldScore: evalResult.hldScore ?? 0,
+        summary: evalResult.summary,
+      },
+      signals: [
+        { competency: "SYSTEM_DESIGN_LLD" as const, score: evalResult.lldScore ?? 0, pass },
+        { competency: "SYSTEM_DESIGN_HLD" as const, score: evalResult.hldScore ?? 0, pass },
+      ],
+    })
+  ).catch((e) => console.warn("[pipeline/system_design_software]", e));
 
   const closing = pass
     ? "Strong work — your System Design session is complete and saved to your verification profile."

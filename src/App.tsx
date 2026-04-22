@@ -31,6 +31,9 @@ import ExpertDashboard from "./pages/dashboard/ExpertDashboard";
 import ExpertProfileSetup from "./pages/dashboard/ExpertProfileSetup";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 
+// Antigravity AI Interview module — iframe-bridged integration (Next.js 16 / React 19 black box)
+const AntigravityPage = lazy(() => import("./pages/ai-interview/AntigravityPage"));
+
 const RecruiterOnboarding = lazy(() => import("./pages/dashboard/RecruiterOnboarding"));
 const PostJob = lazy(() => import("./pages/dashboard/PostJob"));
 const CandidateSearch = lazy(() => import("./pages/dashboard/CandidateSearch"));
@@ -263,13 +266,52 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
-              <Route 
-                path="/post-job" 
+              {/* ── Antigravity: AI Adversarial Interview Engine (iframe bridge) ── */}
+              {/* Setup page — jobseekers take the interview; recruiters launch it */}
+              <Route
+                path="/ai-interview"
+                element={
+                  <ProtectedRoute allowedRoles={["jobseeker", "recruiter"]}>
+                    <AntigravityPage view="home" />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Live interview room — immersive shell, no navbar */}
+              <Route
+                path="/ai-interview/interview/:sessionId"
+                element={
+                  <ProtectedRoute allowedRoles={["jobseeker", "recruiter"]}>
+                    <AntigravityPage view="interview" />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Post-interview evaluation report */}
+              <Route
+                path="/ai-interview/report/:sessionId"
+                element={
+                  <ProtectedRoute allowedRoles={["jobseeker", "recruiter"]}>
+                    <AntigravityPage view="report" />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Recruiter dashboard — all completed sessions */}
+              <Route
+                path="/ai-interview/dashboard"
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <AntigravityPage view="dashboard" />
+                  </ProtectedRoute>
+                }
+              />
+              {/* ── End Antigravity routes ── */}
+
+              <Route
+                path="/post-job"
                 element={
                   <ProtectedRoute allowedRole="recruiter">
                     <PostJob />
                   </ProtectedRoute>
-                } 
+                }
               />
               <Route 
                 path="/candidate-search" 

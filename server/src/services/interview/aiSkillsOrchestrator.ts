@@ -783,6 +783,56 @@ async function finalizeSession(
     console.error("[ai-skills] resume sync after completion:", err)
   );
 
+  // Fire-and-forget: publish rich analytics to unified performance pipeline
+  import("../performancePipeline.js").then(({ publishRunResult }) => {
+    const belowThreshold = Object.entries(plan.skillsChecked)
+      .filter(([, c]) => c < threshold)
+      .map(([skill, confidence]) => ({ skill, confidence }));
+    const verifiedSkillsArr = Object.entries(plan.skillsChecked)
+      .filter(([, c]) => c >= threshold)
+      .map(([skill, confidence]) => ({ skill, confidence }));
+
+    // Per-skill granular events for downstream probing
+    const skillEvents = Object.entries(plan.skillsChecked).map(([skill, confidence]) => ({
+      eventType: "skill_probe",
+      value: confidence,
+      detail: {
+        skill,
+        claimed: plan.resumeSkills.includes(skill),
+        verified: confidence >= threshold,
+        confidence,
+        threshold,
+        status: confidence >= threshold ? "verified" : "below_threshold",
+      } as Record<string, unknown>,
+    }));
+
+    return publishRunResult(userId, {
+      module: "ai_skills",
+      status: pass ? "completed" : "failed",
+      score: total,
+      pass,
+      track: plan.track,
+      meta: {
+        track: plan.track,
+        threshold,
+        skillsChecked: plan.skillsChecked,
+        resumeSkills: plan.resumeSkills,
+        verifiedSkills: verifiedSkillsArr,
+        belowThresholdSkills: belowThreshold,
+        dsaWalkthroughScores: plan.dsaUnderstandingScores,
+        dsaAvg,
+        skillAvg,
+        timeExpired,
+      },
+      signals: [{
+        competency: "AI_SKILLS" as const,
+        score: total,
+        pass,
+        events: skillEvents,
+      }],
+    });
+  }).catch((e) => console.warn("[pipeline/ai_skills]", e));
+
   const allSkillRows = Object.entries(plan.skillsChecked).map(([skill, confidence]) => ({ skill, confidence }));
   return { totalScore: total, verifiedSkills: allSkillRows };
 }

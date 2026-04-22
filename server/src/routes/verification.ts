@@ -1381,6 +1381,19 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
     console.warn("[verification/dsa] syncJobSeekerVerificationStatus", e);
   }
 
+  // Fire-and-forget: publish to unified performance pipeline
+  import("../services/performancePipeline.js").then(({ publishRunResult }) =>
+    publishRunResult(userId, {
+      module: "dsa",
+      status: parsed.data.invalidated ? "invalidated" : passed ? "completed" : "failed",
+      score: dsaScore,
+      pass: passed,
+      signals: dsaScore != null
+        ? [{ competency: "LIVE_CODING" as const, score: Math.round(dsaScore), pass: passed }]
+        : [],
+    })
+  ).catch((e) => console.warn("[pipeline/dsa]", e));
+
   res.json({
     result,
     score: dsaScore,
@@ -2671,6 +2684,18 @@ verificationRouter.post("/data-round", requireAuth, requireJobSeeker, async (req
       where: { userId, stageName: "data_round" },
       data: { status: passed ? "completed" : "failed", score: avgScore },
     });
+
+    // Fire-and-forget: publish to unified performance pipeline
+    import("../services/performancePipeline.js").then(({ publishRunResult }) =>
+      publishRunResult(userId, {
+        module: "data_round",
+        status: passed ? "completed" : "failed",
+        score: avgScore,
+        pass: passed,
+        track: "data",
+        signals: [{ competency: "LIVE_CODING" as const, score: Math.round(avgScore), pass: passed }],
+      })
+    ).catch((e) => console.warn("[pipeline/data-round]", e));
 
     return res.json({
       score: avgScore,

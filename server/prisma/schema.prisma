@@ -54,6 +54,10 @@ model User {
   resumeChangeRequests       ResumeChangeRequest[]
   retakeCredits              CandidateRetakeLedger[]
   nonTechAssignments         NonTechAssignment[]
+  assessmentRuns             CandidateAssessmentRun[]
+  assessmentEvents           CandidateAssessmentEvent[]
+  performanceSignals         CandidatePerformanceSignal[]
+  performanceSnapshot        CandidatePerformanceSnapshot?
 }
 
 /// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
@@ -994,6 +998,84 @@ model BlockedEmail {
   id        String   @id @default(uuid())
   email     String   @unique
   blockedAt DateTime @default(now())
+}
+
+// ─── Unified Candidate Performance Pipeline ────────────────────────────────────
+
+/// One record per completed / failed module attempt.
+model CandidateAssessmentRun {
+  id          String   @id @default(uuid())
+  userId      String
+  /// "dsa" | "ai_skills" | "system_design_data" | "system_design_software" | "antigravity"
+  module      String
+  runIndex    Int
+  /// "completed" | "failed" | "invalidated"
+  status      String
+  score       Float?
+  pass        Boolean?
+  track       String?
+  targetRole  String?
+  completedAt DateTime @default(now())
+  meta        Json     @default("{}")
+
+  user    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events  CandidateAssessmentEvent[]
+  signals CandidatePerformanceSignal[]
+
+  @@index([userId, module])
+  @@index([userId, completedAt])
+}
+
+/// Individual signals / events captured within a run.
+model CandidateAssessmentEvent {
+  id         String   @id @default(uuid())
+  runId      String
+  userId     String
+  eventType  String
+  competency String?
+  value      Float?
+  detail     Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  run  CandidateAssessmentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([userId, competency])
+}
+
+/// Normalized, cross-run competency fact — one row per run+competency.
+/// "LIVE_CODING" | "AI_SKILLS" | "SYSTEM_DESIGN_LLD" | "SYSTEM_DESIGN_HLD" | "EXPERT_INTERVIEW"
+model CandidatePerformanceSignal {
+  id         String   @id @default(uuid())
+  userId     String
+  runId      String?
+  competency String
+  score      Float
+  pass       Boolean
+  source     String
+  capturedAt DateTime @default(now())
+
+  user User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run  CandidateAssessmentRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([userId, competency])
+  @@index([userId, capturedAt])
+}
+
+/// Aggregated snapshot — one row per candidate, upserted after every publishRunResult.
+model CandidatePerformanceSnapshot {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  dsaScore             Float?
+  aiSkillsScore        Float?
+  systemDesignScore    Float?
+  antigravityScore     Float?
+  verifiedCompetencies Json     @default("[]")
+  contextBlob          Json     @default("{}")
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model EmailVerificationCode {
