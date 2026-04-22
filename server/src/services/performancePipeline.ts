@@ -12,7 +12,28 @@
  * Downstream modules decide which parts are relevant to them.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
+
+function toPrismaJsonValue(value: unknown): Prisma.InputJsonValue {
+  if (value === null) return null as unknown as Prisma.InputJsonValue;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => (item === null ? null : toPrismaJsonValue(item))) as Prisma.InputJsonArray;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, item === null ? null : toPrismaJsonValue(item)] as const);
+    return Object.fromEntries(entries) as Prisma.InputJsonObject;
+  }
+  return String(value);
+}
 
 // ─── Module-specific meta shapes ─────────────────────────────────────────────
 
@@ -216,7 +237,7 @@ export async function publishRunResult(userId: string, result: RunResult): Promi
       pass: result.pass,
       track: result.track,
       targetRole: result.targetRole,
-      meta: (result.meta ?? {}) as object,
+      meta: toPrismaJsonValue(result.meta ?? {}),
     },
   });
 
@@ -240,7 +261,7 @@ export async function publishRunResult(userId: string, result: RunResult): Promi
           eventType: ev.eventType,
           competency: sig.competency,
           value: ev.value,
-          detail: (ev.detail ?? {}) as object,
+          detail: toPrismaJsonValue(ev.detail ?? {}),
         },
       });
     }
@@ -421,16 +442,16 @@ async function _regenerateSnapshot(userId: string): Promise<void> {
       aiSkillsScore,
       systemDesignScore,
       antigravityScore,
-      verifiedCompetencies,
-      contextBlob: { summary, priorContextForLLM, modules, stressTestTargets, state },
+      verifiedCompetencies: toPrismaJsonValue(verifiedCompetencies),
+      contextBlob: toPrismaJsonValue({ summary, priorContextForLLM, modules, stressTestTargets, state }),
     },
     update: {
       dsaScore,
       aiSkillsScore,
       systemDesignScore,
       antigravityScore,
-      verifiedCompetencies,
-      contextBlob: { summary, priorContextForLLM, modules, stressTestTargets, state },
+      verifiedCompetencies: toPrismaJsonValue(verifiedCompetencies),
+      contextBlob: toPrismaJsonValue({ summary, priorContextForLLM, modules, stressTestTargets, state }),
     },
   });
 }

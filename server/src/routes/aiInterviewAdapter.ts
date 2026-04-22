@@ -8,6 +8,7 @@
  *   GET  /api/ai-interview-adapter/status/:sessionId?interviewId=<ph_id>
  */
 
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireJobSeeker, AuthedRequest } from "../middleware/auth.js";
@@ -22,6 +23,26 @@ const ANTIGRAVITY_API_URL =
 
 const ANTIGRAVITY_PREP_TIMEOUT_MS = 130_000;
 const ANTIGRAVITY_START_TIMEOUT_MS = 30_000;
+
+function toPrismaJsonValue(value: unknown): Prisma.InputJsonValue {
+  if (value === null) return null as unknown as Prisma.InputJsonValue;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => (item === null ? null : toPrismaJsonValue(item))) as Prisma.InputJsonArray;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, item === null ? null : toPrismaJsonValue(item)] as const);
+    return Object.fromEntries(entries) as Prisma.InputJsonObject;
+  }
+  return String(value);
+}
 
 // ─── Score helpers ──────────────────────────────────────────────────────────────
 
@@ -175,7 +196,7 @@ async function finalizeInterview(
         badgeLevel,
         finalVerdict: verdict,
         claimCredibilityRisk: credibilityRisk,
-        scoreBreakdown: nextBreakdown,
+        scoreBreakdown: toPrismaJsonValue(nextBreakdown),
       },
     }),
     prisma.verificationStage.upsert({
@@ -269,7 +290,7 @@ aiInterviewAdapterRouter.post(
           experienceLevel: years_experience || "mid",
           status: "in_progress",
           questionPlan: [],
-          scoreBreakdown: { antigravity_session_id: agData.session_id },
+          scoreBreakdown: toPrismaJsonValue({ antigravity_session_id: agData.session_id }),
         },
         select: { id: true },
       });
