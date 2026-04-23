@@ -20,12 +20,9 @@ const ProfileSetupStage = lazy(() => import("./stages/ProfileSetupStage"));
 const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
 const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
 const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"));
-<<<<<<< HEAD
 const AntigravityInterviewStage = lazy(() => import("./stages/AntigravityInterviewStage"));
-=======
 const AntigravityStageAdapter = lazy(() => import("./stages/AntigravityStageAdapter"));
 const AISkillsInterviewStage = lazy(() => import("./stages/AISkillsInterviewStage"));
->>>>>>> c955162 (Integrate Antigravity interview service)
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
 const DataRoundStage = lazy(() => import("./stages/DataRoundStage"));
