@@ -24,6 +24,12 @@ TIER_MAX_TOKENS = {
     "large": 2500,   # full interview evaluation with JSON schema needs real space
 }
 
+TIER_TIMEOUT_SECONDS = {
+    "small": 12.0,
+    "medium": 20.0,
+    "large": 45.0,
+}
+
 # Alternative cheap/fast options for cost optimization:
 # "small": "google/gemini-flash-1.5"
 # "medium": "openai/gpt-4o-mini"
@@ -48,6 +54,7 @@ class LLMRouter:
         self.client = AsyncOpenAI(
             api_key=os.environ["OPENROUTER_API_KEY"],
             base_url="https://openrouter.ai/api/v1",
+            timeout=TIER_TIMEOUT_SECONDS[tier],
         )
 
     async def call(self, system: str, user: str, max_tokens: int | None = None) -> dict | str:
@@ -80,7 +87,13 @@ class LLMRouter:
                         return json.loads(fenced.group(1).strip())
                     except json.JSONDecodeError:
                         pass
-            # Last resort: find the first { ... } JSON object in the text
+            # Last resort: recover either a JSON array or object embedded in surrounding text.
+            arr_match = _re.search(r"\[[\s\S]*\]", text)
+            if arr_match:
+                try:
+                    return json.loads(arr_match.group(0))
+                except json.JSONDecodeError:
+                    pass
             obj_match = _re.search(r"\{[\s\S]*\}", text)
             if obj_match:
                 try:

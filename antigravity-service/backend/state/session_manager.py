@@ -13,10 +13,12 @@ class SessionManager:
         # Support Upstash/Vercel standard prefixes without crashing
         redis_url = os.environ.get("KV_URL") or os.environ.get("REDIS_URL") or os.environ.get("STORAGE_URL", "redis://localhost:6379")
         self.redis = redis.from_url(redis_url, decode_responses=True)
-        self.ttl = 3600  # 1 hour session expiry
+        self.ttl = 3600          # 1 hour for live sessions
+        self.completed_ttl = 86400  # 24 hours after completion so Provenhire can always poll
 
     async def save_state(self, session_id: str, state: dict):
-        await self.redis.setex(session_id, self.ttl, json.dumps(state))
+        ttl = self.completed_ttl if state.get("interview_complete") else self.ttl
+        await self.redis.setex(session_id, ttl, json.dumps(state))
 
     async def get_state(self, session_id: str) -> dict:
         data = await self.redis.get(session_id)

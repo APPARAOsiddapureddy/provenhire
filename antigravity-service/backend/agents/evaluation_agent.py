@@ -126,6 +126,10 @@ def _build_calibration_context(
         if summaries:
             parts.append("Project ownership: " + "; ".join(summaries))
 
+    prior_assessment_prompt = str(parsed_resume.get("prior_assessment_prompt", "") or "").strip()
+    if prior_assessment_prompt:
+        parts.append("Prior assessment context:\n" + prior_assessment_prompt[:1200])
+
     return "\n".join(parts) if parts else "No explicit calibration context provided."
 
 

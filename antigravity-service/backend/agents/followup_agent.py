@@ -229,6 +229,10 @@ def _fallback_sprint_opener(sprint: int) -> str:
     }.get(sprint, _fallback_sprint_question(sprint))
 
 
+def _fallback_seed_question() -> str:
+    return "I’d love to start with the project you just chose — what part of it felt most shaped by your own decisions?"
+
+
 def _fallback_discrepancy_question() -> str:
     return "Earlier you described that differently. Can you reconcile the difference for me?"
 
@@ -340,6 +344,8 @@ def _build_resume_context(parsed_resume: dict | None, resume: str) -> str:
     experience = parsed_resume.get("experience", {})
     experiences = parsed_resume.get("experiences", [])
     experience_tier = parsed_resume.get("experience_tier", "")
+    prior_assessment_prompt = str(parsed_resume.get("prior_assessment_prompt", "") or "").strip()
+    prior_assessment_context = parsed_resume.get("prior_assessment_context", {})
 
     def _claim_text(claim: object) -> str:
         if isinstance(claim, str):
@@ -374,6 +380,19 @@ def _build_resume_context(parsed_resume: dict | None, resume: str) -> str:
         ) + "\n"
     if claims:
         ctx += "Key claims: " + "; ".join(_claim_text(c) for c in claims[:6])
+    if prior_assessment_prompt:
+        ctx += f"\nPrior assessments:\n{prior_assessment_prompt[:1800]}"
+    elif isinstance(prior_assessment_context, dict) and prior_assessment_context:
+        probe_targets = prior_assessment_context.get("probeTargets", []) or []
+        risk_signals = prior_assessment_context.get("riskSignals", []) or []
+        aggregate_scores = prior_assessment_context.get("aggregateScores", {}) or {}
+        ctx += "\nPrior assessments: structured context available."
+        if aggregate_scores:
+            ctx += f"\nAggregate scores: {aggregate_scores}"
+        if probe_targets:
+            ctx += "\nProbe targets: " + "; ".join(str(target) for target in probe_targets[:4])
+        if risk_signals:
+            ctx += "\nRisk signals: " + "; ".join(str(signal) for signal in risk_signals[:4])
     return ctx
 
 
@@ -811,18 +830,22 @@ Candidate background:
 The candidate has just been asked: "Tell me about a project you're genuinely proud of."
 Before they've answered, generate ONE follow-up question you'll ask after they respond.
 The question should:
+- Feel warm and welcoming, not sharp or prosecutorial
+- Mention the specific experience / project context first, then ask the question
 - Reference a specific project, technology, or claim from their resume above
-- Dig into personal contribution or a key implementation decision
-- Be ≤20 words, conversational
+- Gently invite them into ownership, contribution, or a key implementation decision
+- Prefer a pattern like: "I’d love to start with your <project> — what part of that work felt most yours?"
+- Be ONE sentence, conversational, and ideally ≤26 words
+- Do NOT sound like a challenge, interrogation, or contradiction probe
 
 Output only the question."""
 
         result = await self.llm_fast.call(system=system, user=user)
         if isinstance(result, str):
-            return _finalize_question_output(result, "What part of that project was most dependent on your own implementation choices?")
+            return _finalize_question_output(result, _fallback_seed_question())
         if isinstance(result, dict):
-            return _finalize_question_output(result.get("question", str(result)), "What part of that project was most dependent on your own implementation choices?")
-        return "What part of that project was most dependent on your own implementation choices?"
+            return _finalize_question_output(result.get("question", str(result)), _fallback_seed_question())
+        return _fallback_seed_question()
 
     async def generate_speculative(
         self,

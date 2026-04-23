@@ -12,10 +12,13 @@ from backend.agents.resume_agent import ResumeAgent
 from backend.agents.reasoning_behavior_agent import ReasoningBehaviorAgent
 from backend.rag import question_bank
 from backend.services.interview_map import (
+    build_deterministic_interview_map,
     generate_interview_map,
     get_focus_area_context,
+    hydrate_interview_map_tracks,
     select_from_trajectory_map,
     select_from_trajectory_map_detailed,
+    validate_interview_map,
 )
 from backend.services.interview_telemetry import interview_telemetry
 from backend.state.session_manager import SessionManager
@@ -501,6 +504,10 @@ def _build_sprint_fallback_opener(sprint: int, prior_sprint_history: list[dict],
 # SPRINT CONFIG
 # ─────────────────────────────────────────────
 QUESTIONS_PER_SPRINT = 5
+MAP_PREP_TIMEOUT_SECONDS = 180.0
+MAP_PREP_GENERATE_TIMEOUT_SECONDS = 45.0
+MAP_PREP_MIN_LLM_BRANCH_RATIO = 0.72
+MAP_PREP_MAX_HYDRATION_PASSES = 12
 MAX_INTERVIEW_MINUTES = 30
 
 SPRINTS = {
@@ -526,6 +533,38 @@ SPRINT_OPENERS = {
     2: "Let's talk about the technical concepts behind your work. Pick one idea at the core of what you've built — how would you explain it to someone encountering it for the first time?",
     3: "Staying with the system you just described, what would become the first real scaling or reliability bottleneck if usage jumped sharply?",
 }
+
+
+def _closing_phase(current_sprint: int, sprint_question_count: int) -> str:
+    if current_sprint != 3:
+        return ""
+    remaining = max(QUESTIONS_PER_SPRINT - sprint_question_count, 0)
+    if remaining == 2:
+        return "last_two"
+    if remaining == 1:
+        return "final_question"
+    return ""
+
+
+def _decorate_closing_question(question: str, closing_phase: str) -> str:
+    if not question.strip():
+        return question
+    lowered = question.lower()
+    if closing_phase == "last_two":
+        if lowered.startswith("we're heading into the last two questions"):
+            return question
+        return (
+            "We're heading into the last two questions, so I want to end on the most revealing parts of your experience. "
+            f"{question}"
+        )
+    if closing_phase == "final_question":
+        if lowered.startswith("we're on the final question now"):
+            return question
+        return (
+            "We're on the final question now, so I want to leave you with one thoughtful closing scenario. "
+            f"{question}"
+        )
+    return question
 
 
 def _coerce_positive_int(value: object, default: int = 1) -> int:
@@ -668,23 +707,36 @@ class Orchestrator:
         github_links: list[str],
         target_role: str = "",
         years_experience: str = "",
+        prior_assessment_context: dict | None = None,
+        prior_assessment_prompt: str = "",
     ) -> str:
-        started_at = time.perf_counter()
-        session_id = str(uuid.uuid4())
-
-        parsed_resume = await self.resume_agent.parse(
+        session_id = await self.prepare_session_map(
             resume,
+            github_links,
             target_role=target_role,
             years_experience=years_experience,
+            prior_assessment_context=prior_assessment_context,
+            prior_assessment_prompt=prior_assessment_prompt,
         )
-        if not isinstance(parsed_resume, dict):
-            parsed_resume = {}
+        await self.start_prepared_session(session_id)
+        return session_id
 
+    def _build_initial_state(
+        self,
+        *,
+        session_id: str,
+        resume: str,
+        github_links: list[str],
+        parsed_resume: dict,
+        target_role: str,
+        years_experience: str,
+        prior_assessment_context: dict | None,
+        prior_assessment_prompt: str,
+    ) -> dict:
         # Do NOT pre-load generic follow-ups into the opening packet. _seed_first_question
-        # runs immediately after start_session and writes a resume-grounded follow-up to
+        # runs after the map is prepared and writes a resume-grounded follow-up to
         # prepped_next_question. Generic follow-ups in the opening packet would fire via
         # should_use_packet_followup BEFORE the seed arrives, shadowing it.
-        # The BGPipeline populates proper follow-ups after Turn 1's answer.
         opening_followups: list[str] = []
         opening_packet = _build_question_packet(
             question_text=SPRINT_OPENERS[1],
@@ -696,20 +748,23 @@ class Orchestrator:
             source_turn_number=0,
         )
 
-        state = {
+        return {
             "session_id": session_id,
             "current_sprint": 1,
             "current_persona": "curious_lead",
             "sprint_name": SPRINTS[1]["name"],
             "question_count": 0,
             "sprint_question_count": 0,
-            "interview_start_time": time.time(),
+            "interview_start_time": None,
+            "interview_started": False,
             "interview_complete": False,
             "resume": resume,
             "parsed_resume": parsed_resume,
             "github_links": github_links,
             "target_role": target_role,
             "years_experience": years_experience,
+            "prior_assessment_context": prior_assessment_context or {},
+            "prior_assessment_prompt": prior_assessment_prompt.strip(),
             "skills": parsed_resume.get("skills", []),
             "scores": {},
             "weaknesses": [],
@@ -728,81 +783,119 @@ class Orchestrator:
                 "established_facts": [],
                 "probed_weaknesses": [],
             },
-            # ── Two-track staging fields ──────────────────────────────────────
-            # Written ONLY by _run_background_pipeline.
-            # Consumed atomically at the START of the next handle_transcript call.
-            # Never written by the fast path (Codex invariant).
-            #
-            # prepped_next_question   — adversarial probe from full pipeline, served instantly
-            # prepped_turn_queue      — ordered queue of completed background analyses
-            #                           (each item contains analysis + metadata + turn_number)
-            #                           consumed on later real turns / session end
-            # prepped_next_context    — metadata attached to prepped_next_question
             "prepped_next_question": None,
             "prepped_next_question_turn_number": 0,
             "prepped_next_context": {},
             "prepped_turn_queue": [],
-            # ── Speculative cache — partial-STT driven, Haiku only ────────────
-            # Written ONLY by _run_speculative_generation (event-driven on partials).
-            # Consumed in the fast path if no canonical prepped_next_question exists.
-            # NEVER writes canonical state (Codex invariant extends here too).
             "speculative_cache": {},
-            # Tracks the most recent candidate answer turn currently being resolved.
-            # If the frontend submits another chunk with the same turn_id before the
-            # AI has truly moved on, we treat it as a same-turn revision, not a
-            # brand-new interview turn.
             "current_answer_turn_id": "",
             "current_answer_question": "",
             "current_answer_response": "",
             "current_answer_context": {},
             "current_answer_turn_number": 0,
             "current_answer_version": 0,
-            # Tracks the newest committed same-turn revision per turn_id so stale
-            # background runs can self-discard instead of overwriting newer analysis.
             "latest_turn_versions": {},
-            # ── Interview trajectory map — resume-grounded fallback spine ─────
-            # Generated once by _build_interview_map at session start using
-            # deterministic focus extraction + per-focus LLM generation.
-            # Consulted in the fast path whenever the staged/speculative path
-            # is absent, generic, or weaker than a grounded resume-aware branch.
             "interview_trajectory_map": {},
+            "interview_map_status": "preparing",
+            "interview_map_error": "",
+            "interview_map_validation": {},
+            "interview_map_prepared_at": None,
         }
+
+    async def prepare_session_map(
+        self,
+        resume: str,
+        github_links: list[str],
+        target_role: str = "",
+        years_experience: str = "",
+        prior_assessment_context: dict | None = None,
+        prior_assessment_prompt: str = "",
+    ) -> str:
+        session_id = str(uuid.uuid4())
+        started_at = time.perf_counter()
+
+        parsed_resume = await self.resume_agent.parse(
+            resume,
+            target_role=target_role,
+            years_experience=years_experience,
+        )
+        if not isinstance(parsed_resume, dict):
+            parsed_resume = {}
+        if isinstance(prior_assessment_context, dict) and prior_assessment_context:
+            parsed_resume["prior_assessment_context"] = prior_assessment_context
+        if prior_assessment_prompt.strip():
+            parsed_resume["prior_assessment_prompt"] = prior_assessment_prompt.strip()
+
+        state = self._build_initial_state(
+            session_id=session_id,
+            resume=resume,
+            github_links=github_links,
+            parsed_resume=parsed_resume,
+            target_role=target_role,
+            years_experience=years_experience,
+            prior_assessment_context=prior_assessment_context,
+            prior_assessment_prompt=prior_assessment_prompt,
+        )
         await self.session_manager.save_state(session_id, state)
         await self._trace(
             session_id,
-            "session_started",
+            "session_initialized",
             resume_chars=len(resume),
             github_links=len(github_links),
             target_role=target_role,
             years_experience=years_experience,
-            opening_question=SPRINT_OPENERS[1],
             elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
         )
 
-        # Build the turn-1 seed and the full trajectory map before returning.
-        # Product decision: startup latency is acceptable; a verified map is required
-        # before the interview can start.
-        seed_result, map_result = await asyncio.gather(
-            self._seed_first_question(session_id),
-            self._build_interview_map(session_id),
-            return_exceptions=True,
-        )
+        map_result = await self._build_interview_map(session_id, max_wait_seconds=MAP_PREP_TIMEOUT_SECONDS)
+        if not map_result:
+            verified_state = await self.session_manager.get_state(session_id)
+            error = str(verified_state.get("interview_map_error", "") or "").strip() or "Interview map preparation failed"
+            raise RuntimeError(error)
+        return session_id
 
-        if isinstance(seed_result, Exception):
-            print(f"[Seed] start_session seed failure for {session_id[:8]}: {seed_result}")
-        if isinstance(map_result, Exception):
-            raise RuntimeError(f"Interview map build failed: {map_result}")
+    async def start_prepared_session(self, session_id: str) -> str:
+        started_at = time.perf_counter()
+        state = await self.session_manager.get_state(session_id)
+        map_status = str(state.get("interview_map_status", "") or "")
+        if map_status != "ready":
+            error = str(state.get("interview_map_error", "") or "").strip()
+            raise RuntimeError(error or f"Interview map status is '{map_status}', not ready")
 
-        verified_state = await self.session_manager.get_state(session_id)
-        focus_areas = (verified_state.get("interview_trajectory_map") or {}).get("focus_areas", [])
+        focus_areas = ((state.get("interview_trajectory_map") or {}).get("focus_areas", []) or [])
         if not focus_areas:
-            raise RuntimeError("Interview map missing after startup build")
+            raise RuntimeError("Interview map missing after preparation")
 
+        if not state.get("prepped_next_question"):
+            try:
+                await self._seed_first_question(session_id)
+            except Exception as exc:
+                print(f"[Seed] start_prepared_session seed failure for {session_id[:8]}: {exc}")
+
+        state = await self.session_manager.get_state(session_id)
+        state["interview_started"] = True
+        state["interview_start_time"] = time.time()
+        await self.session_manager.save_state(session_id, state)
+        await self._trace(
+            session_id,
+            "session_started",
+            focus_areas=len(focus_areas),
+            llm_focuses=int((state.get("interview_map_validation") or {}).get("llm_focus_count", 0) or 0),
+            rich_focuses=int((state.get("interview_map_validation") or {}).get("rich_focus_count", 0) or 0),
+            elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
+        )
         return session_id
 
     async def end_session(self, session_id: str) -> dict:
         started_at = time.perf_counter()
         state = await self.session_manager.get_state(session_id)
+
+        # Idempotency guard — evaluation already ran (orchestrator auto-called us at
+        # turn completion); a second call from the UI's /end_interview would re-pop
+        # per_answer_scores (now empty) and overwrite the real evaluation with zeros.
+        if state.get("final_evaluation") and state.get("interview_complete"):
+            return state
+
         state["interview_complete"] = True
 
         # Flush any staged analysis that hasn't been consumed so evaluation sees complete history
@@ -882,6 +975,30 @@ class Orchestrator:
         try:
             evaluation = state.get("final_evaluation") or {}
             duration = (time.time() - state.get("interview_start_time", time.time())) / 60
+            weaknesses = state.get("weaknesses", [])
+            weakness_by_type: dict[str, int] = {}
+            for w in weaknesses:
+                t = w.get("type", "unknown")
+                weakness_by_type[t] = weakness_by_type.get(t, 0) + 1
+            full_report = {
+                "session_id": session_id,
+                "complete": True,
+                "target_role": state.get("target_role", ""),
+                "years_experience": state.get("years_experience", ""),
+                "total_questions": state.get("question_count", 0),
+                "overall_score": evaluation.get("overall_score"),
+                "hire_recommendation": evaluation.get("hire_recommendation"),
+                "confidence_score": evaluation.get("confidence_score"),
+                "summary": evaluation.get("summary"),
+                "strengths": evaluation.get("strengths", []),
+                "risk_flags": evaluation.get("risk_flags", []),
+                "untested_dimensions": evaluation.get("untested_dimensions", []),
+                "claim_credibility_risk": evaluation.get("claim_credibility_risk", {"level": "not_tested", "detail": ""}),
+                "scores": evaluation.get("breakdown", state.get("scores", {})),
+                "failure_surface": evaluation.get("failure_surface", state.get("failure_surface", {})),
+                "weakness_summary": weakness_by_type,
+                "raw_weaknesses": weaknesses,
+            }
             asyncio.create_task(persist_session(
                 session_id=session_id,
                 resume_snippet=state.get("resume", "")[:200],
@@ -889,6 +1006,7 @@ class Orchestrator:
                 overall_score=float(evaluation.get("overall_score") or 0),
                 sprint_reached=int(state.get("current_sprint", 1)),
                 duration_minutes=round(duration, 1),
+                full_report=full_report,
             ))
         except Exception:
             pass
@@ -1698,6 +1816,16 @@ class Orchestrator:
         else:
             state["last_question"] = fast_response
 
+        closing_phase = _closing_phase(
+            state.get("current_sprint", 1),
+            state.get("sprint_question_count", 0),
+        )
+        if closing_phase and not is_turn_revision:
+            fast_response = _decorate_closing_question(fast_response, closing_phase)
+            state["last_question"] = fast_response
+            if active_packet:
+                active_packet["question_text"] = fast_response
+
         state["active_question_packet"] = _clone_question_packet(active_packet)
         state["current_question_followups"] = _packet_followups_remaining(active_packet)
         state["current_question_followup_asked"] = not _packet_has_followups(active_packet)
@@ -1712,6 +1840,7 @@ class Orchestrator:
             "answer_version": current_answer_version,
             "packet_focus_key": active_packet.get("focus_key", ""),
             "packet_focus_label": active_packet.get("focus_label", ""),
+            "closing_phase": closing_phase,
         }
         state["current_answer_turn_number"] = current_turn_number
         state["current_answer_version"] = current_answer_version
@@ -1739,6 +1868,8 @@ class Orchestrator:
                 "discrepancy": None,
                 "route_kind": "complete",
                 "turn_id": turn_id,
+                "closing_phase": "complete",
+                "questions_remaining": 0,
             }
 
         # ── Step 4: Kick off background pipeline ─────────────────────────────
@@ -1782,6 +1913,11 @@ class Orchestrator:
             "discrepancy": served_discrepancy,
             "route_kind": served_route_kind,
             "turn_id": turn_id,
+            "closing_phase": closing_phase,
+            "questions_remaining": max(
+                QUESTIONS_PER_SPRINT - state.get("sprint_question_count", 0),
+                0,
+            ) if state.get("current_sprint") == 3 else None,
         }
 
     def _apply_staged_analysis(self, state: dict, staged: dict, metadata: dict) -> None:
@@ -2498,11 +2634,23 @@ class Orchestrator:
             seed_followups = []
             if rag_candidates:
                 seed_followups = rag_candidates[0].get("followups", [])
-            question = await self.followup_agent.generate_seed_question(
-                sprint=1,
-                persona="curious_lead",
-                resume_context=resume_context,
-            )
+            try:
+                question = await asyncio.wait_for(
+                    self.followup_agent.generate_seed_question(
+                        sprint=1,
+                        persona="curious_lead",
+                        resume_context=resume_context,
+                    ),
+                    timeout=8.0,
+                )
+            except asyncio.TimeoutError:
+                question = "What part of that project was most dependent on your own implementation choices?"
+                await self._trace(
+                    session_id,
+                    "seed_first_question_timeout_fallback",
+                    level="warn",
+                    elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                )
             # Re-read before saving — don't overwrite any parallel changes
             state = await self.session_manager.get_state(session_id)
             if (
@@ -2552,56 +2700,200 @@ class Orchestrator:
                 elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
             )
 
-    async def _build_interview_map(self, session_id: str) -> bool:
+    async def _build_interview_map(self, session_id: str, max_wait_seconds: float = MAP_PREP_TIMEOUT_SECONDS) -> bool:
         """
-        Runs once at session start as an asyncio.create_task.
-        Generates the resume-grounded trajectory map (Haiku, ~400ms) and stores it
-        in session state.  Completes well before the candidate finishes answering
-        the opening question.  Purely additive — never overwrites canonical state.
+        Strict map-preparation phase.
+
+        Product contract:
+        - build the interview map before the interview can start
+        - keep hydrating until the map is rich and validated, or fail preparation
+        - deterministic fallback can bootstrap hydration, but it does not count as "ready"
         """
         started_at = time.perf_counter()
         try:
             state = await self.session_manager.get_state(session_id)
-            # Don't overwrite if somehow already set (race with a restart)
-            if state.get("interview_trajectory_map"):
+            if state.get("interview_map_status") == "ready" and state.get("interview_trajectory_map"):
                 return True
-            interview_map = await generate_interview_map(
-                resume=state.get("resume", ""),
-                session_id=session_id,
-            )
+            resume = state.get("resume", "")
+            deadline = time.perf_counter() + max_wait_seconds
+            map_source = "llm"
+            state["interview_map_status"] = "preparing"
+            state["interview_map_error"] = ""
+            await self.session_manager.save_state(session_id, state)
+            try:
+                interview_map = await asyncio.wait_for(
+                    generate_interview_map(
+                        resume=resume,
+                        session_id=session_id,
+                    ),
+                    timeout=min(MAP_PREP_GENERATE_TIMEOUT_SECONDS, max_wait_seconds),
+                )
+            except Exception as exc:
+                map_source = "deterministic_fallback"
+                interview_map = build_deterministic_interview_map(
+                    resume=resume,
+                    session_id=session_id,
+                )
+                await self._trace(
+                    session_id,
+                    "interview_map_fallback_ready",
+                    level="warn",
+                    fallback_reason=type(exc).__name__,
+                    error=str(exc)[:200],
+                    focus_areas=len(interview_map.get("focus_areas", [])),
+                    elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                )
             if not interview_map:
                 await self._trace(session_id, "interview_map_empty", level="warn",
-                                  elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3))
+                              elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3))
                 return False
-            # Re-read state before saving to avoid trampling concurrent writes
+
+            validation = validate_interview_map(
+                interview_map,
+                require_all_llm=True,
+                min_llm_branch_ratio=MAP_PREP_MIN_LLM_BRANCH_RATIO,
+            )
+            hydration_passes = 0
+            while not validation.get("ready") and time.perf_counter() < deadline and hydration_passes < MAP_PREP_MAX_HYDRATION_PASSES:
+                pending_hydration = list(validation.get("pending_focus_keys", []) or [])
+                if not pending_hydration:
+                    pending_hydration = [
+                        str(report.get("focus_key", "") or "")
+                        for report in validation.get("focus_reports", [])
+                        if str(report.get("track_source", "") or "") != "llm" or not bool(report.get("ready"))
+                    ]
+                pending_hydration = [key for key in pending_hydration if key]
+                if not pending_hydration:
+                    break
+                hydrated = await hydrate_interview_map_tracks(
+                    interview_map=interview_map,
+                    resume=resume,
+                    session_id=session_id,
+                    focus_keys=pending_hydration,
+                )
+                hydration_passes += 1
+                interview_map = hydrated if isinstance(hydrated, dict) else interview_map
+                validation = validate_interview_map(
+                    interview_map,
+                    require_all_llm=True,
+                    min_llm_branch_ratio=MAP_PREP_MIN_LLM_BRANCH_RATIO,
+                )
+                await self._trace(
+                    session_id,
+                    "interview_map_hydration_pass",
+                    pass_number=hydration_passes,
+                    pending_focuses=len(validation.get("pending_focus_keys", []) or []),
+                    llm_focuses=int(validation.get("llm_focus_count", 0) or 0),
+                    rich_focuses=int(validation.get("rich_focus_count", 0) or 0),
+                    ready=bool(validation.get("ready")),
+                    elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                )
+
             state = await self.session_manager.get_state(session_id)
             if state.get("interview_complete"):
                 return False
             state["interview_trajectory_map"] = interview_map
-            await self.session_manager.save_state(session_id, state)
+            state["interview_map_validation"] = validation
+
             focus_count = len(interview_map.get("focus_areas", []))
             preview = [
                 {
                     "label": str(area.get("label", "") or ""),
                     "focus_key": str(area.get("focus_key", "") or ""),
                     "sprint_1_if_vague": str(((area.get("sprint_1") or {}).get("if_vague", "")) or ""),
+                    "track_source": str(area.get("track_source", "") or ""),
+                    "llm_branch_count": int(area.get("llm_branch_count", 0) or 0),
                 }
                 for area in interview_map.get("focus_areas", [])[:3]
             ]
+
+            if validation.get("ready"):
+                state["interview_map_status"] = "ready"
+                state["interview_map_error"] = ""
+                state["interview_map_prepared_at"] = time.time()
+                await self.session_manager.save_state(session_id, state)
+                await self._trace(
+                    session_id,
+                    "interview_map_ready",
+                    map_source=map_source,
+                    focus_areas=focus_count,
+                    llm_focuses=int(validation.get("llm_focus_count", 0) or 0),
+                    rich_focuses=int(validation.get("rich_focus_count", 0) or 0),
+                    focus_preview=preview,
+                    elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                )
+                return focus_count > 0
+
+            errors = list(validation.get("errors", []) or [])
+            state["interview_map_status"] = "failed"
+            state["interview_map_error"] = "; ".join(errors[:4]) or "Interview map did not reach validated ready state."
+            await self.session_manager.save_state(session_id, state)
             await self._trace(
                 session_id,
-                "interview_map_ready",
+                "interview_map_validation_failed",
+                level="warn",
+                map_source=map_source,
                 focus_areas=focus_count,
-                focus_preview=preview,
+                llm_focuses=int(validation.get("llm_focus_count", 0) or 0),
+                rich_focuses=int(validation.get("rich_focus_count", 0) or 0),
+                error_count=len(errors),
+                first_error=errors[0][:200] if errors else "",
                 elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
             )
-            return focus_count > 0
+            return False
         except Exception as e:
             print(f"[TrajectoryMap] Build failed for {session_id[:8]}: {e}")
+            try:
+                state = await self.session_manager.get_state(session_id)
+                state["interview_map_status"] = "failed"
+                state["interview_map_error"] = str(e)[:300]
+                await self.session_manager.save_state(session_id, state)
+            except Exception:
+                pass
             await self._trace(session_id, "interview_map_failed", level="warn",
                               error=str(e)[:200],
                               elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3))
             raise
+
+    async def _hydrate_interview_map(self, session_id: str, focus_keys: list[str]) -> None:
+        started_at = time.perf_counter()
+        try:
+            state = await self.session_manager.get_state(session_id)
+            if state.get("interview_complete"):
+                return
+            interview_map = state.get("interview_trajectory_map", {})
+            if not interview_map:
+                return
+            hydrated = await hydrate_interview_map_tracks(
+                interview_map=interview_map,
+                resume=state.get("resume", ""),
+                session_id=session_id,
+                focus_keys=focus_keys,
+            )
+            if not isinstance(hydrated, dict):
+                return
+            state = await self.session_manager.get_state(session_id)
+            if state.get("interview_complete"):
+                return
+            state["interview_trajectory_map"] = hydrated
+            await self.session_manager.save_state(session_id, state)
+            remaining = list(hydrated.get("pending_hydration_focus_keys", []) or [])
+            await self._trace(
+                session_id,
+                "interview_map_hydrated",
+                hydrated_focuses=max(len(focus_keys) - len(remaining), 0),
+                remaining_focuses=len(remaining),
+                elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            )
+        except Exception as exc:
+            await self._trace(
+                session_id,
+                "interview_map_hydration_failed",
+                level="warn",
+                error_type=type(exc).__name__,
+                error=str(exc)[:300],
+                elapsed_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            )
 
     async def _run_speculative_generation(
         self,

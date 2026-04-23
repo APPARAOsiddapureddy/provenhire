@@ -13,10 +13,22 @@ orchestrator = Orchestrator(tts_service=tts_service)
 
 
 class StartInterviewRequest(BaseModel):
+    prepared_session_id: str = ""
+    resume: str = ""
+    github_links: list[str] = []
+    target_role: str = ""
+    years_experience: str = ""
+    prior_assessment_context: dict = {}
+    prior_assessment_prompt: str = ""
+
+
+class PrepareInterviewMapRequest(BaseModel):
     resume: str
     github_links: list[str] = []
     target_role: str = ""
     years_experience: str = ""
+    prior_assessment_context: dict = {}
+    prior_assessment_prompt: str = ""
 
 
 class TTSRequest(BaseModel):
@@ -53,16 +65,71 @@ class TelemetryEventRequest(BaseModel):
 # INTERVIEW LIFECYCLE
 # ─────────────────────────────────────────────
 
-@router.post("/start_interview")
-async def start_interview(data: StartInterviewRequest):
+@router.post("/prepare_interview_map")
+async def prepare_interview_map(data: PrepareInterviewMapRequest):
     started = time.perf_counter()
     try:
-        session_id = await orchestrator.start_session(
+        session_id = await orchestrator.prepare_session_map(
             data.resume,
             data.github_links,
             target_role=data.target_role,
             years_experience=data.years_experience,
+            prior_assessment_context=data.prior_assessment_context,
+            prior_assessment_prompt=data.prior_assessment_prompt,
         )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    state = await orchestrator.get_session_state(session_id)
+    interview_map = state.get("interview_trajectory_map") or {}
+    focus_areas = interview_map.get("focus_areas", []) or []
+    validation = state.get("interview_map_validation") or {}
+    trajectory_focus_preview = [
+        {
+            "label": str(area.get("label", "") or ""),
+            "focus_key": str(area.get("focus_key", "") or ""),
+            "track_source": str(area.get("track_source", "") or ""),
+            "llm_branch_count": int(area.get("llm_branch_count", 0) or 0),
+            "resume_snippets": [str(snippet) for snippet in (area.get("resume_snippets") or [])[:2]],
+        }
+        for area in focus_areas[:4]
+    ]
+    await interview_telemetry.log(
+        session_id,
+        "api.prepare_interview_map",
+        source="backend.api",
+        resume_chars=len(data.resume),
+        github_links=len(data.github_links),
+        target_role=data.target_role,
+        years_experience=data.years_experience,
+        focus_areas=len(focus_areas),
+        llm_focuses=int(validation.get("llm_focus_count", 0) or 0),
+        rich_focuses=int(validation.get("rich_focus_count", 0) or 0),
+        elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+    )
+    return {
+        "session_id": session_id,
+        "map_status": state.get("interview_map_status", ""),
+        "map_validation": validation,
+        "trajectory_focus_areas": len(focus_areas),
+        "trajectory_focus_preview": trajectory_focus_preview,
+    }
+
+@router.post("/start_interview")
+async def start_interview(data: StartInterviewRequest):
+    started = time.perf_counter()
+    try:
+        if data.prepared_session_id.strip():
+            session_id = await orchestrator.start_prepared_session(data.prepared_session_id.strip())
+        else:
+            session_id = await orchestrator.start_session(
+                data.resume,
+                data.github_links,
+                target_role=data.target_role,
+                years_experience=data.years_experience,
+                prior_assessment_context=data.prior_assessment_context,
+                prior_assessment_prompt=data.prior_assessment_prompt,
+            )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     state = await orchestrator.get_session_state(session_id)
@@ -99,6 +166,32 @@ async def start_interview(data: StartInterviewRequest):
         elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
     )
     return response
+
+
+@router.get("/interview_map_status/{session_id}")
+async def get_interview_map_status(session_id: str):
+    try:
+        state = await orchestrator.get_session_state(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    interview_map = state.get("interview_trajectory_map") or {}
+    focus_areas = interview_map.get("focus_areas", []) or []
+    return {
+        "session_id": session_id,
+        "map_status": state.get("interview_map_status", ""),
+        "map_error": state.get("interview_map_error", ""),
+        "map_validation": state.get("interview_map_validation", {}),
+        "trajectory_focus_areas": len(focus_areas),
+        "trajectory_focus_preview": [
+            {
+                "label": str(area.get("label", "") or ""),
+                "focus_key": str(area.get("focus_key", "") or ""),
+                "track_source": str(area.get("track_source", "") or ""),
+                "llm_branch_count": int(area.get("llm_branch_count", 0) or 0),
+            }
+            for area in focus_areas[:4]
+        ],
+    }
 
 
 @router.get("/deepgram_token")
@@ -372,7 +465,13 @@ async def get_report(session_id: str):
     try:
         state = await orchestrator.get_session_state(session_id)
     except KeyError:
+        # Redis expired or service restarted — try Postgres durable store before 404ing.
+        from backend.db.postgres import get_session_report
+        pg_report = await get_session_report(session_id)
+        if pg_report:
+            return pg_report
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
     evaluation = state.get("final_evaluation") or {}
     weaknesses = state.get("weaknesses", [])
 

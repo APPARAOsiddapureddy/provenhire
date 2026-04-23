@@ -75,8 +75,13 @@ async def init_schema():
                 hire_recommendation TEXT,
                 overall_score       NUMERIC(4,1),
                 sprint_reached      INTEGER,
-                duration_minutes    NUMERIC(5,1)
+                duration_minutes    NUMERIC(5,1),
+                full_report         JSONB
             )
+        """)
+        # Add full_report column to existing installs that predate this migration.
+        await conn.execute("""
+            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS full_report JSONB
         """)
     return True
 
@@ -88,6 +93,7 @@ async def persist_session(
     overall_score: float,
     sprint_reached: int,
     duration_minutes: float,
+    full_report: dict | None = None,
 ):
     """Write completed session to Postgres. Called once at end_session()."""
     pool = await get_pool()
@@ -97,13 +103,14 @@ async def persist_session(
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO sessions (session_id, resume_snippet, hire_recommendation, overall_score, sprint_reached, duration_minutes)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO sessions (session_id, resume_snippet, hire_recommendation, overall_score, sprint_reached, duration_minutes, full_report)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (session_id) DO UPDATE SET
                     hire_recommendation = EXCLUDED.hire_recommendation,
                     overall_score       = EXCLUDED.overall_score,
                     sprint_reached      = EXCLUDED.sprint_reached,
-                    duration_minutes    = EXCLUDED.duration_minutes
+                    duration_minutes    = EXCLUDED.duration_minutes,
+                    full_report         = EXCLUDED.full_report
                 """,
                 session_id,
                 resume_snippet[:200] if resume_snippet else "",
@@ -111,11 +118,45 @@ async def persist_session(
                 overall_score,
                 sprint_reached,
                 duration_minutes,
+                json.dumps(full_report) if full_report else None,
             )
         return True
     except Exception as exc:
         await _mark_unavailable(exc)
         return False
+
+
+async def get_session_report(session_id: str) -> dict | None:
+    """Retrieve persisted full report from Postgres — fallback when Redis has expired."""
+    pool = await get_pool()
+    if pool is None:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT full_report, hire_recommendation, overall_score, sprint_reached FROM sessions WHERE session_id = $1",
+                session_id,
+            )
+        if not row:
+            return None
+        if row["full_report"]:
+            raw_report = row["full_report"]
+            if isinstance(raw_report, str):
+                report = json.loads(raw_report)
+            else:
+                report = dict(raw_report)
+            report["complete"] = True
+            return report
+        # Fallback: reconstruct minimal report from summary columns
+        return {
+            "complete": True,
+            "hire_recommendation": row["hire_recommendation"],
+            "overall_score": float(row["overall_score"]) if row["overall_score"] is not None else None,
+            "sprint_reached": row["sprint_reached"],
+        }
+    except Exception as exc:
+        await _mark_unavailable(exc)
+        return None
 
 
 async def list_sessions() -> list[dict]:

@@ -109,6 +109,9 @@ class WeaknessAgent:
         )
         if ownership_signals:
             calibration_context += "\nOwnership signals:\n- " + "\n- ".join(ownership_signals)
+        prior_assessment_prompt = str(parsed_resume.get("prior_assessment_prompt", "") or "").strip()
+        if prior_assessment_prompt:
+            calibration_context += f"\nPrior assessment context:\n{prior_assessment_prompt[:1200]}"
 
         user = f"""Sprint {sprint} — {sprint_focus}{prior_context}{memory_section}
 {calibration_context}
