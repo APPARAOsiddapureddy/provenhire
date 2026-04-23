@@ -21,7 +21,7 @@ export const aiInterviewAdapterRouter = Router();
 const ANTIGRAVITY_API_URL =
   (process.env.ANTIGRAVITY_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
-const ANTIGRAVITY_PREP_TIMEOUT_MS = 130_000;
+const ANTIGRAVITY_PREP_TIMEOUT_MS = 210_000;
 const ANTIGRAVITY_START_TIMEOUT_MS = 30_000;
 
 function toPrismaJsonValue(value: unknown): Prisma.InputJsonValue {
