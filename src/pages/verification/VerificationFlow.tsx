@@ -951,33 +951,17 @@ const VerificationFlow = () => {
                 </CardContent>
               </Card>
             ) : (
-              <>
-                {import.meta.env.VITE_USE_ANTIGRAVITY === "true" ? (
-                  <AntigravityStageAdapter
-                    targetJobTitle={targetJobTitle}
-                    experienceYears={experienceYears}
-                    verificationRoleType={roleType}
-                    onInterviewAwaitingReview={async () => {
-                      await loadVerificationStages();
-                      handleReturnToDashboard();
-                    }}
-                    onReturnToDashboard={handleReturnToDashboard}
-                    onPaywallRequired={handlePaywallRequired}
-                  />
-                ) : (
-                  <ExpertInterviewStage
-                    targetJobTitle={targetJobTitle}
-                    experienceYears={experienceYears}
-                    verificationRoleType={roleType}
-                    onInterviewAwaitingReview={async () => {
-                      await loadVerificationStages();
-                      handleReturnToDashboard();
-                    }}
-                    onReturnToDashboard={handleReturnToDashboard}
-                    onPaywallRequired={handlePaywallRequired}
-                  />
-                )}
-              </>
+              <AntigravityStageAdapter
+                targetJobTitle={targetJobTitle}
+                experienceYears={experienceYears}
+                verificationRoleType={roleType}
+                onInterviewAwaitingReview={async () => {
+                  await loadVerificationStages();
+                  handleReturnToDashboard();
+                }}
+                onReturnToDashboard={handleReturnToDashboard}
+                onPaywallRequired={handlePaywallRequired}
+              />
             )}
           </div>
         );
