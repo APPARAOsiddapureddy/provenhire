@@ -1152,8 +1152,15 @@ const JobSeekerDashboard = () => {
                       )}
                       {isCompleted && stageName === 'human_expert_interview' && <div className="mt-3 text-sm font-semibold text-[var(--dash-text-muted)]">✓ Completed</div>}
                       {isActive && (
-                        <Button className="dashboard-btn-gold w-full mt-4 py-3" onClick={() => navigate('/verification')}>
-                          {isFailed ? `Retry ${STAGE_LABELS[stageName]} →` : `Start ${STAGE_LABELS[stageName]} →`}
+                        <Button
+                          className="dashboard-btn-gold w-full mt-4 py-3"
+                          onClick={() => navigate(stageName === "expert_interview" ? "/dashboard/jobseeker/antigravity" : "/verification")}
+                        >
+                          {stageName === "expert_interview"
+                            ? "Open Antigravity Lab →"
+                            : isFailed
+                              ? `Retry ${STAGE_LABELS[stageName]} →`
+                              : `Start ${STAGE_LABELS[stageName]} →`}
                         </Button>
                       )}
                     </div>

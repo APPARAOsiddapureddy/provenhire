@@ -21,7 +21,6 @@ const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
 const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
 const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"));
 const AntigravityInterviewStage = lazy(() => import("./stages/AntigravityInterviewStage"));
-const AntigravityStageAdapter = lazy(() => import("./stages/AntigravityStageAdapter"));
 const AISkillsInterviewStage = lazy(() => import("./stages/AISkillsInterviewStage"));
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
@@ -80,6 +79,19 @@ const VerificationFlow = () => {
   const [experienceYears, setExperienceYears] = useState<number>(2);
   const [testStageStarted, setTestStageStarted] = useState<Record<string, boolean>>({});
   const [practiceDialog, setPracticeDialog] = useState<"aptitude" | "dsa" | "interview" | null>(null);
+
+  const launchAntigravityLab = useCallback(async () => {
+    try {
+      await api.post("/api/verification/stages/update", {
+        stageName: "expert_interview",
+        status: "in_progress",
+      });
+    } catch {
+      // Non-blocking: the lab itself will still own the actual interview lifecycle.
+    }
+    setTestStageStarted((p) => ({ ...p, expert_interview: true }));
+    navigate("/dashboard/jobseeker/antigravity");
+  }, [navigate]);
   const [retryingStage, setRetryingStage] = useState<string | null>(null);
   const [certificationLevel, setCertificationLevel] = useState(0);
   const [certificationLabel, setCertificationLabel] = useState("Level 0 - Not Yet Certified");
@@ -920,12 +932,12 @@ const VerificationFlow = () => {
                   <Button onClick={handleReturnToDashboard}>Back to dashboard</Button>
                 </CardContent>
               </Card>
-            ) : !testStageStarted.expert_interview ? (
+            ) : (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="pt-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Expert Interview</h3>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Expert Interview</h3>
                   <p className="text-muted-foreground mb-4">
-                    A 20–30 minute AI-led deep-dive into your experience, projects, and domain expertise. This is the final stage — clear it to unlock your highest certification level.
+                    Capstone AI technical interview with adversarial follow-ups on depth and reasoning. We now launch this through Antigravity Lab, where the standalone voice-first interview experience lives.
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" onClick={() => navigate("/")}>
@@ -938,46 +950,18 @@ const VerificationFlow = () => {
                       <GraduationCap className="h-4 w-4 mr-2" />
                       Practice
                     </Button>
-                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, expert_interview: true }))}>
-                      Start Expert Interview
+                    <Button onClick={() => void launchAntigravityLab()}>
+                      {testStageStarted.expert_interview ? "Open Antigravity Lab" : "Start AI Expert Interview"}
                     </Button>
                   </div>
                   <PracticeStageDialog
                     open={practiceDialog === "interview"}
                     onOpenChange={(o) => !o && setPracticeDialog(null)}
                     type="interview"
-                    testName="Expert Interview"
+                    testName="AI Expert Interview"
                   />
                 </CardContent>
               </Card>
-            ) : (
-              <>
-                {import.meta.env.VITE_USE_ANTIGRAVITY === "true" ? (
-                  <AntigravityStageAdapter
-                    targetJobTitle={targetJobTitle}
-                    experienceYears={experienceYears}
-                    verificationRoleType={roleType}
-                    onInterviewAwaitingReview={async () => {
-                      await loadVerificationStages();
-                      handleReturnToDashboard();
-                    }}
-                    onReturnToDashboard={handleReturnToDashboard}
-                    onPaywallRequired={handlePaywallRequired}
-                  />
-                ) : (
-                  <ExpertInterviewStage
-                    targetJobTitle={targetJobTitle}
-                    experienceYears={experienceYears}
-                    verificationRoleType={roleType}
-                    onInterviewAwaitingReview={async () => {
-                      await loadVerificationStages();
-                      handleReturnToDashboard();
-                    }}
-                    onReturnToDashboard={handleReturnToDashboard}
-                    onPaywallRequired={handlePaywallRequired}
-                  />
-                )}
-              </>
             )}
           </div>
         );
