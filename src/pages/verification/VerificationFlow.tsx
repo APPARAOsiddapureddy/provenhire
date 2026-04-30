@@ -20,8 +20,6 @@ const ProfileSetupStage = lazy(() => import("./stages/ProfileSetupStage"));
 const AptitudeTestStage = lazy(() => import("./stages/AptitudeTestStage"));
 const DSARoundStage = lazy(() => import("./stages/DSARoundStage"));
 const ExpertInterviewStage = lazy(() => import("./stages/ExpertInterviewStage"));
-const AntigravityInterviewStage = lazy(() => import("./stages/AntigravityInterviewStage"));
-const AntigravityStageAdapter = lazy(() => import("./stages/AntigravityStageAdapter"));
 const AISkillsInterviewStage = lazy(() => import("./stages/AISkillsInterviewStage"));
 const HumanExpertInterviewStage = lazy(() => import("./stages/HumanExpertInterviewStage"));
 const NonTechnicalAssignmentStage = lazy(() => import("./stages/NonTechnicalAssignmentStage"));
@@ -80,6 +78,15 @@ const VerificationFlow = () => {
   const [experienceYears, setExperienceYears] = useState<number>(2);
   const [testStageStarted, setTestStageStarted] = useState<Record<string, boolean>>({});
   const [practiceDialog, setPracticeDialog] = useState<"aptitude" | "dsa" | "interview" | null>(null);
+
+  const launchAntigravityLabForStage = useCallback(async (stageName: "ai_skills_interview" | "expert_interview") => {
+    await api.post("/api/verification/stages/update", {
+      stageName,
+      status: "in_progress",
+    });
+    setTestStageStarted((p) => ({ ...p, [stageName]: true }));
+    navigate("/dashboard/jobseeker/antigravity");
+  }, [navigate]);
   const [retryingStage, setRetryingStage] = useState<string | null>(null);
   const [certificationLevel, setCertificationLevel] = useState(0);
   const [certificationLabel, setCertificationLabel] = useState("Level 0 - Not Yet Certified");
@@ -703,58 +710,43 @@ const VerificationFlow = () => {
       case "ai_skills_interview":
         return (
           <div className="space-y-6">
-            {!testStageStarted.ai_skills_interview ? (
-              <Card className="border-2 border-primary/30 bg-primary/5">
-                <CardContent className="pt-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Skills Interview</h3>
-                  <p className="text-muted-foreground mb-4">
-                    DSA walkthrough of your submissions, then AI-led depth checks on skills from your resume. Allow
-                    about 30 minutes in one sitting.
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    <Button variant="outline" onClick={() => navigate("/")}>
-                      Go to Homepage
-                    </Button>
-                    <Button
-                      onClick={async () => {
-                        try {
-                          await api.post("/api/verification/stages/update", {
-                            stageName: "ai_skills_interview",
-                            status: "in_progress",
-                          });
-                          setTestStageStarted((p) => ({ ...p, ai_skills_interview: true }));
-                        } catch (err: unknown) {
-                          const apiErr = err as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
-                          const code = apiErr?.response?.data?.code;
-                          if (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") {
-                            handlePaywallRequired(
-                              "ai_skills_interview",
-                              apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
-                              code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
-                                ? new Date(apiErr.response.data.nextAvailableAt)
-                                : null
-                            );
-                          } else {
-                            toast({ title: "Cannot start", description: (err as Error)?.message ?? "Try again later.", variant: "destructive" });
-                          }
+            <Card className="border-2 border-primary/30 bg-primary/5">
+              <CardContent className="pt-6">
+                <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Skills Interview</h3>
+                <p className="text-muted-foreground mb-4">
+                  DSA walkthrough of your submissions, then AI-led depth checks on skills from your resume. We now
+                  launch this through Antigravity Lab so the standalone interview experience handles the session.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="outline" onClick={() => navigate("/")}>
+                    Go to Homepage
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await launchAntigravityLabForStage("ai_skills_interview");
+                      } catch (err: unknown) {
+                        const apiErr = err as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
+                        const code = apiErr?.response?.data?.code;
+                        if (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") {
+                          handlePaywallRequired(
+                            "ai_skills_interview",
+                            apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
+                            code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
+                              ? new Date(apiErr.response.data.nextAvailableAt)
+                              : null
+                          );
+                        } else {
+                          toast({ title: "Cannot start", description: (err as Error)?.message ?? "Try again later.", variant: "destructive" });
                         }
-                      }}
-                    >
-                      Start AI Skills Interview
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <AntigravityInterviewStage
-                targetJobTitle={targetJobTitle || undefined}
-                experienceYears={experienceYears}
-                verificationRoleType="technical"
-                onInterviewAwaitingReview={() => void loadVerificationStages()}
-                onReturnToDashboard={handleReturnToDashboard}
-                onPaywallRequired={handlePaywallRequired}
-              />
-            )}
+                      }
+                    }}
+                  >
+                    {testStageStarted.ai_skills_interview ? "Open Antigravity Lab" : "Start AI Skills Interview"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         );
       case "system_design_interview":
@@ -920,12 +912,12 @@ const VerificationFlow = () => {
                   <Button onClick={handleReturnToDashboard}>Back to dashboard</Button>
                 </CardContent>
               </Card>
-            ) : !testStageStarted.expert_interview ? (
+            ) : (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="pt-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Expert Interview</h3>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Expert Interview</h3>
                   <p className="text-muted-foreground mb-4">
-                    A 20–30 minute AI-led deep-dive into your experience, projects, and domain expertise. This is the final stage — clear it to unlock your highest certification level.
+                    Capstone AI technical interview with adversarial follow-ups on depth and reasoning. We now launch this through Antigravity Lab, where the standalone voice-first interview experience lives.
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" onClick={() => navigate("/")}>
@@ -938,30 +930,27 @@ const VerificationFlow = () => {
                       <GraduationCap className="h-4 w-4 mr-2" />
                       Practice
                     </Button>
-                    <Button onClick={() => setTestStageStarted((p) => ({ ...p, expert_interview: true }))}>
-                      Start Expert Interview
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await launchAntigravityLabForStage("expert_interview");
+                        } catch {
+                          setTestStageStarted((p) => ({ ...p, expert_interview: true }));
+                          navigate("/dashboard/jobseeker/antigravity");
+                        }
+                      }}
+                    >
+                      {testStageStarted.expert_interview ? "Open Antigravity Lab" : "Start AI Expert Interview"}
                     </Button>
                   </div>
                   <PracticeStageDialog
                     open={practiceDialog === "interview"}
                     onOpenChange={(o) => !o && setPracticeDialog(null)}
                     type="interview"
-                    testName="Expert Interview"
+                    testName="AI Expert Interview"
                   />
                 </CardContent>
               </Card>
-            ) : (
-              <AntigravityStageAdapter
-                targetJobTitle={targetJobTitle}
-                experienceYears={experienceYears}
-                verificationRoleType={roleType}
-                onInterviewAwaitingReview={async () => {
-                  await loadVerificationStages();
-                  handleReturnToDashboard();
-                }}
-                onReturnToDashboard={handleReturnToDashboard}
-                onPaywallRequired={handlePaywallRequired}
-              />
             )}
           </div>
         );
