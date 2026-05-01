@@ -95,6 +95,48 @@ type Message = {
   sprint?: number;
 };
 
+// ─── Prepare polling ──────────────────────────────────────────────────────────
+// Polls GET /prepare-status every 5 s. Resolves when ready, throws on failure or timeout.
+// The optional `cancelled` ref lets the mount-effect abort the loop on unmount.
+
+type PrepareReadyResult = { session_id: string; opening_question: string; sprint: number };
+
+async function pollPrepareStatus(
+  interviewId: string,
+  cancelled?: boolean,
+): Promise<PrepareReadyResult> {
+  const MAX_ATTEMPTS = 38; // 2 s initial + 37 × 5 s ≈ 3 min ceiling
+  const POLL_INTERVAL_MS = 5_000;
+
+  await new Promise<void>((r) => setTimeout(r, 2_000));
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    if (cancelled) throw new Error("Cancelled");
+
+    const status = await api.get<{
+      ready: boolean;
+      session_id?: string;
+      opening_question?: string;
+      sprint?: number;
+      error?: string;
+    }>(`/api/ai-interview-adapter/prepare-status/${interviewId}`);
+
+    if (status.ready && status.session_id) {
+      return {
+        session_id: status.session_id,
+        opening_question: status.opening_question ?? "",
+        sprint: status.sprint ?? 1,
+      };
+    }
+    if (status.error) throw new Error(status.error);
+
+    if (i < MAX_ATTEMPTS - 1) {
+      await new Promise<void>((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+  }
+  throw new Error("Interview preparation timed out. Please try again.");
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -143,13 +185,14 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   const interviewIdRef = useRef("");
   const engineBootedRef = useRef(false);
 
-  // ─── On mount: check for orphaned/reconciled session ───────────────────────
+  // ─── On mount: check for orphaned/reconciled/still-preparing session ─────────
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const data = await api.get<{
           open: boolean;
+          preparing?: boolean;
           session_id?: string;
           provenhire_interview_id?: string;
           reconciled?: boolean;
@@ -166,6 +209,28 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
           return;
         }
 
+        // Map was still building when the user navigated away — resume polling
+        if (data.preparing && data.provenhire_interview_id) {
+          setStarting(true);
+          try {
+            const result = await pollPrepareStatus(data.provenhire_interview_id, cancelled);
+            if (cancelled) return;
+            setEngine({
+              sessionId: result.session_id,
+              openingQuestion: result.opening_question,
+              sprint: result.sprint,
+              interviewId: data.provenhire_interview_id,
+            });
+            setPhase("interview");
+          } catch (e) {
+            if (cancelled) return;
+            toast.error(e instanceof Error ? e.message : "Preparation failed. Please try again.");
+            setStarting(false);
+            setPhase("setup");
+          }
+          return;
+        }
+
         if (data.open && data.session_id && data.provenhire_interview_id) {
           // Use a raw fetch so we can distinguish a definitive 404 (session gone) from
           // transient 5xx / network errors. Only cancel the orphan on a confirmed 404.
@@ -178,7 +243,6 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             if (cancelled) return;
 
             if (stateRes.status === 404) {
-              // Session is definitively gone from Antigravity — safe to abandon the orphan.
               api.post("/api/ai-interview-adapter/cancel", {
                 session_id: data.session_id,
                 provenhire_interview_id: data.provenhire_interview_id,
@@ -188,7 +252,6 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             }
 
             if (!stateRes.ok) {
-              // Transient proxy/backend error — preserve the session, fall through to setup.
               if (!cancelled) setPhase("setup");
               return;
             }
@@ -215,7 +278,6 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             }
             return;
           } catch {
-            // Network-level failure — preserve the session, fall through to setup.
             if (!cancelled) setPhase("setup");
             return;
           }
@@ -597,7 +659,6 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     if (!resume.trim()) { toast.error("Paste your resume to begin."); return; }
     if (!targetRole.trim()) { toast.error("Enter the target role."); return; }
 
-    // Verify mic access before burning the API call / 2-min map build
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
@@ -608,22 +669,25 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
     setStarting(true);
     try {
-      const data = await api.post<{
-        session_id: string;
-        opening_question: string;
-        sprint: number;
-        provenhire_interview_id: string;
-      }>("/api/ai-interview-adapter/start", {
-        resume: resume.trim(),
-        github_links: githubLinks.split("\n").map((l) => l.trim()).filter(Boolean),
-        target_role: targetRole.trim(),
-        years_experience: expLevel,
-      });
+      // Phase 1: fire map preparation — server responds in <2 s, no Vercel proxy timeout
+      const prepData = await api.post<{ provenhire_interview_id: string }>(
+        "/api/ai-interview-adapter/prepare",
+        {
+          resume: resume.trim(),
+          github_links: githubLinks.split("\n").map((l) => l.trim()).filter(Boolean),
+          target_role: targetRole.trim(),
+          years_experience: expLevel,
+        }
+      );
+
+      // Phase 2: poll every 5 s until the map + start_interview completes (~30 s–2 min)
+      const result = await pollPrepareStatus(prepData.provenhire_interview_id);
+
       setEngine({
-        sessionId: data.session_id,
-        openingQuestion: data.opening_question,
-        sprint: data.sprint,
-        interviewId: data.provenhire_interview_id,
+        sessionId: result.session_id,
+        openingQuestion: result.opening_question,
+        sprint: result.sprint,
+        interviewId: prepData.provenhire_interview_id,
       });
       setPhase("interview");
     } catch (e) {

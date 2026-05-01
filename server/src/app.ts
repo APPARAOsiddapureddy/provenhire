@@ -197,7 +197,6 @@ export function createApp() {
   app.use("/api/settings", settingsRouter);
   app.use("/api/public", publicApiRouter);
   app.use("/api/antigravity", antigravityRouter);
-  app.use("/api/antigravity", antigravityRouter);
   app.use("/api/ai-interview-adapter", aiInterviewAdapterRouter);
   app.use("/api/candidate-context", candidateContextRouter);
 

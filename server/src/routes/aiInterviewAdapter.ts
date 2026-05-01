@@ -3,8 +3,9 @@
  * AI Interview Engine (FastAPI).
  *
  * Routes:
- *   POST /api/ai-interview-adapter/start
- *   GET  /api/ai-interview-adapter/open          ← resume orphaned session
+ *   POST /api/ai-interview-adapter/prepare                     ← async start (returns in <2 s)
+ *   GET  /api/ai-interview-adapter/prepare-status/:interviewId ← poll until map ready
+ *   GET  /api/ai-interview-adapter/open                        ← resume session on page reload
  *   GET  /api/ai-interview-adapter/status/:sessionId?interviewId=<ph_id>
  *   POST /api/ai-interview-adapter/cancel
  *   POST /api/ai-interview-adapter/finalize
@@ -245,7 +246,10 @@ async function finalizeInterview(
   return { totalScore, badgeLevel, verdict };
 }
 
-// ─── POST /start ────────────────────────────────────────────────────────────────
+// ─── POST /prepare ──────────────────────────────────────────────────────────────
+// Two-phase start to avoid Vercel's 30 s proxy timeout on prepare_interview_map.
+// Phase 1: create the DB row, fire map build in background, return immediately (<2 s).
+// Phase 2: browser polls GET /prepare-status/:interviewId every 5 s until ready.
 
 const startSchema = z.object({
   resume: z.string().min(50, "Resume text is too short — paste at least 50 characters"),
@@ -255,7 +259,7 @@ const startSchema = z.object({
 });
 
 aiInterviewAdapterRouter.post(
-  "/start",
+  "/prepare",
   requireAuth,
   requireJobSeeker,
   async (req: AuthedRequest, res) => {
@@ -266,25 +270,21 @@ aiInterviewAdapterRouter.post(
     const { resume, github_links, target_role, years_experience } = parsed.data;
     const userId = req.user!.id;
 
-    // 1. Apply the same retake/cooldown gate as the standard expert interview path.
     const gate = await gateExpertInterviewStart(userId);
     if (!gate.ok) {
       return res.status(gate.status).json(gate.body);
     }
 
+    let priorModuleContext: { relevantState: Record<string, unknown>; promptContext: string };
     try {
-      const priorModuleContext = await getCandidateModuleContext(userId, "antigravity");
-      const agData = await prepareAndStartAntigravity({
-        resume,
-        github_links,
-        target_role,
-        years_experience,
-        prior_assessment_context: priorModuleContext.relevantState,
-        prior_assessment_prompt: priorModuleContext.promptContext,
-      });
+      priorModuleContext = await getCandidateModuleContext(userId, "antigravity");
+    } catch {
+      priorModuleContext = { relevantState: {}, promptContext: "" };
+    }
 
-      // 3. Create ProvenHire Interview record, storing the Antigravity session id for ownership checks.
-      const interview = await prisma.interview.create({
+    let interview: { id: string };
+    try {
+      interview = await prisma.interview.create({
         data: {
           userId,
           jobRole: target_role || "General",
@@ -292,33 +292,103 @@ aiInterviewAdapterRouter.post(
           experienceLevel: years_experience || "mid",
           status: "in_progress",
           questionPlan: [],
-          scoreBreakdown: toPrismaJsonValue({ antigravity_session_id: agData.session_id }),
+          scoreBreakdown: toPrismaJsonValue({ prepare_status: "preparing" }),
         },
         select: { id: true },
       });
-
-      return res.json({
-        session_id: agData.session_id,
-        opening_question: agData.opening_question,
-        sprint: agData.sprint,
-        sprint_name: agData.sprint_name,
-        provenhire_interview_id: interview.id,
-      });
     } catch (e) {
-      if (e instanceof Error && e.name === "TimeoutError") {
-        return res.status(504).json({ error: "AI interview preparation timed out. Please try again." });
+      console.error("[ai-interview-adapter/prepare] DB create failed:", e);
+      return res.status(500).json({ error: "Failed to start interview." });
+    }
+
+    // Respond immediately so Vercel's proxy doesn't timeout
+    res.json({ provenhire_interview_id: interview.id });
+
+    // Background: prepare + start Antigravity, then update DB with results.
+    // The Express process on Render continues after the HTTP response is sent.
+    void (async () => {
+      try {
+        const agData = await prepareAndStartAntigravity({
+          resume,
+          github_links,
+          target_role,
+          years_experience,
+          prior_assessment_context: priorModuleContext.relevantState,
+          prior_assessment_prompt: priorModuleContext.promptContext,
+        });
+        // Only update if the row is still in_progress — the gate may have abandoned it
+        // if a second prepare was fired while this one was running.
+        await prisma.interview.updateMany({
+          where: { id: interview.id, status: "in_progress" },
+          data: {
+            scoreBreakdown: toPrismaJsonValue({
+              prepare_status: "ready",
+              antigravity_session_id: agData.session_id,
+              opening_question: agData.opening_question,
+              sprint: agData.sprint,
+            }),
+          },
+        });
+      } catch (err) {
+        console.error("[ai-interview-adapter/prepare] background task failed:", err);
+        await prisma.interview.updateMany({
+          where: { id: interview.id, status: "in_progress" },
+          data: {
+            status: "abandoned",
+            scoreBreakdown: toPrismaJsonValue({
+              prepare_status: "failed",
+              prepare_error: err instanceof Error ? err.message : "Preparation failed",
+            }),
+          },
+        }).catch(() => {});
       }
-      if (e instanceof Error && e.message === "AI interview map preparation failed") {
-        return res.status(502).json({ error: "AI interview preparation failed. Please try again." });
+    })();
+  }
+);
+
+// ─── GET /prepare-status/:interviewId ──────────────────────────────────────────
+// Polled by the browser (every 5 s) after POST /prepare.
+// Returns { ready: true, session_id, opening_question, sprint } when Antigravity is up,
+// { ready: false } while still building, or { ready: false, error } on failure.
+
+aiInterviewAdapterRouter.get(
+  "/prepare-status/:interviewId",
+  requireAuth,
+  requireJobSeeker,
+  async (req: AuthedRequest, res) => {
+    const { interviewId } = req.params;
+    const userId = req.user!.id;
+
+    try {
+      const interview = await prisma.interview.findFirst({
+        where: { id: interviewId, userId, interviewType: "ai_expert" },
+        select: { id: true, status: true, scoreBreakdown: true },
+      });
+      if (!interview) return res.status(404).json({ error: "Interview not found." });
+
+      const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
+      const prepStatus = breakdown?.prepare_status;
+
+      if (prepStatus === "ready" && typeof breakdown?.antigravity_session_id === "string") {
+        return res.json({
+          ready: true,
+          session_id: breakdown.antigravity_session_id,
+          opening_question: breakdown.opening_question ?? "",
+          sprint: breakdown.sprint ?? 1,
+        });
       }
-      if (e instanceof Error && e.message === "AI interview map was not ready") {
-        return res.status(502).json({ error: "AI interview map was not ready. Please try again." });
+
+      if (prepStatus === "failed" || interview.status === "abandoned") {
+        return res.json({
+          ready: false,
+          error: (breakdown?.prepare_error as string | undefined) ?? "Interview preparation failed. Please try again.",
+        });
       }
-      if (e instanceof Error && e.message === "AI interview engine failed to start") {
-        return res.status(502).json({ error: "AI interview engine failed to start. Please try again." });
-      }
-      console.error("[ai-interview-adapter/start]", e);
-      return res.status(500).json({ error: "Failed to start interview" });
+
+      return res.json({ ready: false });
+    } catch (e) {
+      console.error("[ai-interview-adapter/prepare-status]", e);
+      return res.status(500).json({ error: "Failed to check prepare status." });
     }
   }
 );
@@ -350,11 +420,19 @@ aiInterviewAdapterRouter.get(
       }
 
       const breakdown = open.scoreBreakdown as Record<string, unknown> | null;
+      const prepStatus = breakdown?.prepare_status;
+
+      // Map still building — tell the UI to resume polling prepare-status
+      if (prepStatus === "preparing") {
+        return res.json({ open: false, preparing: true, provenhire_interview_id: open.id });
+      }
+
       const agSessionId = typeof breakdown?.antigravity_session_id === "string"
         ? breakdown.antigravity_session_id
         : null;
 
       if (!agSessionId) {
+        // Corrupt row (ready but no session id) — abandon so the gate unblocks
         await prisma.interview.update({
           where: { id: open.id },
           data: { status: "abandoned" },

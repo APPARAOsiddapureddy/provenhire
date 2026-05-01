@@ -71,7 +71,7 @@ export async function gateExpertInterviewStart(userId: string): Promise<
   const open = await prisma.interview.findFirst({
     where: { userId, interviewType: "ai_expert", status: "in_progress" },
     orderBy: { createdAt: "desc" },
-    select: { id: true, scoreBreakdown: true },
+    select: { id: true, scoreBreakdown: true, createdAt: true },
   });
   if (open) {
     const breakdown = open.scoreBreakdown as Record<string, unknown> | null;
@@ -79,19 +79,27 @@ export async function gateExpertInterviewStart(userId: string): Promise<
       typeof breakdown?.antigravity_session_id === "string"
         ? breakdown.antigravity_session_id.trim()
         : "";
+    const prepStatus = breakdown?.prepare_status;
+    // A row with prepare_status "preparing" was created by POST /prepare and has a
+    // background task running. Treat it as active unless it's been preparing for over
+    // 5 minutes (background task is definitively stuck).
+    const isActivePrepare =
+      prepStatus === "preparing" &&
+      open.createdAt instanceof Date &&
+      Date.now() - open.createdAt.getTime() < 5 * 60 * 1000;
 
-    if (!storedSessionId) {
-      await prisma.interview.update({
-        where: { id: open.id },
-        data: { status: "abandoned" },
-      });
-    } else {
+    if (storedSessionId || isActivePrepare) {
       return {
         ok: false,
         status: 400,
         body: { error: "You already have an expert interview in progress.", code: "INTERVIEW_OPEN" },
       };
     }
+    // Stale row: no session and not actively preparing — abandon so gate reopens.
+    await prisma.interview.update({
+      where: { id: open.id },
+      data: { status: "abandoned" },
+    });
   }
 
   const stillOpen = await prisma.interview.findFirst({

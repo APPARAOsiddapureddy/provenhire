@@ -4,14 +4,12 @@ import { requireAuth, requireJobSeeker, type AuthedRequest } from "../middleware
 
 export const antigravityRouter = Router();
 
-function normalizeApiBaseUrl(value: string | undefined): string {
-  const trimmed = (value ?? "").trim().replace(/\/+$/, "");
-  if (!trimmed) return "";
-  return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
-}
-
+// Reads ANTIGRAVITY_API_URL — the same env var used by aiInterviewAdapter.ts.
+// ANTIGRAVITY_API_BASE_URL is retired; this router no longer uses it.
 function antigravityApiBaseUrl(): string {
-  return normalizeApiBaseUrl(process.env.ANTIGRAVITY_API_BASE_URL);
+  const raw = (process.env.ANTIGRAVITY_API_URL ?? "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  return raw.endsWith("/api") ? raw : `${raw}/api`;
 }
 
 function antigravityConfigured(): boolean {
@@ -21,7 +19,7 @@ function antigravityConfigured(): boolean {
 function antigravityUnavailableMessage() {
   return {
     error:
-      "Antigravity integration is not configured. Set ANTIGRAVITY_API_BASE_URL on the ProvenHire API server.",
+      "Antigravity integration is not configured. Set ANTIGRAVITY_API_URL on the ProvenHire API server.",
   };
 }
 
