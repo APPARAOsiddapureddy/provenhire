@@ -95,11 +95,52 @@ type Message = {
   sprint?: number;
 };
 
+type PreparePollSnapshot = {
+  ready: boolean;
+  session_id?: string;
+  opening_question?: string;
+  sprint?: number;
+  error?: string;
+  prepare_status?: string | null;
+  interview_status?: string | null;
+  started_at?: string | null;
+};
+
 // ─── Prepare polling ──────────────────────────────────────────────────────────
 // Polls GET /prepare-status every 5 s. Resolves when ready, throws on failure or timeout.
 // The optional `cancelled` ref lets the mount-effect abort the loop on unmount.
 
 type PrepareReadyResult = { session_id: string; opening_question: string; sprint: number };
+
+function formatPrepareTimeout(snapshot: PreparePollSnapshot | null): string {
+  if (!snapshot) {
+    return "Interview preparation timed out before the backend returned a usable status. Please try again.";
+  }
+
+  if (snapshot.error) {
+    return snapshot.error;
+  }
+
+  const pieces = [
+    snapshot.prepare_status ? `prepare=${snapshot.prepare_status}` : null,
+    snapshot.interview_status ? `interview=${snapshot.interview_status}` : null,
+  ].filter(Boolean);
+
+  let ageText = "";
+  if (snapshot.started_at) {
+    const startedAtMs = new Date(snapshot.started_at).getTime();
+    if (Number.isFinite(startedAtMs)) {
+      const elapsedSec = Math.max(0, Math.round((Date.now() - startedAtMs) / 1000));
+      ageText = ` after ${elapsedSec}s`;
+    }
+  }
+
+  if (pieces.length > 0) {
+    return `Interview preparation timed out${ageText}. Last known backend state: ${pieces.join(", ")}.`;
+  }
+
+  return `Interview preparation timed out${ageText}.`;
+}
 
 async function pollPrepareStatus(
   interviewId: string,
@@ -110,16 +151,13 @@ async function pollPrepareStatus(
 
   await new Promise<void>((r) => setTimeout(r, 2_000));
 
+  let lastSnapshot: PreparePollSnapshot | null = null;
+
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     if (cancelled) throw new Error("Cancelled");
 
-    const status = await api.get<{
-      ready: boolean;
-      session_id?: string;
-      opening_question?: string;
-      sprint?: number;
-      error?: string;
-    }>(`/api/ai-interview-adapter/prepare-status/${interviewId}`);
+    const status = await api.get<PreparePollSnapshot>(`/api/ai-interview-adapter/prepare-status/${interviewId}`);
+    lastSnapshot = status;
 
     if (status.ready && status.session_id) {
       return {
@@ -134,7 +172,7 @@ async function pollPrepareStatus(
       await new Promise<void>((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
   }
-  throw new Error("Interview preparation timed out. Please try again.");
+  throw new Error(formatPrepareTimeout(lastSnapshot));
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

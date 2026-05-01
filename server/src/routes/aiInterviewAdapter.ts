@@ -292,7 +292,10 @@ aiInterviewAdapterRouter.post(
           experienceLevel: years_experience || "mid",
           status: "in_progress",
           questionPlan: [],
-          scoreBreakdown: toPrismaJsonValue({ prepare_status: "preparing" }),
+          scoreBreakdown: toPrismaJsonValue({
+            prepare_status: "preparing",
+            prepare_started_at: new Date().toISOString(),
+          }),
         },
         select: { id: true },
       });
@@ -375,17 +378,27 @@ aiInterviewAdapterRouter.get(
           session_id: breakdown.antigravity_session_id,
           opening_question: breakdown.opening_question ?? "",
           sprint: breakdown.sprint ?? 1,
+          prepare_status: "ready",
+          interview_status: interview.status,
         });
       }
 
       if (prepStatus === "failed" || interview.status === "abandoned") {
         return res.json({
           ready: false,
+          prepare_status: prepStatus ?? null,
+          interview_status: interview.status,
+          started_at: typeof breakdown?.prepare_started_at === "string" ? breakdown.prepare_started_at : null,
           error: (breakdown?.prepare_error as string | undefined) ?? "Interview preparation failed. Please try again.",
         });
       }
 
-      return res.json({ ready: false });
+      return res.json({
+        ready: false,
+        prepare_status: prepStatus ?? "preparing",
+        interview_status: interview.status,
+        started_at: typeof breakdown?.prepare_started_at === "string" ? breakdown.prepare_started_at : null,
+      });
     } catch (e) {
       console.error("[ai-interview-adapter/prepare-status]", e);
       return res.status(500).json({ error: "Failed to check prepare status." });
