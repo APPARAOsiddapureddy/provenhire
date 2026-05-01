@@ -246,6 +246,11 @@ export class InterviewSession {
       video: false,
     });
     this.audioContext = new AudioContext({ sampleRate: 16000 });
+    // Chrome suspends AudioContext when created outside a synchronous user-gesture
+    // handler (e.g. inside a React useEffect). Resume explicitly so onaudioprocess fires.
+    if (this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
+    }
     const source = this.audioContext.createMediaStreamSource(this.mediaStream);
     this.processor = this.audioContext.createScriptProcessor(2048, 1, 1);
     this.processor.onaudioprocess = (e) => {
