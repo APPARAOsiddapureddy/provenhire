@@ -31,7 +31,9 @@ import ExpertDashboard from "./pages/dashboard/ExpertDashboard";
 import ExpertProfileSetup from "./pages/dashboard/ExpertProfileSetup";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 
-// Antigravity AI Interview module — iframe-bridged integration (Next.js 16 / React 19 black box)
+// Antigravity AI Interview module — native integration (no iframe, all calls through proxy)
+const AntigravityLabPage = lazy(() => import("./pages/ai-interview/AntigravityLabPage"));
+// Legacy iframe routes (report, dashboard, recruiter views) — kept until native parity
 const AntigravityPage = lazy(() => import("./pages/ai-interview/AntigravityPage"));
 
 const RecruiterOnboarding = lazy(() => import("./pages/dashboard/RecruiterOnboarding"));
@@ -211,7 +213,7 @@ const App = () => (
                 path="/dashboard/jobseeker/antigravity"
                 element={
                   <ProtectedRoute allowedRole="jobseeker">
-                    <AntigravityPage view="home" />
+                    <AntigravityLabPage />
                   </ProtectedRoute>
                 }
               />
@@ -265,26 +267,29 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
-              {/* ── Antigravity: AI Adversarial Interview Engine (iframe bridge) ── */}
-              {/* Setup page — jobseekers take the interview; recruiters launch it */}
+              {/* ── Antigravity iframe routes — DEPRECATED for jobseekers ────────────────
+                   Canonical jobseeker path is /dashboard/jobseeker/antigravity (AntigravityLabPage).
+                   These routes remain for recruiter dashboard and direct report/session links only.
+                   Do not add new features here. Remove once recruiter views are ported natively. ── */}
+              {/* Setup — recruiter-only; jobseekers use /dashboard/jobseeker/antigravity */}
               <Route
                 path="/ai-interview"
                 element={
-                  <ProtectedRoute allowedRoles={["jobseeker", "recruiter"]}>
+                  <ProtectedRoute allowedRole="recruiter">
                     <AntigravityPage view="home" />
                   </ProtectedRoute>
                 }
               />
-              {/* Live interview room — immersive shell, no navbar */}
+              {/* Live room — recruiter-only for same reason */}
               <Route
                 path="/ai-interview/interview/:sessionId"
                 element={
-                  <ProtectedRoute allowedRoles={["jobseeker", "recruiter"]}>
+                  <ProtectedRoute allowedRole="recruiter">
                     <AntigravityPage view="interview" />
                   </ProtectedRoute>
                 }
               />
-              {/* Post-interview evaluation report */}
+              {/* Report — both roles: jobseekers may receive direct report links */}
               <Route
                 path="/ai-interview/report/:sessionId"
                 element={

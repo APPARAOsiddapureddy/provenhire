@@ -1156,13 +1156,13 @@ const JobSeekerDashboard = () => {
                           className="dashboard-btn-gold w-full mt-4 py-3"
                           onClick={() =>
                             navigate(
-                              stageName === "expert_interview" || stageName === "ai_skills_interview"
+                              stageName === "expert_interview"
                                 ? "/dashboard/jobseeker/antigravity"
                                 : "/verification"
                             )
                           }
                         >
-                          {stageName === "expert_interview" || stageName === "ai_skills_interview"
+                          {stageName === "expert_interview"
                             ? "Open Antigravity Lab →"
                             : isFailed
                               ? `Retry ${STAGE_LABELS[stageName]} →`

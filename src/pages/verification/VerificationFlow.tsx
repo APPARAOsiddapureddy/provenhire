@@ -79,7 +79,7 @@ const VerificationFlow = () => {
   const [testStageStarted, setTestStageStarted] = useState<Record<string, boolean>>({});
   const [practiceDialog, setPracticeDialog] = useState<"aptitude" | "dsa" | "interview" | null>(null);
 
-  const launchAntigravityLabForStage = useCallback(async (stageName: "ai_skills_interview" | "expert_interview") => {
+  const launchAntigravityLabForStage = useCallback(async (stageName: "expert_interview") => {
     await api.post("/api/verification/stages/update", {
       stageName,
       status: "in_progress",
@@ -710,43 +710,58 @@ const VerificationFlow = () => {
       case "ai_skills_interview":
         return (
           <div className="space-y-6">
-            <Card className="border-2 border-primary/30 bg-primary/5">
-              <CardContent className="pt-6">
-                <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Skills Interview</h3>
-                <p className="text-muted-foreground mb-4">
-                  DSA walkthrough of your submissions, then AI-led depth checks on skills from your resume. We now
-                  launch this through Antigravity Lab so the standalone interview experience handles the session.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => navigate("/")}>
-                    Go to Homepage
-                  </Button>
-                  <Button
-                    onClick={async () => {
-                      try {
-                        await launchAntigravityLabForStage("ai_skills_interview");
-                      } catch (err: unknown) {
-                        const apiErr = err as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
-                        const code = apiErr?.response?.data?.code;
-                        if (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") {
-                          handlePaywallRequired(
-                            "ai_skills_interview",
-                            apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
-                            code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
-                              ? new Date(apiErr.response.data.nextAvailableAt)
-                              : null
-                          );
-                        } else {
-                          toast({ title: "Cannot start", description: (err as Error)?.message ?? "Try again later.", variant: "destructive" });
+            {!testStageStarted.ai_skills_interview ? (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: AI Skills Interview</h3>
+                  <p className="text-muted-foreground mb-4">
+                    DSA walkthrough of your submissions followed by AI-led depth checks on the skills and technologies
+                    you claim on your resume. Allow about 30 minutes.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => navigate("/")}>
+                      Go to Homepage
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await api.post("/api/verification/stages/update", {
+                            stageName: "ai_skills_interview",
+                            status: "in_progress",
+                          });
+                          setTestStageStarted((p) => ({ ...p, ai_skills_interview: true }));
+                        } catch (err: unknown) {
+                          const apiErr = err as { response?: { data?: { code?: string; pricing?: { singleInr: number; bundleInr: number }; nextAvailableAt?: string } } };
+                          const code = apiErr?.response?.data?.code;
+                          if (code === "PAYMENT_REQUIRED" || code === "COOLDOWN") {
+                            handlePaywallRequired(
+                              "ai_skills_interview",
+                              apiErr?.response?.data?.pricing ?? { singleInr: 399, bundleInr: 649 },
+                              code === "COOLDOWN" && apiErr.response?.data?.nextAvailableAt
+                                ? new Date(apiErr.response.data.nextAvailableAt)
+                                : null
+                            );
+                          } else {
+                            toast({ title: "Cannot start", description: (err as Error)?.message ?? "Try again later.", variant: "destructive" });
+                          }
                         }
-                      }
-                    }}
-                  >
-                    {testStageStarted.ai_skills_interview ? "Open Antigravity Lab" : "Start AI Skills Interview"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                      }}
+                    >
+                      Start AI Skills Interview
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <AISkillsInterviewStage
+                targetJobTitle={targetJobTitle || undefined}
+                experienceYears={experienceYears}
+                onSessionComplete={() => completeAndAdvanceStage("ai_skills_interview")}
+                onReturnToDashboard={handleReturnToDashboard}
+                onPaywallRequired={handlePaywallRequired}
+                nextStageLabel={getNextStageInfo("ai_skills_interview")?.label}
+              />
+            )}
           </div>
         );
       case "system_design_interview":

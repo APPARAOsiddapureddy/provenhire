@@ -6,6 +6,8 @@
  *   POST /api/ai-interview-adapter/start
  *   GET  /api/ai-interview-adapter/open          ← resume orphaned session
  *   GET  /api/ai-interview-adapter/status/:sessionId?interviewId=<ph_id>
+ *   POST /api/ai-interview-adapter/cancel
+ *   POST /api/ai-interview-adapter/finalize
  */
 
 import { Prisma } from "@prisma/client";
@@ -357,7 +359,7 @@ aiInterviewAdapterRouter.get(
       }
 
       // Opportunistically check if Antigravity already finished — reconcile without
-      // requiring the user to keep the iframe open.
+      // requiring the user to keep the tab open.
       try {
         const agRes = await fetch(`${ANTIGRAVITY_API_URL}/api/report/${agSessionId}`, {
           signal: AbortSignal.timeout(5_000),
@@ -414,10 +416,6 @@ aiInterviewAdapterRouter.get(
     }
 
     try {
-      // 1. Verify ownership — fetch the interview row and confirm the stored
-      //    antigravity_session_id matches the caller-supplied sessionId.
-      //    This prevents a candidate from injecting a foreign session's report
-      //    into their own interview row.
       const interview = await prisma.interview.findFirst({
         where: { id: interviewId, userId, interviewType: "ai_expert" },
         select: {
@@ -434,13 +432,13 @@ aiInterviewAdapterRouter.get(
         return res.status(404).json({ error: "Interview not found" });
       }
 
-      // Ownership check: the session id stored at creation must match.
+      // Fail-closed: absent metadata is as suspicious as a mismatch.
       const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
       const storedSessionId = typeof breakdown?.antigravity_session_id === "string"
         ? breakdown.antigravity_session_id
         : null;
 
-      if (storedSessionId && storedSessionId !== sessionId) {
+      if (!storedSessionId || storedSessionId !== sessionId) {
         return res.status(403).json({ error: "Session id does not match this interview." });
       }
 
@@ -455,7 +453,7 @@ aiInterviewAdapterRouter.get(
         });
       }
 
-      // 2. Poll Antigravity report endpoint
+      // Poll Antigravity report endpoint
       const agRes = await fetch(`${ANTIGRAVITY_API_URL}/api/report/${sessionId}`, {
         signal: AbortSignal.timeout(10_000),
       });
@@ -471,7 +469,7 @@ aiInterviewAdapterRouter.get(
         return res.json({ complete: false });
       }
 
-      // 3. Finalize atomically
+      // Finalize atomically
       const { totalScore, badgeLevel, verdict } = await finalizeInterview(
         interview.id,
         userId,
@@ -492,6 +490,141 @@ aiInterviewAdapterRouter.get(
       }
       console.error("[ai-interview-adapter/status]", e);
       return res.status(500).json({ error: "Failed to check interview status" });
+    }
+  }
+);
+
+// ─── POST /cancel ──────────────────────────────────────────────────────────────
+// Called when a user ends an interview early or when an orphaned session is detected.
+// Marks the ProvenHire interview as "abandoned" so gateExpertInterviewStart unblocks,
+// and best-effort ends the Antigravity session to free backend resources.
+
+const cancelSchema = z.object({
+  session_id: z.string().trim().min(1),
+  provenhire_interview_id: z.string().trim().min(1),
+});
+
+aiInterviewAdapterRouter.post(
+  "/cancel",
+  requireAuth,
+  requireJobSeeker,
+  async (req: AuthedRequest, res) => {
+    const parsed = cancelSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload." });
+
+    const { session_id, provenhire_interview_id } = parsed.data;
+    const userId = req.user!.id;
+
+    try {
+      const interview = await prisma.interview.findFirst({
+        where: { id: provenhire_interview_id, userId, interviewType: "ai_expert" },
+        select: { id: true, status: true, scoreBreakdown: true },
+      });
+      if (!interview) return res.status(404).json({ error: "Interview not found." });
+      if (interview.status !== "in_progress") {
+        return res.json({ ok: true }); // already settled, nothing to do
+      }
+
+      // Use the session id stored at creation — never trust the caller-supplied value
+      // for the actual Antigravity end_interview call.
+      const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
+      const storedSessionId = typeof breakdown?.antigravity_session_id === "string"
+        ? breakdown.antigravity_session_id : null;
+
+      void session_id; // acknowledged but not used for the Antigravity call
+
+      if (storedSessionId) {
+        fetch(`${ANTIGRAVITY_API_URL}/api/end_interview/${encodeURIComponent(storedSessionId)}`, {
+          method: "POST",
+          signal: AbortSignal.timeout(8_000),
+        }).catch(() => {});
+      }
+
+      await prisma.interview.update({
+        where: { id: interview.id },
+        data: { status: "abandoned" },
+      });
+
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[ai-interview-adapter/cancel]", e);
+      return res.status(500).json({ error: "Failed to cancel interview." });
+    }
+  }
+);
+
+// ─── POST /finalize ─────────────────────────────────────────────────────────────
+// Called immediately when the native interview engine receives complete:true in a
+// process_turn response — no polling, zero lag at interview end.
+
+const finalizeSchema = z.object({
+  session_id: z.string().trim().min(1),
+  provenhire_interview_id: z.string().trim().min(1),
+});
+
+aiInterviewAdapterRouter.post(
+  "/finalize",
+  requireAuth,
+  requireJobSeeker,
+  async (req: AuthedRequest, res) => {
+    const parsed = finalizeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid payload." });
+    }
+    const { session_id, provenhire_interview_id } = parsed.data;
+    const userId = req.user!.id;
+
+    try {
+      const interview = await prisma.interview.findFirst({
+        where: { id: provenhire_interview_id, userId, interviewType: "ai_expert" },
+        select: {
+          id: true, status: true, totalScore: true, badgeLevel: true, finalVerdict: true,
+          scoreBreakdown: true,
+        },
+      });
+      if (!interview) return res.status(404).json({ error: "Interview not found." });
+
+      // Fail-closed — if the stored session id is absent or mismatched, reject.
+      // Missing metadata is as suspicious as a wrong id; don't silently bypass binding.
+      const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
+      const storedSessionId = typeof breakdown?.antigravity_session_id === "string"
+        ? breakdown.antigravity_session_id : null;
+      if (!storedSessionId || storedSessionId !== session_id) {
+        return res.status(403).json({ error: "Session id does not match this interview." });
+      }
+
+      // Already finalized — return cached result immediately
+      if (interview.status === "completed") {
+        return res.json({
+          complete: true,
+          score: interview.totalScore,
+          badge: interview.badgeLevel,
+          verdict: interview.finalVerdict,
+        });
+      }
+
+      const agRes = await fetch(`${ANTIGRAVITY_API_URL}/api/report/${session_id}`, {
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!agRes.ok) {
+        if (agRes.status === 404) return res.json({ complete: false });
+        return res.status(502).json({ error: "Failed to fetch report." });
+      }
+
+      const agReport = (await agRes.json()) as AgReport;
+      if (!agReport.complete) return res.status(202).json({ complete: false });
+
+      const { totalScore, badgeLevel, verdict } = await finalizeInterview(
+        interview.id, userId, agReport, session_id
+      );
+
+      return res.json({ complete: true, score: totalScore, badge: badgeLevel, verdict });
+    } catch (e) {
+      if (e instanceof Error && e.name === "TimeoutError") {
+        return res.status(504).json({ error: "Report fetch timed out." });
+      }
+      console.error("[ai-interview-adapter/finalize]", e);
+      return res.status(500).json({ error: "Finalization failed." });
     }
   }
 );
