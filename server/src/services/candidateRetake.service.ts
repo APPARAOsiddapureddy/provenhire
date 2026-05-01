@@ -70,8 +70,35 @@ export async function gateExpertInterviewStart(userId: string): Promise<
 > {
   const open = await prisma.interview.findFirst({
     where: { userId, interviewType: "ai_expert", status: "in_progress" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, scoreBreakdown: true },
   });
   if (open) {
+    const breakdown = open.scoreBreakdown as Record<string, unknown> | null;
+    const storedSessionId =
+      typeof breakdown?.antigravity_session_id === "string"
+        ? breakdown.antigravity_session_id.trim()
+        : "";
+
+    if (!storedSessionId) {
+      await prisma.interview.update({
+        where: { id: open.id },
+        data: { status: "abandoned" },
+      });
+    } else {
+      return {
+        ok: false,
+        status: 400,
+        body: { error: "You already have an expert interview in progress.", code: "INTERVIEW_OPEN" },
+      };
+    }
+  }
+
+  const stillOpen = await prisma.interview.findFirst({
+    where: { userId, interviewType: "ai_expert", status: "in_progress" },
+    select: { id: true },
+  });
+  if (stillOpen) {
     return {
       ok: false,
       status: 400,

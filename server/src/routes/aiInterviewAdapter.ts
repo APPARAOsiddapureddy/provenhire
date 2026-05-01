@@ -355,6 +355,10 @@ aiInterviewAdapterRouter.get(
         : null;
 
       if (!agSessionId) {
+        await prisma.interview.update({
+          where: { id: open.id },
+          data: { status: "abandoned" },
+        });
         return res.json({ open: false });
       }
 
