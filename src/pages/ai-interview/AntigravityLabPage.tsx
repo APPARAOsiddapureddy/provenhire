@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, CheckCircle, Trophy, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { api, getAuthToken } from "@/lib/api";
 import { AIOrb, Waveform } from "@/components/antigravity/AIOrb";
@@ -40,17 +40,14 @@ const EXPERIENCE_OPTIONS = [
 
 const ANSWER_SETTLE_MS = 700;
 const TTS_HOLD_CAP_MS = 2500;
+const FINALIZE_RETRY_INTERVAL_MS = 8_000;
+const FINALIZE_MAX_ATTEMPTS = 6;
 
 const LAUNCH_STATUSES = [
   "Preparing interview map…",
   "Grounding follow-up tracks…",
   "Launching interview room…",
 ] as const;
-
-// Finalization: retry every 8 s, up to 6 attempts (~48 s window).
-// After exhausting retries, transitions to done without a score so users aren't stuck.
-const FINALIZE_RETRY_INTERVAL_MS = 8_000;
-const FINALIZE_MAX_ATTEMPTS = 6;
 
 function yearsToLevel(years?: number): string {
   if (!years || years <= 2) return "junior";
@@ -67,12 +64,33 @@ type EngineStart = {
   openingQuestion: string;
   sprint: number;
   interviewId: string;
+  restoredMessages?: Message[];
+  restoredQuestionCount?: number;
 };
 
 type CompletionResult = {
   score: number | null;
   badge: string | null;
   verdict: string | null;
+};
+
+type ReportData = {
+  session_id: string;
+  complete: boolean;
+  target_role: string;
+  years_experience: string;
+  total_questions: number;
+  overall_score: number | null;
+  hire_recommendation: string | null;
+  confidence_score: number | null;
+  summary: string | null;
+  strengths: string[];
+  risk_flags: string[];
+  untested_dimensions: string[];
+  scores: Record<string, number | string>;
+  failure_surface: Record<string, number>;
+  raw_weaknesses: { type: string; severity: string; weakness: string; attack_strategy: string }[];
+  claim_credibility_risk: { level: string; detail: string } | null;
 };
 
 type AnswerDraft = {
@@ -95,6 +113,13 @@ type Message = {
   sprint?: number;
 };
 
+type HistoryEntry = {
+  question: string;
+  answer: string;
+  weakness?: { severity?: string } | null;
+  sprint?: number;
+};
+
 type PreparePollSnapshot = {
   ready: boolean;
   session_id?: string;
@@ -106,71 +131,58 @@ type PreparePollSnapshot = {
   started_at?: string | null;
 };
 
-// ─── Prepare polling ──────────────────────────────────────────────────────────
-// Polls GET /prepare-status every 5 s. Resolves when ready, throws on failure or timeout.
-// The optional `cancelled` ref lets the mount-effect abort the loop on unmount.
-
 type PrepareReadyResult = { session_id: string; opening_question: string; sprint: number };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function buildMessagesFromHistory(history: HistoryEntry[]): Message[] {
+  const out: Message[] = [];
+  let lastSprint = 1;
+  history.forEach((turn, i) => {
+    const s = turn.sprint ?? lastSprint;
+    if (i > 0 && s !== lastSprint) {
+      out.push({ role: "ai", text: `Sprint ${s} — ${SPRINT_LABELS[s]}`, isSprintMarker: true, sprint: s });
+    }
+    out.push({ role: "ai", text: turn.question, severity: turn.weakness?.severity });
+    out.push({ role: "candidate", text: turn.answer });
+    lastSprint = s;
+  });
+  return out;
+}
+
 function formatPrepareTimeout(snapshot: PreparePollSnapshot | null): string {
-  if (!snapshot) {
-    return "Interview preparation timed out before the backend returned a usable status. Please try again.";
-  }
-
-  if (snapshot.error) {
-    return snapshot.error;
-  }
-
+  if (!snapshot) return "Interview preparation timed out. Please try again.";
+  if (snapshot.error) return snapshot.error;
   const pieces = [
     snapshot.prepare_status ? `prepare=${snapshot.prepare_status}` : null,
     snapshot.interview_status ? `interview=${snapshot.interview_status}` : null,
   ].filter(Boolean);
-
-  let ageText = "";
+  let age = "";
   if (snapshot.started_at) {
-    const startedAtMs = new Date(snapshot.started_at).getTime();
-    if (Number.isFinite(startedAtMs)) {
-      const elapsedSec = Math.max(0, Math.round((Date.now() - startedAtMs) / 1000));
-      ageText = ` after ${elapsedSec}s`;
-    }
+    const ms = Date.now() - new Date(snapshot.started_at).getTime();
+    if (Number.isFinite(ms)) age = ` after ${Math.max(0, Math.round(ms / 1000))}s`;
   }
-
-  if (pieces.length > 0) {
-    return `Interview preparation timed out${ageText}. Last known backend state: ${pieces.join(", ")}.`;
-  }
-
-  return `Interview preparation timed out${ageText}.`;
+  return pieces.length > 0
+    ? `Interview preparation timed out${age}. Last state: ${pieces.join(", ")}.`
+    : `Interview preparation timed out${age}.`;
 }
 
 async function pollPrepareStatus(
   interviewId: string,
   cancelled?: boolean,
 ): Promise<PrepareReadyResult> {
-  const MAX_ATTEMPTS = 38; // 2 s initial + 37 × 5 s ≈ 3 min ceiling
-  const POLL_INTERVAL_MS = 5_000;
-
+  const MAX_ATTEMPTS = 38;
   await new Promise<void>((r) => setTimeout(r, 2_000));
-
   let lastSnapshot: PreparePollSnapshot | null = null;
-
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     if (cancelled) throw new Error("Cancelled");
-
     const status = await api.get<PreparePollSnapshot>(`/api/ai-interview-adapter/prepare-status/${interviewId}`);
     lastSnapshot = status;
-
     if (status.ready && status.session_id) {
-      return {
-        session_id: status.session_id,
-        opening_question: status.opening_question ?? "",
-        sprint: status.sprint ?? 1,
-      };
+      return { session_id: status.session_id, opening_question: status.opening_question ?? "", sprint: status.sprint ?? 1 };
     }
     if (status.error) throw new Error(status.error);
-
-    if (i < MAX_ATTEMPTS - 1) {
-      await new Promise<void>((r) => setTimeout(r, POLL_INTERVAL_MS));
-    }
+    if (i < MAX_ATTEMPTS - 1) await new Promise<void>((r) => setTimeout(r, 5_000));
   }
   throw new Error(formatPrepareTimeout(lastSnapshot));
 }
@@ -183,12 +195,13 @@ interface Props {
 }
 
 export default function AntigravityLabPage({ targetJobTitle, experienceYears }: Props = {}) {
-  // ── Phase & lifecycle ───────────────────────────────────────────────────────
+  // Phase & lifecycle
   const [phase, setPhase] = useState<Phase>("checking");
   const [engine, setEngine] = useState<EngineStart | null>(null);
   const [completion, setCompletion] = useState<CompletionResult | null>(null);
+  const [reportData, setReportData] = useState<ReportData | null>(null);
 
-  // ── Setup form ──────────────────────────────────────────────────────────────
+  // Setup form
   const [resume, setResume] = useState("");
   const [githubLinks, setGithubLinks] = useState("");
   const [targetRole, setTargetRole] = useState(targetJobTitle ?? "");
@@ -196,7 +209,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   const [starting, setStarting] = useState(false);
   const [launchStatusIndex, setLaunchStatusIndex] = useState(0);
 
-  // ── Interview UI state ──────────────────────────────────────────────────────
+  // Interview UI
   const [interviewPhase, setInterviewPhase] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const [messages, setMessages] = useState<Message[]>([]);
   const [partial, setPartial] = useState("");
@@ -208,9 +221,12 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   const [interviewComplete, setInterviewComplete] = useState(false);
   const [interviewError, setInterviewError] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [nearEnd, setNearEnd] = useState(false);
+  const [showCamera, setShowCamera] = useState(true);
 
-  // ── Refs ────────────────────────────────────────────────────────────────────
+  // Refs
   const sessionRef = useRef<InterviewSession | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const prevSprintRef = useRef(1);
   const stopVisualizerRef = useRef<(() => void) | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -223,7 +239,17 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   const interviewIdRef = useRef("");
   const engineBootedRef = useRef(false);
 
-  // ─── On mount: check for orphaned/reconciled/still-preparing session ─────────
+  // ── Camera helpers ──────────────────────────────────────────────────────────
+
+  const stopCameraStream = useCallback(() => {
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  // ── On mount: check for open/preparing/completed session ───────────────────
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -247,18 +273,12 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
           return;
         }
 
-        // Map was still building when the user navigated away — resume polling
         if (data.preparing && data.provenhire_interview_id) {
           setStarting(true);
           try {
             const result = await pollPrepareStatus(data.provenhire_interview_id, cancelled);
             if (cancelled) return;
-            setEngine({
-              sessionId: result.session_id,
-              openingQuestion: result.opening_question,
-              sprint: result.sprint,
-              interviewId: data.provenhire_interview_id,
-            });
+            setEngine({ sessionId: result.session_id, openingQuestion: result.opening_question, sprint: result.sprint, interviewId: data.provenhire_interview_id });
             setPhase("interview");
           } catch (e) {
             if (cancelled) return;
@@ -270,14 +290,11 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
         }
 
         if (data.open && data.session_id && data.provenhire_interview_id) {
-          // Use a raw fetch so we can distinguish a definitive 404 (session gone) from
-          // transient 5xx / network errors. Only cancel the orphan on a confirmed 404.
           try {
             const token = getAuthToken();
             const stateRes = await fetch(`/api/antigravity/state/${data.session_id}`, {
               headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
-
             if (cancelled) return;
 
             if (stateRes.status === 404) {
@@ -289,15 +306,15 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               return;
             }
 
-            if (!stateRes.ok) {
-              if (!cancelled) setPhase("setup");
-              return;
-            }
+            if (!stateRes.ok) { if (!cancelled) setPhase("setup"); return; }
 
             const state = await stateRes.json() as {
               last_question?: string;
               current_sprint?: number;
+              current_persona?: string;
+              question_count?: number;
               interview_complete?: boolean;
+              history?: HistoryEntry[];
             };
 
             if (state.interview_complete) {
@@ -306,11 +323,16 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               setInterviewComplete(true);
               setPhase("interview");
             } else {
+              const restoredMessages = state.history?.length
+                ? buildMessagesFromHistory(state.history)
+                : state.last_question ? [{ role: "ai" as const, text: state.last_question }] : [];
               setEngine({
                 sessionId: data.session_id,
                 openingQuestion: state.last_question ?? "",
                 sprint: state.current_sprint ?? 1,
                 interviewId: data.provenhire_interview_id,
+                restoredMessages,
+                restoredQuestionCount: state.question_count ?? 0,
               });
               setPhase("interview");
             }
@@ -329,19 +351,18 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     return () => { cancelled = true; };
   }, []);
 
-  // ─── Launch status cycle ────────────────────────────────────────────────────
+  // ── Launch status cycle ─────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!starting) { setLaunchStatusIndex(0); return; }
     const t = setInterval(() => setLaunchStatusIndex((i) => Math.min(i + 1, LAUNCH_STATUSES.length - 1)), 12_000);
     return () => clearInterval(t);
   }, [starting]);
 
-  // ─── Finalization retry loop ────────────────────────────────────────────────
-  // Fires when interviewComplete becomes true. Retries /finalize every 8 s up to 6 times.
-  // After exhausting retries, transitions to done without a score so the UI never hangs.
+  // ── Finalization retry loop ─────────────────────────────────────────────────
+
   useEffect(() => {
     if (!interviewComplete) return;
-
     let cancelled = false;
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout>;
@@ -364,19 +385,27 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
         if (data.complete) {
           setCompletion({ score: data.score ?? null, badge: data.badge ?? null, verdict: data.verdict ?? null });
+          // Fetch full report from Antigravity (fire-and-forget, best-effort)
+          if (sessionIdRef.current) {
+            const sid = sessionIdRef.current;
+            const token = getAuthToken();
+            fetch(`/api/antigravity/report/${sid}`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            })
+              .then((r) => r.ok ? r.json() : null)
+              .then((report) => { if (!cancelled && report) setReportData(report as ReportData); })
+              .catch(() => {});
+          }
           setTimeout(() => { if (!cancelled) setPhase("done"); }, 3_000);
           return;
         }
-        // 202 complete:false — report not ready yet, schedule retry
       } catch {
-        // Network / server error — schedule retry
+        // retry
       }
 
       if (attempt < FINALIZE_MAX_ATTEMPTS && !cancelled) {
         timer = setTimeout(tryFinalize, FINALIZE_RETRY_INTERVAL_MS);
       } else if (!cancelled) {
-        // Retries exhausted — report unavailable. Abandon the interview so the gate
-        // unblocks for future attempts. UI still transitions to done (no score shown).
         api.post("/api/ai-interview-adapter/cancel", {
           session_id: sessionIdRef.current,
           provenhire_interview_id: interviewIdRef.current,
@@ -389,12 +418,13 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     return () => { cancelled = true; clearTimeout(timer); };
   }, [interviewComplete]);
 
-  // ─── Auto-scroll transcript ─────────────────────────────────────────────────
+  // ── Auto-scroll ─────────────────────────────────────────────────────────────
+
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, partial]);
 
-  // ─── Core audio callbacks ───────────────────────────────────────────────────
+  // ── Core audio callbacks ────────────────────────────────────────────────────
 
   const clearAnswerDraft = useCallback(() => {
     const d = answerDraftRef.current;
@@ -409,7 +439,8 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     stopVisualizerRef.current = null;
     sessionRef.current?.stop();
     sessionRef.current = null;
-  }, [clearAnswerDraft]);
+    stopCameraStream();
+  }, [clearAnswerDraft, stopCameraStream]);
 
   useEffect(() => () => { teardown(); }, [teardown]);
 
@@ -440,17 +471,21 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     const isComplete = result.complete as boolean;
     const weakness = result.weakness as { severity?: string } | null;
     const pivoting = result.pivoting as boolean;
+    const backendQuestionCount = typeof result.question_count === "number" ? result.question_count : null;
 
+    if (backendQuestionCount !== null && backendQuestionCount >= 13 && !isComplete) {
+      setNearEnd(true);
+    }
+
+    // Defensive TTS hold for safety-timeout flushes
     if (!silenceConfirmedRef.current) {
       const remaining = Math.max(0, TTS_HOLD_CAP_MS - (performance.now() - commitTimeRef.current));
       if (remaining > 0) {
         await new Promise<void>((resolve) => {
           const iv = setInterval(() => {
-            if (
-              silenceConfirmedRef.current ||
-              sessionRef.current?.floor === FloorState.USER_SPEAKING ||
-              performance.now() - commitTimeRef.current >= TTS_HOLD_CAP_MS
-            ) { clearInterval(iv); resolve(); }
+            if (silenceConfirmedRef.current || sessionRef.current?.floor === FloorState.USER_SPEAKING || performance.now() - commitTimeRef.current >= TTS_HOLD_CAP_MS) {
+              clearInterval(iv); resolve();
+            }
           }, 40);
           setTimeout(() => { clearInterval(iv); resolve(); }, remaining);
         });
@@ -469,10 +504,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
       prevSprintRef.current = newSprint;
       setSprint(newSprint);
       setPersona(newPersona);
-      setMessages((prev) => [...prev, {
-        role: "ai", text: `Sprint ${newSprint} — ${SPRINT_LABELS[newSprint]}`,
-        isSprintMarker: true, sprint: newSprint,
-      }]);
+      setMessages((prev) => [...prev, { role: "ai", text: `Sprint ${newSprint} — ${SPRINT_LABELS[newSprint]}`, isSprintMarker: true, sprint: newSprint }]);
     }
 
     setMessages((prev) => [...prev, { role: "ai", text, severity: weakness?.severity }]);
@@ -489,9 +521,9 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     if (expectedTurnId !== currentTurnIdRef.current) return;
 
     if (isComplete) {
+      setNearEnd(false);
       sessionRef.current?.transition(FloorState.IDLE);
       sessionRef.current?.stop();
-      // Triggers the finalization retry loop via useEffect
       setInterviewComplete(true);
     } else {
       beginUserTurn(sessionRef.current);
@@ -531,11 +563,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
     const isStale = () => {
       const live = answerDraftRef.current;
-      return Boolean(
-        live && live.turnId === turnId && live.requestVersion === reqVersion &&
-        live.pendingRevision &&
-        live.submittedText !== live.textParts.join(" ").replace(/\s+/g, " ").trim()
-      );
+      return Boolean(live && live.turnId === turnId && live.requestVersion === reqVersion && live.pendingRevision && live.submittedText !== live.textParts.join(" ").replace(/\s+/g, " ").trim());
     };
 
     try {
@@ -568,36 +596,28 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   const queueAnswerChunk = useCallback((session: InterviewSession, text: string, entities: string[]) => {
     const cleaned = text.trim();
     if (!cleaned) return;
-
     const turnId = session.getActiveTurnId() || crypto.randomUUID();
     session.setActiveTurnId(turnId);
     currentTurnIdRef.current = turnId;
-
     let draft = answerDraftRef.current;
     if (!draft || draft.turnId !== turnId) {
       clearAnswerDraft();
-      draft = {
-        turnId, textParts: [], entitySet: new Set<string>(),
-        submittedText: null, pendingRevision: false, requestVersion: 0,
-        messageIndex: null, commitTimer: null,
-      };
+      draft = { turnId, textParts: [], entitySet: new Set<string>(), submittedText: null, pendingRevision: false, requestVersion: 0, messageIndex: null, commitTimer: null };
       answerDraftRef.current = draft;
     }
-
     if (draft.textParts[draft.textParts.length - 1] !== cleaned) draft.textParts.push(cleaned);
     entities.forEach((e) => draft!.entitySet.add(e));
     setPartial(draft.textParts.join(" "));
-
     if (draft.submittedText !== null && silenceConfirmedRef.current) {
       silenceConfirmedRef.current = false;
       commitTimeRef.current = performance.now();
     }
-
     if (draft.commitTimer) clearTimeout(draft.commitTimer);
     draft.commitTimer = setTimeout(() => { void commitAnswerDraft(session, turnId); }, ANSWER_SETTLE_MS);
   }, [clearAnswerDraft, commitAnswerDraft]);
 
-  // ─── Boot interview engine ─────────────────────────────────────────────────
+  // ── Boot interview engine ──────────────────────────────────────────────────
+
   const bootEngine = useCallback(async (eng: EngineStart) => {
     setInterviewError("");
     sessionIdRef.current = eng.sessionId;
@@ -605,10 +625,17 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     setSprint(eng.sprint);
     setPersona("curious_lead");
     prevSprintRef.current = eng.sprint;
-    setQuestionCount(0);
-    setMessages(eng.openingQuestion ? [{ role: "ai", text: eng.openingQuestion }] : []);
+    setQuestionCount(eng.restoredQuestionCount ?? 0);
 
-    const openingAudioUrl = eng.openingQuestion
+    // Use restored history if available (resume case), otherwise just opening question
+    if (eng.restoredMessages?.length) {
+      setMessages(eng.restoredMessages);
+    } else {
+      setMessages(eng.openingQuestion ? [{ role: "ai", text: eng.openingQuestion }] : []);
+    }
+
+    // Prefetch opening audio only if we're starting fresh (not resuming)
+    const openingAudioUrl = (!eng.restoredMessages?.length && eng.openingQuestion)
       ? await prefetchAudio(eng.openingQuestion, eng.sessionId)
       : null;
 
@@ -651,7 +678,6 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     try {
       await session.start();
     } catch (e) {
-      // Mic failed after session already created — cancel backend session so the gate resets
       setInterviewError(`Microphone error: ${String(e)}`);
       api.post("/api/ai-interview-adapter/cancel", {
         session_id: eng.sessionId,
@@ -661,9 +687,23 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     }
 
     stopVisualizerRef.current = session.connectVisualizer((level) => setMicLevel(level));
+
+    // Camera + vision (optional — silently fails if denied)
+    if (showCamera && videoRef.current) {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then((stream) => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            session.startVision(videoRef.current).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+
     setEngineBooted(true);
 
-    if (eng.openingQuestion) {
+    // Play opening question on fresh start (not resume)
+    if (!eng.restoredMessages?.length && eng.openingQuestion) {
       const ac = new AbortController();
       session.setAbortController(ac);
       session.setActivePlaybackText(eng.openingQuestion);
@@ -671,7 +711,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
       await playAudioUrl(openingAudioUrl, eng.openingQuestion, ac.signal);
     }
     beginUserTurn(session);
-  }, [beginUserTurn, clearAnswerDraft, queueAnswerChunk]);
+  }, [beginUserTurn, clearAnswerDraft, queueAnswerChunk, showCamera]);
 
   // Boot when engine data is ready
   useEffect(() => {
@@ -680,7 +720,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     void bootEngine(engine);
   }, [phase, engine, bootEngine, interviewComplete]);
 
-  // Reset boot guard when returning to setup
+  // Reset when returning to setup
   useEffect(() => {
     if (phase === "setup") {
       engineBootedRef.current = false;
@@ -689,25 +729,24 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
       setMessages([]);
       setPartial("");
       setInterviewError("");
+      setNearEnd(false);
     }
   }, [phase]);
 
-  // ─── Setup form submit ─────────────────────────────────────────────────────
+  // ── Setup form submit ──────────────────────────────────────────────────────
+
   async function handleStart() {
     if (!resume.trim()) { toast.error("Paste your resume to begin."); return; }
     if (!targetRole.trim()) { toast.error("Enter the target role."); return; }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
     } catch {
-      toast.error("Microphone access is required. Please allow access in your browser and try again.");
+      toast.error("Microphone access is required. Please allow it and try again.");
       return;
     }
-
     setStarting(true);
     try {
-      // Phase 1: fire map preparation — server responds in <2 s, no Vercel proxy timeout
       const prepData = await api.post<{ provenhire_interview_id: string }>(
         "/api/ai-interview-adapter/prepare",
         {
@@ -717,20 +756,11 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
           years_experience: expLevel,
         }
       );
-
-      // Phase 2: poll every 5 s until the map + start_interview completes (~30 s–2 min)
       const result = await pollPrepareStatus(prepData.provenhire_interview_id);
-
-      setEngine({
-        sessionId: result.session_id,
-        openingQuestion: result.opening_question,
-        sprint: result.sprint,
-        interviewId: prepData.provenhire_interview_id,
-      });
+      setEngine({ sessionId: result.session_id, openingQuestion: result.opening_question, sprint: result.sprint, interviewId: prepData.provenhire_interview_id });
       setPhase("interview");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to start interview. Please try again.";
-      toast.error(msg);
+      toast.error(e instanceof Error ? e.message : "Failed to start. Please try again.");
       setStarting(false);
     }
   }
@@ -745,7 +775,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
           provenhire_interview_id: interviewIdRef.current,
         });
       } catch {
-        toast.error("Could not cancel session cleanly. If you can't start a new interview, contact support.");
+        toast.error("Could not cancel cleanly. Contact support if you can't start a new interview.");
       } finally {
         setCancelling(false);
       }
@@ -757,7 +787,8 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
   const progressPct = Math.min((questionCount / 15) * 100, 100);
 
-  // ─── Render: initial check ─────────────────────────────────────────────────
+  // ── Render: checking ───────────────────────────────────────────────────────
+
   if (phase === "checking") {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -766,7 +797,8 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     );
   }
 
-  // ─── Render: setup form ────────────────────────────────────────────────────
+  // ── Render: setup ──────────────────────────────────────────────────────────
+
   if (phase === "setup") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
@@ -775,9 +807,8 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             <CardHeader>
               <CardTitle>AI Expert Interview</CardTitle>
               <CardDescription>
-                A 30-minute adversarial interview across three sprints — Project Defense,
-                Foundations, and System Design. Voice-first. Ensure your microphone is
-                available before starting.
+                A 30-minute adversarial interview across three sprints — Project Defense, Foundations, and System Design.
+                Voice-first. Ensure your microphone is available before starting.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -785,7 +816,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
                 <Label htmlFor="ag-resume">Resume <span className="text-destructive">*</span></Label>
                 <Textarea
                   id="ag-resume"
-                  placeholder="Paste your full resume text here (plain text or copy-pasted from PDF)…"
+                  placeholder="Paste your full resume text here…"
                   rows={8}
                   value={resume}
                   onChange={(e) => setResume(e.target.value)}
@@ -795,12 +826,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="ag-role">Target Role <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="ag-role"
-                    placeholder="e.g. Senior Backend Engineer"
-                    value={targetRole}
-                    onChange={(e) => setTargetRole(e.target.value)}
-                  />
+                  <Input id="ag-role" placeholder="e.g. Senior Backend Engineer" value={targetRole} onChange={(e) => setTargetRole(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="ag-exp">Experience Level <span className="text-destructive">*</span></Label>
@@ -816,18 +842,24 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ag-github">GitHub Links (optional)</Label>
-                <Textarea
-                  id="ag-github"
-                  placeholder="One URL per line — repositories you'd like to reference…"
-                  rows={2}
-                  value={githubLinks}
-                  onChange={(e) => setGithubLinks(e.target.value)}
-                  className="font-mono text-xs"
-                />
+                <Textarea id="ag-github" placeholder="One URL per line…" rows={2} value={githubLinks} onChange={(e) => setGithubLinks(e.target.value)} className="font-mono text-xs" />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCamera((v) => !v)}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
+                    showCamera ? "border-blue-500/30 bg-blue-500/10 text-blue-400" : "border-zinc-700 bg-zinc-900 text-zinc-500"
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${showCamera ? "bg-green-400" : "bg-zinc-600"}`} />
+                  Lens Early-Turn {showCamera ? "ON" : "OFF"}
+                </button>
+                <p className="text-[11px] text-muted-foreground">Camera optional — improves turn boundary detection</p>
               </div>
               <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-xs text-amber-700 dark:text-amber-400 flex gap-2">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>Once started the interview cannot be paused. Ensure a quiet environment with a working microphone and camera.</span>
+                <span>Once started the interview cannot be paused. Ensure a quiet environment with a working microphone.</span>
               </div>
               <div className="flex gap-3 pt-1">
                 <Button onClick={handleStart} disabled={starting}>
@@ -836,11 +868,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
                     : "Start Interview"}
                 </Button>
               </div>
-              {starting && (
-                <p className="text-xs text-muted-foreground">
-                  Preparing your interview map before launch — this can take up to 2 minutes on first boot.
-                </p>
-              )}
+              {starting && <p className="text-xs text-muted-foreground">Preparing your interview map — this can take up to 2 minutes on first boot.</p>}
             </CardContent>
           </Card>
         </div>
@@ -848,58 +876,53 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     );
   }
 
-  // ─── Render: done card ─────────────────────────────────────────────────────
+  // ── Render: done ───────────────────────────────────────────────────────────
+
   if (phase === "done") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <div className="w-full max-w-md">
-          <Card className="border-2 border-emerald-500/30 bg-emerald-500/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-emerald-500" />
-                Interview Complete
-              </CardTitle>
-              <CardDescription>
-                Your AI expert interview has been submitted for review. You'll receive an email update within 10–15 hours.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {completion?.score != null && (
-                <div className="flex items-center gap-3">
-                  <Trophy className="h-5 w-5 text-[hsl(var(--gold))]" />
-                  <div>
-                    <p className="text-sm font-semibold">Score: {completion.score}/100 — {completion.badge}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{completion.verdict}</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
+    return <DoneView completion={completion} reportData={reportData} onReset={() => { setEngine(null); setCompletion(null); setReportData(null); setStarting(false); setPhase("setup"); }} />;
   }
 
-  // ─── Render: live interview ────────────────────────────────────────────────
+  // ── Render: interview ──────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col select-none">
+      {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-white/5">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold tracking-tight">AI Skills Interview</span>
+          <span className="text-sm font-semibold tracking-tight text-zinc-200">Antigravity Protocol</span>
           {engineBooted && (
             <span className="text-xs px-2 py-0.5 rounded-md bg-white/5 text-zinc-400">
-              Sprint {sprint} — {SPRINT_LABELS[sprint]}
+              S{sprint} · {SPRINT_LABELS[sprint]}
             </span>
           )}
         </div>
         <div className="flex items-center gap-4">
+          {!interviewComplete && !engineBooted && (
+            <button
+              type="button"
+              onClick={() => setShowCamera((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-all ${
+                showCamera ? "border-blue-500/25 bg-blue-500/10 text-blue-400" : "border-zinc-800 bg-zinc-900/50 text-zinc-600"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${showCamera ? "bg-green-400" : "bg-zinc-700"}`} />
+              Lens {showCamera ? "ON" : "OFF"}
+            </button>
+          )}
           {engineBooted && (
             <div className="flex items-center gap-2">
-              <div className="w-20 h-[3px] bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-white/60 rounded-full transition-all duration-700"
-                  style={{ width: `${progressPct}%` }}
-                />
+              {/* Sprint progress segments */}
+              <div className="flex items-center gap-1">
+                {[1, 2, 3].map((s) => (
+                  <div
+                    key={s}
+                    className="h-[3px] w-7 rounded-full transition-all duration-700"
+                    style={{
+                      background: s < sprint ? "oklch(0.6 0.18 255)" : s === sprint ? "linear-gradient(90deg, oklch(0.6 0.18 255), oklch(0.75 0.15 75))" : "oklch(0.2 0.01 265)",
+                      boxShadow: s === sprint ? "0 0 10px oklch(0.55 0.18 255 / 0.5)" : "none",
+                    }}
+                  />
+                ))}
               </div>
               <span className="text-[11px] text-zinc-600 tabular-nums">{questionCount}/15</span>
             </div>
@@ -918,22 +941,56 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left: AI panel */}
-        <div className="w-80 flex-shrink-0 border-r border-white/5 flex flex-col items-center justify-center gap-6 px-6">
-          <div className="relative w-full aspect-square max-w-[200px] flex items-center justify-center">
-            <AIOrb state={interviewPhase} />
+        <div className="w-80 flex-shrink-0 border-r border-white/5 flex flex-col items-center justify-between py-8 px-6 gap-6">
+          <div className="flex flex-col items-center gap-6 w-full">
+            {/* Orb + optional camera overlay */}
+            <div className="relative w-full flex items-center justify-center">
+              {showCamera && (
+                <div className="absolute inset-6 overflow-hidden rounded-full border border-white/5 bg-black/30 opacity-35 mix-blend-screen grayscale">
+                  <video ref={videoRef} autoPlay playsInline muted className="h-full w-full scale-x-[-1] object-cover" />
+                </div>
+              )}
+              <AIOrb state={interviewPhase} />
+            </div>
+
+            <div className="text-center space-y-1">
+              <p className="text-xs font-medium text-zinc-300">
+                {interviewPhase === "listening" ? "Listening"
+                  : interviewPhase === "thinking" ? "Analyzing..."
+                  : interviewPhase === "speaking" ? "Speaking"
+                  : engineBooted ? "Idle" : "Initializing…"}
+              </p>
+              {engineBooted && (
+                <p className="text-[11px] text-zinc-600 font-mono tracking-wider">{PERSONA_DESC[persona]}</p>
+              )}
+            </div>
+
+            {interviewPhase === "listening" && <Waveform level={micLevel} active={true} />}
           </div>
-          <div className="text-center space-y-1">
-            <p className="text-xs font-medium text-zinc-300">
-              {interviewPhase === "listening" ? "Listening"
-                : interviewPhase === "thinking" ? "Analyzing..."
-                : interviewPhase === "speaking" ? "Speaking"
-                : engineBooted ? "Idle" : "Initializing…"}
-            </p>
-            {engineBooted && (
-              <p className="text-[11px] text-zinc-600 font-mono tracking-wider">{PERSONA_DESC[persona]}</p>
-            )}
-          </div>
-          {interviewPhase === "listening" && <Waveform level={micLevel} active={true} />}
+
+          {/* Sprint legend */}
+          {engineBooted && (
+            <div className="w-full space-y-2">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-700 font-medium">Sprint Progress</p>
+              <div className="flex gap-1.5">
+                {[1, 2, 3].map((s) => (
+                  <div key={s} className="flex-1 space-y-1">
+                    <div
+                      className="h-1.5 rounded-full transition-all duration-700"
+                      style={{
+                        background: s < sprint ? "oklch(0.6 0.18 255)" : s === sprint ? "linear-gradient(90deg, oklch(0.6 0.18 255), oklch(0.75 0.15 75))" : "oklch(0.15 0.01 265)",
+                        boxShadow: s === sprint ? "0 0 10px oklch(0.55 0.18 255 / 0.4)" : "none",
+                      }}
+                    />
+                    <p className="text-[9px] text-zinc-700 truncate">{SPRINT_LABELS[s]}</p>
+                  </div>
+                ))}
+              </div>
+              {showCamera && (
+                <p className="text-[9px] text-zinc-700 mt-2 uppercase tracking-[0.15em]">Lens active · turn-boundary fusion</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: Transcript */}
@@ -972,6 +1029,12 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               </div>
             )}
 
+            {nearEnd && !interviewComplete && (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-400">
+                Two questions remaining. The interview is closing in on its final boundary check.
+              </div>
+            )}
+
             {interviewComplete && (
               <div className="text-center py-12 space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-1000">
                 <div className="inline-block px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-green-500 text-[10px] mb-2 uppercase tracking-widest">
@@ -979,17 +1042,25 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
                 </div>
                 <p className="text-zinc-200 text-sm font-medium">Interview complete.</p>
                 <p className="text-zinc-500 text-[11px]">Compiling your report and reasoning metrics…</p>
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-700 mx-auto mt-3" />
               </div>
             )}
           </div>
 
-          <div className="border-t border-white/5 px-10 py-6 flex items-center justify-between bg-[#0a0a0a]/80 backdrop-blur-xl">
+          {/* Footer bar */}
+          <div className="border-t border-white/5 px-10 py-5 flex items-center justify-between bg-[#0a0a0a]/80 backdrop-blur-xl">
             {interviewError && engineBooted ? (
               <div className="flex items-center gap-2 text-red-400 text-[11px]">
                 <div className="w-1 h-1 rounded-full bg-red-400" />
                 {interviewError}
               </div>
-            ) : <span />}
+            ) : (
+              <p className="text-[11px] text-zinc-700">
+                {engineBooted
+                  ? "Stay natural. The system picks up the next turn when your utterance settles."
+                  : "Transcript activates once the live loop starts."}
+              </p>
+            )}
 
             <div className="ml-auto flex items-center gap-3 text-[11px] font-medium text-zinc-400">
               <div className="flex items-center gap-2">
@@ -997,15 +1068,12 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
                 {interviewPhase === "thinking" && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
                 {interviewPhase === "speaking" && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
                 <span className="uppercase tracking-widest text-[10px] text-zinc-500">
-                  {interviewPhase === "listening" ? "Listening"
-                    : interviewPhase === "thinking" ? "Reasoning"
-                    : interviewPhase === "speaking" ? "Speaking"
-                    : "Idle"}
+                  {interviewPhase === "listening" ? "Listening" : interviewPhase === "thinking" ? "Reasoning" : interviewPhase === "speaking" ? "Speaking" : "Idle"}
                 </span>
               </div>
               <div className="h-4 w-px bg-white/10" />
-              <span className="text-zinc-600 tabular-nums uppercase text-[10px]">
-                Turn: {currentTurnIdRef.current.slice(0, 8)}
+              <span className="text-zinc-700 tabular-nums uppercase text-[10px]">
+                Turn: {currentTurnIdRef.current.slice(0, 8) || "—"}
               </span>
             </div>
           </div>
@@ -1020,7 +1088,7 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 function MessageItem({ msg }: { msg: Message }) {
   if (msg.isSprintMarker) {
     return (
-      <div className="flex items-center gap-6 py-6 px-10">
+      <div className="flex items-center gap-6 py-6">
         <div className="flex-1 h-px bg-white/5" />
         <span className="text-[10px] text-zinc-600 uppercase tracking-[0.3em] font-medium">{msg.text}</span>
         <div className="flex-1 h-px bg-white/5" />
@@ -1029,7 +1097,7 @@ function MessageItem({ msg }: { msg: Message }) {
   }
   if (msg.isPivotMarker) {
     return (
-      <div className="flex items-center gap-4 py-2 px-10">
+      <div className="flex items-center gap-4 py-2">
         <div className="flex-1 h-px bg-white/[0.03]" />
         <span className="text-[9px] text-zinc-700 uppercase tracking-[0.25em]">shifting focus</span>
         <div className="flex-1 h-px bg-white/[0.03]" />
@@ -1042,20 +1110,325 @@ function MessageItem({ msg }: { msg: Message }) {
       <div className="max-w-[85%] space-y-2">
         <div className={`flex items-center gap-2 ${isAI ? "" : "flex-row-reverse"}`}>
           <p className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">
-            {isAI ? "Protocol" : "Candidate"}
+            {isAI ? "Interrogator" : "Candidate"}
           </p>
           {msg.severity === "high" && (
-            <span className="text-[9px] bg-red-500/10 text-red-500 border border-red-500/20 px-1.5 py-0.5 rounded-md font-bold animate-pulse">
+            <span className="text-[9px] bg-red-500/10 text-red-400 border border-red-500/20 px-1.5 py-0.5 rounded-md font-bold animate-pulse">
               BOUNDARY EXPOSED
             </span>
           )}
         </div>
-        <div className={`rounded-3xl px-6 py-4 text-[14px] leading-[1.6] ${
-          isAI
-            ? "bg-white/[0.03] text-zinc-300 border border-white/[0.05] shadow-sm"
-            : "bg-white/[0.07] text-white border border-white/[0.1] shadow-md"
-        }`}>
+        <div
+          className={`rounded-3xl px-6 py-4 text-[14px] leading-[1.6] ${
+            isAI
+              ? "bg-white/[0.03] text-zinc-300 border border-white/[0.05]"
+              : "bg-white/[0.07] text-white border border-white/[0.1]"
+          }`}
+          style={
+            isAI && msg.severity && msg.severity !== "low"
+              ? {
+                  borderLeftWidth: "2px",
+                  borderLeftColor: msg.severity === "high" ? "oklch(0.66 0.21 24)" : "oklch(0.8 0.16 72)",
+                }
+              : undefined
+          }
+        >
           {msg.text}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Done / Report view ────────────────────────────────────────────────────────
+
+function ScoreGauge({ score }: { score: number | null }) {
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const pct = score != null ? Math.min(Math.max(score / 10, 0), 1) : 0;
+  const color = score == null ? "#52525b" : score >= 7 ? "oklch(0.7 0.18 145)" : score >= 4 ? "oklch(0.75 0.15 75)" : "oklch(0.66 0.21 24)";
+  return (
+    <div className="relative flex items-center justify-center w-36 h-36">
+      <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 128 128">
+        <circle cx="64" cy="64" r={radius} fill="none" stroke="oklch(0.15 0.01 265)" strokeWidth="10" />
+        <circle
+          cx="64" cy="64" r={radius} fill="none"
+          stroke={color} strokeWidth="10"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - pct)}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 1s ease" }}
+        />
+      </svg>
+      <div className="text-center">
+        <p className="text-2xl font-bold text-white">{score != null ? score.toFixed(1) : "—"}</p>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">/ 10</p>
+      </div>
+    </div>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: string | null }) {
+  if (!verdict) return null;
+  const v = verdict.toUpperCase();
+  const style =
+    v.includes("HIRE") && !v.includes("NO")
+      ? "bg-green-500/15 border-green-500/30 text-green-400"
+      : v.includes("MAYBE")
+      ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+      : "bg-red-500/15 border-red-500/30 text-red-400";
+  return (
+    <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-xs font-bold uppercase tracking-widest ${style}`}>
+      {v}
+    </span>
+  );
+}
+
+function ScoreBar({ label, score }: { label: string; score: number }) {
+  const pct = Math.min(Math.max((score / 10) * 100, 0), 100);
+  const color = score >= 7 ? "oklch(0.7 0.18 145)" : score >= 4 ? "oklch(0.75 0.15 75)" : "oklch(0.66 0.21 24)";
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-sm text-zinc-300 capitalize">{label.replace(/_/g, " ")}</span>
+        <span className="font-mono text-xs text-zinc-500">{score.toFixed(1)}</span>
+      </div>
+      <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color, boxShadow: `0 0 10px ${color}` }} />
+      </div>
+    </div>
+  );
+}
+
+function DoneView({ completion, reportData, onReset }: {
+  completion: CompletionResult | null;
+  reportData: ReportData | null;
+  onReset: () => void;
+}) {
+  const hasReport = Boolean(reportData);
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-white px-6 py-10 overflow-y-auto">
+      <div className="mx-auto max-w-5xl space-y-8">
+        {/* Header */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-3">
+            <p className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">Interview Report</p>
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">
+              {hasReport ? "Failure boundary analysis" : "Interview Complete"}
+            </h1>
+            {reportData && (
+              <div className="flex flex-wrap gap-2">
+                {reportData.target_role && <span className="rounded-lg border border-white/10 px-3 py-1 text-xs text-zinc-400">{reportData.target_role}</span>}
+                {reportData.years_experience && <span className="rounded-lg border border-white/10 px-3 py-1 text-xs text-zinc-400">{reportData.years_experience} YOE</span>}
+                <VerdictBadge verdict={reportData.hire_recommendation} />
+              </div>
+            )}
+            {!hasReport && completion?.badge && (
+              <div className="flex flex-wrap gap-2 items-center">
+                <VerdictBadge verdict={completion.verdict} />
+                {completion.badge && <span className="text-sm text-zinc-300">{completion.badge}</span>}
+              </div>
+            )}
+          </div>
+
+          {/* Score gauge */}
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] flex flex-col items-center gap-3 px-8 py-6 min-w-[200px]">
+            <ScoreGauge score={reportData?.overall_score ?? completion?.score ?? null} />
+            {reportData?.confidence_score != null && (
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-600">
+                {Math.round(reportData.confidence_score * 100)}% confidence
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Metric cards */}
+        {(hasReport || completion?.score != null) && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {reportData && (
+              <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-5">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">Questions</p>
+                <p className="text-2xl font-bold mt-2 text-blue-400">{reportData.total_questions}</p>
+                <p className="text-xs text-zinc-600 mt-1">asked across the full interview</p>
+              </div>
+            )}
+            {reportData && (
+              <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-5">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">High Severity</p>
+                {(() => {
+                  const c = reportData.raw_weaknesses.filter((w) => w.severity === "high").length;
+                  return <>
+                    <p className={`text-2xl font-bold mt-2 ${c > 0 ? "text-red-400" : "text-green-400"}`}>{c}</p>
+                    <p className="text-xs text-zinc-600 mt-1">pressure points judged weak</p>
+                  </>;
+                })()}
+              </div>
+            )}
+            {(reportData?.overall_score != null || completion?.score != null) && (
+              <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-5">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">Overall Score</p>
+                <p className="text-2xl font-bold mt-2 text-zinc-200">
+                  {(reportData?.overall_score ?? completion?.score ?? 0).toFixed(1)}/10
+                </p>
+                <p className="text-xs text-zinc-600 mt-1">aggregate synthesis signal</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Summary */}
+        {reportData?.summary && (
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-4">Assessment Summary</p>
+            <p className="text-sm leading-7 text-zinc-300 max-w-4xl">{reportData.summary}</p>
+          </div>
+        )}
+
+        {/* Resume credibility */}
+        {reportData?.claim_credibility_risk && reportData.claim_credibility_risk.level !== "not_tested" && (
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-6 py-5">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-3">Resume Claim Credibility</p>
+            <VerdictBadge verdict={`${reportData.claim_credibility_risk.level.toUpperCase()} RISK`} />
+            <p className="mt-4 text-sm leading-7 text-zinc-300">{reportData.claim_credibility_risk.detail}</p>
+          </div>
+        )}
+
+        {/* Main 2-col layout */}
+        {hasReport && (
+          <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="space-y-6">
+              {/* Score breakdown */}
+              {reportData && Object.entries(reportData.scores ?? {}).filter(([, s]) => typeof s === "number").length > 0 && (
+                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Score Breakdown</p>
+                  <div className="space-y-4">
+                    {Object.entries(reportData.scores).map(([dim, score]) =>
+                      typeof score === "number" && Number.isFinite(score) ? (
+                        <ScoreBar key={dim} label={dim} score={score} />
+                      ) : (
+                        <div key={dim} className="rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-sm text-zinc-400 capitalize">{dim.replace(/_/g, " ")}</span>
+                            <span className="font-mono text-xs text-zinc-600">{String(score)}</span>
+                          </div>
+                          <p className="mt-2 text-xs text-zinc-600">Insufficient coverage to score numerically.</p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Failure surface */}
+              {reportData && Object.entries(reportData.failure_surface ?? {}).length > 0 && (
+                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-2">Failure Surface</p>
+                  <p className="text-xs text-zinc-600 mb-5">Higher means the candidate broke earlier under pressure.</p>
+                  <div className="space-y-4">
+                    {Object.entries(reportData.failure_surface).map(([area, score]) => {
+                      const pct = Math.round(score * 100);
+                      const color = score >= 0.6 ? "oklch(0.66 0.21 24)" : score >= 0.35 ? "oklch(0.8 0.16 72)" : "oklch(0.7 0.18 145)";
+                      return (
+                        <div key={area} className="space-y-1.5">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-sm text-zinc-300 capitalize">{area.replace(/_/g, " ")}</span>
+                            <span className="font-mono text-xs text-zinc-600">{pct}%</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color, boxShadow: `0 0 12px ${color}` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Detected weaknesses */}
+              {reportData && reportData.raw_weaknesses.length > 0 && (
+                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Detected Weaknesses</p>
+                  <div className="space-y-3">
+                    {reportData.raw_weaknesses.map((w, i) => (
+                      <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ background: w.severity === "high" ? "oklch(0.66 0.21 24)" : w.severity === "medium" ? "oklch(0.8 0.16 72)" : "oklch(0.6 0.18 255)" }}
+                          />
+                          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                            {w.severity} · {w.type.replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <p className="text-sm leading-7 text-zinc-200">{w.weakness}</p>
+                        <p className="mt-2 text-xs uppercase tracking-[0.12em] text-zinc-600">
+                          Strategy: {w.attack_strategy.replace(/_/g, " ")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-6">
+              {/* Strengths */}
+              {reportData && reportData.strengths.length > 0 && (
+                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Strengths</p>
+                  <ul className="space-y-3">
+                    {reportData.strengths.map((s, i) => (
+                      <li key={i} className="rounded-xl border border-green-500/15 bg-green-500/5 px-4 py-4 text-sm leading-7 text-zinc-200">{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Risk flags */}
+              {reportData && reportData.risk_flags.length > 0 && (
+                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Risk Flags</p>
+                  <ul className="space-y-3">
+                    {reportData.risk_flags.map((f, i) => (
+                      <li key={i} className="rounded-xl border border-red-500/15 bg-red-500/5 px-4 py-4 text-sm leading-7 text-zinc-200">{f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Untested dimensions */}
+              {reportData && reportData.untested_dimensions.length > 0 && (
+                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Untested Dimensions</p>
+                  <ul className="space-y-3">
+                    {reportData.untested_dimensions.map((d, i) => (
+                      <li key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 text-sm leading-7 text-zinc-300">{d}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* No report yet */}
+        {!hasReport && (
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-8 text-center">
+            <p className="text-zinc-400 text-sm">
+              Your report is being compiled. Check back in a few minutes or refresh the page.
+            </p>
+            <p className="text-zinc-600 text-xs mt-2">
+              You'll receive an email update within 10–15 hours.
+            </p>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-3 pt-2">
+          <Button variant="outline" onClick={onReset} className="bg-transparent border-white/10 text-zinc-400 hover:text-white hover:border-white/20">
+            Start New Interview
+          </Button>
         </div>
       </div>
     </div>
