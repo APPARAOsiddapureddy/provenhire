@@ -17,7 +17,11 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: ANTIGRAVITY_API_BASE_URL
+      - key: ANTIGRAVITY_API_URL
+        sync: false
+      - key: ANTIGRAVITY_FRONTEND_URL
+        sync: false
+      - key: ANTIGRAVITY_WEBHOOK_SECRET
         sync: false
 
   - type: web
