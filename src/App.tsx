@@ -33,6 +33,7 @@ import SettingsPage from "./pages/dashboard/SettingsPage";
 
 // Antigravity AI Interview module — native integration (no iframe, all calls through proxy)
 const AntigravityLabPage = lazy(() => import("./pages/ai-interview/AntigravityLabPage"));
+const AntigravityReturnPage = lazy(() => import("./pages/ai-interview/AntigravityReturnPage"));
 // Legacy iframe routes (report, dashboard, recruiter views) — kept until native parity
 const AntigravityPage = lazy(() => import("./pages/ai-interview/AntigravityPage"));
 
@@ -214,6 +215,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="jobseeker">
                     <AntigravityLabPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/jobseeker/antigravity/return"
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <AntigravityReturnPage />
                   </ProtectedRoute>
                 }
               />

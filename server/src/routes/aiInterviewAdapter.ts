@@ -12,20 +12,64 @@
  */
 
 import { Prisma } from "@prisma/client";
+import crypto from "crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireJobSeeker, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
+import {
+  getAntigravityApiBaseUrl,
+  getAntigravityFrontendUrl,
+} from "../config/antigravity.js";
 import { gateExpertInterviewStart } from "../services/candidateRetake.service.js";
 import { getCandidateModuleContext } from "../services/performancePipeline.js";
 
 export const aiInterviewAdapterRouter = Router();
 
-const ANTIGRAVITY_API_URL =
-  (process.env.ANTIGRAVITY_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
-
 const ANTIGRAVITY_PREP_TIMEOUT_MS = 210_000;
 const ANTIGRAVITY_START_TIMEOUT_MS = 30_000;
+const ANTIGRAVITY_REPORT_TIMEOUT_MS = 15_000;
+const HANDOFF_TOKEN_TTL_MS = 15 * 60 * 1000;
+
+function antigravityApiUrl(): string {
+  return getAntigravityApiBaseUrl();
+}
+
+function createLaunchToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function hashLaunchToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function webhookSecret(): string {
+  const secret = process.env.ANTIGRAVITY_WEBHOOK_SECRET;
+  if (!secret) throw new Error("ANTIGRAVITY_WEBHOOK_SECRET is required for Antigravity callbacks.");
+  return secret;
+}
+
+function signWebhookMessage(event: string, handoffId: string, sessionId: string): string {
+  return crypto
+    .createHmac("sha256", webhookSecret())
+    .update(`${event}|${handoffId}|${sessionId}`)
+    .digest("hex");
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (!/^[a-f0-9]+$/i.test(a) || !/^[a-f0-9]+$/i.test(b)) return false;
+  const left = Buffer.from(a, "hex");
+  const right = Buffer.from(b, "hex");
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function verifyWebhookSignature(req: AuthedRequest, event: string, handoffId: string, sessionId: string): boolean {
+  const signature = req.headers["x-antigravity-signature"];
+  const value = Array.isArray(signature) ? signature[0] : signature;
+  if (!value) return false;
+  return timingSafeEqualHex(value, signWebhookMessage(event, handoffId, sessionId));
+}
 
 function toPrismaJsonValue(value: unknown): Prisma.InputJsonValue {
   if (value === null) return null as unknown as Prisma.InputJsonValue;
@@ -67,6 +111,7 @@ function mapBadge(score: number | null): string | null {
 
 type AgReport = {
   complete: boolean;
+  report_ready?: boolean;
   overall_score: number | null;
   hire_recommendation: string | null;
   confidence_score?: number | null;
@@ -80,6 +125,35 @@ type AgReport = {
   weakness_summary?: Record<string, number>;
   raw_weaknesses?: Array<{ weakness: string; type: string; severity: string; attack_strategy?: string }>;
 };
+
+type AntigravityLaunchPayload = AntigravityStartPayload & {
+  provenhire_interview_id: string;
+};
+
+function isHandoffActive(status: string): boolean {
+  return ["created", "launched", "started"].includes(status);
+}
+
+function safeReturnUrl(req: AuthedRequest, raw?: string): string {
+  const fallback = `${req.protocol}://${req.get("host")}/dashboard/jobseeker/antigravity`;
+  if (!raw) return fallback;
+  try {
+    const parsed = new URL(raw);
+    const host = req.get("host");
+    if (
+      parsed.host === host ||
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname.endsWith("provenhire.in") ||
+      parsed.hostname.endsWith(".vercel.app")
+    ) {
+      return parsed.toString();
+    }
+  } catch {
+    // fall through
+  }
+  return fallback;
+}
 
 type AntigravityStartPayload = {
   resume: string;
@@ -109,7 +183,7 @@ async function _readErrorText(res: Response): Promise<string> {
 }
 
 async function prepareAndStartAntigravity(payload: AntigravityStartPayload): Promise<StartInterviewResponse> {
-  const prepareRes = await fetch(`${ANTIGRAVITY_API_URL}/api/prepare_interview_map`, {
+  const prepareRes = await fetch(`${antigravityApiUrl()}/prepare_interview_map`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -130,7 +204,7 @@ async function prepareAndStartAntigravity(payload: AntigravityStartPayload): Pro
     throw new Error("AI interview map was not ready");
   }
 
-  const startRes = await fetch(`${ANTIGRAVITY_API_URL}/api/start_interview`, {
+  const startRes = await fetch(`${antigravityApiUrl()}/start_interview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prepared_session_id: prepared.session_id }),
@@ -256,6 +330,281 @@ const startSchema = z.object({
   github_links: z.array(z.string()).optional().default([]),
   target_role: z.string().optional().default(""),
   years_experience: z.string().optional().default(""),
+});
+
+const handoffLaunchSchema = startSchema.extend({
+  return_url: z.string().trim().optional().default(""),
+});
+
+aiInterviewAdapterRouter.post(
+  "/handoff-launch",
+  requireAuth,
+  requireJobSeeker,
+  async (req: AuthedRequest, res) => {
+    const parsed = handoffLaunchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0].message });
+    }
+    const { resume, github_links, target_role, years_experience } = parsed.data;
+    const userId = req.user!.id;
+
+    const gate = await gateExpertInterviewStart(userId);
+    if (!gate.ok) {
+      const active = await prisma.antigravityHandoff.findFirst({
+        where: {
+          userId,
+          status: { in: ["created", "launched", "started"] },
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, status: true, interviewId: true, antigravitySessionId: true },
+      }).catch(() => null);
+      if (!active) return res.status(gate.status).json(gate.body);
+    }
+
+    let priorModuleContext: { relevantState: Record<string, unknown>; promptContext: string };
+    try {
+      priorModuleContext = await getCandidateModuleContext(userId, "antigravity");
+    } catch {
+      priorModuleContext = { relevantState: {}, promptContext: "" };
+    }
+
+    const returnUrl = safeReturnUrl(req, parsed.data.return_url);
+    const expiresAt = new Date(Date.now() + HANDOFF_TOKEN_TTL_MS);
+    const token = createLaunchToken();
+    const launchTokenHash = hashLaunchToken(token);
+
+    const launchPayload: AntigravityLaunchPayload = {
+      resume,
+      github_links,
+      target_role,
+      years_experience,
+      prior_assessment_context: priorModuleContext.relevantState,
+      prior_assessment_prompt: priorModuleContext.promptContext,
+      provenhire_interview_id: "",
+    };
+
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        const existing = await tx.antigravityHandoff.findFirst({
+          where: {
+            userId,
+            status: { in: ["created", "launched", "started"] },
+            expiresAt: { gt: new Date() },
+          },
+          orderBy: { createdAt: "desc" },
+          include: { interview: { select: { id: true, status: true } } },
+        });
+
+        if (existing && isHandoffActive(existing.status)) {
+          const updated = await tx.antigravityHandoff.update({
+            where: { id: existing.id },
+            data: {
+              launchTokenHash,
+              expiresAt,
+              returnUrl,
+              launchPayload: toPrismaJsonValue({
+                ...(existing.launchPayload as Record<string, unknown>),
+                prior_assessment_context: priorModuleContext.relevantState,
+                prior_assessment_prompt: priorModuleContext.promptContext,
+              }),
+            },
+            select: { id: true, interviewId: true, status: true, antigravitySessionId: true },
+          });
+          return updated;
+        }
+
+        const interview = await tx.interview.create({
+          data: {
+            userId,
+            jobRole: target_role || "General",
+            interviewType: "ai_expert",
+            experienceLevel: years_experience || "mid",
+            status: "in_progress",
+            questionPlan: [],
+            scoreBreakdown: toPrismaJsonValue({
+              handoff_status: "created",
+              prepare_status: "handoff_created",
+              handoff_created_at: new Date().toISOString(),
+            }),
+          },
+          select: { id: true },
+        });
+
+        launchPayload.provenhire_interview_id = interview.id;
+        return tx.antigravityHandoff.create({
+          data: {
+            userId,
+            interviewId: interview.id,
+            launchTokenHash,
+            status: "created",
+            returnUrl,
+            launchPayload: toPrismaJsonValue(launchPayload),
+            expiresAt,
+          },
+          select: { id: true, interviewId: true, status: true, antigravitySessionId: true },
+        });
+      });
+
+      const finalReturnUrl = new URL(returnUrl);
+      finalReturnUrl.searchParams.set("handoff_id", result.id);
+      finalReturnUrl.searchParams.set("provenhire_interview_id", result.interviewId);
+      await prisma.antigravityHandoff.update({
+        where: { id: result.id },
+        data: { returnUrl: finalReturnUrl.toString() },
+      }).catch(() => {});
+
+      const launchUrl = new URL("/launch", getAntigravityFrontendUrl());
+      launchUrl.searchParams.set("token", token);
+      return res.json({
+        handoff_id: result.id,
+        provenhire_interview_id: result.interviewId,
+        antigravity_session_id: result.antigravitySessionId,
+        status: result.status,
+        launch_url: launchUrl.toString(),
+        return_url: finalReturnUrl.toString(),
+        expires_at: expiresAt.toISOString(),
+      });
+    } catch (e) {
+      console.error("[ai-interview-adapter/handoff-launch]", e);
+      return res.status(500).json({ error: "Failed to create Antigravity handoff." });
+    }
+  }
+);
+
+aiInterviewAdapterRouter.get(
+  "/handoff-open/:handoffId",
+  requireAuth,
+  requireJobSeeker,
+  async (req: AuthedRequest, res) => {
+    const userId = req.user!.id;
+    const handoffId = req.params.handoffId;
+    try {
+      const handoff = await prisma.antigravityHandoff.findFirst({
+        where: { id: handoffId, userId },
+        select: {
+          id: true,
+          interviewId: true,
+          antigravitySessionId: true,
+          status: true,
+          returnUrl: true,
+          expiresAt: true,
+          lastError: true,
+        },
+      });
+      if (!handoff) return res.status(404).json({ error: "Handoff not found." });
+      return res.json({
+        handoff_id: handoff.id,
+        provenhire_interview_id: handoff.interviewId,
+        antigravity_session_id: handoff.antigravitySessionId,
+        status: handoff.status,
+        return_url: handoff.returnUrl,
+        expires_at: handoff.expiresAt.toISOString(),
+        error: handoff.lastError,
+      });
+    } catch (e) {
+      console.error("[ai-interview-adapter/handoff-open]", e);
+      return res.status(500).json({ error: "Failed to open handoff." });
+    }
+  }
+);
+
+aiInterviewAdapterRouter.post("/handoff-consume", async (req, res) => {
+  const schema = z.object({ token: z.string().trim().min(20) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff token." });
+
+  try {
+    const tokenHash = hashLaunchToken(parsed.data.token);
+    const handoff = await prisma.antigravityHandoff.findUnique({
+      where: { launchTokenHash: tokenHash },
+      include: { interview: { select: { id: true, status: true } } },
+    });
+    if (!handoff) return res.status(404).json({ error: "Handoff token not found." });
+    if (handoff.expiresAt.getTime() < Date.now()) {
+      await prisma.antigravityHandoff.update({
+        where: { id: handoff.id },
+        data: { status: "expired", lastError: "Launch token expired." },
+      }).catch(() => {});
+      return res.status(410).json({ error: "Handoff token expired." });
+    }
+    if (handoff.status === "completed") {
+      return res.status(409).json({ error: "Handoff already completed.", return_url: handoff.returnUrl });
+    }
+    if (handoff.status === "failed" || handoff.status === "expired") {
+      return res.status(409).json({ error: `Handoff is ${handoff.status}.` });
+    }
+
+    const updated = await prisma.antigravityHandoff.update({
+      where: { id: handoff.id },
+      data: {
+        status: handoff.antigravitySessionId ? "started" : "launched",
+        launchedAt: handoff.launchedAt ?? new Date(),
+      },
+    });
+
+    const payload = updated.launchPayload as Record<string, unknown>;
+    return res.json({
+      handoff_id: updated.id,
+      provenhire_interview_id: updated.interviewId,
+      antigravity_session_id: updated.antigravitySessionId,
+      status: updated.status,
+      return_url: updated.returnUrl,
+      resume: payload.resume ?? "",
+      github_links: Array.isArray(payload.github_links) ? payload.github_links : [],
+      target_role: payload.target_role ?? "",
+      years_experience: payload.years_experience ?? "",
+      prior_assessment_context:
+        typeof payload.prior_assessment_context === "object" && payload.prior_assessment_context
+          ? payload.prior_assessment_context
+          : {},
+      prior_assessment_prompt:
+        typeof payload.prior_assessment_prompt === "string" ? payload.prior_assessment_prompt : "",
+    });
+  } catch (e) {
+    console.error("[ai-interview-adapter/handoff-consume]", e);
+    return res.status(500).json({ error: "Failed to consume handoff token." });
+  }
+});
+
+const handoffStartedSchema = z.object({
+  handoff_id: z.string().trim().min(1),
+  antigravity_session_id: z.string().trim().min(1),
+});
+
+aiInterviewAdapterRouter.post("/handoff-started", async (req: AuthedRequest, res) => {
+  const parsed = handoffStartedSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff-started payload." });
+  const { handoff_id, antigravity_session_id } = parsed.data;
+  if (!verifyWebhookSignature(req, "started", handoff_id, antigravity_session_id)) {
+    return res.status(401).json({ error: "Invalid Antigravity callback signature." });
+  }
+
+  try {
+    const handoff = await prisma.antigravityHandoff.update({
+      where: { id: handoff_id },
+      data: {
+        status: "started",
+        startedAt: new Date(),
+        antigravitySessionId: antigravity_session_id,
+      },
+      select: { interviewId: true },
+    });
+    await prisma.interview.update({
+      where: { id: handoff.interviewId },
+      data: {
+        scoreBreakdown: toPrismaJsonValue({
+          handoff_status: "started",
+          antigravity_session_id,
+          prepare_status: "ready",
+        }),
+      },
+    });
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("[ai-interview-adapter/handoff-started]", e);
+    return res.status(500).json({ error: "Failed to mark handoff started." });
+  }
 });
 
 aiInterviewAdapterRouter.post(
@@ -456,7 +805,7 @@ aiInterviewAdapterRouter.get(
       // Opportunistically check if Antigravity already finished — reconcile without
       // requiring the user to keep the tab open.
       try {
-        const agRes = await fetch(`${ANTIGRAVITY_API_URL}/api/report/${agSessionId}`, {
+        const agRes = await fetch(`${antigravityApiUrl()}/report/${agSessionId}`, {
           signal: AbortSignal.timeout(5_000),
         });
         if (agRes.ok) {
@@ -549,7 +898,7 @@ aiInterviewAdapterRouter.get(
       }
 
       // Poll Antigravity report endpoint
-      const agRes = await fetch(`${ANTIGRAVITY_API_URL}/api/report/${sessionId}`, {
+      const agRes = await fetch(`${antigravityApiUrl()}/report/${sessionId}`, {
         signal: AbortSignal.timeout(10_000),
       });
 
@@ -629,7 +978,7 @@ aiInterviewAdapterRouter.post(
       void session_id; // acknowledged but not used for the Antigravity call
 
       if (storedSessionId) {
-        fetch(`${ANTIGRAVITY_API_URL}/api/end_interview/${encodeURIComponent(storedSessionId)}`, {
+        fetch(`${antigravityApiUrl()}/end_interview/${encodeURIComponent(storedSessionId)}`, {
           method: "POST",
           signal: AbortSignal.timeout(8_000),
         }).catch(() => {});
@@ -698,8 +1047,8 @@ aiInterviewAdapterRouter.post(
         });
       }
 
-      const agRes = await fetch(`${ANTIGRAVITY_API_URL}/api/report/${session_id}`, {
-        signal: AbortSignal.timeout(15_000),
+      const agRes = await fetch(`${antigravityApiUrl()}/report/${session_id}`, {
+        signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
       });
       if (!agRes.ok) {
         if (agRes.status === 404) return res.json({ complete: false });
@@ -720,6 +1069,165 @@ aiInterviewAdapterRouter.post(
       }
       console.error("[ai-interview-adapter/finalize]", e);
       return res.status(500).json({ error: "Finalization failed." });
+    }
+  }
+);
+
+const handoffCompleteSchema = z.object({
+  handoff_id: z.string().trim().min(1),
+  antigravity_session_id: z.string().trim().min(1),
+  report: z.any().optional(),
+});
+
+aiInterviewAdapterRouter.post("/handoff-complete", async (req: AuthedRequest, res) => {
+  const parsed = handoffCompleteSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff-complete payload." });
+  const { handoff_id, antigravity_session_id } = parsed.data;
+  if (!verifyWebhookSignature(req, "complete", handoff_id, antigravity_session_id)) {
+    return res.status(401).json({ error: "Invalid Antigravity callback signature." });
+  }
+
+  try {
+    const handoff = await prisma.antigravityHandoff.findFirst({
+      where: { id: handoff_id, antigravitySessionId: antigravity_session_id },
+      select: { id: true, userId: true, interviewId: true, status: true },
+    });
+    if (!handoff) return res.status(404).json({ error: "Handoff not found." });
+
+    const interview = await prisma.interview.findUnique({
+      where: { id: handoff.interviewId },
+      select: { status: true, totalScore: true, badgeLevel: true, finalVerdict: true },
+    });
+    if (interview?.status === "completed" && handoff.status === "completed") {
+      return res.json({
+        ok: true,
+        complete: true,
+        score: interview.totalScore,
+        badge: interview.badgeLevel,
+        verdict: interview.finalVerdict,
+      });
+    }
+
+    let agReport = parsed.data.report as AgReport | undefined;
+    if (!agReport?.complete) {
+      const agRes = await fetch(`${antigravityApiUrl()}/report/${antigravity_session_id}`, {
+        signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
+      });
+      if (!agRes.ok) return res.status(202).json({ ok: false, complete: false });
+      agReport = (await agRes.json()) as AgReport;
+    }
+    if (!agReport.complete) return res.status(202).json({ ok: false, complete: false });
+
+    const { totalScore, badgeLevel, verdict } = await finalizeInterview(
+      handoff.interviewId,
+      handoff.userId,
+      agReport,
+      antigravity_session_id
+    );
+
+    await prisma.antigravityHandoff.update({
+      where: { id: handoff.id },
+      data: {
+        status: "completed",
+        completedAt: new Date(),
+        lastError: null,
+      },
+    });
+
+    return res.json({ ok: true, complete: true, score: totalScore, badge: badgeLevel, verdict });
+  } catch (e) {
+    if (e instanceof Error && e.name === "TimeoutError") {
+      return res.status(202).json({ ok: false, complete: false });
+    }
+    console.error("[ai-interview-adapter/handoff-complete]", e);
+    return res.status(500).json({ error: "Failed to complete Antigravity handoff." });
+  }
+});
+
+const handoffFailedSchema = z.object({
+  handoff_id: z.string().trim().min(1),
+  antigravity_session_id: z.string().trim().optional().default(""),
+  error: z.string().trim().optional().default("Antigravity handoff failed."),
+});
+
+aiInterviewAdapterRouter.post("/handoff-failed", async (req: AuthedRequest, res) => {
+  const parsed = handoffFailedSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff-failed payload." });
+  const { handoff_id, antigravity_session_id, error } = parsed.data;
+  const signatureSession = antigravity_session_id || "none";
+  if (!verifyWebhookSignature(req, "failed", handoff_id, signatureSession)) {
+    return res.status(401).json({ error: "Invalid Antigravity callback signature." });
+  }
+
+  try {
+    const handoff = await prisma.antigravityHandoff.update({
+      where: { id: handoff_id },
+      data: {
+        status: "failed",
+        failedAt: new Date(),
+        lastError: error.slice(0, 1000),
+        ...(antigravity_session_id ? { antigravitySessionId: antigravity_session_id } : {}),
+      },
+      select: { interviewId: true },
+    });
+    await prisma.interview.updateMany({
+      where: { id: handoff.interviewId, status: "in_progress" },
+      data: { status: "abandoned" },
+    });
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("[ai-interview-adapter/handoff-failed]", e);
+    return res.status(500).json({ error: "Failed to mark handoff failed." });
+  }
+});
+
+aiInterviewAdapterRouter.post(
+  "/handoff-sync/:handoffId",
+  requireAuth,
+  requireJobSeeker,
+  async (req: AuthedRequest, res) => {
+    const userId = req.user!.id;
+    const handoffId = req.params.handoffId;
+    try {
+      const handoff = await prisma.antigravityHandoff.findFirst({
+        where: { id: handoffId, userId },
+        select: {
+          id: true,
+          interviewId: true,
+          status: true,
+          antigravitySessionId: true,
+          lastError: true,
+        },
+      });
+      if (!handoff) return res.status(404).json({ error: "Handoff not found." });
+      if (!handoff.antigravitySessionId) {
+        return res.json({ complete: false, status: handoff.status, error: handoff.lastError });
+      }
+
+      const agRes = await fetch(`${antigravityApiUrl()}/report/${handoff.antigravitySessionId}`, {
+        signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
+      });
+      if (!agRes.ok) return res.json({ complete: false, status: handoff.status });
+      const agReport = (await agRes.json()) as AgReport;
+      if (!agReport.complete) return res.json({ complete: false, status: handoff.status });
+
+      const result = await finalizeInterview(
+        handoff.interviewId,
+        userId,
+        agReport,
+        handoff.antigravitySessionId
+      );
+      await prisma.antigravityHandoff.update({
+        where: { id: handoff.id },
+        data: { status: "completed", completedAt: new Date(), lastError: null },
+      });
+      return res.json({ complete: true, status: "completed", ...result });
+    } catch (e) {
+      if (e instanceof Error && e.name === "TimeoutError") {
+        return res.json({ complete: false, status: "sync_timeout" });
+      }
+      console.error("[ai-interview-adapter/handoff-sync]", e);
+      return res.status(500).json({ error: "Failed to sync handoff." });
     }
   }
 );

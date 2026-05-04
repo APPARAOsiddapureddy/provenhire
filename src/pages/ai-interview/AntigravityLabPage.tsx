@@ -254,6 +254,28 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     let cancelled = false;
     void (async () => {
       try {
+        const handoffId = new URLSearchParams(window.location.search).get("handoff_id")?.trim();
+        if (handoffId) {
+          const sync = await api.post<{
+            complete: boolean;
+            totalScore?: number | null;
+            badgeLevel?: string | null;
+            verdict?: string | null;
+            badge?: string | null;
+          }>(`/api/ai-interview-adapter/handoff-sync/${handoffId}`, {});
+          if (cancelled) return;
+          if (sync.complete) {
+            window.history.replaceState({}, "", window.location.pathname);
+            setCompletion({
+              score: sync.totalScore ?? null,
+              badge: sync.badgeLevel ?? sync.badge ?? null,
+              verdict: sync.verdict ?? null,
+            });
+            setPhase("done");
+            return;
+          }
+        }
+
         const data = await api.get<{
           open: boolean;
           preparing?: boolean;
@@ -738,6 +760,32 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   async function handleStart() {
     if (!resume.trim()) { toast.error("Paste your resume to begin."); return; }
     if (!targetRole.trim()) { toast.error("Enter the target role."); return; }
+    setStarting(true);
+    try {
+      const data = await api.post<{
+        handoff_id: string;
+        launch_url: string;
+        expires_at: string;
+      }>(
+        "/api/ai-interview-adapter/handoff-launch",
+        {
+          resume: resume.trim(),
+          github_links: githubLinks.split("\n").map((l) => l.trim()).filter(Boolean),
+          target_role: targetRole.trim(),
+          years_experience: expLevel,
+          return_url: `${window.location.origin}/dashboard/jobseeker/antigravity/return`,
+        }
+      );
+      window.location.assign(data.launch_url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to launch Antigravity. Please try again.");
+      setStarting(false);
+    }
+  }
+
+  async function handleEmbeddedStart() {
+    if (!resume.trim()) { toast.error("Paste your resume to begin."); return; }
+    if (!targetRole.trim()) { toast.error("Enter the target role."); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
@@ -861,14 +909,19 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>Once started the interview cannot be paused. Ensure a quiet environment with a working microphone.</span>
               </div>
-              <div className="flex gap-3 pt-1">
+              <div className="flex flex-col gap-3 pt-1 sm:flex-row">
                 <Button onClick={handleStart} disabled={starting}>
                   {starting
-                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{LAUNCH_STATUSES[launchStatusIndex]}</>
+                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Launching Antigravity…</>
                     : "Start Interview"}
                 </Button>
+                {import.meta.env.DEV && (
+                  <Button variant="outline" onClick={handleEmbeddedStart} disabled={starting}>
+                    Use embedded interview
+                  </Button>
+                )}
               </div>
-              {starting && <p className="text-xs text-muted-foreground">Preparing your interview map — this can take up to 2 minutes on first boot.</p>}
+              {starting && <p className="text-xs text-muted-foreground">Opening the standalone Antigravity interview room. Keep this tab available for the return handoff.</p>}
             </CardContent>
           </Card>
         </div>
@@ -1168,6 +1221,11 @@ function ScoreGauge({ score }: { score: number | null }) {
   );
 }
 
+function completionScoreToTen(score: number | null | undefined): number | null {
+  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  return Math.max(0, Math.min(10, score / 10));
+}
+
 function VerdictBadge({ verdict }: { verdict: string | null }) {
   if (!verdict) return null;
   const v = verdict.toUpperCase();
@@ -1206,6 +1264,10 @@ function DoneView({ completion, reportData, onReset }: {
   onReset: () => void;
 }) {
   const hasReport = Boolean(reportData);
+  const displayScore =
+    reportData?.overall_score != null
+      ? reportData.overall_score
+      : completionScoreToTen(completion?.score);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white px-6 py-10 overflow-y-auto">
@@ -1234,7 +1296,7 @@ function DoneView({ completion, reportData, onReset }: {
 
           {/* Score gauge */}
           <div className="rounded-2xl border border-white/5 bg-white/[0.02] flex flex-col items-center gap-3 px-8 py-6 min-w-[200px]">
-            <ScoreGauge score={reportData?.overall_score ?? completion?.score ?? null} />
+            <ScoreGauge score={displayScore} />
             {reportData?.confidence_score != null && (
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-600">
                 {Math.round(reportData.confidence_score * 100)}% confidence
@@ -1265,11 +1327,11 @@ function DoneView({ completion, reportData, onReset }: {
                 })()}
               </div>
             )}
-            {(reportData?.overall_score != null || completion?.score != null) && (
+            {displayScore != null && (
               <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-5">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">Overall Score</p>
                 <p className="text-2xl font-bold mt-2 text-zinc-200">
-                  {(reportData?.overall_score ?? completion?.score ?? 0).toFixed(1)}/10
+                  {displayScore.toFixed(1)}/10
                 </p>
                 <p className="text-xs text-zinc-600 mt-1">aggregate synthesis signal</p>
               </div>

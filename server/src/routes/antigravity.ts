@@ -1,36 +1,44 @@
 import { Router } from "express";
+import { Readable } from "stream";
 import { z } from "zod";
 import { requireAuth, requireJobSeeker, type AuthedRequest } from "../middleware/auth.js";
+import {
+  antigravityUnavailableMessage,
+  getAntigravityApiBaseUrl,
+  isAntigravityConfigured,
+} from "../config/antigravity.js";
 
 export const antigravityRouter = Router();
 
-// Reads ANTIGRAVITY_API_URL — the same env var used by aiInterviewAdapter.ts.
-// ANTIGRAVITY_API_BASE_URL is retired; this router no longer uses it.
-function antigravityApiBaseUrl(): string {
-  const raw = (process.env.ANTIGRAVITY_API_URL ?? "").trim().replace(/\/+$/, "");
-  if (!raw) return "";
-  return raw.endsWith("/api") ? raw : `${raw}/api`;
+const PROXY_JSON_TIMEOUT_MS = 30_000;
+const PROXY_TURN_TIMEOUT_MS = 45_000;
+const PROXY_SHORT_TIMEOUT_MS = 10_000;
+const PROXY_TTS_TIMEOUT_MS = 20_000;
+const PROXY_FILLER_TIMEOUT_MS = 10_000;
+
+function getConfiguredApiBaseUrl(): string | null {
+  try {
+    return getAntigravityApiBaseUrl();
+  } catch {
+    return null;
+  }
 }
 
-function antigravityConfigured(): boolean {
-  return antigravityApiBaseUrl().length > 0;
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 }
 
-function antigravityUnavailableMessage() {
-  return {
-    error:
-      "Antigravity integration is not configured. Set ANTIGRAVITY_API_URL on the ProvenHire API server.",
-  };
-}
-
-async function forwardJson(path: string, init: RequestInit = {}) {
-  const baseUrl = antigravityApiBaseUrl();
+async function forwardJson(path: string, init: RequestInit = {}, timeoutMs = PROXY_JSON_TIMEOUT_MS) {
+  const baseUrl = getConfiguredApiBaseUrl();
   if (!baseUrl) {
     return { status: 503, body: antigravityUnavailableMessage() };
   }
 
   try {
-    const response = await fetch(`${baseUrl}${path}`, init);
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+    });
     const text = await response.text();
     let body: unknown = {};
     if (text) {
@@ -42,6 +50,15 @@ async function forwardJson(path: string, init: RequestInit = {}) {
     }
     return { status: response.status, body };
   } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        status: 504,
+        body: {
+          error: "Antigravity request timed out.",
+          timeout_ms: timeoutMs,
+        },
+      };
+    }
     const message = error instanceof Error ? error.message : "Unable to reach Antigravity service";
     return {
       status: 502,
@@ -57,35 +74,18 @@ antigravityRouter.use(requireAuth, requireJobSeeker);
 
 antigravityRouter.get("/config", (_req, res) => {
   res.json({
-    configured: antigravityConfigured(),
-    apiBaseConfigured: antigravityConfigured(),
+    configured: isAntigravityConfigured(),
+    apiBaseConfigured: isAntigravityConfigured(),
   });
 });
 
 antigravityRouter.post("/start", async (req: AuthedRequest, res) => {
   void req.user;
-  const schema = z.object({
-    resume: z.string().trim().min(1),
-    githubLinks: z.array(z.string().trim().url()).optional().default([]),
-    targetRole: z.string().trim().min(1),
-    yearsExperience: z.string().trim().min(1),
+  return res.status(410).json({
+    error: "Direct Antigravity start is disabled.",
+    detail:
+      "Use /api/ai-interview-adapter/prepare or /api/ai-interview-adapter/handoff-launch so ProvenHire can enforce retake gating, persistence, and prior assessment context.",
   });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid Antigravity start payload." });
-  }
-
-  const response = await forwardJson("/start_interview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      resume: parsed.data.resume,
-      github_links: parsed.data.githubLinks,
-      target_role: parsed.data.targetRole,
-      years_experience: parsed.data.yearsExperience,
-    }),
-  });
-  return res.status(response.status).json(response.body);
 });
 
 antigravityRouter.post("/turn", async (req, res) => {
@@ -109,7 +109,7 @@ antigravityRouter.post("/turn", async (req, res) => {
       entities: parsed.data.entities,
       turn_id: parsed.data.turnId,
     }),
-  });
+  }, PROXY_TURN_TIMEOUT_MS);
   return res.status(response.status).json(response.body);
 });
 
@@ -119,7 +119,7 @@ antigravityRouter.post("/end/:sessionId", async (req, res) => {
 
   const response = await forwardJson(`/end_interview/${encodeURIComponent(sessionId)}`, {
     method: "POST",
-  });
+  }, PROXY_JSON_TIMEOUT_MS);
   return res.status(response.status).json(response.body);
 });
 
@@ -127,7 +127,7 @@ antigravityRouter.get("/state/:sessionId", async (req, res) => {
   const sessionId = req.params.sessionId?.trim();
   if (!sessionId) return res.status(400).json({ error: "Session id is required." });
 
-  const response = await forwardJson(`/state/${encodeURIComponent(sessionId)}`);
+  const response = await forwardJson(`/state/${encodeURIComponent(sessionId)}`, {}, PROXY_SHORT_TIMEOUT_MS);
   return res.status(response.status).json(response.body);
 });
 
@@ -135,19 +135,19 @@ antigravityRouter.get("/report/:sessionId", async (req, res) => {
   const sessionId = req.params.sessionId?.trim();
   if (!sessionId) return res.status(400).json({ error: "Session id is required." });
 
-  const response = await forwardJson(`/report/${encodeURIComponent(sessionId)}`);
+  const response = await forwardJson(`/report/${encodeURIComponent(sessionId)}`, {}, PROXY_SHORT_TIMEOUT_MS);
   return res.status(response.status).json(response.body);
 });
 
 // ─── Voice / audio routes ────────────────────────────────────────────────────
 
 antigravityRouter.get("/deepgram-token", async (_req, res) => {
-  const response = await forwardJson("/deepgram_token");
+  const response = await forwardJson("/deepgram_token", {}, PROXY_SHORT_TIMEOUT_MS);
   return res.status(response.status).json(response.body);
 });
 
 antigravityRouter.post("/partial", async (req, res) => {
-  const baseUrl = antigravityApiBaseUrl();
+  const baseUrl = getConfiguredApiBaseUrl();
   if (!baseUrl) return res.status(200).json({ ok: true }); // fire-and-forget: silent no-op if unconfigured
 
   const schema = z.object({
@@ -164,6 +164,7 @@ antigravityRouter.post("/partial", async (req, res) => {
   fetch(`${baseUrl}/partial_transcript`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(PROXY_SHORT_TIMEOUT_MS),
     body: JSON.stringify({
       session_id: parsed.data.sessionId,
       transcript: parsed.data.transcript,
@@ -178,30 +179,36 @@ antigravityRouter.post("/partial", async (req, res) => {
 });
 
 antigravityRouter.post("/telemetry", async (req, res) => {
-  const baseUrl = antigravityApiBaseUrl();
+  const baseUrl = getConfiguredApiBaseUrl();
   if (!baseUrl) return res.status(200).json({ ok: true });
 
   fetch(`${baseUrl}/telemetry`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(PROXY_SHORT_TIMEOUT_MS),
     body: JSON.stringify(req.body),
   }).catch(() => {});
 
   return res.status(200).json({ ok: true });
 });
 
-async function forwardBinary(path: string, init: RequestInit = {}): Promise<{
+async function forwardBinary(path: string, init: RequestInit = {}, timeoutMs = PROXY_TTS_TIMEOUT_MS): Promise<{
   status: number;
-  buffer: Buffer | null;
+  body: Readable | null;
   contentType: string;
   extraHeaders: Record<string, string>;
 }> {
-  const baseUrl = antigravityApiBaseUrl();
-  if (!baseUrl) return { status: 503, buffer: null, contentType: "application/json", extraHeaders: {} };
+  const baseUrl = getConfiguredApiBaseUrl();
+  if (!baseUrl) return { status: 503, body: null, contentType: "application/json", extraHeaders: {} };
 
   try {
-    const response = await fetch(`${baseUrl}${path}`, init);
-    if (!response.ok) return { status: response.status, buffer: null, contentType: "application/json", extraHeaders: {} };
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok || !response.body) {
+      return { status: response.status, body: null, contentType: "application/json", extraHeaders: {} };
+    }
 
     const extraHeaders: Record<string, string> = {};
     for (const key of ["X-Filler-Text", "X-TTS-Provider", "X-TTS-Source"]) {
@@ -209,12 +216,20 @@ async function forwardBinary(path: string, init: RequestInit = {}): Promise<{
       if (val) extraHeaders[key] = val;
     }
 
-    const arrayBuf = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuf);
     const contentType = response.headers.get("Content-Type") ?? "audio/mpeg";
-    return { status: response.status, buffer, contentType, extraHeaders };
-  } catch {
-    return { status: 502, buffer: null, contentType: "application/json", extraHeaders: {} };
+    return {
+      status: response.status,
+      body: Readable.fromWeb(response.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
+      contentType,
+      extraHeaders,
+    };
+  } catch (error) {
+    return {
+      status: isAbortError(error) ? 504 : 502,
+      body: null,
+      contentType: "application/json",
+      extraHeaders: {},
+    };
   }
 }
 
@@ -227,7 +242,7 @@ antigravityRouter.post("/tts", async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid TTS payload." });
 
-  const { status, buffer, contentType, extraHeaders } = await forwardBinary("/tts", {
+  const { status, body, contentType, extraHeaders } = await forwardBinary("/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -235,23 +250,31 @@ antigravityRouter.post("/tts", async (req, res) => {
       session_id: parsed.data.sessionId,
       use_filler: parsed.data.useFiller,
     }),
-  });
+  }, PROXY_TTS_TIMEOUT_MS);
 
-  if (!buffer) return res.status(status).json({ error: "TTS service unavailable." });
+  if (!body) return res.status(status).json({ error: "TTS service unavailable." });
 
   for (const [k, v] of Object.entries(extraHeaders)) res.setHeader(k, v);
   res.setHeader("Content-Type", contentType);
-  res.setHeader("Content-Length", buffer.length);
-  return res.status(status).send(buffer);
+  res.status(status);
+  body.on("error", () => {
+    if (!res.headersSent) res.status(502).end();
+    else res.destroy();
+  });
+  return body.pipe(res);
 });
 
 antigravityRouter.get("/tts-filler", async (_req, res) => {
-  const { status, buffer, contentType, extraHeaders } = await forwardBinary("/tts_filler");
+  const { status, body, contentType, extraHeaders } = await forwardBinary("/tts_filler", {}, PROXY_FILLER_TIMEOUT_MS);
 
-  if (!buffer) return res.status(status).json({ error: "TTS filler service unavailable." });
+  if (!body) return res.status(status).json({ error: "TTS filler service unavailable." });
 
   for (const [k, v] of Object.entries(extraHeaders)) res.setHeader(k, v);
   res.setHeader("Content-Type", contentType);
-  res.setHeader("Content-Length", buffer.length);
-  return res.status(status).send(buffer);
+  res.status(status);
+  body.on("error", () => {
+    if (!res.headersSent) res.status(502).end();
+    else res.destroy();
+  });
+  return body.pipe(res);
 });

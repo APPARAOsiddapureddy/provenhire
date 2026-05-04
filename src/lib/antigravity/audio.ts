@@ -9,10 +9,24 @@ import { CVSensor, type VisionPrediction } from "./vision";
 import { getAuthToken } from "@/lib/api";
 
 const AG_API = "/api/antigravity";
+const PROCESS_TURN_TIMEOUT_MS = 50_000;
+const TTS_TIMEOUT_MS = 20_000;
+const FILLER_TTS_TIMEOUT_MS = 10_000;
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = init.signal;
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeout));
 }
 
 export function trackInterviewEvent(
@@ -390,11 +404,11 @@ export async function processTurn(
   turnId = "",
 ) {
   const startedAt = performance.now();
-  const res = await fetch(`${AG_API}/turn`, {
+  const res = await fetchWithTimeout(`${AG_API}/turn`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ sessionId, transcript, entities, turnId }),
-  });
+  }, PROCESS_TURN_TIMEOUT_MS);
   if (!res.ok) {
     trackInterviewEvent(sessionId, "frontend_process_turn_failed", { turn_id: turnId, status: res.status, elapsed_ms: Math.round(performance.now() - startedAt) }, "frontend.audio", "error");
     throw new Error(`process_turn failed: ${res.status}`);
@@ -409,11 +423,11 @@ export async function processTurn(
 export async function prefetchAudio(text: string, sessionId?: string): Promise<string | null> {
   if (!text) return null;
   try {
-    const res = await fetch(`${AG_API}/tts`, {
+    const res = await fetchWithTimeout(`${AG_API}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ text, sessionId: sessionId ?? "" }),
-    });
+    }, TTS_TIMEOUT_MS);
     if (!res.ok) return null;
     return URL.createObjectURL(await res.blob());
   } catch { return null; }
@@ -422,7 +436,7 @@ export async function prefetchAudio(text: string, sessionId?: string): Promise<s
 export async function prefetchFillerAudio(): Promise<{ url: string | null; text: string }> {
   const fallbackText = "Interesting.";
   try {
-    const res = await fetch(`${AG_API}/tts-filler`, { headers: authHeaders() });
+    const res = await fetchWithTimeout(`${AG_API}/tts-filler`, { headers: authHeaders() }, FILLER_TTS_TIMEOUT_MS);
     const fillerText = res.headers.get("X-Filler-Text")?.trim() || fallbackText;
     if (!res.ok) return { url: null, text: fillerText };
     return { url: URL.createObjectURL(await res.blob()), text: fillerText };

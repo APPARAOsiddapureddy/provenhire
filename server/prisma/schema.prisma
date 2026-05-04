@@ -58,6 +58,7 @@ model User {
   assessmentEvents           CandidateAssessmentEvent[]
   performanceSignals         CandidatePerformanceSignal[]
   performanceSnapshot        CandidatePerformanceSnapshot?
+  antigravityHandoffs        AntigravityHandoff[]
 }
 
 /// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
@@ -550,6 +551,33 @@ model Interview {
   questionResults   InterviewQuestionResult[]
   proctoringReviews ProctoringReviewLog[]
   adminReviewQueue  AdminReviewQueue?
+  antigravityHandoff AntigravityHandoff?
+}
+
+model AntigravityHandoff {
+  id                    String    @id @default(uuid())
+  userId                String
+  interviewId           String    @unique
+  antigravitySessionId  String?
+  launchTokenHash       String    @unique
+  status                String    @default("created")
+  returnUrl             String?
+  launchPayload         Json
+  lastError             String?   @db.Text
+  expiresAt             DateTime
+  launchedAt            DateTime?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  failedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([antigravitySessionId])
+  @@index([expiresAt])
 }
 
 /// After AI interview submission: admin approves/rejects before human expert stage + payment gate.
