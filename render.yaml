@@ -18,7 +18,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: ANTIGRAVITY_API_URL
-        value: https://antigravity-backend.onrender.com
+        value: https://antigravity-backend-2oaj.onrender.com
       - key: ANTIGRAVITY_FRONTEND_URL
         value: https://antigravity-gz2r.vercel.app
       - key: ANTIGRAVITY_WEBHOOK_SECRET
