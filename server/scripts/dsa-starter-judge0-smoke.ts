@@ -5,7 +5,7 @@
  * Run from repo:
  *   cd server && npx tsx scripts/dsa-starter-judge0-smoke.ts
  *
- * Requires outbound network (default https://ce.judge0.com or JUDGE0_CE_URL).
+ * Requires Judge0 (default http://127.0.0.1:2358 or JUDGE0_BASE_URL).
  */
 import { DSA_API_LANGUAGES, type DsaApiLanguage } from "../src/constants/dsa.js";
 import { preflightCompile } from "../src/services/judge0.js";

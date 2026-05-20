@@ -74,13 +74,17 @@ async function checkHealth(): Promise<boolean> {
 }
 
 async function checkJudge0(): Promise<boolean> {
-  const base = process.env.JUDGE0_CE_URL?.replace(/\/$/, "");
+  const base = (process.env.JUDGE0_BASE_URL || process.env.JUDGE0_CE_URL || "http://127.0.0.1:2358").replace(/\/$/, "");
   if (!base) {
-    skip("ENV", "Judge0 system_info", "JUDGE0_CE_URL not set");
+    skip("ENV", "Judge0 system_info", "JUDGE0_BASE_URL not set");
     return false;
   }
   try {
-    const r = await fetch(`${base}/system_info`);
+    const headers: Record<string, string> = {};
+    if (process.env.JUDGE0_USE_AUTH === "true" && process.env.JUDGE0_AUTH_TOKEN) {
+      headers["X-Auth-Token"] = process.env.JUDGE0_AUTH_TOKEN;
+    }
+    const r = await fetch(`${base}/system_info`, { headers });
     if (r.ok) {
       pass("ENV", "Judge0 reachable");
       return true;
@@ -354,7 +358,7 @@ async function runDsa(label: string, token: string, userId: string, experienceYe
   }
 
   if (!judge0) {
-    skip(label, "DSA run-tests (Judge0 off)", "Set JUDGE0_CE_URL to run");
+    skip(label, "DSA run-tests (Judge0 off)", "Set JUDGE0_BASE_URL to run");
   } else {
     const hack = `process.stdin.resume();process.stdin.setEncoding('utf8');let i='';process.stdin.on('data',d=>i+=d);process.stdin.on('end',()=>console.log('hack'));`;
     const run = await jsonFetch("/api/verification/dsa/run-tests", {

@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -55,12 +57,21 @@ interface DSARoundStageProps {
 }
 
 type TestResultStatus =
+  | "CORRECT_ANSWER"
+  | "WRONG_ANSWER"
+  | "TLE"
+  | "MLE"
+  | "OLE"
+  | "RUNTIME_ERROR"
+  | "COMPILE_ERROR"
+  | "INTERNAL_ERROR"
   | "passed"
   | "wrong_answer"
   | "compile_error"
   | "runtime_error"
   | "time_limit_exceeded"
   | "memory_limit_exceeded"
+  | "output_limit_exceeded"
   | "internal_error";
 
 interface TestResult {
@@ -73,12 +84,21 @@ interface TestResult {
 
 function statusLabel(s?: TestResultStatus): string {
   const labels: Record<TestResultStatus, string> = {
+    CORRECT_ANSWER: "Correct Answer",
+    WRONG_ANSWER: "Wrong Answer",
+    TLE: "Time Limit Exceeded",
+    MLE: "Memory Limit Exceeded",
+    OLE: "Output Limit Exceeded",
+    RUNTIME_ERROR: "Runtime Error",
+    COMPILE_ERROR: "Compilation Error",
+    INTERNAL_ERROR: "Internal Error",
     passed: "Passed",
     wrong_answer: "Wrong Answer",
-    compile_error: "Compile Error",
+    compile_error: "Compilation Error",
     runtime_error: "Runtime Error",
     time_limit_exceeded: "Time Limit Exceeded",
     memory_limit_exceeded: "Memory Limit Exceeded",
+    output_limit_exceeded: "Output Limit Exceeded",
     internal_error: "Internal Error",
   };
   return s ? labels[s] : "";
@@ -87,11 +107,17 @@ function statusLabel(s?: TestResultStatus): string {
 function statusBadgeClass(s?: TestResultStatus, passed?: boolean): string {
   if (passed) return "bg-green-600/15 text-green-700 border-green-600/30";
   switch (s) {
+    case "COMPILE_ERROR":
     case "compile_error":
       return "bg-orange-500/15 text-orange-800 border-orange-500/30";
+    case "TLE":
+    case "MLE":
+    case "OLE":
     case "time_limit_exceeded":
     case "memory_limit_exceeded":
+    case "output_limit_exceeded":
       return "bg-amber-500/15 text-amber-900 border-amber-500/30";
+    case "INTERNAL_ERROR":
     case "internal_error":
       return "bg-muted text-muted-foreground border-border";
     default:
@@ -113,6 +139,19 @@ type ApiDSAQuestion = {
   examples: ApiDSAExample[];
   constraints: string[];
   starterCode: Record<string, string>;
+};
+
+type ApiDsaFollowUpQuestion = {
+  followUpQuestionId: string;
+  questionText: string;
+  options: Record<string, string>;
+};
+
+type PendingFollowUpSubmission = {
+  questionId: string;
+  code: string;
+  language: ProgrammingLanguage;
+  codeScore: number;
 };
 
 function defaultStarter(lang: ProgrammingLanguage): string {
@@ -286,6 +325,11 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [officialByQuestion, setOfficialByQuestion] = useState<
     Record<string, { code: string; language: ProgrammingLanguage; score: number }>
   >({});
+  const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
+  const [followUpQuestions, setFollowUpQuestions] = useState<ApiDsaFollowUpQuestion[]>([]);
+  const [followUpAnswers, setFollowUpAnswers] = useState<Record<string, string>>({});
+  const [pendingFollowUpSubmission, setPendingFollowUpSubmission] = useState<PendingFollowUpSubmission | null>(null);
+  const [submittingFollowUps, setSubmittingFollowUps] = useState(false);
   const [submitQuestionConfirmOpen, setSubmitQuestionConfirmOpen] = useState(false);
   const [submittingQuestion, setSubmittingQuestion] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -871,12 +915,13 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   const handleOfficialSubmitQuestion = async () => {
     if (!selectedQuestion) return;
-    if (officialByQuestion[selectedQuestion.id]) {
+    const questionId = selectedQuestion.id;
+    if (officialByQuestion[questionId] || pendingFollowUpSubmission?.questionId === questionId) {
       toast.info("Already submitted.");
       return;
     }
     const currentCode =
-      codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language);
+      codeByLang[questionId]?.[language] ?? getStarterForQuestion(selectedQuestion, language);
     if (!currentCode?.trim()) {
       toast.error("Write some code first");
       return;
@@ -894,7 +939,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         submitted?: boolean;
         results: Array<{ passed: boolean; status?: TestResultStatus; input?: string; expected?: string; actual?: string }>;
       }>("/api/verification/dsa/submit", {
-        questionId: selectedQuestion.id,
+        questionId,
         code: currentCode,
         language,
       });
@@ -903,19 +948,13 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         setCompileErrorPanel(resp.compileError);
         setConsoleText(resp.compileError);
         setOutputTab("console");
-        toast.error("Compilation failed — fix errors before submitting.");
-        return;
+        toast.error("Compilation failed. Answer the follow-ups to complete this question attempt.");
       }
 
       const total = resp.total ?? 0;
       const passedCount = resp.passed ?? 0;
-      const score = total > 0 ? Math.round((passedCount / total) * 100) : 0;
-
-      setOfficialByQuestion((prev) => ({
-        ...prev,
-        [selectedQuestion.id]: { code: currentCode, language, score },
-      }));
-      setScores((prev) => ({ ...prev, [selectedQuestion.id]: score }));
+      const legacyCodeScore = total > 0 ? Math.round((passedCount / total) * 100) : 0;
+      const weightedCodeScore = total > 0 ? Math.round((passedCount / total) * 70) : 0;
 
       const testResults: TestResult[] = Array.isArray(resp.results)
         ? resp.results.map((r) => ({
@@ -930,20 +969,47 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
           }))
         : [];
       setResults(testResults);
-      setConsoleText(
-        testResults
-          .map((r, i) => {
-            const label = `Case ${i + 1}`;
-            if (typeof r.actual === "string" && r.actual.trim().length > 0) {
-              return `${label}:\n${r.actual}`;
-            }
-            return `${label}: ${r.passed ? "Passed" : "Failed"}`;
-          })
-          .join("\n\n")
-      );
-      setOutputTab("results");
-      toast.success(`Submitted! Score for this question: ${score}/100`);
+      if (resp.compiledSuccessfully !== false) {
+        setConsoleText(
+          testResults
+            .map((r, i) => {
+              const label = `Case ${i + 1}`;
+              if (typeof r.actual === "string" && r.actual.trim().length > 0) {
+                return `${label}:\n${r.actual}`;
+              }
+              return `${label}: ${r.passed ? "Passed" : "Failed"}`;
+            })
+            .join("\n\n")
+        );
+        setOutputTab("results");
+      }
       setSubmitQuestionConfirmOpen(false);
+
+      const followUpResp = await api.get<{ followUps: ApiDsaFollowUpQuestion[] }>(
+        `/api/verification/followUp/${encodeURIComponent(questionId)}`
+      );
+      const followUps = Array.isArray(followUpResp.followUps) ? followUpResp.followUps : [];
+
+      if (followUps.length === 0) {
+        setOfficialByQuestion((prev) => ({
+          ...prev,
+          [questionId]: { code: currentCode, language, score: legacyCodeScore },
+        }));
+        setScores((prev) => ({ ...prev, [questionId]: legacyCodeScore }));
+        toast.success(`Submitted! Score for this question: ${legacyCodeScore}/100`);
+        return;
+      }
+
+      setFollowUpQuestions(followUps);
+      setFollowUpAnswers({});
+      setPendingFollowUpSubmission({
+        questionId,
+        code: currentCode,
+        language,
+        codeScore: weightedCodeScore,
+      });
+      setFollowUpDialogOpen(true);
+      toast.info("Answer all follow-up questions to complete this problem.");
     } catch (err: unknown) {
       if (isDsaApi403(err)) {
         setDsaSession403Recovery(true);
@@ -961,12 +1027,61 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     }
   };
 
+  const handleSubmitFollowUps = async () => {
+    if (!pendingFollowUpSubmission) return;
+    const missing = followUpQuestions.filter((q) => !followUpAnswers[q.followUpQuestionId]);
+    if (missing.length > 0) {
+      toast.error("Answer all follow-up questions before submitting.");
+      return;
+    }
+
+    setSubmittingFollowUps(true);
+    try {
+      const resp = await api.post<{
+        correctCount: number;
+        totalCount: number;
+        followUpScore: number;
+        followUpPercentage: number;
+      }>(`/api/verification/followUp/${encodeURIComponent(pendingFollowUpSubmission.questionId)}`, {
+        answers: followUpAnswers,
+      });
+
+      const finalScore = Math.min(
+        100,
+        Math.max(0, pendingFollowUpSubmission.codeScore + Math.min(30, Math.max(0, resp.followUpScore ?? 0)))
+      );
+      setOfficialByQuestion((prev) => ({
+        ...prev,
+        [pendingFollowUpSubmission.questionId]: {
+          code: pendingFollowUpSubmission.code,
+          language: pendingFollowUpSubmission.language,
+          score: finalScore,
+        },
+      }));
+      setScores((prev) => ({ ...prev, [pendingFollowUpSubmission.questionId]: finalScore }));
+      setFollowUpDialogOpen(false);
+      setFollowUpQuestions([]);
+      setFollowUpAnswers({});
+      setPendingFollowUpSubmission(null);
+      toast.success(
+        `Question completed. Follow-ups: ${resp.correctCount}/${resp.totalCount}. Score: ${finalScore}/100.`
+      );
+    } catch (err: unknown) {
+      const ax = err as Error & { response?: { data?: { error?: string } } };
+      const msg = ax.response?.data?.error ?? (err instanceof Error ? err.message : "Could not submit follow-ups.");
+      toast.error(msg);
+    } finally {
+      setSubmittingFollowUps(false);
+    }
+  };
+
   const ELIGIBILITY_THRESHOLD = dsaPassThreshold;
   // Include local hasFailed so the failed UI shows immediately after a zero-score submission
   // without needing the parent to reload stage status from the server
   const isFailed = stageStatus === "failed" || hasFailed;
   const isLastQuestion = currentIndex === questions.length - 1;
   const isFirstQuestion = currentIndex === 0;
+  const hasPendingFollowUp = pendingFollowUpSubmission != null;
 
   useEffect(() => {
     return () => {
@@ -1517,6 +1632,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                       Submitted
                     </Badge>
                   )}
+                  {pendingFollowUpSubmission?.questionId === selectedQuestion.id && (
+                    <Badge className="gap-1 bg-amber-500/15 text-amber-900 border-amber-500/30">
+                      <CircleHelp className="h-3 w-3" />
+                      Follow-ups pending
+                    </Badge>
+                  )}
                 </h3>
                 <p className="mt-2 text-sm whitespace-pre-wrap">{selectedQuestion.description}</p>
               </div>
@@ -1572,7 +1693,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                 codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language)
               }
               onChange={(v) => {
-                if (officialByQuestion[selectedQuestion.id]) return;
+                if (officialByQuestion[selectedQuestion.id] || pendingFollowUpSubmission?.questionId === selectedQuestion.id) return;
                 setCodeByLang((prev) => ({
                   ...prev,
                   [selectedQuestion.id]: {
@@ -1581,7 +1702,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   },
                 }));
               }}
-              readOnly={!!officialByQuestion[selectedQuestion.id]}
+              readOnly={!!officialByQuestion[selectedQuestion.id] || pendingFollowUpSubmission?.questionId === selectedQuestion.id}
               language={language}
               height="360px"
             />
@@ -1601,7 +1722,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                     setConsoleText("");
                     setOutputTab("results");
                   }}
-                  disabled={isFirstQuestion || (inTest && !effectivelyFullScreen)}
+                  disabled={isFirstQuestion || hasPendingFollowUp || (inTest && !effectivelyFullScreen)}
                 >
                   <ChevronLeft className="h-4 w-4 mr-2" />
                   Previous
@@ -1611,6 +1732,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   onClick={runTests}
                   disabled={
                     running ||
+                    hasPendingFollowUp ||
                     (inTest && !effectivelyFullScreen) ||
                     !!officialByQuestion[selectedQuestion.id]
                   }
@@ -1630,6 +1752,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   onClick={() => setSubmitQuestionConfirmOpen(true)}
                   disabled={
                     submittingQuestion ||
+                    hasPendingFollowUp ||
                     (inTest && !effectivelyFullScreen) ||
                     !!officialByQuestion[selectedQuestion.id]
                   }
@@ -1657,7 +1780,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                       setConsoleText("");
                       setOutputTab("results");
                     }}
-                    disabled={inTest && !effectivelyFullScreen}
+                    disabled={hasPendingFollowUp || (inTest && !effectivelyFullScreen)}
                   >
                     Next question
                     <ChevronRight className="h-4 w-4 ml-2" />
@@ -1669,7 +1792,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   variant={isLastQuestion ? "default" : "outline"}
                   className="font-medium"
                   onClick={() => setSubmitConfirmOpen(true)}
-                  disabled={submitting || (inTest && !effectivelyFullScreen)}
+                  disabled={submitting || hasPendingFollowUp || (inTest && !effectivelyFullScreen)}
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                   Submit entire round
@@ -1742,6 +1865,88 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                       </>
                     ) : (
                       "Yes, submit"
+                    )}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+              open={followUpDialogOpen}
+              onOpenChange={(open) => {
+                if (open) {
+                  setFollowUpDialogOpen(true);
+                  return;
+                }
+                if (pendingFollowUpSubmission) {
+                  toast.info("Answer all follow-up questions to complete this submitted problem.");
+                  return;
+                }
+                setFollowUpDialogOpen(false);
+              }}
+            >
+              <AlertDialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Answer follow-up questions</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    These questions check your understanding of the solution. Answer all questions to complete this problem.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+
+                <div className="space-y-5">
+                  {followUpQuestions.map((fq, idx) => (
+                    <div key={fq.followUpQuestionId} className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <Badge variant="outline">Q{idx + 1}</Badge>
+                        <p className="text-sm font-medium leading-6">{fq.questionText}</p>
+                      </div>
+                      <RadioGroup
+                        value={followUpAnswers[fq.followUpQuestionId] ?? ""}
+                        onValueChange={(value) =>
+                          setFollowUpAnswers((prev) => ({
+                            ...prev,
+                            [fq.followUpQuestionId]: value,
+                          }))
+                        }
+                        className="grid gap-2"
+                      >
+                        {Object.entries(fq.options).map(([key, option]) => (
+                          <Label
+                            key={key}
+                            htmlFor={`${fq.followUpQuestionId}-${key}`}
+                            className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background p-3 text-sm hover:bg-muted/50"
+                          >
+                            <RadioGroupItem
+                              id={`${fq.followUpQuestionId}-${key}`}
+                              value={key}
+                              className="mt-0.5"
+                            />
+                            <span>
+                              <span className="font-semibold">{key}.</span> {option}
+                            </span>
+                          </Label>
+                        ))}
+                      </RadioGroup>
+                    </div>
+                  ))}
+                </div>
+
+                <AlertDialogFooter>
+                  <Button
+                    onClick={() => void handleSubmitFollowUps()}
+                    disabled={
+                      submittingFollowUps ||
+                      followUpQuestions.length === 0 ||
+                      followUpQuestions.some((fq) => !followUpAnswers[fq.followUpQuestionId])
+                    }
+                  >
+                    {submittingFollowUps ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Submitting...
+                      </>
+                    ) : (
+                      "Submit follow-ups"
                     )}
                   </Button>
                 </AlertDialogFooter>

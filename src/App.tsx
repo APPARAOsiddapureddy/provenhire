@@ -44,6 +44,7 @@ const CandidateProfilePage = lazy(() => import("./pages/dashboard/CandidateProfi
 const ApplicantsPage = lazy(() => import("./pages/dashboard/ApplicantsPage"));
 const AssignmentAIDocs = lazy(() => import("./pages/dashboard/AssignmentAIDocs"));
 const VerificationFlow = lazy(() => import("./pages/verification/VerificationFlow"));
+const DSARoundStage = lazy(() => import("./pages/verification/stages/DSARoundStage"));
 const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
 const InterviewerCareers = lazy(() => import("./pages/careers/InterviewerCareers"));
 const InterviewRoom = lazy(() => import("./pages/interview/InterviewRoom"));
@@ -113,6 +114,23 @@ const RouteChunkPrefetch = () => {
     return () => globalThis.clearTimeout(timer);
   }, []);
   return null;
+};
+// This is a temporary route for development purposes only
+const DsaRoundDevRoute = () => {
+  const navigate = useNavigate();
+
+  return (
+    <div className="min-h-screen bg-gradient-subtle p-3 sm:p-6">
+      <DSARoundStage
+        stageStatus="in_progress"
+        onComplete={() => navigate("/verification")}
+        onRetry={() => window.location.reload()}
+        targetJobTitle="Software Engineer"
+        experienceYears={2}
+        nextStageLabel="AI Skills Interview"
+      />
+    </div>
+  );
 };
 
 const App = () => (
@@ -260,6 +278,16 @@ const App = () => (
                   </ProtectedRoute>
                 } 
               />
+              {import.meta.env.DEV && (
+                <Route
+                  path="/dsa-round"
+                  element={
+                    <ProtectedRoute allowedRole="jobseeker">
+                      <DsaRoundDevRoute />
+                    </ProtectedRoute>
+                  }
+                />
+              )}
               <Route
                 path="/human-interview/payment"
                 element={

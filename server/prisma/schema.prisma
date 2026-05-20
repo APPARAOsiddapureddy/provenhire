@@ -404,7 +404,8 @@ model DsaQuestion {
   starterCode Json // { javascript: string, python: string, ... }
   createdAt   DateTime @default(now())
 
-  testCases DsaTestCase[]
+  testCases         DsaTestCase[]
+  followUpQuestions DsaFollowUpQuestion[]
 }
 
 model DsaTestCase {
@@ -421,6 +422,22 @@ model DsaTestCase {
   @@index([questionId])
 }
 
+model DsaFollowUpQuestion {
+  id                 String   @id @default(cuid())
+  questionId         String
+  followUpQuestionId String
+  questionText       String   @db.Text
+  options            Json
+  correctOptionText  String   @db.Text
+  explanation        String?  @db.Text
+  createdAt          DateTime @default(now())
+
+  question DsaQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, followUpQuestionId])
+  @@index([questionId, followUpQuestionId])
+}
+
 model DsaSubmission {
   id          String   @id @default(cuid())
   userId      String
@@ -431,6 +448,8 @@ model DsaSubmission {
   totalCount  Int
   isOfficial  Boolean  @default(false)
   results     Json
+  followUpScore   Int?
+  followUpResults Json?
   submittedAt DateTime @default(now())
 
   @@index([userId, questionId])

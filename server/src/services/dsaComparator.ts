@@ -1,4 +1,13 @@
-import { ExpectedType, JUDGE0_STATUS, TestResultStatus } from "../constants/dsa.js";
+import { DSA_DEFAULT_MEMORY_LIMIT, JUDGE0_STATUS, type ExpectedType, type TestResultStatus } from "../constants/dsa.js";
+
+type Judge0StatusLike = {
+  status?: { id: number; description?: string };
+  stdout?: string | null;
+  stderr?: string | null;
+  compile_output?: string | null;
+  message?: string | null;
+  memory?: number | null;
+};
 
 /** Normalize exact string output (line endings, trim, collapse horizontal whitespace/newlines). */
 export function normalizeExact(raw: string): string {
@@ -111,14 +120,88 @@ export function compareOutput(actual: string, expected: string, type: ExpectedTy
   }
 }
 
-/** Map Judge0 status to user-facing execution failure (not used when status is ACCEPTED and we compare locally). */
+function joinedSignal(result: Judge0StatusLike): string {
+  return [
+    result.status?.description,
+    result.message,
+    result.stderr,
+    result.compile_output,
+    result.stdout,
+  ]
+    .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+    .join("\n")
+    .toLowerCase();
+}
+
+function hasOutputLimitSignal(signal: string): boolean {
+  return (
+    /\bsigxfsz\b/.test(signal) ||
+    /file too large/.test(signal) ||
+    /file size limit/.test(signal) ||
+    /output limit/.test(signal) ||
+    /max(?:imum)? file size/.test(signal) ||
+    /too much output/.test(signal)
+  );
+}
+
+function hasCompileSignal(signal: string): boolean {
+  return (
+    /syntaxerror/.test(signal) ||
+    /indentationerror/.test(signal) ||
+    /taberror/.test(signal) ||
+    /compilation error/.test(signal) ||
+    /compile error/.test(signal)
+  );
+}
+
+function hasMemoryLimitSignal(signal: string): boolean {
+  return (
+    /memory limit/.test(signal) ||
+    /out ?of ?memory/.test(signal) ||
+    /outofmemoryerror/.test(signal) ||
+    /memoryerror/.test(signal) ||
+    /std::bad_alloc/.test(signal) ||
+    /cannot allocate memory/.test(signal) ||
+    /allocation failed/.test(signal)
+  );
+}
+
+function isNearMemoryLimit(memoryKb: number | null | undefined): boolean {
+  if (typeof memoryKb !== "number" || !Number.isFinite(memoryKb) || memoryKb <= 0) return false;
+  return memoryKb >= DSA_DEFAULT_MEMORY_LIMIT * 0.95;
+}
+
+/**
+ * Maps Judge0 execution results to product-level statuses.
+ * Judge0 CE does not expose first-class MLE/OLE status IDs in the standard 1-14 set.
+ * OLE is strongest when status 8/SIGXFSZ appears. MLE is inferred only from explicit
+ * memory signals or high reported memory on a runtime failure to avoid misleading users.
+ */
+export function mapJudge0ResultToTestStatus(result: Judge0StatusLike): TestResultStatus {
+  const statusId = result.status?.id ?? 0;
+  const signal = joinedSignal(result);
+
+  if (statusId === JUDGE0_STATUS.ACCEPTED) return "CORRECT_ANSWER";
+  if (statusId === JUDGE0_STATUS.WRONG_ANSWER) return "WRONG_ANSWER";
+  if (statusId === JUDGE0_STATUS.TIME_LIMIT_EXCEEDED) return "TLE";
+  if (statusId === JUDGE0_STATUS.COMPILATION_ERROR) return "COMPILE_ERROR";
+  if (statusId === JUDGE0_STATUS.INTERNAL_ERROR) return "INTERNAL_ERROR";
+  if (statusId === JUDGE0_STATUS.EXEC_FORMAT_ERROR) return "INTERNAL_ERROR";
+  if (hasCompileSignal(signal)) return "COMPILE_ERROR";
+
+  if (statusId === JUDGE0_STATUS.RUNTIME_ERROR_SIGXFSZ || hasOutputLimitSignal(signal)) return "OLE";
+
+  if (statusId >= 7 && statusId <= 12) {
+    if (hasMemoryLimitSignal(signal) || isNearMemoryLimit(result.memory)) return "MLE";
+    return "RUNTIME_ERROR";
+  }
+
+  if (hasOutputLimitSignal(signal)) return "OLE";
+  if (hasMemoryLimitSignal(signal)) return "MLE";
+  return "INTERNAL_ERROR";
+}
+
+/** Backward-compatible helper for older call sites that only pass a Judge0 status id. */
 export function mapJudge0StatusToTestStatus(statusId: number): TestResultStatus {
-  if (statusId === JUDGE0_STATUS.ACCEPTED) return "passed";
-  if (statusId === JUDGE0_STATUS.COMPILATION_ERROR) return "compile_error";
-  if (statusId === JUDGE0_STATUS.TIME_LIMIT_EXCEEDED) return "time_limit_exceeded";
-  if (statusId === JUDGE0_STATUS.EXEC_FORMAT_ERROR) return "memory_limit_exceeded";
-  if (statusId >= 7 && statusId <= 12) return "runtime_error";
-  if (statusId === JUDGE0_STATUS.INTERNAL_ERROR) return "internal_error";
-  if (statusId === JUDGE0_STATUS.WRONG_ANSWER) return "wrong_answer";
-  return "wrong_answer";
+  return mapJudge0ResultToTestStatus({ status: { id: statusId } });
 }

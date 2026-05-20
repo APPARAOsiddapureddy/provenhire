@@ -38,6 +38,25 @@ const TestCaseSchema = z
     }
   });
 
+const FollowUpQuestionSchema = z
+  .object({
+    followUpQuestionId: z.string().min(1).optional(),
+    question: z.string().min(1).optional(),
+    questionText: z.string().min(1).optional(),
+    options: z.union([z.array(z.string().min(1)).length(4), z.record(z.string().min(1))]),
+    correctAnswer: z.string().min(1).optional(),
+    correctOptionText: z.string().min(1).optional(),
+    explanation: z.string().optional(),
+  })
+  .superRefine((row, ctx) => {
+    if (!row.question && !row.questionText) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Follow-up question text is required" });
+    }
+    if (!row.correctAnswer && !row.correctOptionText) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Follow-up correct answer is required" });
+    }
+  });
+
 const QuestionSchema = z
   .object({
     id: z.string().min(1),
@@ -48,6 +67,7 @@ const QuestionSchema = z
     constraints: z.array(z.string()).default([]),
     starterCode: z.record(z.string()),
     testCases: z.array(TestCaseSchema).min(6, "Each question must have at least 6 test cases (2 public + 4 hidden)"),
+    followUpQuestions: z.array(FollowUpQuestionSchema).default([]),
   })
   .superRefine((q, ctx) => {
     for (const lang of REQUIRED_LANGS) {
@@ -63,10 +83,34 @@ const QuestionSchema = z
   });
 
 type SeedQuestion = z.infer<typeof QuestionSchema>;
+type SeedFollowUpQuestion = z.infer<typeof FollowUpQuestionSchema>;
 
 /** First two test cases are visible; all others are hidden. */
 function computeIsHidden(index: number): boolean {
   return index >= 2;
+}
+
+function optionKey(index: number): string {
+  return String.fromCharCode("A".charCodeAt(0) + index);
+}
+
+function normalizeFollowUpOptions(raw: SeedFollowUpQuestion["options"]): Record<string, string> {
+  if (Array.isArray(raw)) {
+    return raw.reduce<Record<string, string>>((acc, option, index) => {
+      acc[optionKey(index)] = option;
+      return acc;
+    }, {});
+  }
+  return raw;
+}
+
+function resolveCorrectOptionText(followUp: SeedFollowUpQuestion, options: Record<string, string>): string {
+  const explicit = followUp.correctOptionText?.trim();
+  if (explicit) return explicit;
+
+  const raw = followUp.correctAnswer?.trim() ?? "";
+  const byKey = options[raw.toUpperCase()];
+  return byKey ?? raw;
 }
 
 /** 1-based question index for startersForQuestionNumber (bank ids: DSA_NEW_001 …). */
@@ -156,6 +200,7 @@ async function loadSourceQuestions(): Promise<SeedQuestion[]> {
         expectedType: tc.expectedType,
         timeoutMs: tc.timeoutMs,
       })),
+      followUpQuestions: q.followUpQuestions ?? [],
     });
     if (!parsed.success) {
       console.warn(`[seed:dsa] Skipping invalid question "${q?.title ?? q?.id}":`, parsed.error.flatten());
@@ -179,6 +224,7 @@ async function main() {
 
   const questionIds = allQuestions.map((q) => q.id);
 
+  await prisma.dsaFollowUpQuestion.deleteMany({ where: { questionId: { in: questionIds } } });
   await prisma.dsaTestCase.deleteMany({ where: { questionId: { in: questionIds } } });
 
   for (const q of allQuestions) {
@@ -212,6 +258,14 @@ async function main() {
     expectedType: string;
     timeoutMs: number | null;
   }> = [];
+  const followUpRows: Array<{
+    questionId: string;
+    followUpQuestionId: string;
+    questionText: string;
+    options: Record<string, string>;
+    correctOptionText: string;
+    explanation: string | null;
+  }> = [];
 
   for (const q of allQuestions) {
     const tcs = q.testCases;
@@ -227,13 +281,30 @@ async function main() {
         timeoutMs: tc.timeoutMs ?? null,
       });
     }
+
+    for (let i = 0; i < q.followUpQuestions.length; i++) {
+      const followUp = q.followUpQuestions[i]!;
+      const options = normalizeFollowUpOptions(followUp.options);
+      followUpRows.push({
+        questionId: q.id,
+        followUpQuestionId: followUp.followUpQuestionId ?? `FQ${i + 1}`,
+        questionText: followUp.questionText ?? followUp.question!,
+        options,
+        correctOptionText: resolveCorrectOptionText(followUp, options),
+        explanation: followUp.explanation ?? null,
+      });
+    }
   }
 
   if (testCaseRows.length > 0) {
     await prisma.dsaTestCase.createMany({ data: testCaseRows });
   }
+  if (followUpRows.length > 0) {
+    await prisma.dsaFollowUpQuestion.createMany({ data: followUpRows });
+  }
 
   console.log(`Seeded ${testCaseRows.length} DSA test cases.`);
+  console.log(`Seeded ${followUpRows.length} DSA follow-up questions.`);
   await prisma.$disconnect();
 }
 

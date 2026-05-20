@@ -35,7 +35,7 @@ const apiHealthProxy = () => ({
     const handle = (req: any, res: any, next: () => void) => {
       const url = req.url?.split("?")[0] ?? "";
       if (url === "/api/health") {
-        const target = process.env.VITE_API_PROXY_TARGET || "http://localhost:10000";
+        const target = process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:10000";
         const ac = new AbortController();
         const timeoutId = setTimeout(() => ac.abort(), 5000);
         const done = () => {
@@ -127,7 +127,7 @@ export default defineConfig(({ mode }) => ({
     },
     proxy: {
       "/api": {
-        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        target: process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:10000",
         changeOrigin: true,
         secure: false,
         configure: (proxy: any) => {
@@ -140,12 +140,12 @@ export default defineConfig(({ mode }) => ({
         },
       },
       "/uploads": {
-        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        target: process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:10000",
         changeOrigin: true,
         secure: false,
       },
       "/health": {
-        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        target: process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:10000",
         changeOrigin: true,
         secure: false,
         configure: (proxy: any) => {
@@ -158,17 +158,17 @@ export default defineConfig(({ mode }) => ({
         },
       },
       "/ping": {
-        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        target: process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:10000",
         changeOrigin: true,
         secure: false,
       },
       "/diagnostic": {
-        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        target: process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:10000",
         changeOrigin: true,
         secure: false,
       },
       "/socket.io": {
-        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:10000",
+        target: process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:10000",
         changeOrigin: true,
         secure: false,
         ws: true,

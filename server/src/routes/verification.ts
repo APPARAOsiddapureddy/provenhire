@@ -64,10 +64,13 @@ import { gatePaidVerificationStageInProgress } from "../services/verificationSta
 import { gateNonTechAssignmentSubmit, nextNonTechAssignmentPaidCooldownBoundary } from "../services/candidateRetake.service.js";
 import { isObjectStorageConfigured, uploadObject } from "../services/storage.service.js";
 import { UPLOADS_DIR } from "./uploads.js";
+import { dsaFollowUpsRouter } from "./dsaFollowUps.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
 export const verificationRouter = Router();
+verificationRouter.use("/followUps", dsaFollowUpsRouter);
+verificationRouter.use("/followUp", dsaFollowUpsRouter);
 
 const nonTechAssignmentUpload = multer({
   storage: multer.memoryStorage(),
@@ -365,6 +368,15 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
 
 /** Ensure DSA round is in_progress when prerequisites are completed (aptitude/cs fund or profile for mid/senior). */
 async function ensureDsaRoundActiveForOfficialApis(userId: string): Promise<boolean> {
+  // TEMPORARY TESTING BYPASS:
+  // This allows direct DSA round testing without completing aptitude / prerequisite stages.
+  // Remove this return and uncomment/restore the normal gate below after DSA Judge0 testing is done.
+  void userId;
+  return true;
+
+  /*
+  NORMAL DSA GATE - UNCOMMENT AFTER TESTING.
+
   const already = await prisma.verificationStage.findFirst({
     where: { userId, stageName: "dsa_round", status: "in_progress" },
   });
@@ -422,6 +434,7 @@ async function ensureDsaRoundActiveForOfficialApis(userId: string): Promise<bool
     }
   }
   return false;
+  */
 }
 
 verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
@@ -1193,27 +1206,63 @@ function getCombinedDistribution(jobTitle: string | null | undefined, experience
   return { easy: blend(roleDist.easy, expDist.easy), medium: blend(roleDist.medium, expDist.medium), hard: blend(roleDist.hard, expDist.hard) };
 }
 
-/** Aggregate 0–100 score from latest official submission per question (Judge0 results). */
-async function computeOfficialDsaRoundScoreFromDb(userId: string): Promise<number | null> {
+async function latestOfficialDsaSubmissionRows(userId: string): Promise<Array<{
+  questionId: string;
+  passedCount: number;
+  totalCount: number;
+  followUpScore: number | null;
+}>> {
   const subs = await prisma.dsaSubmission.findMany({
     where: { userId, isOfficial: true },
     orderBy: { submittedAt: "desc" },
-    select: { questionId: true, passedCount: true, totalCount: true },
+    select: { questionId: true, passedCount: true, totalCount: true, followUpScore: true },
   });
-  if (subs.length === 0) return null;
-  const byQ = new Map<string, { passed: number; total: number }>();
+  const byQ = new Map<string, { passed: number; total: number; followUpScore: number | null }>();
   for (const s of subs) {
     if (!byQ.has(s.questionId)) {
-      byQ.set(s.questionId, { passed: s.passedCount, total: s.totalCount });
+      byQ.set(s.questionId, { passed: s.passedCount, total: s.totalCount, followUpScore: s.followUpScore });
     }
   }
-  if (byQ.size === 0) return null;
+  return Array.from(byQ.entries()).map(([questionId, row]) => ({
+    questionId,
+    passedCount: row.passed,
+    totalCount: row.total,
+    followUpScore: row.followUpScore,
+  }));
+}
+
+async function officialQuestionIdsMissingFollowUps(userId: string): Promise<string[]> {
+  const latest = await latestOfficialDsaSubmissionRows(userId);
+  const questionIds = latest.map((s) => s.questionId);
+  if (questionIds.length === 0) return [];
+
+  const followUps = await prisma.dsaFollowUpQuestion.findMany({
+    where: { questionId: { in: questionIds } },
+    select: { questionId: true },
+  });
+  const questionsWithFollowUps = new Set(followUps.map((f) => f.questionId));
+  if (questionsWithFollowUps.size === 0) return [];
+
+  return latest
+    .filter((s) => questionsWithFollowUps.has(s.questionId) && s.followUpScore == null)
+    .map((s) => s.questionId);
+}
+
+/** Aggregate 0–100 score from latest official submission per question (Judge0 + follow-ups when present). */
+async function computeOfficialDsaRoundScoreFromDb(userId: string): Promise<number | null> {
+  const latest = await latestOfficialDsaSubmissionRows(userId);
+  if (latest.length === 0) return null;
   let sum = 0;
-  for (const { passed, total } of byQ.values()) {
-    if (total <= 0) continue;
-    sum += Math.round((passed / total) * 100);
+  for (const { passedCount, totalCount, followUpScore } of latest) {
+    if (totalCount <= 0) continue;
+    if (followUpScore != null) {
+      const codeScore = Math.round((passedCount / totalCount) * 70);
+      sum += Math.min(100, Math.max(0, codeScore + Math.min(30, Math.max(0, followUpScore))));
+    } else {
+      sum += Math.round((passedCount / totalCount) * 100);
+    }
   }
-  return Math.round(sum / byQ.size);
+  return Math.round(sum / latest.length);
 }
 
 function shuffleDsaPool<T>(items: T[]): T[] {
@@ -1310,15 +1359,22 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
     } else {
       const tier = experienceTierFromYears(profile?.experienceYears);
       const cfg = dsaTierConfig(tier);
-      const computed = await computeOfficialDsaRoundScoreFromDb(userId);
-      if (computed == null) {
-        return res.status(400).json({ error: "No official submissions found. Submit every problem before finishing the round." });
-      }
       const distinct = new Set(official.map((o) => o.questionId));
       if (distinct.size < cfg.questionCount) {
         return res.status(400).json({
           error: `Submit official solutions for all ${cfg.questionCount} problems before finishing the round.`,
         });
+      }
+      const missingFollowUps = await officialQuestionIdsMissingFollowUps(userId);
+      if (missingFollowUps.length > 0) {
+        return res.status(400).json({
+          error: "Answer follow-up questions for every submitted DSA problem before finishing the round.",
+          missingFollowUpQuestionIds: missingFollowUps,
+        });
+      }
+      const computed = await computeOfficialDsaRoundScoreFromDb(userId);
+      if (computed == null) {
+        return res.status(400).json({ error: "No official submissions found. Submit every problem before finishing the round." });
       }
       dsaScore = computed;
     }
@@ -2544,6 +2600,7 @@ conn.close()
 
     // Execute via Judge0 — submitBatch(code, language, testInputs) returns Judge0Result[]
     const { submitBatch, extractActualOutput } = await import("../services/judge0.js");
+    const { mapJudge0ResultToTestStatus } = await import("../services/dsaComparator.js");
 
     const testCases = task.testCases || [];
     let passedCount = 0;
@@ -2562,11 +2619,20 @@ conn.close()
         const stdout = j0 ? extractActualOutput(j0).trim() : "";
         const expected = (tc.expected || "").trim();
         const passed = stdout === expected;
+        const statusId = j0?.status?.id ?? 0;
+        const status =
+          passed
+            ? "CORRECT_ANSWER"
+            : statusId === 3 || statusId === 4
+              ? "WRONG_ANSWER"
+              : j0
+                ? mapJudge0ResultToTestStatus(j0)
+                : "INTERNAL_ERROR";
         if (passed) passedCount++;
         resultList.push({
           passed,
-          status: passed ? "passed" : j0?.status?.id === 6 ? "compilation_error" : "wrong_answer",
-          actual: !tc.isHidden ? stdout : undefined,
+          status,
+          actual: !tc.isHidden ? stdout.slice(0, 4000) : undefined,
           expected: !tc.isHidden ? expected : undefined,
         });
       }
@@ -2574,7 +2640,7 @@ conn.close()
       for (const tc of testCases) {
         resultList.push({
           passed: false,
-          status: "internal_error",
+          status: "INTERNAL_ERROR",
           actual: execErr instanceof Error ? execErr.message : "Execution error",
         });
       }

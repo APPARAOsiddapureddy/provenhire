@@ -21,14 +21,32 @@ export const DSA_RUN_RATE_LIMIT = {
   PER_HOUR: 30,
 } as const;
 
+function intFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === "") return fallback;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function floatFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export const JUDGE0_POLL = {
-  MAX_ATTEMPTS: 20,
-  INTERVAL_MS: 500,
+  MAX_ATTEMPTS: intFromEnv("JUDGE0_MAX_POLL_ATTEMPTS", 60),
+  INTERVAL_MS: intFromEnv("JUDGE0_POLL_INTERVAL_MS", 500),
 } as const;
 
-export const DSA_DEFAULT_TIMEOUT_MS = parseInt(process.env.DSA_DEFAULT_TIMEOUT_MS ?? "5000", 10);
-export const DSA_DEFAULT_MEMORY_LIMIT = 256000; // KB
-export const DSA_WALL_TIME_LIMIT = 10; // seconds
+export const DSA_DEFAULT_TIMEOUT_MS = intFromEnv("DSA_DEFAULT_TIMEOUT_MS", 5000);
+export const DSA_DEFAULT_CPU_TIME_LIMIT_SECONDS = floatFromEnv("JUDGE0_CPU_TIME_LIMIT_SECONDS", 5);
+export const DSA_DEFAULT_MEMORY_LIMIT = intFromEnv("JUDGE0_MEMORY_LIMIT_KB", 256000); // KB
+export const DSA_WALL_TIME_LIMIT = floatFromEnv("JUDGE0_WALL_TIME_LIMIT_SECONDS", 10); // seconds
+export const DSA_STACK_LIMIT = intFromEnv("JUDGE0_STACK_LIMIT_KB", 64000); // KB
+export const DSA_MAX_FILE_SIZE = intFromEnv("JUDGE0_MAX_FILE_SIZE_KB", 1024); // KB
+export const DSA_MAX_PROCESSES_AND_THREADS = intFromEnv("JUDGE0_MAX_PROCESSES_AND_THREADS", 60);
 
 export const DSA_QUESTIONS_COUNT = parseInt(process.env.DSA_QUESTIONS_COUNT ?? "3", 10);
 
@@ -39,13 +57,14 @@ export const DSA_PRACTICE_COUNT = 2;
 export type ExpectedType = "exact" | "numeric" | "array" | "set";
 
 export type TestResultStatus =
-  | "passed"
-  | "wrong_answer"
-  | "compile_error"
-  | "runtime_error"
-  | "time_limit_exceeded"
-  | "memory_limit_exceeded"
-  | "internal_error";
+  | "CORRECT_ANSWER"
+  | "WRONG_ANSWER"
+  | "TLE"
+  | "MLE"
+  | "OLE"
+  | "RUNTIME_ERROR"
+  | "COMPILE_ERROR"
+  | "INTERNAL_ERROR";
 
 // Judge0 status IDs (CE)
 export const JUDGE0_STATUS = {
