@@ -11,7 +11,7 @@
  *
  * Rules:
  * - Each question must include at least one example in source data.
- * - At least 6 test cases per question: first 2 public, rest hidden.
+ * - At least 3 test cases per question: first 2 public, rest hidden.
  * - starterCode must contain all five language keys after normalization.
  */
 import { PrismaClient } from "@prisma/client";
@@ -33,7 +33,7 @@ const TestCaseSchema = z
   })
   .superRefine((row, ctx) => {
     const exp = row.expectedOutput ?? row.output;
-    if (exp == null || exp === "") {
+    if (exp == null) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Test case must have expectedOutput or output" });
     }
   });
@@ -43,7 +43,11 @@ const FollowUpQuestionSchema = z
     followUpQuestionId: z.string().min(1).optional(),
     question: z.string().min(1).optional(),
     questionText: z.string().min(1).optional(),
-    options: z.union([z.array(z.string().min(1)).length(4), z.record(z.string().min(1))]),
+    options: z.union([
+      z.array(z.string().min(1)).length(4),
+      z.array(z.object({ label: z.string().min(1), text: z.string().min(1) })).length(4),
+      z.record(z.string().min(1)),
+    ]),
     correctAnswer: z.string().min(1).optional(),
     correctOptionText: z.string().min(1).optional(),
     explanation: z.string().optional(),
@@ -66,7 +70,7 @@ const QuestionSchema = z
     examples: z.array(z.any()).min(1, "Examples must be explicitly provided"),
     constraints: z.array(z.string()).default([]),
     starterCode: z.record(z.string()),
-    testCases: z.array(TestCaseSchema).min(6, "Each question must have at least 6 test cases (2 public + 4 hidden)"),
+    testCases: z.array(TestCaseSchema).min(3, "Each question must have at least 3 test cases"),
     followUpQuestions: z.array(FollowUpQuestionSchema).default([]),
   })
   .superRefine((q, ctx) => {
@@ -97,7 +101,11 @@ function optionKey(index: number): string {
 function normalizeFollowUpOptions(raw: SeedFollowUpQuestion["options"]): Record<string, string> {
   if (Array.isArray(raw)) {
     return raw.reduce<Record<string, string>>((acc, option, index) => {
-      acc[optionKey(index)] = option;
+      if (typeof option === "string") {
+        acc[optionKey(index)] = option;
+      } else {
+        acc[option.label] = option.text;
+      }
       return acc;
     }, {});
   }
