@@ -36,6 +36,9 @@ model User {
   aptitudeResults            AptitudeTestResult[]
   aptitudeSessions           AptitudeSession[]
   dsaResults                 DsaRoundResult[]
+  dsaRoundSessions           DsaRoundSession[]
+  dsaCodeSessions            DsaCodeSession[]
+  dsaFollowUpSessions        DsaFollowUpSession[]
   dataRoundResults           DataRoundResult[]
   notifications              Notification[]
   appeals                    Appeal[]
@@ -386,12 +389,14 @@ model AptitudeSession {
 model DsaRoundResult {
   id          String   @id @default(uuid())
   userId      String
+  roundSessionId String? @unique
   score       Int?
   answers     Json?
   completedAt DateTime @default(now())
   invalidated Boolean  @default(false)
 
   user User @relation(fields: [userId], references: [id])
+
 }
 
 model DsaQuestion {
@@ -406,6 +411,68 @@ model DsaQuestion {
 
   testCases         DsaTestCase[]
   followUpQuestions DsaFollowUpQuestion[]
+  codeSessions      DsaCodeSession[]
+  followUpSessions  DsaFollowUpSession[]
+}
+
+model DsaRoundSession {
+  id               String    @id @default(uuid())
+  userId           String
+  questionIds      String[]
+  startTime        DateTime  @default(now())
+  expTime          DateTime
+  pausedTime       DateTime?
+  activeQId        String?
+  activeFollowUpId String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeSessions     DsaCodeSession[]
+  followUpSessions DsaFollowUpSession[]
+
+  @@index([userId])
+  @@index([expTime])
+}
+
+model DsaCodeSession {
+  id             String   @id @default(uuid())
+  roundSessionId String
+  userId         String
+  questionId     String
+  language       String
+  code           String   @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundSession   DsaRoundSession @relation(fields: [roundSessionId], references: [id], onDelete: Cascade)
+  question       DsaQuestion     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([roundSessionId, questionId, language])
+  @@index([userId])
+  @@index([roundSessionId, questionId])
+}
+
+model DsaFollowUpSession {
+  id             String    @id @default(uuid())
+  roundSessionId String
+  userId         String
+  questionId     String
+  answers        Json?
+  startTime      DateTime  @default(now())
+  expTime        DateTime
+  pausedTime     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundSession   DsaRoundSession @relation(fields: [roundSessionId], references: [id], onDelete: Cascade)
+  question       DsaQuestion     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([roundSessionId, questionId])
+  @@index([userId])
+  @@index([expTime])
 }
 
 model DsaTestCase {
@@ -441,6 +508,7 @@ model DsaFollowUpQuestion {
 model DsaSubmission {
   id          String   @id @default(cuid())
   userId      String
+  roundSessionId String?
   questionId  String
   language    String
   code        String   @db.Text
@@ -454,6 +522,7 @@ model DsaSubmission {
 
   @@index([userId, questionId])
   @@index([userId, isOfficial])
+  @@index([roundSessionId])
 }
 
 // ---------------------------------------------------------------------------

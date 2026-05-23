@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -34,7 +35,6 @@ import {
   supportedLanguages,
   type ProgrammingLanguage,
   DSA_TOTAL_MINUTES,
-  DSA_MINUTES_PER_QUESTION,
   DSA_PASS_THRESHOLD,
 } from "@/data/dsaRoundConfig";
 import { startersForQuestionNumber } from "@/data/dsaMultiLangStarters";
@@ -152,6 +152,35 @@ type PendingFollowUpSubmission = {
   code: string;
   language: ProgrammingLanguage;
   codeScore: number;
+};
+
+type DsaSessionPayload = {
+  session: {
+    id: string;
+    startTime: string;
+    expTime: string;
+    pausedTime: string | null;
+    activeQId: string | null;
+    activeFollowUpId: string | null;
+    secondsRemaining: number;
+    expired: boolean;
+  };
+  questions: ApiDSAQuestion[];
+  codeDrafts?: Record<string, Partial<Record<ProgrammingLanguage, string>>>;
+  officialSubmissions?: Record<string, { code: string; language: ProgrammingLanguage; codeScore: number; finalScore: number | null }>;
+  activeFollowUp?: {
+    id: string;
+    questionId: string;
+    expTime: string;
+    secondsRemaining: number;
+    answers: Record<string, string>;
+    followUps: ApiDsaFollowUpQuestion[];
+  } | null;
+  timeLimitMinutes?: number;
+  passThresholdPercent?: number;
+  dsaQuestionCount?: number;
+  dsaWaiver?: boolean;
+  autoFinalize?: { finalized?: boolean; score?: number; passed?: boolean };
 };
 
 function defaultStarter(lang: ProgrammingLanguage): string {
@@ -273,6 +302,15 @@ const STARTER_MIN_LEN = 24;
 /** Bump when starter resolution changes so old localStorage cannot reapply bad placeholders. */
 const DSA_AUTOSAVE_VERSION = 2;
 
+function firstUnansweredFollowUpIndex(
+  questions: ApiDsaFollowUpQuestion[],
+  answers: Record<string, string>
+): number {
+  const firstMissing = questions.findIndex((q) => !answers[q.followUpQuestionId]);
+  if (firstMissing >= 0) return firstMissing;
+  return Math.max(0, questions.length - 1);
+}
+
 function dsaQuestionNumberFromId(id: string): number | null {
   const m = /^DSA_NEW_(\d+)$/i.exec(id.trim());
   if (m) return parseInt(m[1]!, 10);
@@ -328,6 +366,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
   const [followUpQuestions, setFollowUpQuestions] = useState<ApiDsaFollowUpQuestion[]>([]);
   const [followUpAnswers, setFollowUpAnswers] = useState<Record<string, string>>({});
+  const [currentFollowUpIndex, setCurrentFollowUpIndex] = useState(0);
   const [pendingFollowUpSubmission, setPendingFollowUpSubmission] = useState<PendingFollowUpSubmission | null>(null);
   const [submittingFollowUps, setSubmittingFollowUps] = useState(false);
   const [submitQuestionConfirmOpen, setSubmitQuestionConfirmOpen] = useState(false);
@@ -338,7 +377,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const [hasFailed, setHasFailed] = useState(false);
   const [localFinalScore, setLocalFinalScore] = useState<number | null>(null);
   const [soundAlertOpen, setSoundAlertOpen] = useState(false);
+  const [dsaSessionId, setDsaSessionId] = useState<string | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [followUpSecondsRemaining, setFollowUpSecondsRemaining] = useState<number | null>(null);
   const [hasEvaluatedQuestions, setHasEvaluatedQuestions] = useState(false);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [questionsReloadKey, setQuestionsReloadKey] = useState(0);
@@ -350,12 +391,12 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   /** Any DSA endpoint returned 403 — show unified recovery UX (backend unchanged). */
   const [dsaSession403Recovery, setDsaSession403Recovery] = useState(false);
   const [dsa403RetryLoading, setDsa403RetryLoading] = useState(false);
-  const [questionSecondsRemaining, setQuestionSecondsRemaining] = useState<number>(DSA_MINUTES_PER_QUESTION * 60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const followUpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeUpSubmittedRef = useRef(false);
   const proctorCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const didInitialScrollRef = useRef(false);
+  const dsaSessionLoadRef = useRef<Promise<DsaSessionPayload> | null>(null);
 
   const CAMERA_WIDGET_W = 228;
   const CAMERA_WIDGET_EST_H = 268;
@@ -574,17 +615,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setLocalFinalScore(null);
       setDsaWaiverEligible(false);
 
-      type DsaQuestionsPayload = {
-        questions: ApiDSAQuestion[];
-        timeLimitMinutes?: number;
-        passThresholdPercent?: number;
-        dsaQuestionCount?: number;
-        dsaWaiver?: boolean;
-      };
-
-      const fetchQuestionsWithRecovery = async (): Promise<DsaQuestionsPayload> => {
+      const fetchQuestionsWithRecovery = async (): Promise<DsaSessionPayload> => {
         try {
-          return await api.get<DsaQuestionsPayload>("/api/verification/dsa/questions");
+          return await api.post<DsaSessionPayload>("/api/verification/dsa/session", {});
         } catch (err: unknown) {
           const status = (err as { status?: number })?.status;
           const msg = err instanceof Error ? err.message : "";
@@ -596,12 +629,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             stageName: "dsa_round",
             status: "in_progress",
           });
-          return await api.get<DsaQuestionsPayload>("/api/verification/dsa/questions");
+          return await api.post<DsaSessionPayload>("/api/verification/dsa/session", {});
         }
       };
 
       try {
-        const payload = await fetchQuestionsWithRecovery();
+        if (!dsaSessionLoadRef.current) {
+          dsaSessionLoadRef.current = fetchQuestionsWithRecovery().finally(() => {
+            dsaSessionLoadRef.current = null;
+          });
+        }
+        const payload = await dsaSessionLoadRef.current;
         if (cancelled) return;
 
         setDsaSession403Recovery(false);
@@ -611,6 +649,17 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         }
         if (typeof payload.timeLimitMinutes === "number") {
           setDsaTotalMinutes(payload.timeLimitMinutes);
+        }
+        setDsaSessionId(payload.session?.id ?? null);
+        setSecondsRemaining(
+          typeof payload.session?.secondsRemaining === "number"
+            ? Math.max(0, payload.session.secondsRemaining)
+            : null
+        );
+        if (payload.autoFinalize?.finalized) {
+          setLocalFinalScore(payload.autoFinalize.score ?? null);
+          if (payload.autoFinalize.passed) setJustPassed(true);
+          else setHasFailed(true);
         }
 
         setDsaWaiverEligible(payload.dsaWaiver === true);
@@ -645,6 +694,15 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   typeof saved.codeByLang === "object"
                 ) {
                   const merged: typeof initial = { ...initial };
+                  const serverDrafts = payload.codeDrafts ?? {};
+                  for (const qid of idsNow) {
+                    const perQ = serverDrafts[qid] ?? {};
+                    merged[qid] = { ...(merged[qid] ?? {}) };
+                    supportedLanguages.forEach(({ language: lang }) => {
+                      const v = perQ?.[lang];
+                      if (typeof v === "string") merged[qid]![lang] = v;
+                    });
+                  }
                   for (const qid of idsNow) {
                     const perQ = (saved.codeByLang?.[qid] ?? null) as any;
                     if (!perQ || typeof perQ !== "object") continue;
@@ -657,10 +715,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   setCodeByLang(merged);
                   if (typeof saved?.language === "string") setLanguage(saved.language as ProgrammingLanguage);
                   if (typeof saved?.currentIndex === "number" && saved.currentIndex >= 0) setCurrentIndex(saved.currentIndex);
-                  if (typeof saved?.secondsRemaining === "number" && saved.secondsRemaining >= 0) setSecondsRemaining(saved.secondsRemaining);
-                  if (typeof saved?.questionSecondsRemaining === "number" && saved.questionSecondsRemaining >= 0) {
-                    setQuestionSecondsRemaining(saved.questionSecondsRemaining);
-                  }
                   restored = true;
                 }
               }
@@ -668,11 +722,51 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
               // ignore
             }
           }
-          if (!restored) setCodeByLang(initial);
+          if (!restored) {
+            const serverDrafts = payload.codeDrafts ?? {};
+            const merged: typeof initial = { ...initial };
+            for (const qid of questionsFromApi.map((qq) => qq.id)) {
+              const perQ = serverDrafts[qid] ?? {};
+              merged[qid] = { ...(merged[qid] ?? {}) };
+              supportedLanguages.forEach(({ language: lang }) => {
+                const v = perQ?.[lang];
+                if (typeof v === "string") merged[qid]![lang] = v;
+              });
+            }
+            setCodeByLang(merged);
+          }
+
+          const official = payload.officialSubmissions ?? {};
+          const completed: Record<string, { code: string; language: ProgrammingLanguage; score: number }> = {};
+          const restoredScores: Record<string, number> = {};
+          Object.entries(official).forEach(([qid, row]) => {
+            if (row.finalScore != null) {
+              completed[qid] = { code: row.code, language: row.language, score: row.finalScore };
+              restoredScores[qid] = row.finalScore;
+            }
+          });
+          setOfficialByQuestion(completed);
+          setScores(restoredScores);
+
+          if (payload.activeFollowUp) {
+            const active = payload.activeFollowUp;
+            const officialRow = official[active.questionId];
+            const restoredAnswers = active.answers ?? {};
+            setFollowUpQuestions(active.followUps);
+            setFollowUpAnswers(restoredAnswers);
+            setCurrentFollowUpIndex(firstUnansweredFollowUpIndex(active.followUps, restoredAnswers));
+            setFollowUpSecondsRemaining(active.secondsRemaining);
+            setPendingFollowUpSubmission({
+              questionId: active.questionId,
+              code: officialRow?.code ?? "",
+              language: officialRow?.language ?? "python",
+              codeScore: officialRow?.codeScore ?? 0,
+            });
+            setFollowUpDialogOpen(true);
+          }
         } else {
           setCodeByLang({});
         }
-        setOfficialByQuestion({});
         setCompileErrorPanel(null);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Failed to load DSA questions";
@@ -697,8 +791,27 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     };
   }, [stageStatus, isRetry, questionsReloadKey]);
 
+  const selectedQuestion = questions[currentIndex];
+  const activeFollowUpQuestion = followUpQuestions[currentFollowUpIndex] ?? null;
+  const activeFollowUpAnswered = activeFollowUpQuestion
+    ? Boolean(followUpAnswers[activeFollowUpQuestion.followUpQuestionId])
+    : false;
+  const allFollowUpsAnswered =
+    followUpQuestions.length > 0 &&
+    followUpQuestions.every((fq) => Boolean(followUpAnswers[fq.followUpQuestionId]));
+  const isLastFollowUp = currentFollowUpIndex >= followUpQuestions.length - 1;
+
+  useEffect(() => {
+    setCurrentFollowUpIndex((idx) => {
+      if (followUpQuestions.length === 0) return 0;
+      return Math.min(idx, followUpQuestions.length - 1);
+    });
+  }, [followUpQuestions.length]);
+
   // Autosave DSA editor buffers locally (recoverable on refresh/tab close).
   const dsaSaveTimerRef = useRef<number | null>(null);
+  const dsaCodeSaveTimerRef = useRef<number | null>(null);
+  const followUpAnswerSaveTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (!user?.id) return;
     if (!inTest) return;
@@ -714,8 +827,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
             codeByLang,
             language,
             currentIndex,
-            secondsRemaining,
-            questionSecondsRemaining,
           })
         );
       } catch {
@@ -725,16 +836,46 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     return () => {
       if (dsaSaveTimerRef.current != null) window.clearTimeout(dsaSaveTimerRef.current);
     };
-  }, [user?.id, inTest, questions, codeByLang, language, currentIndex, secondsRemaining, questionSecondsRemaining]);
+  }, [user?.id, inTest, questions, codeByLang, language, currentIndex]);
 
   useEffect(() => {
-    if (proctoringReady && questions.length > 0 && secondsRemaining === null) {
-      setSecondsRemaining(dsaTotalMinutes * 60);
-    }
-  }, [proctoringReady, questions.length, secondsRemaining, dsaTotalMinutes]);
+    if (!dsaSessionId || !selectedQuestion) return;
+    api.patch("/api/verification/dsa/session", { activeQId: selectedQuestion.id }).catch(() => {});
+  }, [dsaSessionId, selectedQuestion?.id]);
 
   useEffect(() => {
-    if (!inTest || secondsRemaining == null || secondsRemaining <= 0) return;
+    if (!dsaSessionId || !inTest || !selectedQuestion) return;
+    if (officialByQuestion[selectedQuestion.id] || pendingFollowUpSubmission?.questionId === selectedQuestion.id) return;
+    const code = codeByLang[selectedQuestion.id]?.[language];
+    if (typeof code !== "string") return;
+    if (dsaCodeSaveTimerRef.current != null) window.clearTimeout(dsaCodeSaveTimerRef.current);
+    dsaCodeSaveTimerRef.current = window.setTimeout(() => {
+      api.put("/api/verification/dsa/session/code", {
+        questionId: selectedQuestion.id,
+        language,
+        code,
+      }).catch(() => {});
+    }, 3000);
+    return () => {
+      if (dsaCodeSaveTimerRef.current != null) window.clearTimeout(dsaCodeSaveTimerRef.current);
+    };
+  }, [dsaSessionId, inTest, selectedQuestion?.id, language, codeByLang, officialByQuestion, pendingFollowUpSubmission]);
+
+  useEffect(() => {
+    if (!dsaSessionId || !pendingFollowUpSubmission || !followUpDialogOpen) return;
+    if (followUpAnswerSaveTimerRef.current != null) window.clearTimeout(followUpAnswerSaveTimerRef.current);
+    followUpAnswerSaveTimerRef.current = window.setTimeout(() => {
+      api.patch(`/api/verification/dsa/session/follow-up/${encodeURIComponent(pendingFollowUpSubmission.questionId)}`, {
+        answers: followUpAnswers,
+      }).catch(() => {});
+    }, 700);
+    return () => {
+      if (followUpAnswerSaveTimerRef.current != null) window.clearTimeout(followUpAnswerSaveTimerRef.current);
+    };
+  }, [dsaSessionId, pendingFollowUpSubmission?.questionId, followUpDialogOpen, followUpAnswers]);
+
+  useEffect(() => {
+    if (!inTest || followUpDialogOpen || secondsRemaining == null || secondsRemaining <= 0) return;
     timerRef.current = setInterval(() => {
       setSecondsRemaining((s) => {
         if (s == null || s <= 1) {
@@ -747,9 +888,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [inTest]);
-
-  const selectedQuestion = questions[currentIndex];
+  }, [inTest, followUpDialogOpen]);
 
   const retryDsaAfter403 = useCallback(async () => {
     setDsa403RetryLoading(true);
@@ -985,8 +1124,16 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       }
       setSubmitQuestionConfirmOpen(false);
 
-      const followUpResp = await api.get<{ followUps: ApiDsaFollowUpQuestion[] }>(
-        `/api/verification/followUp/${encodeURIComponent(questionId)}`
+      const followUpResp = await api.post<{
+        id: string;
+        questionId: string;
+        expTime: string;
+        secondsRemaining: number;
+        answers: Record<string, string>;
+        followUps: ApiDsaFollowUpQuestion[];
+      }>(
+        `/api/verification/dsa/session/follow-up/${encodeURIComponent(questionId)}/start`,
+        {}
       );
       const followUps = Array.isArray(followUpResp.followUps) ? followUpResp.followUps : [];
 
@@ -1001,7 +1148,10 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       }
 
       setFollowUpQuestions(followUps);
-      setFollowUpAnswers({});
+      const restoredAnswers = followUpResp.answers ?? {};
+      setFollowUpAnswers(restoredAnswers);
+      setCurrentFollowUpIndex(firstUnansweredFollowUpIndex(followUps, restoredAnswers));
+      setFollowUpSecondsRemaining(followUpResp.secondsRemaining);
       setPendingFollowUpSubmission({
         questionId,
         code: currentCode,
@@ -1027,10 +1177,10 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     }
   };
 
-  const handleSubmitFollowUps = async () => {
+  const handleSubmitFollowUps = async (timedOut = false) => {
     if (!pendingFollowUpSubmission) return;
     const missing = followUpQuestions.filter((q) => !followUpAnswers[q.followUpQuestionId]);
-    if (missing.length > 0) {
+    if (missing.length > 0 && !timedOut) {
       toast.error("Answer all follow-up questions before submitting.");
       return;
     }
@@ -1042,8 +1192,9 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         totalCount: number;
         followUpScore: number;
         followUpPercentage: number;
-      }>(`/api/verification/followUp/${encodeURIComponent(pendingFollowUpSubmission.questionId)}`, {
+      }>(`/api/verification/dsa/session/follow-up/${encodeURIComponent(pendingFollowUpSubmission.questionId)}/submit`, {
         answers: followUpAnswers,
+        timedOut,
       });
 
       const finalScore = Math.min(
@@ -1062,7 +1213,16 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setFollowUpDialogOpen(false);
       setFollowUpQuestions([]);
       setFollowUpAnswers({});
+      setCurrentFollowUpIndex(0);
+      setFollowUpSecondsRemaining(null);
       setPendingFollowUpSubmission(null);
+      api.get<DsaSessionPayload>("/api/verification/dsa/session")
+        .then((snapshot) => {
+          if (typeof snapshot.session?.secondsRemaining === "number") {
+            setSecondsRemaining(Math.max(0, snapshot.session.secondsRemaining));
+          }
+        })
+        .catch(() => {});
       toast.success(
         `Question completed. Follow-ups: ${resp.correctCount}/${resp.totalCount}. Score: ${finalScore}/100.`
       );
@@ -1083,6 +1243,307 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const isFirstQuestion = currentIndex === 0;
   const hasPendingFollowUp = pendingFollowUpSubmission != null;
 
+  const resetQuestionOutput = () => {
+    setResults(null);
+    setCompileErrorPanel(null);
+    setConsoleText("");
+    setOutputTab("results");
+  };
+
+  const goToPreviousQuestion = () => {
+    setCurrentIndex((i) => Math.max(0, i - 1));
+    resetQuestionOutput();
+  };
+
+  const goToNextQuestion = () => {
+    setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
+    resetQuestionOutput();
+  };
+
+  const renderQuestionProgress = () => (
+    <div className="flex items-center gap-1">
+      {questions.map((q, i) => (
+        <div
+          key={q.id}
+          className={`h-2 w-2 rounded-full ${i === currentIndex ? "bg-primary" : scores[q.id] !== undefined ? "bg-green-500/70" : "bg-muted"}`}
+          title={`Q${i + 1}: ${scores[q.id] !== undefined ? scores[q.id] + "%" : "Pending"}`}
+        />
+      ))}
+    </div>
+  );
+
+  const renderProblemPanel = () => {
+    if (!selectedQuestion) return null;
+    return (
+      <div className="h-full overflow-y-auto p-4 sm:p-5">
+        <div className="space-y-5">
+          <div>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Question {currentIndex + 1} of {questions.length}
+              </span>
+              <Badge variant="outline">{selectedQuestion.difficulty}</Badge>
+              {officialByQuestion[selectedQuestion.id] && (
+                <Badge className="gap-1 bg-green-600/15 text-green-800 border-green-600/30">
+                  <Lock className="h-3 w-3" />
+                  Submitted
+                </Badge>
+              )}
+              {pendingFollowUpSubmission?.questionId === selectedQuestion.id && (
+                <Badge className="gap-1 bg-amber-500/15 text-amber-900 border-amber-500/30">
+                  <CircleHelp className="h-3 w-3" />
+                  Follow-ups pending
+                </Badge>
+              )}
+            </div>
+            <h3 className="text-xl font-semibold text-foreground">{selectedQuestion.title}</h3>
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-foreground/90">
+              {selectedQuestion.description}
+            </p>
+          </div>
+
+          {selectedQuestion.examples.length > 0 && (
+            <div className="space-y-4">
+              {selectedQuestion.examples.map((ex, exIdx) => (
+                <div key={exIdx} className="space-y-2">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    {selectedQuestion.examples.length > 1 ? `Example ${exIdx + 1}` : "Example"}
+                  </h4>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Input</span>
+                      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm">
+                        {ex.input}
+                      </pre>
+                    </div>
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Output</span>
+                      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm">
+                        {ex.output}
+                      </pre>
+                    </div>
+                    {ex.explanation ? (
+                      <div className="rounded-md border border-border bg-muted/30 p-3">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Explanation</span>
+                        <p className="mt-1 text-sm text-muted-foreground">{ex.explanation}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {selectedQuestion.constraints.length > 0 ? (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-foreground">Constraints</h4>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {selectedQuestion.constraints.map((constraint, idx) => (
+                  <li key={`${constraint}-${idx}`} className="font-mono">
+                    {constraint}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCodingToolbar = () => {
+    if (!selectedQuestion) return null;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/20 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="font-medium"
+            onClick={goToPreviousQuestion}
+            disabled={isFirstQuestion || hasPendingFollowUp || (inTest && !effectivelyFullScreen)}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Previous
+          </Button>
+          {!isLastQuestion && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="font-medium"
+              onClick={goToNextQuestion}
+              disabled={hasPendingFollowUp || (inTest && !effectivelyFullScreen)}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          )}
+          {renderQuestionProgress()}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={language} onValueChange={(v) => trySetLanguage(v as ProgrammingLanguage)}>
+            <SelectTrigger className="h-9 w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {supportedLanguages.map((l) => (
+                <SelectItem key={l.language} value={l.language}>
+                  {l.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={runTests}
+            disabled={running || hasPendingFollowUp || (inTest && !effectivelyFullScreen) || !!officialByQuestion[selectedQuestion.id]}
+            variant="secondary"
+            size="sm"
+            className="font-medium"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            Run
+          </Button>
+          <Button
+            onClick={() => setSubmitQuestionConfirmOpen(true)}
+            disabled={submittingQuestion || hasPendingFollowUp || (inTest && !effectivelyFullScreen) || !!officialByQuestion[selectedQuestion.id]}
+            variant="default"
+            size="sm"
+            className="font-medium bg-emerald-700 hover:bg-emerald-800"
+          >
+            {submittingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+            Submit
+          </Button>
+          <Button
+            size="sm"
+            variant={isLastQuestion ? "default" : "outline"}
+            className="font-medium"
+            onClick={() => setSubmitConfirmOpen(true)}
+            disabled={submitting || hasPendingFollowUp || (inTest && !effectivelyFullScreen)}
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Round
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderEditorPanel = () => {
+    if (!selectedQuestion) return null;
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-background">
+        {renderCodingToolbar()}
+        <div className="min-h-0 flex-1 p-3">
+          <CodeEditor
+            key={`${selectedQuestion.id}-${language}`}
+            value={codeByLang[selectedQuestion.id]?.[language] ?? getStarterForQuestion(selectedQuestion, language)}
+            onChange={(v) => {
+              if (officialByQuestion[selectedQuestion.id] || pendingFollowUpSubmission?.questionId === selectedQuestion.id) return;
+              setCodeByLang((prev) => ({
+                ...prev,
+                [selectedQuestion.id]: {
+                  ...(prev[selectedQuestion.id] ?? {}),
+                  [language]: v,
+                },
+              }));
+            }}
+            readOnly={!!officialByQuestion[selectedQuestion.id] || pendingFollowUpSubmission?.questionId === selectedQuestion.id}
+            language={language}
+            height="100%"
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const renderOutputPanel = () => (
+    <div className="flex h-full min-h-0 flex-col bg-muted/10">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+        <h4 className="text-sm font-medium text-foreground">
+          Output for Q{currentIndex + 1}
+        </h4>
+        <div className="text-xs text-muted-foreground">
+          {compileErrorPanel ? "Compilation stopped execution" : results ? "Run completed" : null}
+        </div>
+      </div>
+
+      <Tabs value={outputTab} onValueChange={(v) => setOutputTab(v as "results" | "console")} className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b border-border px-3 py-2">
+          <TabsList>
+            <TabsTrigger value="results">Results</TabsTrigger>
+            <TabsTrigger value="console">Console</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="results" className="min-h-0 flex-1 overflow-auto p-3">
+          {compileErrorPanel ? (
+            <div className="rounded-lg border border-orange-500/50 bg-orange-500/5 p-4 space-y-2">
+              <h4 className="font-medium text-sm text-orange-950">Compilation error</h4>
+              <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words text-orange-950">
+                {compileErrorPanel}
+              </pre>
+            </div>
+          ) : results ? (
+            <div className="space-y-3">
+              {results.map((r, i) => {
+                const hidden = r.input == null && r.expected == null;
+                const st = r.status;
+                return (
+                  <div
+                    key={i}
+                    className={`rounded-lg border p-3 text-sm ${
+                      r.passed ? "bg-green-500/10 border-green-600/20" : "bg-red-500/5 border-red-600/15"
+                    }`}
+                  >
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      {r.passed ? <CheckCircle2 className="h-5 w-5 text-green-600" /> : <XCircle className="h-5 w-5 text-red-600" />}
+                      <Badge variant="outline" className={statusBadgeClass(st, r.passed)}>
+                        {hidden ? `Test case ${i + 1}` : `Case ${i + 1}`}: {statusLabel(st) || (r.passed ? "Passed" : "Failed")}
+                      </Badge>
+                    </div>
+                    {hidden ? (
+                      <p className="text-xs text-muted-foreground">Hidden test - only status is shown (no input / expected).</p>
+                    ) : !r.passed && r.input != null && r.expected != null ? (
+                      <div className="grid grid-cols-1 gap-3 text-xs xl:grid-cols-3">
+                        <div className="rounded-md border bg-background p-2">
+                          <div className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">Input</div>
+                          <pre className="font-mono whitespace-pre-wrap break-words">{r.input}</pre>
+                        </div>
+                        <div className="rounded-md border bg-background p-2">
+                          <div className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">Expected</div>
+                          <pre className="font-mono whitespace-pre-wrap break-words">{r.expected}</pre>
+                        </div>
+                        <div className="rounded-md border bg-background p-2">
+                          <div className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">Your output</div>
+                          <pre className="font-mono whitespace-pre-wrap break-words text-amber-800">{r.actual ?? "-"}</pre>
+                        </div>
+                      </div>
+                    ) : r.passed ? (
+                      <p className="text-xs text-green-800">All checks passed for this case.</p>
+                    ) : (
+                      <div className="space-y-1 text-xs">
+                        {r.actual != null && <div className="text-amber-800">Output: {r.actual}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Run test cases to see results here.</p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="console" className="min-h-0 flex-1 overflow-auto p-3">
+          <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words">
+            {consoleText || "No console output yet. Click Run to execute your code."}
+          </pre>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+
   useEffect(() => {
     return () => {
       proctoringState?.cameraStream?.getTracks().forEach((t) => t.stop());
@@ -1100,7 +1561,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
   const handleSubmitRound = useCallback(async () => {
     const missingOfficial = questions.filter((q) => !officialByQuestion[q.id]);
-    if (missingOfficial.length > 0) {
+    const timedOut = secondsRemaining === 0;
+    if (missingOfficial.length > 0 && !timedOut) {
       toast.error(
         `Submit each question officially first (${missingOfficial.length} remaining). Use "Submit solution" on every problem.`
       );
@@ -1112,7 +1574,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     try {
       const answers: Record<string, { code: string; language: string; score: number }> = {};
       questions.forEach((q) => {
-        const snap = officialByQuestion[q.id]!;
+        const snap = officialByQuestion[q.id];
+        if (!snap) return;
         answers[q.id] = {
           code: snap.code,
           language: snap.language,
@@ -1123,7 +1586,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         score: number | null;
         passThresholdPercent?: number;
         passed?: boolean;
-      }>("/api/verification/dsa", { answers });
+        autoFinalized?: boolean;
+      }>("/api/verification/dsa", { answers, timedOut });
       const finalScore = Math.min(100, Math.max(0, Math.round(Number(dsaRes.score ?? 0))));
       const threshold =
         typeof dsaRes.passThresholdPercent === "number" ? dsaRes.passThresholdPercent : ELIGIBILITY_THRESHOLD;
@@ -1156,7 +1620,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
       setSubmitting(false);
       setSubmitConfirmOpen(false);
     }
-  }, [questions, officialByQuestion, ELIGIBILITY_THRESHOLD]);
+  }, [questions, officialByQuestion, ELIGIBILITY_THRESHOLD, secondsRemaining]);
 
   useEffect(() => {
     if (secondsRemaining === 0 && inTest && questions.length > 0 && !submitting && !timeUpSubmittedRef.current) {
@@ -1166,29 +1630,32 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
     }
   }, [secondsRemaining]);
 
-  // Per-question 30-minute countdown — resets whenever the user switches questions
   useEffect(() => {
-    setQuestionSecondsRemaining(DSA_MINUTES_PER_QUESTION * 60);
-  }, [currentIndex]);
+    if (followUpSecondsRemaining === 0 && followUpDialogOpen && pendingFollowUpSubmission && !submittingFollowUps) {
+      toast.warning("Follow-up time is up. Submitting saved answers.");
+      void handleSubmitFollowUps(true);
+    }
+  }, [followUpSecondsRemaining, followUpDialogOpen, pendingFollowUpSubmission, submittingFollowUps]);
 
   useEffect(() => {
-    if (!inTest) {
-      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+    if (!followUpDialogOpen || followUpSecondsRemaining == null || followUpSecondsRemaining <= 0) {
+      if (followUpTimerRef.current) clearInterval(followUpTimerRef.current);
       return;
     }
-    questionTimerRef.current = setInterval(() => {
-      setQuestionSecondsRemaining((s) => {
+    followUpTimerRef.current = setInterval(() => {
+      setFollowUpSecondsRemaining((s) => {
+        if (s == null) return s;
         if (s <= 1) {
-          if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+          if (followUpTimerRef.current) clearInterval(followUpTimerRef.current);
           return 0;
         }
         return s - 1;
       });
     }, 1000);
     return () => {
-      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+      if (followUpTimerRef.current) clearInterval(followUpTimerRef.current);
     };
-  }, [inTest, currentIndex]);
+  }, [followUpDialogOpen, followUpSecondsRemaining]);
 
   if (!hasEvaluatedQuestions) {
     return (
@@ -1586,19 +2053,6 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                 </TooltipContent>
               </Tooltip>
             </div>
-            {/* Per-question countdown */}
-            {inTest && (
-              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-semibold border ${
-                questionSecondsRemaining <= 300
-                  ? "bg-red-500/10 border-red-500/40 text-red-500"
-                  : questionSecondsRemaining <= 600
-                    ? "bg-amber-500/10 border-amber-500/40 text-amber-500"
-                    : "bg-muted border-border text-muted-foreground"
-              }`}>
-                <span>Q{currentIndex + 1} time:</span>
-                <span className="tabular-nums">{formatTime(questionSecondsRemaining)}</span>
-              </div>
-            )}
             {/* Global timer */}
             {secondsRemaining != null && inTest && (
               <span className={`text-sm font-mono font-medium ${secondsRemaining <= 300 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
@@ -1620,6 +2074,40 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
 
         {selectedQuestion && !isFailed && (
           <>
+            <div className="hidden h-[calc(100vh-220px)] min-h-[680px] overflow-hidden rounded-lg border border-border bg-background lg:block">
+              <ResizablePanelGroup direction="horizontal">
+                <ResizablePanel defaultSize={42} minSize={28} maxSize={62}>
+                  {renderProblemPanel()}
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize={58} minSize={38}>
+                  <ResizablePanelGroup direction="vertical">
+                    <ResizablePanel defaultSize={66} minSize={38}>
+                      {renderEditorPanel()}
+                    </ResizablePanel>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel defaultSize={34} minSize={22}>
+                      {renderOutputPanel()}
+                    </ResizablePanel>
+                  </ResizablePanelGroup>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </div>
+
+            <div className="space-y-4 lg:hidden">
+              <div className="rounded-lg border border-border bg-muted/30">
+                {renderProblemPanel()}
+              </div>
+              <div className="min-h-[520px] rounded-lg border border-border bg-background">
+                {renderEditorPanel()}
+              </div>
+              <div className="min-h-[320px] rounded-lg border border-border bg-muted/10">
+                {renderOutputPanel()}
+              </div>
+            </div>
+
+            {false && (
+            <>
             {/* Question description */}
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
               <div>
@@ -1799,6 +2287,8 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                 </Button>
               </div>
             </div>
+            </>
+            )}
             <AlertDialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
               <AlertDialogContent>
                 <AlertDialogTitle>Submit entire round?</AlertDialogTitle>
@@ -1893,31 +2383,64 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                   </AlertDialogDescription>
                 </AlertDialogHeader>
 
-                <div className="space-y-5">
-                  {followUpQuestions.map((fq, idx) => (
-                    <div key={fq.followUpQuestionId} className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-                      <div className="flex items-start gap-3">
-                        <Badge variant="outline">Q{idx + 1}</Badge>
-                        <p className="text-sm font-medium leading-6">{fq.questionText}</p>
+                {followUpSecondsRemaining != null ? (
+                  <div className={`inline-flex w-fit items-center gap-2 rounded-md border px-3 py-1 text-xs font-mono font-semibold ${
+                    followUpSecondsRemaining <= 60
+                      ? "border-red-500/40 bg-red-500/10 text-red-500"
+                      : "border-border bg-muted text-muted-foreground"
+                  }`}>
+                    <span>Follow-up time:</span>
+                    <span className="tabular-nums">{formatTime(followUpSecondsRemaining)}</span>
+                  </div>
+                ) : null}
+
+                {activeFollowUpQuestion ? (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <Badge variant="outline">
+                        Question {currentFollowUpIndex + 1} of {followUpQuestions.length}
+                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        {followUpQuestions.map((fq, idx) => {
+                          const answered = Boolean(followUpAnswers[fq.followUpQuestionId]);
+                          const active = idx === currentFollowUpIndex;
+                          return (
+                            <span
+                              key={fq.followUpQuestionId}
+                              className={`h-2.5 w-2.5 rounded-full border ${
+                                active
+                                  ? "border-primary bg-primary"
+                                  : answered
+                                    ? "border-emerald-600 bg-emerald-600"
+                                    : "border-muted-foreground/40 bg-transparent"
+                              }`}
+                              aria-label={`Follow-up ${idx + 1}${answered ? " answered" : " unanswered"}`}
+                            />
+                          );
+                        })}
                       </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                      <p className="text-sm font-medium leading-6">{activeFollowUpQuestion.questionText}</p>
                       <RadioGroup
-                        value={followUpAnswers[fq.followUpQuestionId] ?? ""}
+                        value={followUpAnswers[activeFollowUpQuestion.followUpQuestionId] ?? ""}
                         onValueChange={(value) =>
                           setFollowUpAnswers((prev) => ({
                             ...prev,
-                            [fq.followUpQuestionId]: value,
+                            [activeFollowUpQuestion.followUpQuestionId]: value,
                           }))
                         }
                         className="grid gap-2"
                       >
-                        {Object.entries(fq.options).map(([key, option]) => (
+                        {Object.entries(activeFollowUpQuestion.options).map(([key, option]) => (
                           <Label
                             key={key}
-                            htmlFor={`${fq.followUpQuestionId}-${key}`}
+                            htmlFor={`${activeFollowUpQuestion.followUpQuestionId}-${key}`}
                             className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background p-3 text-sm hover:bg-muted/50"
                           >
                             <RadioGroupItem
-                              id={`${fq.followUpQuestionId}-${key}`}
+                              id={`${activeFollowUpQuestion.followUpQuestionId}-${key}`}
                               value={key}
                               className="mt-0.5"
                             />
@@ -1928,134 +2451,48 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
                         ))}
                       </RadioGroup>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ) : null}
 
                 <AlertDialogFooter>
                   <Button
-                    onClick={() => void handleSubmitFollowUps()}
-                    disabled={
-                      submittingFollowUps ||
-                      followUpQuestions.length === 0 ||
-                      followUpQuestions.some((fq) => !followUpAnswers[fq.followUpQuestionId])
-                    }
+                    type="button"
+                    variant="outline"
+                    onClick={() => setCurrentFollowUpIndex((idx) => Math.max(0, idx - 1))}
+                    disabled={submittingFollowUps || currentFollowUpIndex === 0}
                   >
-                    {submittingFollowUps ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Submitting...
-                      </>
-                    ) : (
-                      "Submit follow-ups"
-                    )}
+                    Previous
                   </Button>
+
+                  {!isLastFollowUp ? (
+                    <Button
+                      type="button"
+                      onClick={() =>
+                        setCurrentFollowUpIndex((idx) => Math.min(followUpQuestions.length - 1, idx + 1))
+                      }
+                      disabled={submittingFollowUps || !activeFollowUpAnswered}
+                    >
+                      Next
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => void handleSubmitFollowUps()}
+                      disabled={submittingFollowUps || !allFollowUpsAnswered}
+                    >
+                      {submittingFollowUps ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Submit follow-ups"
+                      )}
+                    </Button>
+                  )}
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
 
-            <div className="rounded-xl border-2 border-border bg-muted/20 p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h4 className="font-medium text-sm text-foreground">
-                    Output for Q{currentIndex + 1}
-                  </h4>
-                  <div className="text-xs text-muted-foreground">
-                    {compileErrorPanel ? "Compilation stopped execution" : results ? "Run completed" : null}
-                  </div>
-                </div>
-
-                <Tabs
-                  value={outputTab}
-                  onValueChange={(v) => setOutputTab(v as "results" | "console")}
-                >
-                  <TabsList>
-                    <TabsTrigger value="results">Results</TabsTrigger>
-                    <TabsTrigger value="console">Console</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="results">
-                    {compileErrorPanel ? (
-                      <div className="rounded-xl border-2 border-orange-500/50 bg-orange-500/5 p-4 space-y-2">
-                        <h4 className="font-medium text-sm text-orange-950">Compilation error</h4>
-                        <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words text-orange-950">
-                          {compileErrorPanel}
-                        </pre>
-                      </div>
-                    ) : (
-                      results && (
-                        <div className="space-y-3">
-                          {results.map((r, i) => {
-                            const hidden = r.input == null && r.expected == null;
-                            const st = r.status;
-                            return (
-                  <div
-                    key={i}
-                                className={`text-sm p-3 rounded-lg border ${
-                                  r.passed
-                                    ? "bg-green-500/10 border-green-600/20"
-                                    : "bg-red-500/5 border-red-600/15"
-                                }`}
-                              >
-                                <div className="flex flex-wrap items-center gap-2 mb-2">
-                    {r.passed ? (
-                                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                                  ) : (
-                                    <XCircle className="h-5 w-5 text-red-600" />
-                                  )}
-                                  <Badge variant="outline" className={statusBadgeClass(st, r.passed)}>
-                                    {hidden
-                                      ? `Test case ${i + 1}`
-                                      : `Case ${i + 1}`}: {statusLabel(st) || (r.passed ? "Passed" : "Failed")}
-                                  </Badge>
-                    </div>
-                                {hidden ? (
-                                  <p className="text-xs text-muted-foreground">
-                                    Hidden test — only status is shown (no input / expected).
-                                  </p>
-                                ) : !r.passed && r.input != null && r.expected != null ? (
-                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                    <div className="rounded-md border bg-background p-2">
-                                      <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                        Input
-                  </div>
-                                      <pre className="font-mono whitespace-pre-wrap break-words">{r.input}</pre>
-                                    </div>
-                                    <div className="rounded-md border bg-background p-2">
-                                      <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                        Expected
-                                      </div>
-                                      <pre className="font-mono whitespace-pre-wrap break-words">{r.expected}</pre>
-                                    </div>
-                                    <div className="rounded-md border bg-background p-2">
-                                      <div className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                        Your output
-                                      </div>
-                                      <pre className="font-mono whitespace-pre-wrap break-words text-amber-800">
-                                        {r.actual ?? "—"}
-                                      </pre>
-                                    </div>
-                                  </div>
-                                ) : r.passed ? (
-                                  <p className="text-xs text-green-800">All checks passed for this case.</p>
-                                ) : (
-                                  <div className="space-y-1 text-xs">
-                                    {r.actual != null && <div className="text-amber-800">Output: {r.actual}</div>}
-              </div>
-            )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="console">
-                    <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap break-words">
-                      {consoleText || "No console output yet. Click “Run test cases” to execute your code."}
-                    </pre>
-                  </TabsContent>
-                </Tabs>
-              </div>
           </>
         )}
       </CardContent>

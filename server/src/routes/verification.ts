@@ -65,12 +65,17 @@ import { gateNonTechAssignmentSubmit, nextNonTechAssignmentPaidCooldownBoundary 
 import { isObjectStorageConfigured, uploadObject } from "../services/storage.service.js";
 import { UPLOADS_DIR } from "./uploads.js";
 import { dsaFollowUpsRouter } from "./dsaFollowUps.js";
+import { dsaSessionRouter } from "./dsaSession.js";
+import { assertQuestionInSession, requireActiveDsaSession } from "../services/dsaSession.service.js";
+import { bufferCodeDraft } from "../services/dsaDraftBuffer.service.js";
+import { autoFinalizeDsaSession } from "../services/dsaAutoFinalize.service.js";
 // Daily.co disabled for MVP - using Google Meet instead. Uncomment when budget allows.
 // import { createDailyRoom, createMeetingToken, getRoomNameFromUrl } from "../services/daily.js";
 
 export const verificationRouter = Router();
 verificationRouter.use("/followUps", dsaFollowUpsRouter);
 verificationRouter.use("/followUp", dsaFollowUpsRouter);
+verificationRouter.use("/dsa/session", dsaSessionRouter);
 
 const nonTechAssignmentUpload = multer({
   storage: multer.memoryStorage(),
@@ -824,6 +829,9 @@ verificationRouter.post("/stages/reset", requireAuth, requireJobSeeker, async (r
   }
   if (parsed.data.stageName === "dsa_round") {
     const uid = req.user!.id;
+    await prisma.dsaFollowUpSession.deleteMany({ where: { userId: uid } });
+    await prisma.dsaCodeSession.deleteMany({ where: { userId: uid } });
+    await prisma.dsaRoundSession.deleteMany({ where: { userId: uid } });
     await prisma.dsaSubmission.deleteMany({ where: { userId: uid } });
     await prisma.dsaRoundResult.deleteMany({ where: { userId: uid } });
   }
@@ -1331,6 +1339,25 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
   let dsaScore: number | null = null;
   let answersPayload: unknown =
     parsed.data.answers === undefined ? null : parsed.data.answers;
+  let activeRoundSessionId: string | null = null;
+  try {
+    const activeSession = await requireActiveDsaSession(userId);
+    activeRoundSessionId = activeSession.id;
+    if (!activeSession.pausedTime && activeSession.expTime.getTime() <= Date.now()) {
+      const finalized = await autoFinalizeDsaSession(activeSession.id);
+      if (finalized.finalized) {
+        return res.json({
+          result: null,
+          score: finalized.score,
+          passThresholdPercent: dsaTierConfig(experienceTierFromYears(profile?.experienceYears)).passThresholdPercent,
+          passed: finalized.passed,
+          autoFinalized: true,
+        });
+      }
+    }
+  } catch {
+    /* No session yet; legacy final submit path below. */
+  }
 
   if (parsed.data.invalidated) {
     dsaScore = 0;
@@ -1404,6 +1431,7 @@ verificationRouter.post("/dsa", requireAuth, requireJobSeeker, async (req: Authe
   const result = await prisma.dsaRoundResult.create({
     data: {
       userId,
+      roundSessionId: activeRoundSessionId,
       score: dsaScore,
       answers: answersPayload === null ? undefined : (answersPayload as object),
       invalidated: Boolean(parsed.data.invalidated),
@@ -1676,6 +1704,8 @@ verificationRouter.post("/dsa/run-tests", requireAuth, requireJobSeeker, async (
 
   const { questionId, code, language } = parsed.data;
   const userId = req.user!.id;
+  let submitRoundSessionId: string | null = null;
+  let roundSessionId: string | null = null;
 
   const rateCheck = checkRateLimit(userId);
   if (!rateCheck.allowed) {
@@ -1688,6 +1718,14 @@ verificationRouter.post("/dsa/run-tests", requireAuth, requireJobSeeker, async (
   const dsaOk = await ensureDsaRoundActiveForOfficialApis(userId);
   if (!dsaOk) {
     return res.status(403).json({ error: "DSA round is not active" });
+  }
+  try {
+    const session = await requireActiveDsaSession(userId);
+    assertQuestionInSession(session, questionId);
+    roundSessionId = session.id;
+    await bufferCodeDraft({ roundSessionId, userId, questionId, language, code });
+  } catch {
+    /* Legacy compatibility: allow old non-session run-tests while migration is in progress. */
   }
 
   const testCases = await prisma.dsaTestCase.findMany({
@@ -1703,6 +1741,7 @@ verificationRouter.post("/dsa/run-tests", requireAuth, requireJobSeeker, async (
 
     await persistDsaSubmission(prisma, {
       userId,
+      roundSessionId,
       questionId,
       language,
       code,
@@ -1739,14 +1778,24 @@ verificationRouter.post("/dsa/submit", requireAuth, requireJobSeeker, async (req
 
   const { questionId, code, language } = parsed.data;
   const userId = req.user!.id;
+  let submitRoundSessionId: string | null = null;
 
   const dsaOkSubmit = await ensureDsaRoundActiveForOfficialApis(userId);
   if (!dsaOkSubmit) {
     return res.status(403).json({ error: "DSA round is not active" });
   }
+  try {
+    const session = await requireActiveDsaSession(userId);
+    assertQuestionInSession(session, questionId);
+    submitRoundSessionId = session.id;
+    await bufferCodeDraft({ roundSessionId: submitRoundSessionId, userId, questionId, language, code });
+  } catch {
+    /* Legacy compatibility: allow old non-session submit while migration is in progress. */
+  }
 
+  const officialWhere = { userId, questionId, isOfficial: true, ...(submitRoundSessionId ? { roundSessionId: submitRoundSessionId } : {}) };
   const existingOfficial = await prisma.dsaSubmission.findFirst({
-    where: { userId, questionId, isOfficial: true },
+    where: officialWhere,
   });
   if (existingOfficial) {
     return res.status(409).json({ error: "You have already submitted this question." });
@@ -1763,16 +1812,29 @@ verificationRouter.post("/dsa/submit", requireAuth, requireJobSeeker, async (req
   try {
     const payload = await evaluateDsaAgainstTestCases(testCases, code, language as DsaApiLanguage);
 
-    await persistDsaSubmission(prisma, {
-      userId,
-      questionId,
-      language,
-      code,
-      passedCount: payload.passed,
-      totalCount: payload.total,
-      isOfficial: true,
-      results: payload.results,
+    const created = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dsa_submit:${userId}:${submitRoundSessionId ?? "legacy"}:${questionId}`}))`;
+      const existing = await tx.dsaSubmission.findFirst({
+        where: officialWhere,
+        select: { id: true },
+      });
+      if (existing) return false;
+      await persistDsaSubmission(tx, {
+        userId,
+        roundSessionId: submitRoundSessionId,
+        questionId,
+        language,
+        code,
+        passedCount: payload.passed,
+        totalCount: payload.total,
+        isOfficial: true,
+        results: payload.results,
+      });
+      return true;
     });
+    if (!created) {
+      return res.status(409).json({ error: "You have already submitted this question." });
+    }
 
     return res.json({
       compiledSuccessfully: payload.compiledSuccessfully,

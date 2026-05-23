@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type { DsaApiLanguage, ExpectedType, TestResultStatus } from "../constants/dsa.js";
 import { JUDGE0_STATUS } from "../constants/dsa.js";
 import { compareOutput, mapJudge0ResultToTestStatus } from "./dsaComparator.js";
@@ -86,9 +86,10 @@ export async function evaluateDsaAgainstTestCases(
 }
 
 export async function persistDsaSubmission(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   params: {
     userId: string;
+    roundSessionId?: string | null;
     questionId: string;
     language: string;
     code: string;
@@ -103,6 +104,7 @@ export async function persistDsaSubmission(
   await prisma.dsaSubmission.create({
     data: {
       userId: params.userId,
+      roundSessionId: params.roundSessionId ?? undefined,
       questionId: params.questionId,
       language: params.language,
       code: params.code,

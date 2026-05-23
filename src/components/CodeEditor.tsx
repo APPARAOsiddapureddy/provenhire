@@ -95,7 +95,7 @@ const CodeEditor = ({
   );
 
   return (
-    <div className="rounded-lg overflow-hidden border border-border">
+    <div className="h-full rounded-lg overflow-hidden border border-border">
       <Editor
         height={height}
         language={languageMap[language]}

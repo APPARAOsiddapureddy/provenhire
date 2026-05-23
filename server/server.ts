@@ -9,6 +9,8 @@ import { createApp } from "./src/app.js";
 import { initProctorSocket } from "./src/socket/proctor-socket.js";
 import { ensureDefaultFlags } from "./src/services/featureFlag.service.js";
 import { logInterviewTtsStartup, warmInterviewFillerCache } from "./src/services/tts.service.js";
+import { startDsaDraftBufferFlusher } from "./src/services/dsaDraftBuffer.service.js";
+import { startDsaSessionWorker } from "./src/services/dsaSessionQueue.service.js";
 
 logInterviewTtsStartup();
 
@@ -25,6 +27,9 @@ ensureDefaultFlags().catch((e) => {
 warmInterviewFillerCache().catch((e) => {
   console.warn("[tts] Filler cache warmup failed:", e instanceof Error ? e.message : e);
 });
+
+startDsaDraftBufferFlusher();
+startDsaSessionWorker();
 
 // Render sets PORT (default 10000). Fallback if missing/invalid to avoid ERR_SOCKET_BAD_PORT.
 const raw = process.env.PORT;

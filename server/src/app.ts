@@ -75,7 +75,52 @@ export function createApp() {
     })
   );
   app.use(express.json({ limit: "2mb" }));
-  app.use(pinoHttp());
+  if (process.env.HTTP_ACCESS_LOGS === "true") {
+    app.use(
+      pinoHttp({
+        autoLogging: {
+          ignore: (req) =>
+            req.url === "/health" ||
+            req.url === "/api/health",
+        },
+        serializers: {
+          req(req) {
+            return {
+              id: req.id,
+              method: req.method,
+              url: req.url,
+              remoteAddress: req.remoteAddress,
+            };
+          },
+          res(res) {
+            return {
+              statusCode: res.statusCode,
+            };
+          },
+        },
+        customLogLevel(_req, res, err) {
+          if (err || res.statusCode >= 500) return "error";
+          if (res.statusCode >= 400) return "warn";
+          return "info";
+        },
+        customSuccessMessage(req, res) {
+          return `${req.method} ${req.url} ${res.statusCode}`;
+        },
+        customErrorMessage(req, res, err) {
+          return `${req.method} ${req.url} ${res.statusCode} ${err.message}`;
+        },
+        redact: {
+          paths: [
+            "req.headers",
+            "req.headers.authorization",
+            "req.headers.cookie",
+            "req.headers['x-api-key']",
+          ],
+          remove: true,
+        },
+      })
+    );
+  }
   app.use("/uploads", express.static(UPLOADS_DIR));
   const proctorScreenshotsDir = process.env.PROCTOR_SCREENSHOTS_DIR || path.join(process.cwd(), "..", "proctoring");
   app.use("/proctoring", express.static(proctorScreenshotsDir));
