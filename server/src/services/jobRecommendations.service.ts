@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { calculateCertificationLevel } from "./verificationLevel.service.js";
+import { calculateCertificationLevelsForUsers } from "./verificationLevel.service.js";
 import type { ResumeVerifiedSkill } from "./provenhireResume.service.js";
 import { experienceTierFromYears } from "../utils/experienceTier.js";
 import { discoveryGridFullyUnlocked, type SubscriptionTier } from "../utils/recruiterSubscription.js";
@@ -168,13 +168,19 @@ export async function computeJobRecommendations(params: {
     orderBy: { updatedAt: "desc" },
   });
 
+  const certByUser = await calculateCertificationLevelsForUsers(profiles.map((p) => p.userId));
+  const resumes = await prisma.provenHireResume.findMany({
+    where: { userId: { in: profiles.map((p) => p.userId) } },
+  });
+  const resumeByUser = new Map(resumes.map((r) => [r.userId, r]));
   const out: JobRecommendationRow[] = [];
 
   for (const p of profiles) {
-    const cert = await calculateCertificationLevel(p.userId);
+    const cert = certByUser.get(p.userId);
+    if (!cert) continue;
     if (cert.level < minCert) continue;
 
-    const resume = await prisma.provenHireResume.findUnique({ where: { userId: p.userId } });
+    const resume = resumeByUser.get(p.userId);
     const verified = Array.isArray(resume?.verifiedSkills)
       ? (resume!.verifiedSkills as ResumeVerifiedSkill[])
       : [];

@@ -1,4 +1,4 @@
-import { FileText, Brain, Video, UserCheck, Award, ArrowRight, Clock } from "lucide-react";
+import { FileText, Brain, Video, Award, ArrowRight, Clock } from "lucide-react";
 
 const VerificationFlowPreview = () => {
   const steps = [
@@ -10,27 +10,21 @@ const VerificationFlowPreview = () => {
     },
     { 
       icon: Brain, 
-      label: "Skill Check", 
+      label: "DSA Round", 
       time: "30 min",
-      description: "Cognitive Assessment + CS fundamentals"
+      description: "Experience-calibrated coding"
     },
     { 
       icon: Video, 
-      label: "AI Interview", 
+      label: "AI Expert", 
       time: "20 min",
-      description: "Behavioral & technical"
-    },
-    { 
-      icon: UserCheck, 
-      label: "Expert Review", 
-      time: "Async",
-      description: "Human validation"
+      description: "Capstone technical interview"
     },
     { 
       icon: Award, 
       label: "Verified Badge", 
       time: "",
-      description: "Level A/B/C certified"
+      description: "L1/L2 certified"
     },
   ];
 

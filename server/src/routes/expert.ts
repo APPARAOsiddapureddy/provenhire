@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireExpertInterviewer, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { rolesMatch } from "../data/interviewerRoles.js";
-import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { calculateCertificationLevelsForUsers } from "../services/verificationLevel.service.js";
 import { syncJobSeekerVerificationStatus } from "../services/certification.service.js";
 import { encryptSensitiveField } from "../utils/fieldEncryption.js";
 import {
@@ -498,12 +498,7 @@ expertRouter.get("/sessions/upcoming", async (req: AuthedRequest, res) => {
     orderBy: { scheduledAt: "asc" },
   });
   const userIds = [...new Set(sessions.map((s) => s.userId))];
-  const certByUser = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
-  await Promise.all(
-    userIds.map(async (uid) => {
-      certByUser.set(uid, await calculateCertificationLevel(uid));
-    })
-  );
+  const certByUser = await calculateCertificationLevelsForUsers(userIds);
   res.json({
     sessions: sessions.map((s) => {
       const c = certByUser.get(s.userId);
@@ -534,12 +529,7 @@ expertRouter.get("/sessions/past", async (req: AuthedRequest, res) => {
     take: 50,
   });
   const pastUserIds = [...new Set(sessions.map((s) => s.userId))];
-  const certPast = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
-  await Promise.all(
-    pastUserIds.map(async (uid) => {
-      certPast.set(uid, await calculateCertificationLevel(uid));
-    })
-  );
+  const certPast = await calculateCertificationLevelsForUsers(pastUserIds);
   res.json({
     sessions: sessions.map((s) => {
       const c = certPast.get(s.userId);

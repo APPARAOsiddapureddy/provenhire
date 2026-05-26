@@ -209,65 +209,63 @@ async function resolveNeededVerificationStages(
 
 /** Create missing pipeline rows; drop only extra *locked* stages (never human expert) so the path can switch after profile setup. */
 async function ensureVerificationPipelineStages(userId: string, neededStages: string[]): Promise<void> {
-  let existing = await prisma.verificationStage.findMany({ where: { userId } });
-  const neededSet = new Set(neededStages);
-  const neverPrune = new Set<string>(["human_expert_interview", "expert_interview"]);
+  await prisma.$transaction(async (tx) => {
+    let existing = await tx.verificationStage.findMany({ where: { userId } });
+    const neededSet = new Set(neededStages);
+    const neverPrune = new Set<string>(["human_expert_interview", "expert_interview"]);
 
-  if (existing.length === 0) {
-    await prisma.verificationStage.createMany({
-      data: neededStages.map((stageName, index) => ({
-        userId,
-        stageName,
-        status: index === 0 ? "in_progress" : "locked",
-      })),
-      skipDuplicates: true,
-    });
-    return;
-  }
-
-  for (const row of existing) {
-    if (neededSet.has(row.stageName) || neverPrune.has(row.stageName)) continue;
-    const canDelete = row.status === "locked" && row.score == null;
-    if (canDelete) {
-      await prisma.verificationStage.delete({ where: { id: row.id } });
+    if (existing.length === 0) {
+      await tx.verificationStage.createMany({
+        data: neededStages.map((stageName, index) => ({
+          userId,
+          stageName,
+          status: index === 0 ? "in_progress" : "locked",
+        })),
+        skipDuplicates: true,
+      });
+      return;
     }
-  }
 
-  existing = await prisma.verificationStage.findMany({ where: { userId } });
-  const have = new Set(existing.map((r) => r.stageName));
-  const missing = neededStages.filter((s) => !have.has(s));
-  if (missing.length > 0) {
-    await prisma.verificationStage.createMany({
-      data: missing.map((stageName) => ({
-        userId,
-        stageName,
-        status: "locked",
-      })),
-      skipDuplicates: true,
-    });
-  }
+    const deleteIds = existing
+      .filter((row) => !neededSet.has(row.stageName) && !neverPrune.has(row.stageName))
+      .filter((row) => row.status === "locked" && row.score == null)
+      .map((row) => row.id);
+    if (deleteIds.length > 0) {
+      await tx.verificationStage.deleteMany({ where: { id: { in: deleteIds } } });
+    }
+
+    existing = await tx.verificationStage.findMany({ where: { userId } });
+    const have = new Set(existing.map((r) => r.stageName));
+    const missing = neededStages.filter((s) => !have.has(s));
+    if (missing.length > 0) {
+      await tx.verificationStage.createMany({
+        data: missing.map((stageName) => ({
+          userId,
+          stageName,
+          status: "locked",
+        })),
+        skipDuplicates: true,
+      });
+    }
+  });
 }
 
 function allowedVerificationStageNames(roleType: string): Set<string> {
   return allowedStageNamesForTrack(roleTypeToTrack(roleType));
 }
 
-async function syncLegacyAptitudeToCsFundamentals(userId: string): Promise<void> {
-  if (!isVerificationPipelineV2()) return;
-  const profile = await prisma.jobSeekerProfile.findUnique({
-    where: { userId },
-    select: { experienceYears: true },
-  });
-  if (experienceTierFromYears(profile?.experienceYears) !== "fresher") return;
-  const apt = await prisma.verificationStage.findFirst({
-    where: { userId, stageName: "aptitude_test", status: "completed" },
-  });
-  if (!apt) return;
-  await prisma.verificationStage.upsert({
-    where: { userId_stageName: { userId, stageName: "cs_fundamentals" } },
-    create: { userId, stageName: "cs_fundamentals", status: "completed", score: apt.score },
-    update: { status: "completed", score: apt.score },
-  });
+function isBlockedSoftwareV2Stage(roleType: string, stageName: string): boolean {
+  return (
+    roleTypeToTrack(roleType) === "software" &&
+    isVerificationPipelineV2() &&
+    [
+      "aptitude_test",
+      "cs_fundamentals",
+      "ai_skills_interview",
+      "system_design_interview",
+      "human_expert_interview",
+    ].includes(stageName)
+  );
 }
 
 function toStageResponse(rows: { stageName: string; status: string; score?: number | null }[]) {
@@ -305,7 +303,7 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
           : statusOf(prev) === "completed";
       if (prevDone && statusOf(cur) === "locked") {
         await prisma.verificationStage.updateMany({
-          where: { userId, stageName: cur },
+          where: { userId, stageName: cur, status: "locked" },
           data: { status: "in_progress" },
         });
         rows = await reload();
@@ -319,7 +317,7 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
     const st = (name: string) => rows.find((r) => r.stageName === name)?.status;
     if (st("aptitude_test") === "completed" && st("dsa_round") === "locked") {
       await prisma.verificationStage.updateMany({
-        where: { userId, stageName: "dsa_round" },
+        where: { userId, stageName: "dsa_round", status: "locked" },
         data: { status: "in_progress" },
       });
       rows = await reload();
@@ -327,7 +325,7 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
     const st245 = (name: string) => rows.find((r) => r.stageName === name)?.status;
     if (st245("dsa_round") === "completed" && st245("expert_interview") === "locked") {
       await prisma.verificationStage.updateMany({
-        where: { userId, stageName: "expert_interview" },
+        where: { userId, stageName: "expert_interview", status: "locked" },
         data: { status: "in_progress" },
       });
       rows = await reload();
@@ -335,14 +333,13 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
     const st3 = (name: string) => rows.find((r) => r.stageName === name)?.status;
     if (st3("expert_interview") === "completed" && st3("human_expert_interview") === "locked") {
       await prisma.verificationStage.updateMany({
-        where: { userId, stageName: "human_expert_interview" },
+        where: { userId, stageName: "human_expert_interview", status: "locked" },
         data: { status: "in_progress" },
       });
     }
     return;
   }
 
-  const profileSetupDone = await isProfileSetupCompleted(userId);
   const { neededStages: order } = await resolveNeededVerificationStages(userId, profile);
   let rows = await reload();
   const statusOf = (name: string) => rows.find((r) => r.stageName === name)?.status;
@@ -363,7 +360,7 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
     })();
     if (prevDone && statusOf(cur) === "locked") {
       await prisma.verificationStage.updateMany({
-        where: { userId, stageName: cur },
+        where: { userId, stageName: cur, status: "locked" },
         data: { status: "in_progress" },
       });
       rows = await reload();
@@ -453,9 +450,6 @@ verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: Aut
 
     await ensureVerificationPipelineStages(req.user!.id, neededStages);
     const canonicalTrack = roleTypeToTrack(roleType);
-    if (canonicalTrack === "software") {
-      await syncLegacyAptitudeToCsFundamentals(req.user!.id);
-    }
     await reconcileVerificationStages(req.user!.id);
     const [stages, certification] = await Promise.all([
       prisma.verificationStage.findMany({ where: { userId: req.user!.id } }),
@@ -515,6 +509,11 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
   const allowed = allowedVerificationStageNames(roleType);
   if (!allowed.has(stageName)) {
     return res.status(400).json({ error: "Invalid stage for your verification path" });
+  }
+  if (
+    isBlockedSoftwareV2Stage(roleType, stageName)
+  ) {
+    return res.status(400).json({ error: "This stage is not part of the current developer verification path." });
   }
 
   const existing = await prisma.verificationStage.findFirst({
@@ -785,7 +784,7 @@ verificationRouter.post("/stages/bulk", requireAuth, requireJobSeeker, async (re
           return { userId, stageName, status: row.status };
         })
         .filter((r): r is { userId: string; stageName: string; status: string } => r !== null)
-        .filter((r) => allowed.has(r.stageName));
+        .filter((r) => allowed.has(r.stageName) && !isBlockedSoftwareV2Stage(roleType, r.stageName));
       if (data.length === 0) {
         return res.status(400).json({ error: "No valid stage names to insert for this verification path." });
       }

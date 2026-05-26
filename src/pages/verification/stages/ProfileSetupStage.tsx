@@ -704,7 +704,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
             <DialogHeader>
               <DialogTitle>Switch to Non-Technical track?</DialogTitle>
               <DialogDescription>
-                Your resume suggests roles in Business, Operations, Marketing, or similar (non-engineering). Would you like to switch to the <strong>Non-Technical</strong> verification path? Your dashboard and verification steps will update to match — domain fundamentals (early-career), assignment, and AI Expert Interview instead of CS fundamentals, DSA, and the technical AI loop.
+                Your resume suggests roles in Business, Operations, Marketing, or similar (non-engineering). Would you like to switch to the <strong>Non-Technical</strong> verification path? Your dashboard and verification steps will update to match — domain fundamentals (early-career), assignment, and AI Expert Interview instead of DSA and the developer AI Expert Interview.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-0">
@@ -734,13 +734,19 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
               </Button>
               <Button
                 onClick={() => {
-                  const resolvedNextStage = nextStageName ?? (roleType === "non_technical" ? "non_tech_assignment" : "cs_fundamentals");
+                  const resolvedNextStage =
+                    nextStageName ??
+                    (roleType === "non_technical"
+                      ? "non_tech_assignment"
+                      : roleType === "data"
+                        ? "data_fundamentals"
+                        : "dsa_round");
                   api.post("/api/verification/stages/update", { stageName: resolvedNextStage, status: "in_progress" }).then(() => {
                     onContinueToVerification?.();
                   });
                 }}
               >
-                Continue to {nextStageLabel ?? (roleType === "non_technical" ? "Assignment" : "CS Fundamentals + Aptitude")}
+                Continue to {nextStageLabel ?? (roleType === "non_technical" ? "Assignment" : roleType === "data" ? "Data Fundamentals" : "DSA Round")}
               </Button>
             </div>
           </div>

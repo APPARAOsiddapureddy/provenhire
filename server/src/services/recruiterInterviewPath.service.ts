@@ -4,6 +4,7 @@ import {
   approveAdminReviewQueueForHumanExpert,
   getLatestAdminQueueForCandidate,
 } from "./humanInterviewGate.service.js";
+import { isVerificationPipelineV2, roleTypeToTrack } from "../constants/verificationPipeline.js";
 
 export const RECRUITER_INTERVIEW_MODES = ["provenhire_ai", "human_expert", "company_employee"] as const;
 export type RecruiterInterviewMode = (typeof RECRUITER_INTERVIEW_MODES)[number];
@@ -52,6 +53,21 @@ export async function setRecruiterInterviewPathForApplication(params: {
       ok: false,
       status: 409,
       error: "Candidate must complete the AI Expert Interview before you can set the next interview step.",
+    };
+  }
+
+  const candidateProfile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId: application.jobSeekerId },
+    select: { roleType: true },
+  });
+  const softwareV2Candidate =
+    isVerificationPipelineV2() && roleTypeToTrack(candidateProfile?.roleType) === "software";
+
+  if (softwareV2Candidate && parsed.data.mode === "human_expert") {
+    return {
+      ok: false,
+      status: 409,
+      error: "Human expert routing is not part of the current developer verification path.",
     };
   }
 

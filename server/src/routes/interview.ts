@@ -24,7 +24,7 @@ import {
   mergeIntegrityFlags,
 } from "../services/aiInterviewProctoringRisk.service.js";
 import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
-import { recordAiInterviewSubmittedForAdminReview } from "../services/humanInterviewGate.service.js";
+import { completeAiExpertVerification } from "../services/humanInterviewGate.service.js";
 import {
   startAdversarialInterview,
   processTurn,
@@ -1429,15 +1429,15 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
             integrityFlag,
           },
         });
-        await recordAiInterviewSubmittedForAdminReview({
+        const completion = await completeAiExpertVerification({
           userId: interview.userId,
           interviewId,
           score: 50,
         });
         return res.json({
           completed: true,
-          pendingReview: true,
-          candidateMessage: PENDING_REVIEW_MESSAGE,
+          pendingReview: completion.adminReviewCreated,
+          candidateMessage: completion.adminReviewCreated ? PENDING_REVIEW_MESSAGE : undefined,
           evaluation,
           totalScore: 50,
           badgeLevel: "Pending Review",
@@ -1499,7 +1499,7 @@ interviewRouter.post("/respond", requireAuth, requireJobSeeker, async (req: Auth
         }
       }
 
-      await recordAiInterviewSubmittedForAdminReview({
+      await completeAiExpertVerification({
         userId: interview.userId,
         interviewId,
         score: total,

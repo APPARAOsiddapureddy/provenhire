@@ -2,6 +2,7 @@ import { prisma } from "../config/prisma.js";
 import { sendAiInterviewUnderReviewEmail, sendHumanInterviewApprovedEmail } from "./resend.js";
 import { upsertSkillVerification } from "./skillVerification.service.js";
 import { syncProvenhireResumeFromSources } from "./provenhireResume.service.js";
+import { isVerificationPipelineV2, roleTypeToTrack } from "../constants/verificationPipeline.js";
 
 export const HUMAN_INTERVIEW_PRICE_PAISE = 399 * 100;
 
@@ -53,6 +54,15 @@ export async function candidateHadAdminRejection(candidateId: string): Promise<b
   return row != null;
 }
 
+export async function isSoftwareV2Candidate(userId: string): Promise<boolean> {
+  if (!isVerificationPipelineV2()) return false;
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { roleType: true },
+  });
+  return roleTypeToTrack(profile?.roleType) === "software";
+}
+
 export async function getLatestAdminQueueForCandidate(candidateId: string) {
   return prisma.adminReviewQueue.findFirst({
     where: { candidateId },
@@ -75,6 +85,9 @@ export async function approveAdminReviewQueueForHumanExpert(params: {
   });
   if (!queue) throw new Error("Queue not found");
   if (queue.status !== "pending") return;
+  if (await isSoftwareV2Candidate(queue.candidateId)) {
+    throw new Error("Human expert routing is not part of the current developer verification path.");
+  }
 
   const score = queue.aiInterview.totalScore ?? 0;
   const completedAt = queue.aiInterview.completedAt ?? new Date();
@@ -147,12 +160,64 @@ export async function approveAdminReviewQueueForHumanExpert(params: {
   );
 }
 
-/** Call when the candidate finishes the last AI interview answer (technical track). */
-export async function recordAiInterviewSubmittedForAdminReview(params: {
+async function completeSoftwareAiExpertInterview(params: {
   userId: string;
   interviewId: string;
   score: number | null;
 }): Promise<void> {
+  const completedAt = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.interview.update({
+      where: { id: params.interviewId },
+      data: {
+        status: "completed",
+        totalScore: params.score,
+        completedAt,
+      },
+    });
+    await tx.verificationStage.upsert({
+      where: {
+        userId_stageName: { userId: params.userId, stageName: "expert_interview" },
+      },
+      create: {
+        userId: params.userId,
+        stageName: "expert_interview",
+        status: "completed",
+        score: params.score,
+      },
+      update: { status: "completed", score: params.score },
+    });
+    await tx.verificationStage.updateMany({
+      where: {
+        userId: params.userId,
+        stageName: "human_expert_interview",
+        status: { not: "completed" },
+      },
+      data: { status: "locked" },
+    });
+    await tx.jobSeekerProfile.updateMany({
+      where: { userId: params.userId, verificationStatus: { not: "expert_verified" } },
+      data: { verificationStatus: "verified" },
+    });
+  });
+
+  await upsertSkillVerification(params.userId, "INTERVIEW", params.score ?? 0, completedAt);
+  syncProvenhireResumeFromSources(params.userId).catch((err) =>
+    console.error(`[completeSoftwareAiExpertInterview] resume sync failed for ${params.userId}:`, err)
+  );
+}
+
+/** Call when the candidate finishes the last AI Expert interview answer. */
+export async function completeAiExpertVerification(params: {
+  userId: string;
+  interviewId: string;
+  score: number | null;
+}): Promise<{ adminReviewCreated: boolean; softwareImmediate: boolean }> {
+  if (await isSoftwareV2Candidate(params.userId)) {
+    await completeSoftwareAiExpertInterview(params);
+    return { adminReviewCreated: false, softwareImmediate: true };
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.adminReviewQueue.upsert({
       where: { aiInterviewId: params.interviewId },
@@ -188,6 +253,16 @@ export async function recordAiInterviewSubmittedForAdminReview(params: {
   if (user?.email) {
     void sendAiInterviewUnderReviewEmail(user.email, user.name).catch(() => {});
   }
+  return { adminReviewCreated: true, softwareImmediate: false };
+}
+
+/** @deprecated Use completeAiExpertVerification so software v2 can skip admin/human review. */
+export async function recordAiInterviewSubmittedForAdminReview(params: {
+  userId: string;
+  interviewId: string;
+  score: number | null;
+}): Promise<void> {
+  await completeAiExpertVerification(params);
 }
 
 export async function getHumanInterviewEligibility(userId: string): Promise<HumanInterviewEligibility> {
@@ -198,8 +273,8 @@ export async function getHumanInterviewEligibility(userId: string): Promise<Huma
   const roleType = (profile?.roleType as string) || "technical";
   const retryAfter = profile?.humanExpertRetryAfter ?? null;
 
-  if (roleType === "non_technical") {
-    /** Non-technical v2: AI Expert Interview replaces in-platform human expert booking for verification. */
+  if (roleTypeToTrack(roleType) === "non_technical" || (await isSoftwareV2Candidate(userId))) {
+    /** These v2 paths use AI Expert as the terminal verification step. */
     return withExpertRetryCooldown(
       {
         admin_review_status: "none",

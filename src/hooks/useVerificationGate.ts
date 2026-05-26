@@ -21,7 +21,7 @@ async function fetchVerificationGateState(): Promise<Omit<VerificationStatus, "i
   const FETCH_TIMEOUT_MS = 15000;
   const fetchPromise = Promise.allSettled([
     api.get<{ profile: any }>("/api/users/job-seeker-profile"),
-    api.get<{ stages: any[]; certification_level?: number; certification_label?: string }>("/api/verification/stages"),
+    api.get<{ stages: any[]; stage_order?: string[]; certification_level?: number; certification_label?: string }>("/api/verification/stages"),
   ]);
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error("Verification check timed out")), FETCH_TIMEOUT_MS)
@@ -40,9 +40,10 @@ async function fetchVerificationGateState(): Promise<Omit<VerificationStatus, "i
       : "Level 0 - Not Yet Certified";
 
   const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
-  /** True L3 (tech) / L2 (non-tech) or DB expert_verified — not plain `verified`, which includes L1 after sync. */
+  /** True expert-level verification or DB expert_verified, not plain `verified`, which includes L1 after sync. */
+  const expertThreshold = roleType === "data" ? 3 : 2;
   const isExpertVerified =
-    certificationLevel >= (roleType === "technical" ? 3 : 2) ||
+    certificationLevel >= expertThreshold ||
     profile?.verificationStatus === "expert_verified";
   const isNonTechVerified = roleType === "non_technical" && certificationLevel >= 1;
   const isVerified = certificationLevel >= 1 || isExpertVerified || isNonTechVerified;
@@ -53,24 +54,34 @@ async function fetchVerificationGateState(): Promise<Omit<VerificationStatus, "i
       ? completedStages.some((s: { stage_name?: string }) => s.stage_name === "dsa_round")
       : completedStages.some((s: { stage_name?: string }) => s.stage_name === "non_tech_assignment");
 
+  const stageOrder =
+    stagesRes.status === "fulfilled" && Array.isArray(stagesRes.value.stage_order)
+      ? stagesRes.value.stage_order
+      : null;
+  const activeStages =
+    stages && stageOrder && stageOrder.length > 0
+      ? stages.filter((s: { stage_name?: string }) => stageOrder.includes(s.stage_name ?? ""))
+      : stages;
   const totalStages =
-    roleType === "non_technical"
-      ? stages && stages.length > 0
-        ? stages.length
-        : 4
-      : 5;
+    stageOrder && stageOrder.length > 0
+      ? stageOrder.length
+      : roleType === "technical"
+        ? 3
+        : activeStages && activeStages.length > 0
+          ? activeStages.length
+          : 4;
   let progress = 0;
   let currentStage: string | null = null;
 
-  if (stages && stages.length > 0) {
-    const completed = stages.filter((s) => s.status === "completed").length;
-    const denom = Math.max(1, stages.length);
-    progress = (completed / denom) * 100;
+  if (activeStages && activeStages.length > 0) {
+    const completed = activeStages.filter((s) => s.status === "completed").length;
+    const denom = Math.max(1, totalStages);
+    progress = Math.min(100, (completed / denom) * 100);
 
-    const inProgress = stages.find((s) => s.status === "in_progress");
+    const inProgress = activeStages.find((s) => s.status === "in_progress");
     currentStage =
       inProgress?.stage_name ||
-      (completed === 0 ? "profile_setup" : completed >= totalStages ? "completed" : stages[completed]?.stage_name);
+      (completed === 0 ? "profile_setup" : completed >= totalStages ? "completed" : stageOrder?.[completed] ?? activeStages[completed]?.stage_name);
   }
 
   return {

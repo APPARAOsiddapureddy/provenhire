@@ -8,9 +8,7 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle, Lock } from "lucide-react";
 
 const DEFAULT_TECHNICAL_PIPELINE_STAGES = [
-  "cs_fundamentals",
   "dsa_round",
-  "ai_skills_interview",
   "expert_interview",
 ] as const;
 
@@ -27,10 +25,10 @@ const PIPELINE_LABELS: Record<string, string> = {
 const LOCKED_STATUS_TEXT: Record<string, string> = {
   aptitude_test: "Complete profile to start",
   cs_fundamentals: "Complete previous steps",
-  dsa_round: "Unlocks after fundamentals / cognitive",
+  dsa_round: "Unlocks after profile setup",
   ai_skills_interview: "Unlocks after live coding",
   system_design_interview: "Unlocks after AI Skills",
-  expert_interview: "Unlocks after prior AI stages",
+  expert_interview: "Unlocks after live coding",
   human_expert_interview: "Unlocks at Skill Passport (L2)",
 };
 
@@ -93,7 +91,7 @@ export function VerificationPipelineCard({
 
   const userSub =
     certificationLevelNumber >= 3
-      ? "Expert Verified"
+      ? "Elite Verified"
       : certificationLevelNumber >= 2
         ? "Skill Passport"
         : certificationLevelNumber >= 1
@@ -174,17 +172,17 @@ export function VerificationPipelineCard({
           <div className={`vpc-lvl ${certificationLevelNumber >= 1 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber >= 1 ? "L1 · Now" : "L1"}</div>
             <div className="vpc-lvl-name">Cognitive Verified</div>
-            <div className="vpc-lvl-reqs">Foundations: profile, reasoning, live coding</div>
+            <div className="vpc-lvl-reqs">Live coding: DSA round</div>
           </div>
           <div className={`vpc-lvl ${certificationLevelNumber === 2 ? "vpc-lvl--current" : certificationLevelNumber > 2 ? "vpc-lvl--past" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber === 2 ? "L2 · Now" : "L2"}</div>
             <div className="vpc-lvl-name">Skill Passport</div>
-            <div className="vpc-lvl-reqs">AI skills, design (senior), AI Expert</div>
+            <div className="vpc-lvl-reqs">AI Expert Interview</div>
           </div>
           <div className={`vpc-lvl ${certificationLevelNumber >= 3 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
             <div className="vpc-lvl-tag">{certificationLevelNumber >= 3 ? "L3 · Now" : "L3"}</div>
-            <div className="vpc-lvl-name">Elite Verified</div>
-            <div className="vpc-lvl-reqs">Human Interview</div>
+            <div className="vpc-lvl-name">Reserved</div>
+            <div className="vpc-lvl-reqs">Not awarded in current developer flow</div>
           </div>
         </div>
       </div>

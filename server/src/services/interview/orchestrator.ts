@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
-import { recordAiInterviewSubmittedForAdminReview } from "../humanInterviewGate.service.js";
+import { completeAiExpertVerification } from "../humanInterviewGate.service.js";
 import { syncJobSeekerVerificationStatus } from "../certification.service.js";
 import { analyzeAnswerAntiGaming } from "../aiInterviewAntiGaming.service.js";
 import {
@@ -42,6 +42,7 @@ import { computeWeaknessCoverageRatio, evaluateFullInterviewMultiPass } from "./
 import {
   detectDataSubtrack,
   detectNonTechSubtrack,
+  roleTypeToTrack,
   type DataSubtrack,
   type NonTechSubtrack,
 } from "../../constants/verificationPipeline.js";
@@ -1700,8 +1701,9 @@ export async function finalizeAiInterviewInBackground(
     where: { userId },
     select: { roleType: true },
   });
-  const nonTechnical = jsProfile?.roleType === "non_technical";
-  const dataTrack = jsProfile?.roleType === "data";
+  const candidateTrack = roleTypeToTrack(jsProfile?.roleType);
+  const nonTechnical = candidateTrack === "non_technical";
+  const dataTrack = candidateTrack === "data";
 
   const coverageRatio = computeWeaknessCoverageRatio(newWeaknesses, newQuestionCount);
   const multi = await evaluateFullInterviewMultiPass(
@@ -1865,13 +1867,16 @@ export async function finalizeAiInterviewInBackground(
   // Determine which verification stage this interview is completing.
   // Skill-stage interviews (ai_skills_interview, data_skills_interview) complete immediately;
   // expert_interview for technical users goes to pending_review for admin scoring.
-  const inProgressSkillsStage = await prisma.verificationStage.findFirst({
-    where: {
-      userId,
-      stageName: { in: ["ai_skills_interview", "data_skills_interview"] },
-      status: "in_progress",
-    },
-  });
+  const inProgressSkillsStage =
+    candidateTrack === "data"
+      ? await prisma.verificationStage.findFirst({
+          where: {
+            userId,
+            stageName: "data_skills_interview",
+            status: "in_progress",
+          },
+        })
+      : null;
   const targetStageName = inProgressSkillsStage?.stageName ?? "expert_interview";
   const isSkillsStage = targetStageName === "ai_skills_interview" || targetStageName === "data_skills_interview";
 
@@ -1887,7 +1892,7 @@ export async function finalizeAiInterviewInBackground(
       console.warn("[finalizeAiInterviewInBackground] syncJobSeekerVerificationStatus", e);
     }
   } else {
-    await recordAiInterviewSubmittedForAdminReview({
+    await completeAiExpertVerification({
       userId,
       interviewId,
       score: overallScore,

@@ -4,6 +4,7 @@ import { requireAuth, optionalAuth, AuthedRequest } from "../middleware/auth.js"
 import { prisma } from "../config/prisma.js";
 import {
   calculateCertificationLevel,
+  calculateCertificationLevelsForUsers,
   getCertificationLabel,
   minimumLevelHint,
   type CertificationTrack,
@@ -13,6 +14,7 @@ import { integrityScoreFromViolationStats } from "../services/proctoringViolatio
 import { computeProvenhireCertification } from "../services/verificationScoring.service.js";
 import { experienceTierFromYears, salaryCapLpaForTier } from "../utils/experienceTier.js";
 import { computeJobRecommendations } from "../services/jobRecommendations.service.js";
+import { roleTypeToTrack } from "../constants/verificationPipeline.js";
 import {
   activePublishedJobLimit,
   ensureRecruiterUsageRow,
@@ -75,11 +77,17 @@ function parseSalaryMaxLpa(salaryRange?: string | null): number | null {
   return Number.isNaN(max) ? null : max;
 }
 
-function getEffectiveMinimumCertificationLevel(jobTrack: "tech" | "non_technical", salaryRange?: string | null): number {
+function getEffectiveMinimumCertificationLevel(
+  jobTrack: "tech" | "non_technical",
+  salaryRange?: string | null,
+  candidateRoleType?: string | null
+): number {
   // Policy: all jobs are open to all users, only high-package technical roles are Level 3 gated.
   if (jobTrack !== "tech") return 0;
   const maxLpa = parseSalaryMaxLpa(salaryRange);
-  return (maxLpa ?? 0) >= 25 ? 3 : 0;
+  const base = (maxLpa ?? 0) >= 25 ? 3 : 0;
+  if (base === 3 && candidateRoleType != null && roleTypeToTrack(candidateRoleType) === "software") return 2;
+  return base;
 }
 
 jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
@@ -129,7 +137,8 @@ jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
     return res.json({ jobs: jobsForClient, listingsGate: "open", listingsMessage: null });
   }
 
-  const roleType = (profile.roleType ?? "technical") === "non_technical" ? "non_technical" : "technical";
+  const profileRoleType = profile.roleType ?? "technical";
+  const roleType = profileRoleType === "non_technical" ? "non_technical" : "technical";
 
   if (roleType === "technical") {
     const dsaDone = await prisma.verificationStage.findFirst({
@@ -179,7 +188,7 @@ jobsRouter.get("/", optionalAuth, async (req: AuthedRequest, res) => {
         jobAccessLevel = "unlocked";
         lockReason = null;
       } else if (cert.certificationLevel === "L2") {
-        if (maxLpa != null && maxLpa > salaryCap) {
+        if (profileRoleType === "data" && maxLpa != null && maxLpa > salaryCap) {
           jobAccessLevel = "locked";
           lockReason = "complete_expert_interview";
         } else {
@@ -365,9 +374,9 @@ jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
     }
   }
   const jobTrack = (job.jobTrack === "non_technical" ? "non_technical" : "tech") as "tech" | "non_technical";
-  const certTrack: CertificationTrack = jobTrack === "non_technical" ? "non_technical" : "technical";
+  const certTrack: CertificationTrack = jobTrack === "non_technical" ? "non_technical" : roleTypeToTrack(profile?.roleType);
   const candidateCertification = await calculateCertificationLevel(req.user!.id);
-  const minimumLevel = getEffectiveMinimumCertificationLevel(jobTrack, job.salaryRange);
+  const minimumLevel = getEffectiveMinimumCertificationLevel(jobTrack, job.salaryRange, profile?.roleType);
   if (candidateCertification.level < minimumLevel) {
     const requiredLabel = getCertificationLabel(certTrack, minimumLevel);
     return res.status(403).json({
@@ -491,12 +500,7 @@ jobsRouter.get("/:id/applicants", requireAuth, async (req: AuthedRequest, res) =
     });
   }
 
-  const certByUser = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
-  await Promise.all(
-    userIds.map(async (id) => {
-      certByUser.set(id, await calculateCertificationLevel(id));
-    })
-  );
+  const certByUser = await calculateCertificationLevelsForUsers(userIds);
 
   const aptitudeStageScore = (uid: string) => {
     const userStages = stageByUser.get(uid) ?? [];

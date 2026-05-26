@@ -12,10 +12,8 @@ function experienceTierFromYears(years: number | null | undefined): ExperienceTi
 // ---------------------------------------------------------------------------
 
 export function technicalStagesForTier(tier: ExperienceTier): string[] {
-  if (tier === "fresher") {
-    return ["profile_setup", "cs_fundamentals", "dsa_round", "ai_skills_interview", "expert_interview"];
-  }
-  return ["profile_setup", "dsa_round", "ai_skills_interview", "system_design_interview", "expert_interview"];
+  void tier;
+  return ["profile_setup", "dsa_round", "expert_interview"];
 }
 
 // ---------------------------------------------------------------------------

@@ -116,13 +116,10 @@ const Jobs = () => {
       }
       return { level: 0, label: "Level 0 - Not Yet Certified" };
     }
-    if (completed.has("human_expert_interview")) return { level: 3, label: "Level 3 - Elite ProvenHire Candidate" };
-    if (completed.has("dsa_round") && completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
-    if (
-      completed.has("profile_setup") &&
-      completed.has("aptitude_test") &&
-      completed.has("dsa_round")
-    ) {
+    if (completed.has("expert_interview") || completed.has("human_expert_interview")) {
+      return { level: 2, label: "Level 2 - Skill Passport Verified" };
+    }
+    if (completed.has("dsa_round")) {
       return { level: 1, label: "Level 1 - Cognitive Verified" };
     }
     return { level: 0, label: "Level 0 - Not Yet Certified" };

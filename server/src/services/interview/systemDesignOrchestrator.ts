@@ -6,7 +6,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { syncJobSeekerVerificationStatus } from "../certification.service.js";
-import { detectDataSubtrack, type DataSubtrack } from "../../constants/verificationPipeline.js";
+import { detectDataSubtrack, isVerificationPipelineV2, roleTypeToTrack, type DataSubtrack } from "../../constants/verificationPipeline.js";
 import {
   evaluateDataSystemDesignSession,
   generateDataSystemDesignQuestion,
@@ -783,6 +783,9 @@ export async function startSoftwareSystemDesignInterview(
     where: { userId },
     select: { roleType: true, targetJobTitle: true, currentRole: true },
   });
+  if (isVerificationPipelineV2() && roleTypeToTrack(profile?.roleType) === "software") {
+    throw new Error("System Design is not part of the current developer verification path.");
+  }
   const rt = profile?.roleType ?? "technical";
   if (rt === "data" || rt === "non_technical") {
     throw new Error("System Design (software) is only available on the software verification track.");

@@ -7,7 +7,7 @@ import { prisma } from "../../config/prisma.js";
 import type { DSAContext } from "../../types/dsaContext.js";
 import type { ExperienceTier } from "../../utils/experienceTier.js";
 import { experienceTierFromYears } from "../../utils/experienceTier.js";
-import { detectDataSubtrack, type DataSubtrack } from "../../constants/verificationPipeline.js";
+import { detectDataSubtrack, isVerificationPipelineV2, roleTypeToTrack, type DataSubtrack } from "../../constants/verificationPipeline.js";
 import { runGeminiJson } from "../ai.service.js";
 import { syncJobSeekerVerificationStatus } from "../certification.service.js";
 import { skillVerifiedThresholdForTier, syncProvenhireResumeFromSources } from "../provenhireResume.service.js";
@@ -912,6 +912,9 @@ export async function startAiSkillsInterview(
     where: { userId },
     select: { experienceYears: true, roleType: true, targetJobTitle: true },
   });
+  if (!isData && isVerificationPipelineV2() && roleTypeToTrack(profile?.roleType) === "software") {
+    throw new Error("AI Skills Interview is not part of the current developer verification path.");
+  }
   const profileTier = experienceTierFromYears(profile?.experienceYears);
   const useTrack: ExperienceTier = track ?? profileTier;
 

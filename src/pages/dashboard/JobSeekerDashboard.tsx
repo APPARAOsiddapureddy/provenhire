@@ -20,7 +20,7 @@ import { preloadVerificationFlow } from "@/preloads";
 import DashboardShell from "@/components/DashboardShell";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 
-const TECHNICAL_STAGE_ORDER = ['profile_setup', 'cs_fundamentals', 'dsa_round', 'ai_skills_interview', 'expert_interview'] as const;
+const TECHNICAL_STAGE_ORDER = ['profile_setup', 'dsa_round', 'expert_interview'] as const;
 
 function nonTechnicalFallbackOrder(experienceYears: number | null | undefined): string[] {
   const y = experienceYears == null || Number.isNaN(Number(experienceYears)) ? 0 : Number(experienceYears);
@@ -94,9 +94,7 @@ const deriveCertificationFromStages = (
     return { level: 0, label: "Level 0 - Not Yet Certified" };
   }
   if (completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
-  const cognitiveDone =
-    (completed.has("aptitude_test") || completed.has("cs_fundamentals")) && completed.has("dsa_round");
-  if (completed.has("profile_setup") && cognitiveDone) {
+  if (completed.has("dsa_round")) {
     return { level: 1, label: "Level 1 - Cognitive Verified" };
   }
   return { level: 0, label: "Level 0 - Not Yet Certified" };
@@ -198,14 +196,7 @@ const JobSeekerDashboard = () => {
     } else if (roleType === "technical") {
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "human_expert_interview")) return "expert";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "ai_interview";
-      if (completed.some((s: { stage_name?: string }) => s.stage_name === "system_design_interview")) return "system_design";
-      if (completed.some((s: { stage_name?: string }) => s.stage_name === "ai_skills_interview")) return "ai_skills";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "dsa_round")) return "dsa";
-      if (
-        completed.some((s: { stage_name?: string }) => s.stage_name === "aptitude_test") ||
-        completed.some((s: { stage_name?: string }) => s.stage_name === "cs_fundamentals")
-      )
-        return "aptitude";
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "profile_setup")) return "profile";
     } else {
       if (completed.some((s: { stage_name?: string }) => s.stage_name === "expert_interview")) return "expert";
@@ -278,7 +269,7 @@ const JobSeekerDashboard = () => {
             {
               level: 1,
               label: "Level 1 - Cognitive Verified",
-              stages: ["profile_setup", "cognitive_or_fundamentals", "dsa_round"],
+              stages: ["profile_setup", "dsa_round"],
             },
             {
               level: 2,
@@ -287,8 +278,8 @@ const JobSeekerDashboard = () => {
             },
             {
               level: 3,
-              label: "Level 3 - Elite Verified",
-              stages: ["human_expert_interview"],
+              label: "Level 3 - Reserved",
+              stages: [],
             },
           ];
 
@@ -508,15 +499,22 @@ const JobSeekerDashboard = () => {
       }
 
       if (stagesList.length > 0) {
-        const completed = stagesList.filter((s: { status?: string }) => s.status === "completed").length;
         const role = (profile?.roleType ?? profile?.role_type ?? "technical") as string;
-        const totalStages =
+        const activeOrder =
           role === "non_technical"
-            ? (order && order.length > 0 ? order.length : nonTechnicalFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null).length)
-            : order && order.length > 0
-              ? order.length
-              : TECHNICAL_STAGE_ORDER.length;
-        setVerificationProgress(totalStages > 0 ? (completed / totalStages) * 100 : 0);
+            ? (order && order.length > 0 ? order : nonTechnicalFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null))
+            : role === "data"
+              ? (order && order.length > 0 ? order : dataTrackFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null))
+              : order && order.length > 0
+                ? order
+                : [...TECHNICAL_STAGE_ORDER];
+        const activeOrderList = Array.isArray(activeOrder) ? activeOrder : [];
+        const activeNames = new Set(activeOrderList);
+        const completed = stagesList.filter(
+          (s: { stage_name?: string; status?: string }) => s.status === "completed" && activeNames.has(s.stage_name ?? "")
+        ).length;
+        const totalStages = activeOrderList.length;
+        setVerificationProgress(totalStages > 0 ? Math.min(100, (completed / totalStages) * 100) : 0);
       }
 
       if (stale()) return;
@@ -903,7 +901,7 @@ const JobSeekerDashboard = () => {
                 </p>
                 {(roleType === "technical" || roleType === "data") && pipelinePendingProfileSetup && (
                   <p className="text-sm text-amber-200/90 border border-amber-400/30 bg-amber-500/10 rounded-lg px-3 py-2 mt-3 max-w-3xl">
-                    You’re on the early-career verification steps until you finish <strong className="font-semibold">Profile Setup</strong> in the verification flow. After that, your stages update to match the experience you entered (for example, mid/senior paths add system design instead of fundamentals-only prep).
+                    You’re on the initial verification steps until you finish <strong className="font-semibold">Profile Setup</strong> in the verification flow. After that, your stages update to match the track and experience you entered.
                   </p>
                 )}
               </div>
@@ -916,7 +914,11 @@ const JobSeekerDashboard = () => {
                   <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/40">
                     <Award className="h-3.5 w-3.5 mr-1.5" />
                     {roleType === "technical" || roleType === "data"
-                      ? "Level 1 — Cognitive verified"
+                      ? certificationLevelNumber >= 3
+                        ? "Level 3 — Elite verified"
+                        : certificationLevelNumber >= 2
+                          ? "Level 2 — Skill Passport"
+                          : "Level 1 — Cognitive verified"
                       : certificationLevelNumber >= 3
                         ? "Level 3 — AI Expert verified"
                         : certificationLevelNumber >= 2
@@ -937,8 +939,10 @@ const JobSeekerDashboard = () => {
                   const activeByCode = provenhireCertCode === code;
                   const highlight = activeByCode || (provenhireCertCode == null && activeByNumber);
                   const titles: Record<string, string> =
-                    roleType === "technical" || roleType === "data"
+                    roleType === "data"
                       ? { L1: "Cognitive Verified", L2: "Skill Passport", L3: "Elite Verified" }
+                      : roleType === "technical"
+                        ? { L1: "Cognitive Verified", L2: "Skill Passport", L3: "Reserved" }
                       : {
                           L1: "Foundation",
                           L2: "Assignment verified",
@@ -963,14 +967,14 @@ const JobSeekerDashboard = () => {
                             ? code === "L1"
                               ? roleType === "data"
                                 ? "Profile, data fundamentals (early-career), then the Data Round"
-                                : "Profile, fundamentals & live coding — then browse entry-friendly roles"
+                                : "Profile, then experience-calibrated DSA"
                               : code === "L2"
                                 ? roleType === "data"
                                   ? "Data AI Skills; mid/senior also complete Data System Design — then AI Expert"
-                                  : "AI Skills, System Design (mid/senior), AI Expert — Skill Passport"
+                                  : "AI Expert Interview — capstone on this track"
                                 : roleType === "data"
                                   ? "AI Expert interview caps the data verification path"
-                                  : "Human expert interview — highest trust tier"
+                                  : "Reserved in the simplified developer path"
                             : code === "L1"
                               ? "Profile and (for early-career) domain fundamentals"
                               : code === "L2"
@@ -1063,11 +1067,11 @@ const JobSeekerDashboard = () => {
                     non_tech_assignment:
                       'Generic writing gate: pick a hobby topic, then brainstorm, outline, reference, and polish a blog-style article (PDF/DOCX).',
                     ai_skills_interview:
-                      'AI-led deep dive on your stack and decisions — adaptive, proctored, feeds your ProvenHire Resume.',
+                      'Legacy AI skills stage retained for old records; new developer paths skip this step.',
                     data_skills_interview:
                       'Walkthrough of your Data Round work plus depth checks on SQL, Python, and data skills from your profile.',
                     system_design_interview:
-                      'Structured system design conversation for mid/senior tracks — trade-offs, scaling, and clarity.',
+                      'Legacy system design stage retained for old records; new developer paths skip this step.',
                     data_system_design:
                       'Data platform design: LLD (schemas, pipelines, quality) then HLD (scale, orchestration, reliability).',
                     expert_interview:

@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { isVerificationPipelineV2 } from "../constants/verificationPipeline.js";
+import { isVerificationPipelineV2, roleTypeToTrack } from "../constants/verificationPipeline.js";
 import { experienceTierFromYears } from "../utils/experienceTier.js";
 
 export type QualificationBand =
@@ -327,7 +327,8 @@ export async function computeProvenhireCertification(userId: string): Promise<{
     where: { userId },
     select: { roleType: true, experienceYears: true },
   });
-  const roleType = profile?.roleType === "non_technical" ? "non_technical" : "technical";
+  const track = roleTypeToTrack(profile?.roleType);
+  const roleType = track === "non_technical" ? "non_technical" : "technical";
 
   if (roleType === "non_technical") {
     const stages = await prisma.verificationStage.findMany({
@@ -414,19 +415,24 @@ export async function computeProvenhireCertification(userId: string): Promise<{
       select: { id: true },
     });
     if (latest) {
+      if (track === "software") {
+        return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
+      }
       return { certificationLevel: "L3", certificationLabel: "Elite Verified" };
     }
   }
 
-  const hasSkillsInterview = done("ai_skills_interview") || done("data_skills_interview");
-  const hasSystemDesign = done("system_design_interview") || done("data_system_design");
+  if (track === "data") {
+    const hasSkillsInterview = done("data_skills_interview");
+    const hasSystemDesign = done("data_system_design");
 
-  if (tier === "fresher") {
-    if (hasSkillsInterview) {
+    if (tier === "fresher") {
+      if (hasSkillsInterview) {
+        return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
+      }
+    } else if (hasSkillsInterview && hasSystemDesign) {
       return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
     }
-  } else if (hasSkillsInterview && hasSystemDesign) {
-    return { certificationLevel: "L2", certificationLabel: "Skill Passport" };
   }
 
   if (done("dsa_round") || done("data_round")) {

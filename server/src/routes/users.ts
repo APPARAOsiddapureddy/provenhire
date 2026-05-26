@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
-import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { calculateCertificationLevel, calculateCertificationLevelsForUsers } from "../services/verificationLevel.service.js";
 import { integrityScoreFromViolationStats } from "../services/proctoringViolationCount.service.js";
 import { getAptitudeScoreZeroToHundred, getAptitudeScoresZeroToHundredBatch } from "../utils/aptitudeScore.js";
 import {
@@ -540,12 +540,7 @@ usersRouter.get("/candidates", requireAuth, async (req: AuthedRequest, res) => {
     proctorEventCountByUser.set(ev.userId, (proctorEventCountByUser.get(ev.userId) ?? 0) + 1);
   }
 
-  const certByUser = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
-  await Promise.all(
-    userIds.map(async (id) => {
-      certByUser.set(id, await calculateCertificationLevel(id));
-    })
-  );
+  const certByUser = await calculateCertificationLevelsForUsers(userIds);
 
   const aptitudeStageScore = (uid: string) => {
     const userStages = stageByUser.get(uid) ?? [];

@@ -7,7 +7,7 @@ import { prisma } from "../config/prisma.js";
 import { hashToken, generateRefreshToken } from "../utils/jwt.js";
 import { adminNotificationsRouter } from "./admin-notifications.js";
 import { sendInterviewerAcceptanceEmail } from "../services/resend.js";
-import { calculateCertificationLevel } from "../services/verificationLevel.service.js";
+import { calculateCertificationLevelsForUsers } from "../services/verificationLevel.service.js";
 import {
   getSessionEventCounts,
   getProctoringCountThresholdsForEvent,
@@ -24,7 +24,7 @@ import { computeAiInterviewAggregateScore } from "../utils/aiInterviewScore.js";
 import type { QuestionPlanItem } from "../data/aiInterviewStaticQuestions.js";
 import type { QuestionAnswerPair } from "../services/ai.service.js";
 import { upsertSkillVerification } from "../services/skillVerification.service.js";
-import { approveAdminReviewQueueForHumanExpert } from "../services/humanInterviewGate.service.js";
+import { approveAdminReviewQueueForHumanExpert, isSoftwareV2Candidate } from "../services/humanInterviewGate.service.js";
 import { sendHumanInterviewRejectedEmail } from "../services/resend.js";
 import { grantRetakeCredits } from "../services/candidateRetake.service.js";
 import { ensureRecruiterUsageRow } from "../utils/recruiterSubscription.js";
@@ -98,12 +98,7 @@ adminRouter.get("/job-seekers", async (_req, res) => {
     },
     orderBy: { createdAt: "desc" },
   });
-  const certByUserId = new Map<string, Awaited<ReturnType<typeof calculateCertificationLevel>>>();
-  await Promise.all(
-    profiles.map(async (p) => {
-      certByUserId.set(p.userId, await calculateCertificationLevel(p.userId));
-    })
-  );
+  const certByUserId = await calculateCertificationLevelsForUsers(profiles.map((p) => p.userId));
   const mapped = profiles.map((p) => {
     const cert = certByUserId.get(p.userId);
     return {
@@ -283,13 +278,11 @@ adminRouter.get("/stats", async (_req, res) => {
     select: { userId: true },
   });
   const levelBuckets: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
-  await Promise.all(
-    seekers.map(async (s) => {
-      const cert = await calculateCertificationLevel(s.userId);
-      const lvl = Math.max(0, Math.min(3, cert.level));
-      levelBuckets[lvl] = (levelBuckets[lvl] ?? 0) + 1;
-    })
-  );
+  const seekerCerts = await calculateCertificationLevelsForUsers(seekers.map((s) => s.userId));
+  for (const s of seekers) {
+    const lvl = Math.max(0, Math.min(3, seekerCerts.get(s.userId)?.level ?? 0));
+    levelBuckets[lvl] = (levelBuckets[lvl] ?? 0) + 1;
+  }
 
   /** Anyone at L1+ (cognitive+ pipeline progress) counts as verified for admin KPIs — matches certification ladder, not raw profile field alone. */
   const totalVerified =
@@ -1305,7 +1298,11 @@ adminRouter.get("/ai-interview-queue/pending", async (_req, res) => {
         },
       },
     });
-    res.json({ items });
+    const filtered = [];
+    for (const item of items) {
+      if (!(await isSoftwareV2Candidate(item.candidateId))) filtered.push(item);
+    }
+    res.json({ items: filtered });
   } catch (e) {
     console.error("[admin/ai-interview-queue/pending]", e);
     res.status(500).json({ error: "Failed to load queue" });
@@ -1319,6 +1316,9 @@ adminRouter.post("/ai-interview-queue/:id/approve", async (req: AuthedRequest, r
     });
     if (!queue) return res.status(404).json({ error: "Queue item not found" });
     if (queue.status !== "pending") return res.status(400).json({ error: "Already processed" });
+    if (await isSoftwareV2Candidate(queue.candidateId)) {
+      return res.status(409).json({ error: "Software candidates complete verification at AI Expert; human review is not active for this path." });
+    }
 
     await approveAdminReviewQueueForHumanExpert({
       queueId: queue.id,
@@ -1339,6 +1339,9 @@ adminRouter.post("/ai-interview-queue/:id/reject", async (req: AuthedRequest, re
     });
     if (!queue) return res.status(404).json({ error: "Queue item not found" });
     if (queue.status !== "pending") return res.status(400).json({ error: "Already processed" });
+    if (await isSoftwareV2Candidate(queue.candidateId)) {
+      return res.status(409).json({ error: "Software candidates complete verification at AI Expert; human review is not active for this path." });
+    }
 
     await prisma.$transaction(async (tx) => {
       const priorAttempts = await tx.humanInterviewAttempt.count({ where: { candidateId: queue.candidateId } });

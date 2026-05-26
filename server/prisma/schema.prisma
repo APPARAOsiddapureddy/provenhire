@@ -62,6 +62,7 @@ model User {
   performanceSignals         CandidatePerformanceSignal[]
   performanceSnapshot        CandidatePerformanceSnapshot?
   antigravityHandoffs        AntigravityHandoff[]
+  ownedWorkspaces            Workspace[]
 }
 
 /// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
@@ -150,6 +151,23 @@ enum RecruiterVerificationStatus {
   rejected
 }
 
+enum WorkspaceOwnerRole {
+  admin
+  recruiter
+}
+
+enum WorkspaceStatus {
+  draft
+  published
+  archived
+}
+
+enum WorkspaceRoundType {
+  mcq
+  coding
+  interview
+}
+
 model RecruiterProfile {
   id                         String                      @id @default(uuid())
   userId                     String                      @unique
@@ -192,6 +210,7 @@ model RecruiterProfile {
   jobs                 Job[]
   usage                RecruiterUsage?
   candidateResumeViews RecruiterCandidateResumeView[]
+  ownedWorkspaces      Workspace[]
 }
 
 /// Freemium / plan usage (PRD §9). Set `periodEnd` in app when opening or rolling a monthly window.
@@ -242,6 +261,53 @@ model RecruiterCandidateResumeView {
 
   @@unique([recruiterId, candidateUserId])
   @@index([recruiterId])
+}
+
+model Workspace {
+  id                 String             @id @default(uuid())
+  ownerRole          WorkspaceOwnerRole
+  ownerUserId        String
+  recruiterProfileId String?
+  name               String
+  organization       String
+  code               String             @unique
+  startAt            DateTime
+  endAt              DateTime
+  status             WorkspaceStatus    @default(draft)
+  totalRounds        Int
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  ownerUser        User              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  recruiterProfile RecruiterProfile? @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
+  rounds           WorkspaceRound[]
+
+  @@index([ownerRole, ownerUserId])
+  @@index([recruiterProfileId])
+  @@index([status, startAt, endAt])
+  @@index([createdAt])
+}
+
+model WorkspaceRound {
+  id             String             @id @default(uuid())
+  workspaceId    String
+  order          Int
+  name           String
+  type           WorkspaceRoundType
+  questionCount  Int
+  timeLimitMins  Int
+  scoreWeightage Int
+  easyCount      Int                @default(0)
+  mediumCount    Int                @default(0)
+  hardCount      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, order])
+  @@index([workspaceId])
+  @@index([workspaceId, type])
 }
 
 model Job {
@@ -316,6 +382,8 @@ model VerificationStage {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, stageName])
+  @@index([stageName, status])
+  @@index([userId, status])
 }
 
 enum SkillVerificationStatus {
@@ -397,6 +465,7 @@ model DsaRoundResult {
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId, completedAt])
 }
 
 model DsaQuestion {
@@ -586,6 +655,8 @@ model DataRoundResult {
   invalidated Boolean  @default(false)
 
   user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, completedAt])
 }
 
 model Interview {
@@ -640,6 +711,9 @@ model Interview {
   proctoringReviews ProctoringReviewLog[]
   adminReviewQueue  AdminReviewQueue?
   antigravityHandoff AntigravityHandoff?
+
+  @@index([userId, interviewType, status])
+  @@index([userId, interviewType, status, completedAt])
 }
 
 model AntigravityHandoff {

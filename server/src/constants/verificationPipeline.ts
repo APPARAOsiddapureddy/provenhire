@@ -199,10 +199,8 @@ export const ALL_TECHNICAL_STAGE_NAMES = new Set<string>([
 ]);
 
 export function technicalStagesForTier(tier: ExperienceTier): string[] {
-  if (tier === "fresher") {
-    return ["profile_setup", "cs_fundamentals", "dsa_round", "ai_skills_interview", "expert_interview"];
-  }
-  return ["profile_setup", "dsa_round", "ai_skills_interview", "system_design_interview", "expert_interview"];
+  void tier;
+  return ["profile_setup", "dsa_round", "expert_interview"];
 }
 
 export function technicalStagesForProfile(experienceYears: number | null | undefined): string[] {
