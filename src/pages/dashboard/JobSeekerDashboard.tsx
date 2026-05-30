@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase, CheckCircle, Clock, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks, BrainCircuit } from "lucide-react";
+import { Briefcase, CheckCircle, Clock, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks, BrainCircuit, ClipboardList } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { api, BACKEND_DOWN_MSG, hasAuthToken } from "@/lib/api";
@@ -645,6 +645,7 @@ const JobSeekerDashboard = () => {
         { label: "Antigravity Lab", to: "/dashboard/jobseeker/antigravity", icon: <BrainCircuit className="w-[18px] h-[18px]" /> },
         { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
         { label: "Applications", onClick: () => setDashboardSection('applications'), active: dashboardSection === 'applications', icon: <ListChecks className="w-[18px] h-[18px]" /> },
+        { label: "Workspaces", to: "/dashboard/jobseeker/workspaces", icon: <ClipboardList className="w-[18px] h-[18px]" /> },
         { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
       ],
     },

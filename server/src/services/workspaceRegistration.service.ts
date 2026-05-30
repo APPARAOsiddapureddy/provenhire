@@ -1,0 +1,625 @@
+import { Prisma } from "@prisma/client";
+import { prisma } from "../config/prisma.js";
+import { discardActiveWorkspaceRegistrationMcqAttempts } from "./mcqAutoFinalize.service.js";
+import { discardActiveWorkspaceRegistrationDsaAttempts } from "./workspaceDsaFinalize.service.js";
+import { WorkspaceServiceError, syncWorkspaceLifecycle } from "./workspace.service.js";
+
+export type WorkspaceActor = {
+  id: string;
+  role: string;
+};
+
+export type AllowedEmailImportSummary = {
+  workspaceId: string;
+  workspaceCode: string;
+  parsed: number;
+  valid: number;
+  invalid: number;
+  duplicatesInFile: number;
+  inserted: number;
+  alreadyPresent: number;
+  invalidSamples: string[];
+};
+
+type LeaderboardCursor = {
+  totalScore: number;
+  completedRounds: number;
+  lastCompletedAt: string | null;
+  userId: string;
+};
+
+type WorkspaceLeaderboardRow = {
+  rank: number | bigint;
+  userId: string;
+  name: string | null;
+  email: string;
+  totalScore: number | bigint;
+  completedRounds: number | bigint;
+  lastCompletedAt: Date | null;
+};
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeWorkspaceCode(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function isValidEmail(email: string): boolean {
+  return EMAIL_RE.test(email);
+}
+
+function encodeLeaderboardCursor(row: {
+  totalScore: number;
+  completedRounds: number;
+  lastCompletedAt: string | null;
+  userId: string;
+}): string {
+  return Buffer.from(JSON.stringify(row), "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function decodeLeaderboardCursor(cursor?: string | null): LeaderboardCursor | null {
+  if (!cursor) return null;
+  try {
+    const normalized = cursor.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    const parsed = JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as Partial<LeaderboardCursor>;
+    const validDate =
+      parsed.lastCompletedAt === null ||
+      (typeof parsed.lastCompletedAt === "string" && !Number.isNaN(new Date(parsed.lastCompletedAt).getTime()));
+    if (
+      typeof parsed.totalScore !== "number" ||
+      !Number.isFinite(parsed.totalScore) ||
+      typeof parsed.completedRounds !== "number" ||
+      !Number.isFinite(parsed.completedRounds) ||
+      !validDate ||
+      typeof parsed.userId !== "string" ||
+      parsed.userId.trim().length === 0
+    ) {
+      throw new Error("Invalid cursor shape");
+    }
+    return {
+      totalScore: parsed.totalScore,
+      completedRounds: parsed.completedRounds,
+      lastCompletedAt: parsed.lastCompletedAt ?? null,
+      userId: parsed.userId,
+    };
+  } catch {
+    throw new WorkspaceServiceError("Invalid leaderboard cursor.", 400);
+  }
+}
+
+function leaderboardCursorWhere(cursor: LeaderboardCursor | null) {
+  if (!cursor) return Prisma.empty;
+
+  const lastCompletedAtAfter =
+    cursor.lastCompletedAt === null
+      ? Prisma.sql`"lastCompletedAt" IS NULL AND "userId" > ${cursor.userId}`
+      : Prisma.sql`(
+          "lastCompletedAt" > ${new Date(cursor.lastCompletedAt)}
+          OR "lastCompletedAt" IS NULL
+          OR ("lastCompletedAt" = ${new Date(cursor.lastCompletedAt)} AND "userId" > ${cursor.userId})
+        )`;
+
+  return Prisma.sql`
+    WHERE (
+      "totalScore" < ${cursor.totalScore}
+      OR ("totalScore" = ${cursor.totalScore} AND "completedRounds" < ${cursor.completedRounds})
+      OR (
+        "totalScore" = ${cursor.totalScore}
+        AND "completedRounds" = ${cursor.completedRounds}
+        AND ${lastCompletedAtAfter}
+      )
+    )
+  `;
+}
+
+function publicWorkspaceSelect() {
+  return {
+    id: true,
+    name: true,
+    organization: true,
+    code: true,
+    startAt: true,
+    endAt: true,
+    status: true,
+    accessMode: true,
+    totalRounds: true,
+    rounds: {
+      orderBy: { order: "asc" as const },
+      select: {
+        id: true,
+        order: true,
+        name: true,
+        type: true,
+        questionCount: true,
+        timeLimitMins: true,
+        scoreWeightage: true,
+        questionType: true,
+        easyCount: true,
+        mediumCount: true,
+        hardCount: true,
+      },
+    },
+  };
+}
+
+async function assertCanManageWorkspace(actor: WorkspaceActor, workspaceId: string) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true, ownerUserId: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  if (actor.role !== "admin" && workspace.ownerUserId !== actor.id) {
+    throw new WorkspaceServiceError("Not authorized to manage this workspace.", 403);
+  }
+  return workspace;
+}
+
+async function assertCanManageWorkspaceByCode(actor: WorkspaceActor, workspaceCode: string) {
+  const code = normalizeWorkspaceCode(workspaceCode);
+  const workspace = await prisma.workspace.findUnique({
+    where: { code },
+    select: { id: true, code: true, ownerUserId: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  if (actor.role !== "admin" && workspace.ownerUserId !== actor.id) {
+    throw new WorkspaceServiceError("Not authorized to manage this workspace.", 403);
+  }
+  return workspace;
+}
+
+function parseCsvRows(csv: string): string[][] {
+  const rows: string[][] = [];
+  const normalized = csv.replace(/^\uFEFF/, "");
+  for (const rawLine of normalized.split(/\r?\n/)) {
+    if (!rawLine.trim()) continue;
+    const row: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < rawLine.length; i += 1) {
+      const ch = rawLine[i];
+      const next = rawLine[i + 1];
+      if (ch === '"' && inQuotes && next === '"') {
+        current += '"';
+        i += 1;
+      } else if (ch === '"') {
+        inQuotes = !inQuotes;
+      } else if (ch === "," && !inQuotes) {
+        row.push(current.trim());
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    row.push(current.trim());
+    if (row.some((cell) => cell.length > 0)) rows.push(row);
+  }
+  return rows;
+}
+
+function extractEmailsFromCsv(buffer: Buffer) {
+  const rows = parseCsvRows(buffer.toString("utf8"));
+  if (rows.length === 0) return [] as string[];
+  const header = rows[0]?.map((cell) => cell.trim().toLowerCase()) ?? [];
+  const emailColumn = header.findIndex((cell) => cell === "email" || cell === "e-mail");
+  const dataRows = emailColumn >= 0 ? rows.slice(1) : rows;
+  return dataRows
+    .map((row) => row[emailColumn >= 0 ? emailColumn : 0] ?? "")
+    .map((email) => email.trim())
+    .filter((email) => email.length > 0);
+}
+
+export async function getPublishedWorkspaceByCode(codeInput: string) {
+  const code = normalizeWorkspaceCode(codeInput);
+  const row = await prisma.workspace.findUnique({ where: { code }, select: { id: true } });
+  if (row) await syncWorkspaceLifecycle(row.id);
+  const workspace = await prisma.workspace.findUnique({
+    where: { code },
+    select: publicWorkspaceSelect(),
+  });
+  if (!workspace || !["published", "started", "ended"].includes(workspace.status)) {
+    throw new WorkspaceServiceError("Workspace not found.", 404);
+  }
+  return workspace;
+}
+
+function registrationWithAttemptsSelect() {
+  return {
+    id: true,
+    workspaceId: true,
+    userId: true,
+    status: true,
+    registeredAt: true,
+    removedAt: true,
+    restoredAt: true,
+    roundAttempts: {
+      orderBy: { createdAt: "asc" as const },
+      select: {
+        id: true,
+        workspaceId: true,
+        workspaceRoundId: true,
+        roundType: true,
+        status: true,
+        score: true,
+        percentageScore: true,
+        weightedScore: true,
+        completedAt: true,
+        createdAt: true,
+        workspaceRound: {
+          select: {
+            id: true,
+            order: true,
+            name: true,
+            type: true,
+            questionCount: true,
+            timeLimitMins: true,
+            scoreWeightage: true,
+          },
+        },
+        mcqSession: {
+          select: {
+            id: true,
+            status: true,
+            startTime: true,
+            endTime: true,
+            submittedAt: true,
+            finalizedAt: true,
+          },
+        },
+        dsaRoundSession: {
+          select: {
+            id: true,
+            startTime: true,
+            expTime: true,
+          },
+        },
+      },
+    },
+  };
+}
+
+export async function listMyWorkspaceRegistrations(actor: WorkspaceActor) {
+  if (actor.role !== "jobseeker") {
+    throw new WorkspaceServiceError("Job seeker access required.", 403);
+  }
+
+  return prisma.workspaceRegistration.findMany({
+    where: {
+      userId: actor.id,
+      workspace: { status: { in: ["published", "started", "ended"] } },
+    },
+    orderBy: { registeredAt: "desc" },
+    select: {
+      ...registrationWithAttemptsSelect(),
+      workspace: {
+        select: publicWorkspaceSelect(),
+      },
+    },
+  });
+}
+
+export async function getWorkspaceWithMyRegistrationByCode(actor: WorkspaceActor, codeInput: string) {
+  if (actor.role !== "jobseeker") {
+    throw new WorkspaceServiceError("Job seeker access required.", 403);
+  }
+
+  const code = normalizeWorkspaceCode(codeInput);
+  const row = await prisma.workspace.findUnique({ where: { code }, select: { id: true } });
+  if (row) await syncWorkspaceLifecycle(row.id);
+  const workspace = await prisma.workspace.findUnique({
+    where: { code },
+    select: publicWorkspaceSelect(),
+  });
+  if (!workspace || !["published", "started", "ended"].includes(workspace.status)) {
+    throw new WorkspaceServiceError("Workspace not found.", 404);
+  }
+
+  const registration = await prisma.workspaceRegistration.findUnique({
+    where: { workspaceId_userId: { workspaceId: workspace.id, userId: actor.id } },
+    select: registrationWithAttemptsSelect(),
+  });
+
+  return { workspace, registration };
+}
+
+export async function getWorkspaceLeaderboardByCode(
+  codeInput: string,
+  params: { limit: number; cursor?: string | null },
+) {
+  const code = normalizeWorkspaceCode(codeInput);
+  const row = await prisma.workspace.findUnique({ where: { code }, select: { id: true } });
+  if (row) await syncWorkspaceLifecycle(row.id);
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { code },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      organization: true,
+      status: true,
+    },
+  });
+  if (!workspace || !["published", "started", "ended"].includes(workspace.status)) {
+    throw new WorkspaceServiceError("Workspace not found.", 404);
+  }
+
+  const limit = Math.min(Math.max(params.limit, 1), 100);
+  const cursor = decodeLeaderboardCursor(params.cursor);
+  const rows = await prisma.$queryRaw<WorkspaceLeaderboardRow[]>`
+    WITH leaderboard AS (
+      SELECT
+        wr."userId" AS "userId",
+        COALESCE(jsp."fullName", u."name") AS "name",
+        u."email" AS "email",
+        COALESCE(
+          SUM(CASE WHEN wra."status" IN ('completed', 'auto_completed') THEN COALESCE(wra."weightedScore", 0) ELSE 0 END),
+          0
+        )::int AS "totalScore",
+        COUNT(wra."id") FILTER (WHERE wra."status" IN ('completed', 'auto_completed'))::int AS "completedRounds",
+        MAX(wra."completedAt") FILTER (WHERE wra."status" IN ('completed', 'auto_completed')) AS "lastCompletedAt"
+      FROM "WorkspaceRegistration" wr
+      JOIN "User" u ON u."id" = wr."userId"
+      LEFT JOIN "JobSeekerProfile" jsp ON jsp."userId" = u."id"
+      LEFT JOIN "WorkspaceRoundAttempt" wra
+        ON wra."workspaceRegistrationId" = wr."id"
+        AND wra."workspaceId" = wr."workspaceId"
+      WHERE wr."workspaceId" = ${workspace.id}
+        AND wr."status" = 'registered'
+      GROUP BY wr."userId", u."email", u."name", jsp."fullName"
+    ),
+    ranked AS (
+      SELECT
+        (ROW_NUMBER() OVER (
+          ORDER BY "totalScore" DESC, "completedRounds" DESC, "lastCompletedAt" ASC NULLS LAST, "userId" ASC
+        ))::int AS "rank",
+        "userId",
+        "name",
+        "email",
+        "totalScore",
+        "completedRounds",
+        "lastCompletedAt"
+      FROM leaderboard
+    )
+    SELECT *
+    FROM ranked
+    ${leaderboardCursorWhere(cursor)}
+    ORDER BY "totalScore" DESC, "completedRounds" DESC, "lastCompletedAt" ASC NULLS LAST, "userId" ASC
+    LIMIT ${limit + 1}
+  `;
+
+  const pageRows = rows.slice(0, limit);
+  const lastRow = pageRows[pageRows.length - 1];
+  const hasMore = rows.length > limit;
+
+  return {
+    workspace,
+    leaderboard: pageRows.map((leaderboardRow) => ({
+      rank: Number(leaderboardRow.rank),
+      userId: leaderboardRow.userId,
+      name: leaderboardRow.name,
+      email: leaderboardRow.email,
+      totalScore: Number(leaderboardRow.totalScore),
+      completedRounds: Number(leaderboardRow.completedRounds),
+      lastCompletedAt: leaderboardRow.lastCompletedAt?.toISOString() ?? null,
+    })),
+    nextCursor:
+      hasMore && lastRow
+        ? encodeLeaderboardCursor({
+            totalScore: Number(lastRow.totalScore),
+            completedRounds: Number(lastRow.completedRounds),
+            lastCompletedAt: lastRow.lastCompletedAt?.toISOString() ?? null,
+            userId: lastRow.userId,
+          })
+        : null,
+  };
+}
+
+export async function joinWorkspaceByCode(actor: WorkspaceActor, codeInput: string) {
+  if (actor.role !== "jobseeker") {
+    throw new WorkspaceServiceError("Job seeker access required.", 403);
+  }
+
+  const code = normalizeWorkspaceCode(codeInput);
+  const row = await prisma.workspace.findUnique({ where: { code }, select: { id: true } });
+  if (row) await syncWorkspaceLifecycle(row.id);
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Workspace" WHERE "code" = ${code} FOR UPDATE
+    `;
+    const workspaceId = locked[0]?.id;
+    if (!workspaceId) throw new WorkspaceServiceError("Workspace not found.", 404);
+
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`workspace_registration:${workspaceId}:${actor.id}`}))`;
+
+    const workspace = await tx.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, status: true, endAt: true, accessMode: true },
+    });
+    if (!workspace || !["published", "started"].includes(workspace.status)) {
+      throw new WorkspaceServiceError("Workspace not found.", 404);
+    }
+    if (workspace.endAt.getTime() < Date.now()) {
+      throw new WorkspaceServiceError("Workspace registration has ended.", 410);
+    }
+
+    const existing = await tx.workspaceRegistration.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: actor.id } },
+    });
+    if (existing?.status === "registered") return existing;
+    if (existing?.status === "removed") {
+      throw new WorkspaceServiceError("You were removed from this workspace. Contact the workspace admin.", 403);
+    }
+
+    const user = await tx.user.findUnique({
+      where: { id: actor.id },
+      select: { email: true },
+    });
+    if (!user) throw new WorkspaceServiceError("User not found.", 404);
+
+    if (workspace.accessMode === "invite_only") {
+      const allowed = await tx.workspaceAllowedEmail.findUnique({
+        where: {
+          workspaceId_email: {
+            workspaceId,
+            email: normalizeEmail(user.email),
+          },
+        },
+        select: { id: true },
+      });
+      if (!allowed) {
+        throw new WorkspaceServiceError("This workspace is invite-only. Your email is not on the allowlist.", 403);
+      }
+    }
+
+    try {
+      return await tx.workspaceRegistration.create({
+        data: {
+          workspaceId,
+          userId: actor.id,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        const current = await tx.workspaceRegistration.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: actor.id } },
+        });
+        if (current) return current;
+      }
+      throw err;
+    }
+  });
+}
+
+export async function listWorkspaceRegistrations(actor: WorkspaceActor, workspaceId: string) {
+  await assertCanManageWorkspace(actor, workspaceId);
+  return prisma.workspaceRegistration.findMany({
+    where: { workspaceId },
+    orderBy: [{ status: "asc" }, { registeredAt: "desc" }],
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          jobSeekerProfile: {
+            select: {
+              fullName: true,
+              phone: true,
+              college: true,
+              graduationYear: true,
+              targetJobTitle: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+export async function removeWorkspaceRegistration(actor: WorkspaceActor, workspaceId: string, userId: string) {
+  await assertCanManageWorkspace(actor, workspaceId);
+  const registration = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`workspace_registration:${workspaceId}:${userId}`}))`;
+    const existing = await tx.workspaceRegistration.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+    if (!existing) throw new WorkspaceServiceError("Workspace registration not found.", 404);
+    if (existing.status === "removed") return existing;
+    return tx.workspaceRegistration.update({
+      where: { id: existing.id },
+      data: {
+        status: "removed",
+        removedAt: new Date(),
+        removedByUserId: actor.id,
+      },
+    });
+  });
+  await discardActiveWorkspaceRegistrationMcqAttempts(workspaceId, userId);
+  await discardActiveWorkspaceRegistrationDsaAttempts(workspaceId, userId);
+  return registration;
+}
+
+export async function restoreWorkspaceRegistration(actor: WorkspaceActor, workspaceId: string, userId: string) {
+  await assertCanManageWorkspace(actor, workspaceId);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`workspace_registration:${workspaceId}:${userId}`}))`;
+    const existing = await tx.workspaceRegistration.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+    if (!existing) throw new WorkspaceServiceError("Workspace registration not found.", 404);
+    if (existing.status === "registered") return existing;
+    return tx.workspaceRegistration.update({
+      where: { id: existing.id },
+      data: {
+        status: "registered",
+        removedAt: null,
+        removedByUserId: null,
+        restoredAt: new Date(),
+        restoredByUserId: actor.id,
+      },
+    });
+  });
+}
+
+export async function importAllowedWorkspaceEmailsFromCsv(params: {
+  actor: WorkspaceActor;
+  workspaceCode: string;
+  csvBuffer: Buffer;
+}): Promise<AllowedEmailImportSummary> {
+  const workspace = await assertCanManageWorkspaceByCode(params.actor, params.workspaceCode);
+  const rawEmails = extractEmailsFromCsv(params.csvBuffer);
+  const seen = new Set<string>();
+  const validEmails: string[] = [];
+  const invalidSamples: string[] = [];
+  let invalid = 0;
+  let duplicatesInFile = 0;
+
+  for (const raw of rawEmails) {
+    const email = normalizeEmail(raw);
+    if (!isValidEmail(email)) {
+      invalid += 1;
+      if (invalidSamples.length < 10) invalidSamples.push(raw);
+      continue;
+    }
+    if (seen.has(email)) {
+      duplicatesInFile += 1;
+      continue;
+    }
+    seen.add(email);
+    validEmails.push(email);
+  }
+
+  const existing = validEmails.length
+    ? await prisma.workspaceAllowedEmail.count({
+        where: { workspaceId: workspace.id, email: { in: validEmails } },
+      })
+    : 0;
+
+  const inserted = validEmails.length
+    ? (await prisma.workspaceAllowedEmail.createMany({
+        data: validEmails.map((email) => ({ workspaceId: workspace.id, email })),
+        skipDuplicates: true,
+      })).count
+    : 0;
+
+  return {
+    workspaceId: workspace.id,
+    workspaceCode: workspace.code,
+    parsed: rawEmails.length,
+    valid: validEmails.length,
+    invalid,
+    duplicatesInFile,
+    inserted,
+    alreadyPresent: existing,
+    invalidSamples,
+  };
+}

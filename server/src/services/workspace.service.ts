@@ -1,6 +1,9 @@
 import crypto from "crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
+import { createWorkspaceMcqQuestionSet } from "../data/aptitude-loader.js";
+import { finalizeActiveWorkspaceMcqAttempts } from "./mcqAutoFinalize.service.js";
+import { finalizeActiveWorkspaceDsaAttempts } from "./workspaceDsaFinalize.service.js";
 
 export const MAX_WORKSPACE_ROUNDS = 5;
 
@@ -15,6 +18,7 @@ export type CreateWorkspaceInput = {
   startAt: Date;
   endAt: Date;
   totalRounds: number;
+  accessMode?: "public" | "invite_only";
 };
 
 export type UpdateWorkspaceInput = Partial<CreateWorkspaceInput>;
@@ -23,6 +27,7 @@ export type WorkspaceRoundInput = {
   order: number;
   name: string;
   type: "mcq" | "coding" | "interview";
+  questionType?: "random" | "fixed";
   questionCount: number;
   timeLimitMins: number;
   scoreWeightage: number;
@@ -32,7 +37,7 @@ export type WorkspaceRoundInput = {
 };
 
 export type WorkspaceListFilters = {
-  status?: "draft" | "published" | "archived";
+  status?: "draft" | "published" | "started" | "ended" | "archived";
   organization?: string;
   startFrom?: Date;
   endTo?: Date;
@@ -107,6 +112,31 @@ function ownerWhere(creator: WorkspaceCreator): Prisma.WorkspaceWhereInput {
   return { ownerUserId: creator.id };
 }
 
+function lifecycleStatus(workspace: { status: "draft" | "published" | "started" | "ended" | "archived"; startAt: Date; endAt: Date }) {
+  if (workspace.status === "draft" || workspace.status === "ended" || workspace.status === "archived") return workspace.status;
+  if (workspace.endAt.getTime() <= Date.now()) return "ended" as const;
+  return workspace.status;
+}
+
+export async function syncWorkspaceLifecycle(workspaceId: string) {
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  if (!workspace) return null;
+  const nextStatus = lifecycleStatus(workspace);
+  if (nextStatus === workspace.status) return workspace;
+  return prisma.workspace.update({ where: { id: workspace.id }, data: { status: nextStatus } });
+}
+
+async function syncOwnerWorkspaceLifecycles(creator: WorkspaceCreator): Promise<void> {
+  const where = ownerWhere(creator);
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.workspace.updateMany({
+      where: { ...where, status: { in: ["published", "started"] }, endAt: { lte: now } },
+      data: { status: "ended" },
+    }),
+  ]);
+}
+
 function validateRounds(rounds: WorkspaceRoundInput[], expectedTotalRounds: number): void {
   if (rounds.length !== expectedTotalRounds) {
     throw new WorkspaceServiceError(
@@ -148,11 +178,13 @@ export async function createWorkspace(creator: WorkspaceCreator, input: CreateWo
       startAt: input.startAt,
       endAt: input.endAt,
       totalRounds: input.totalRounds,
+      accessMode: input.accessMode ?? "public",
     },
   });
 }
 
 export async function listWorkspaces(creator: WorkspaceCreator, filters: WorkspaceListFilters) {
+  await syncOwnerWorkspaceLifecycles(creator);
   const where: Prisma.WorkspaceWhereInput = { ...ownerWhere(creator) };
 
   if (filters.status) where.status = filters.status;
@@ -190,6 +222,7 @@ export async function listWorkspaces(creator: WorkspaceCreator, filters: Workspa
 }
 
 export async function getWorkspace(creator: WorkspaceCreator, workspaceId: string) {
+  await syncWorkspaceLifecycle(workspaceId);
   const workspace = await prisma.workspace.findFirst({
     where: { id: workspaceId, ...ownerWhere(creator) },
     include: { rounds: { orderBy: { order: "asc" } } },
@@ -217,6 +250,7 @@ export async function updateWorkspace(creator: WorkspaceCreator, workspaceId: st
       ...(input.startAt !== undefined ? { startAt: input.startAt } : {}),
       ...(input.endAt !== undefined ? { endAt: input.endAt } : {}),
       ...(input.totalRounds !== undefined ? { totalRounds: input.totalRounds } : {}),
+      ...(input.accessMode !== undefined ? { accessMode: input.accessMode } : {}),
     },
   });
 }
@@ -247,6 +281,7 @@ export async function replaceWorkspaceRounds(
         easyCount: round.easyCount,
         mediumCount: round.mediumCount,
         hardCount: round.hardCount,
+        questionType: round.questionType ?? "random",
       })),
     });
     return tx.workspaceRound.findMany({ where: { workspaceId: workspace.id }, orderBy: { order: "asc" } });
@@ -262,11 +297,77 @@ export async function publishWorkspace(creator: WorkspaceCreator, workspaceId: s
 
   assertValidWorkspaceDates(workspace.startAt, workspace.endAt);
   validateRounds(workspace.rounds, workspace.totalRounds);
+  const strictQuestionAvailability = process.env.STRICT_WORKSPACE_QUESTION_AVAILABILITY === "true";
+
+  return prisma.$transaction(async (tx) => {
+    for (const round of workspace.rounds) {
+      if (round.type !== "mcq") continue;
+      const set = createWorkspaceMcqQuestionSet({
+        easyCount: round.easyCount,
+        mediumCount: round.mediumCount,
+        hardCount: round.hardCount,
+        allowPartial: !strictQuestionAvailability,
+      });
+      const shortage = set.shortage.easy + set.shortage.medium + set.shortage.hard;
+      if (shortage > 0) {
+        // Development mode currently allows publishing with the best available MCQ pool.
+        // Production deployments should set STRICT_WORKSPACE_QUESTION_AVAILABILITY=true so publish fails on shortage.
+        if (strictQuestionAvailability) {
+          throw new WorkspaceServiceError(`Not enough MCQ questions for round ${round.order}.`, 400);
+        }
+        console.warn("[workspace/publish] MCQ question shortage allowed in development", {
+          workspaceId: workspace.id,
+          roundId: round.id,
+          shortage: set.shortage,
+        });
+      }
+      if (round.questionType === "fixed") {
+        await tx.workspaceRoundQuestionSet.upsert({
+          where: { workspaceRoundId: round.id },
+          create: {
+            workspaceRoundId: round.id,
+            questionIds: set.questionIds,
+            questions: set.questions as object,
+            answerKey: set.answerKey as object,
+          },
+          update: {
+            questionIds: set.questionIds,
+            questions: set.questions as object,
+            answerKey: set.answerKey as object,
+          },
+        });
+      }
+    }
+
+    return tx.workspace.update({
+      where: { id: workspace.id },
+      data: { status: "published" },
+      include: { rounds: { orderBy: { order: "asc" } } },
+    });
+  });
+}
+
+export async function startWorkspace(creator: WorkspaceCreator, workspaceId: string) {
+  await syncWorkspaceLifecycle(workspaceId);
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, ...ownerWhere(creator) },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  if (workspace.status === "started") return workspace;
+  if (workspace.status !== "published") {
+    throw new WorkspaceServiceError("Only published workspaces can be started.", 409);
+  }
+  if (workspace.endAt.getTime() <= Date.now()) {
+    const ended = await prisma.workspace.update({
+      where: { id: workspace.id },
+      data: { status: "ended" },
+    });
+    throw new WorkspaceServiceError(`Workspace has already ended (${ended.code}).`, 409);
+  }
 
   return prisma.workspace.update({
     where: { id: workspace.id },
-    data: { status: "published" },
-    include: { rounds: { orderBy: { order: "asc" } } },
+    data: { status: "started" },
   });
 }
 
@@ -275,8 +376,26 @@ export async function archiveWorkspace(creator: WorkspaceCreator, workspaceId: s
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status === "archived") return workspace;
 
-  return prisma.workspace.update({
+  const archived = await prisma.workspace.update({
     where: { id: workspace.id },
     data: { status: "archived" },
   });
+  await finalizeActiveWorkspaceMcqAttempts(workspace.id);
+  await finalizeActiveWorkspaceDsaAttempts(workspace.id);
+  return archived;
+}
+
+export async function deleteWorkspace(creator: WorkspaceCreator, workspaceId: string) {
+  await syncWorkspaceLifecycle(workspaceId);
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, ...ownerWhere(creator) },
+    select: { id: true, status: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  if (workspace.status === "started") {
+    throw new WorkspaceServiceError("Currently active workspaces cannot be deleted.", 409);
+  }
+
+  await prisma.workspace.delete({ where: { id: workspace.id } });
+  return { ok: true, deletedWorkspaceId: workspace.id };
 }

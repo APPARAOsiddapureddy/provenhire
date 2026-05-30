@@ -48,6 +48,7 @@ const ProctoringSetupGate = ({
     cameraStream: null,
     microphoneStream: null,
   });
+  const latestStateRef = useRef(state);
   const [requesting, setRequesting] = useState<string | null>(null);
   const [skippedScreenShare, setSkippedScreenShare] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
@@ -101,6 +102,7 @@ const ProctoringSetupGate = ({
   const screenStreamRef = useRef<MediaStream | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const handedOffRef = useRef(false);
+  latestStateRef.current = state;
   screenStreamRef.current = state.screenStream;
   cameraStreamRef.current = state.cameraStream;
 
@@ -118,11 +120,15 @@ const ProctoringSetupGate = ({
     // Even if retry/other effects call `requestAll()`, we must never trigger
     // the browser display-capture prompt when screen sharing is disabled.
     if (!enableScreenShare) {
-      setState((s) => ({ ...s, screenShare: "unsupported", screenStream: null }));
+      const next = { ...latestStateRef.current, screenShare: "unsupported" as const, screenStream: null };
+      latestStateRef.current = next;
+      setState(next);
       return;
     }
     if (!supportsScreenShare) {
-      setState((s) => ({ ...s, screenShare: "unsupported" }));
+      const next = { ...latestStateRef.current, screenShare: "unsupported" as const };
+      latestStateRef.current = next;
+      setState(next);
       return;
     }
     setRequesting("screen");
@@ -131,10 +137,14 @@ const ProctoringSetupGate = ({
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
         setState((s) => {
           s.screenStream?.getTracks().forEach((t) => t.stop());
-          return { ...s, screenShare: "pending", screenStream: null };
+          const next = { ...s, screenShare: "pending" as const, screenStream: null };
+          latestStateRef.current = next;
+          return next;
         });
       });
-      setState((s) => ({ ...s, screenShare: "granted", screenStream: stream }));
+      const next = { ...latestStateRef.current, screenShare: "granted" as const, screenStream: stream };
+      latestStateRef.current = next;
+      setState(next);
     } catch (e) {
       setState((s) => ({ ...s, screenShare: "denied" }));
       toast.error("Screen share is required for proctoring. Please try again.");
@@ -148,7 +158,15 @@ const ProctoringSetupGate = ({
     setRequesting("camera");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setState((s) => ({ ...s, camera: "granted", microphone: "granted", cameraStream: stream, microphoneStream: stream }));
+      const next = {
+        ...latestStateRef.current,
+        camera: "granted" as const,
+        microphone: "granted" as const,
+        cameraStream: stream,
+        microphoneStream: stream,
+      };
+      latestStateRef.current = next;
+      setState(next);
     } catch (e) {
       setState((s) => ({ ...s, camera: "denied", microphone: "denied" }));
       toast.error("Camera and microphone access are required for proctoring.");
@@ -451,7 +469,7 @@ const ProctoringSetupGate = ({
                     // Fullscreen requires user gesture; if it fails, proceed anyway
                   }
                   handedOffRef.current = true;
-                  onReady(state);
+                  onReady(latestStateRef.current);
                 } catch (e) {
                   // requestAll/requestScreenShare/requestCameraAndMic already show toasts
                 } finally {

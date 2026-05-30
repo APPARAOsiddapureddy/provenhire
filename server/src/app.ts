@@ -26,6 +26,8 @@ import { antigravityRouter } from "./routes/antigravity.js";
 import { aiInterviewAdapterRouter } from "./routes/aiInterviewAdapter.js";
 import { candidateContextRouter } from "./routes/candidateContext.js";
 import { workspacesRouter } from "./routes/workspaces.js";
+import { userWorkspacesRouter } from "./routes/userWorkspaces.js";
+import { sessionRouter } from "./routes/session.js";
 
 export function createApp() {
   const app = express();
@@ -219,6 +221,8 @@ export function createApp() {
         "/api/ai-interview-adapter",
         "/api/candidate-context",
         "/api/workspaces",
+        "/api/user/workspaces",
+        "/api/session",
       ],
     });
   });
@@ -247,6 +251,8 @@ export function createApp() {
   app.use("/api/ai-interview-adapter", aiInterviewAdapterRouter);
   app.use("/api/candidate-context", candidateContextRouter);
   app.use("/api/workspaces", workspacesRouter);
+  app.use("/api/user/workspaces", userWorkspacesRouter);
+  app.use("/api/session", sessionRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Route not found" });

@@ -49,6 +49,12 @@ const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
 const InterviewerCareers = lazy(() => import("./pages/careers/InterviewerCareers"));
 const InterviewRoom = lazy(() => import("./pages/interview/InterviewRoom"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminWorkspacesPage = lazy(() => import("./pages/admin/workspaces/AdminWorkspacesPage"));
+const WorkspaceBuilderPage = lazy(() => import("./pages/admin/workspaces/WorkspaceBuilderPage"));
+const WorkspaceDetailPage = lazy(() => import("./pages/admin/workspaces/WorkspaceDetailPage"));
+const UserWorkspacesPage = lazy(() => import("./pages/dashboard/workspaces/UserWorkspacesPage"));
+const UserWorkspaceDetailPage = lazy(() => import("./pages/dashboard/workspaces/UserWorkspaceDetailPage"));
+const WorkspaceRoundAttemptPage = lazy(() => import("./pages/dashboard/workspaces/WorkspaceRoundAttemptPage"));
 const HumanInterviewPaymentPage = lazy(() => import("./pages/human-interview/HumanInterviewPaymentPage"));
 const HumanInterviewSlotsPage = lazy(() => import("./pages/human-interview/HumanInterviewSlotsPage"));
 const VerifiedPublicPage = lazy(() => import("./pages/VerifiedPublicPage"));
@@ -172,6 +178,30 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/admin/workspaces"
+                element={
+                  <ProtectedRoute allowedRole="admin">
+                    <AdminWorkspacesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/workspaces/new"
+                element={
+                  <ProtectedRoute allowedRole="admin">
+                    <WorkspaceBuilderPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/workspaces/:id"
+                element={
+                  <ProtectedRoute allowedRole="admin">
+                    <WorkspaceDetailPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route 
                 path="/dashboard/recruiter" 
                 element={
@@ -219,6 +249,30 @@ const App = () => (
                     <JobSeekerSavedJobsPage />
                   </ProtectedRoute>
                 } 
+              />
+              <Route
+                path="/dashboard/jobseeker/workspaces"
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <UserWorkspacesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/jobseeker/workspaces/:code/rounds/:roundId"
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <WorkspaceRoundAttemptPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/jobseeker/workspaces/:code"
+                element={
+                  <ProtectedRoute allowedRole="jobseeker">
+                    <UserWorkspaceDetailPage />
+                  </ProtectedRoute>
+                }
               />
               <Route 
                 path="/dashboard/jobseeker/resume" 

@@ -6,15 +6,19 @@ import {
   WorkspaceServiceError,
   archiveWorkspace,
   createWorkspace,
+  deleteWorkspace,
   getWorkspace,
   listWorkspaces,
   publishWorkspace,
   replaceWorkspaceRounds,
+  startWorkspace,
   updateWorkspace,
 } from "../services/workspace.service.js";
 
-const workspaceStatusSchema = z.enum(["draft", "published", "archived"]);
+const workspaceStatusSchema = z.enum(["draft", "published", "started", "ended", "archived"]);
+const workspaceAccessModeSchema = z.enum(["public", "invite_only"]);
 const workspaceRoundTypeSchema = z.enum(["mcq", "coding", "interview"]);
+const workspaceQuestionTypeSchema = z.enum(["random", "fixed"]);
 const dateSchema = z.coerce.date().refine((date) => !Number.isNaN(date.getTime()), "Invalid date");
 
 const createWorkspaceSchema = z.object({
@@ -23,6 +27,7 @@ const createWorkspaceSchema = z.object({
   startAt: dateSchema,
   endAt: dateSchema,
   totalRounds: z.number().int().min(1).max(MAX_WORKSPACE_ROUNDS),
+  accessMode: workspaceAccessModeSchema.optional(),
 });
 
 const updateWorkspaceSchema = z.object({
@@ -31,6 +36,7 @@ const updateWorkspaceSchema = z.object({
   startAt: dateSchema.optional(),
   endAt: dateSchema.optional(),
   totalRounds: z.number().int().min(1).max(MAX_WORKSPACE_ROUNDS).optional(),
+  accessMode: workspaceAccessModeSchema.optional(),
 });
 
 const replaceRoundsSchema = z.object({
@@ -39,6 +45,7 @@ const replaceRoundsSchema = z.object({
       order: z.number().int().min(1).max(MAX_WORKSPACE_ROUNDS),
       name: z.string().trim().min(1).max(160),
       type: workspaceRoundTypeSchema,
+      questionType: workspaceQuestionTypeSchema.optional(),
       questionCount: z.number().int().min(1).max(200),
       timeLimitMins: z.number().int().min(1).max(480),
       scoreWeightage: z.number().int().min(1).max(100),
@@ -143,6 +150,15 @@ export async function publishWorkspaceController(req: AuthedRequest, res: Respon
   }
 }
 
+export async function startWorkspaceController(req: AuthedRequest, res: Response) {
+  try {
+    const workspace = await startWorkspace(creatorFromRequest(req), req.params.id);
+    return res.json({ workspace });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
 export async function updateWorkspaceStatusController(req: AuthedRequest, res: Response) {
   const parsed = z.object({ status: z.enum(["archived"]) }).safeParse(req.body);
   if (!parsed.success) {
@@ -152,6 +168,15 @@ export async function updateWorkspaceStatusController(req: AuthedRequest, res: R
   try {
     const workspace = await archiveWorkspace(creatorFromRequest(req), req.params.id);
     return res.json({ workspace });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function deleteWorkspaceController(req: AuthedRequest, res: Response) {
+  try {
+    const result = await deleteWorkspace(creatorFromRequest(req), req.params.id);
+    return res.json(result);
   } catch (error) {
     return sendError(res, error);
   }

@@ -52,6 +52,17 @@ export interface AptitudeSession {
   passThreshold: number;
 }
 
+export interface WorkspaceMcqQuestionSet {
+  questions: AptitudeQuestionForClient[];
+  answerKey: Record<string, string>;
+  questionIds: string[];
+  shortage: {
+    easy: number;
+    medium: number;
+    hard: number;
+  };
+}
+
 function shuffleArray<T>(arr: T[]): T[] {
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {
@@ -279,6 +290,77 @@ function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSe
 
   const passThreshold = Math.ceil(totalMarks * 0.6);
   return { questions, answerKey, marksKey, totalMarks, passThreshold };
+}
+
+function allWorkspaceMcqQuestions(): McqQuestionRaw[] {
+  const byKey = new Map<string, McqQuestionRaw>();
+  for (const q of [
+    ...loadQuestions(),
+    ...loadCsQuestions(),
+    ...loadDataFundamentalsQuestions(),
+    ...loadNonTechDomainQuestions(),
+  ]) {
+    const id = q._id?.$oid ?? normalizeText(q.question).toLowerCase();
+    if (!byKey.has(id)) byKey.set(id, q);
+  }
+  return Array.from(byKey.values());
+}
+
+function buildWorkspaceMcqSetFromMcqs(selectedMcq: McqQuestionRaw[]): Pick<WorkspaceMcqQuestionSet, "questions" | "answerKey" | "questionIds"> {
+  const answerKey: Record<string, string> = {};
+  const questions: AptitudeQuestionForClient[] = selectedMcq.map((q) => {
+    const id = getQuestionId(q);
+    answerKey[id] = (q.answer || "").trim();
+    const opts = [q.option_1, q.option_2, q.option_3, q.option_4].map(normalizeText).filter(Boolean);
+    const uniq = new Map<string, string>();
+    for (const opt of opts) {
+      const key = normalizeOptionKey(opt);
+      if (!uniq.has(key)) uniq.set(key, opt);
+    }
+    return {
+      id,
+      question: q.question,
+      options: shuffleArray(Array.from(uniq.values())),
+      marks: 1,
+    };
+  });
+  return { questions, answerKey, questionIds: questions.map((question) => question.id) };
+}
+
+export function createWorkspaceMcqQuestionSet(input: {
+  easyCount: number;
+  mediumCount: number;
+  hardCount: number;
+  allowPartial?: boolean;
+}): WorkspaceMcqQuestionSet {
+  const pool = allWorkspaceMcqQuestions();
+  const used = new Set<McqQuestionRaw>();
+  const selected: McqQuestionRaw[] = [];
+  const shortage = { easy: 0, medium: 0, hard: 0 };
+  const pickByDifficulty = (difficulty: keyof typeof shortage, count: number) => {
+    const candidates = shuffleArray(pool.filter((q) => q.difficultyLevel === difficulty && !used.has(q)));
+    const picked = candidates.slice(0, count);
+    for (const q of picked) {
+      used.add(q);
+      selected.push(q);
+    }
+    shortage[difficulty] = Math.max(0, count - picked.length);
+  };
+
+  pickByDifficulty("easy", input.easyCount);
+  pickByDifficulty("medium", input.mediumCount);
+  pickByDifficulty("hard", input.hardCount);
+
+  const missing = shortage.easy + shortage.medium + shortage.hard;
+  if (missing > 0 && input.allowPartial) {
+    for (const q of shuffleArray(pool.filter((candidate) => !used.has(candidate))).slice(0, missing)) {
+      used.add(q);
+      selected.push(q);
+    }
+  }
+
+  const built = buildWorkspaceMcqSetFromMcqs(shuffleArray(selected));
+  return { ...built, shortage };
 }
 
 /** 15 domain questions, 1 mark each; pass = 60% (9/15). No aptitude questions. */

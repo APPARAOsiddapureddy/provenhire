@@ -25,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download, Settings, Shield } from "lucide-react";
+import { Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download, Settings, Shield, ClipboardList } from "lucide-react";
 import BroadcastMessageDialog from "@/components/admin/BroadcastMessageDialog";
 import { toast } from "sonner";
 
@@ -555,6 +555,10 @@ const AdminDashboard = () => {
                   </Button>
                 }
               />
+              <Button variant="outline" size="sm" onClick={() => navigate("/admin/workspaces")} className="shrink-0">
+                <ClipboardList className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Workspaces</span>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

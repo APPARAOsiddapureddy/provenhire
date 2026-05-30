@@ -6,6 +6,7 @@ import { evaluateDsaAgainstTestCases, persistDsaSubmission, type DsaRunResultPay
 import { flushDsaSessionBuffers, getFollowUpAnswers, getLatestCodeDraftsForQuestion } from "./dsaDraftBuffer.service.js";
 import { gradeDsaFollowUps } from "./dsaFollowUps.service.js";
 import { upsertSkillVerification } from "./skillVerification.service.js";
+import { finalizeWorkspaceDsaSession } from "./workspaceDsaFinalize.service.js";
 
 const AUTO_FINALIZE_BUFFER_MS = Math.max(0, parseInt(process.env.DSA_AUTO_FINALIZE_BUFFER_MS ?? "5000", 10));
 
@@ -118,6 +119,20 @@ async function scoreSession(roundSessionId: string, questionIds: string[]): Prom
 export async function autoFinalizeDsaSession(roundSessionId: string): Promise<AutoFinalizeResult> {
   const session = await prisma.dsaRoundSession.findUnique({ where: { id: roundSessionId } });
   if (!session) return { finalized: false, reason: "not_found" };
+
+  const workspaceAttempt = await prisma.workspaceRoundAttempt.findUnique({
+    where: { dsaRoundSessionId: roundSessionId },
+    select: { id: true },
+  });
+  if (workspaceAttempt) {
+    const result = await finalizeWorkspaceDsaSession(roundSessionId, "auto");
+    if (result.finalized) return { finalized: true, score: result.score, passed: true };
+    if (result.reason === "not_expired" && result.requeueAt) {
+      return { finalized: false, reason: "not_expired", requeueAt: result.requeueAt };
+    }
+    if (result.reason === "not_found") return { finalized: false, reason: "not_found" };
+    return { finalized: false, reason: "superseded" };
+  }
 
   const latestSession = await prisma.dsaRoundSession.findFirst({
     where: { userId: session.userId },

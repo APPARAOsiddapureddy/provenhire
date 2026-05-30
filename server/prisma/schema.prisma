@@ -63,6 +63,11 @@ model User {
   performanceSnapshot        CandidatePerformanceSnapshot?
   antigravityHandoffs        AntigravityHandoff[]
   ownedWorkspaces            Workspace[]
+  workspaceRegistrations     WorkspaceRegistration[] @relation("WorkspaceRegistrationUser")
+  removedWorkspaceRegistrations WorkspaceRegistration[] @relation("WorkspaceRegistrationRemovedBy")
+  restoredWorkspaceRegistrations WorkspaceRegistration[] @relation("WorkspaceRegistrationRestoredBy")
+  mcqSessions                McqSession[]
+  workspaceRoundAttempts     WorkspaceRoundAttempt[]
 }
 
 /// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
@@ -159,13 +164,44 @@ enum WorkspaceOwnerRole {
 enum WorkspaceStatus {
   draft
   published
+  started
+  ended
   archived
+}
+
+enum WorkspaceAccessMode {
+  public
+  invite_only
+}
+
+enum WorkspaceQuestionType {
+  random
+  fixed
 }
 
 enum WorkspaceRoundType {
   mcq
   coding
   interview
+}
+
+enum WorkspaceRegistrationStatus {
+  registered
+  removed
+}
+
+enum McqSessionStatus {
+  active
+  submitted
+  auto_submitted
+  discarded
+}
+
+enum WorkspaceRoundAttemptStatus {
+  active
+  completed
+  auto_completed
+  discarded
 }
 
 model RecruiterProfile {
@@ -274,6 +310,7 @@ model Workspace {
   startAt            DateTime
   endAt              DateTime
   status             WorkspaceStatus    @default(draft)
+  accessMode         WorkspaceAccessMode @default(public)
   totalRounds        Int
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
@@ -281,6 +318,9 @@ model Workspace {
   ownerUser        User              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   recruiterProfile RecruiterProfile? @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
   rounds           WorkspaceRound[]
+  registrations    WorkspaceRegistration[]
+  allowedEmails    WorkspaceAllowedEmail[]
+  roundAttempts    WorkspaceRoundAttempt[]
 
   @@index([ownerRole, ownerUserId])
   @@index([recruiterProfileId])
@@ -300,14 +340,122 @@ model WorkspaceRound {
   easyCount      Int                @default(0)
   mediumCount    Int                @default(0)
   hardCount      Int                @default(0)
+  questionType   WorkspaceQuestionType @default(random)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fixedQuestionSet WorkspaceRoundQuestionSet?
+  attempts         WorkspaceRoundAttempt[]
 
   @@unique([workspaceId, order])
   @@index([workspaceId])
   @@index([workspaceId, type])
+}
+
+model WorkspaceRegistration {
+  id               String                      @id @default(uuid())
+  workspaceId      String
+  userId           String
+  status           WorkspaceRegistrationStatus @default(registered)
+  registeredAt     DateTime                    @default(now())
+  removedAt        DateTime?
+  removedByUserId  String?
+  restoredAt       DateTime?
+  restoredByUserId String?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user       User      @relation("WorkspaceRegistrationUser", fields: [userId], references: [id], onDelete: Cascade)
+  removedBy  User?     @relation("WorkspaceRegistrationRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+  restoredBy User?     @relation("WorkspaceRegistrationRestoredBy", fields: [restoredByUserId], references: [id], onDelete: SetNull)
+  roundAttempts WorkspaceRoundAttempt[]
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId, status])
+  @@index([userId, status])
+}
+
+model WorkspaceAllowedEmail {
+  id          String   @id @default(uuid())
+  workspaceId String
+  email       String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, email])
+  @@index([email])
+}
+
+model WorkspaceRoundQuestionSet {
+  id               String   @id @default(uuid())
+  workspaceRoundId String   @unique
+  questionIds      String[]
+  questions        Json
+  answerKey        Json
+  createdAt        DateTime @default(now())
+
+  workspaceRound WorkspaceRound @relation(fields: [workspaceRoundId], references: [id], onDelete: Cascade)
+}
+
+model McqSession {
+  id                String           @id @default(uuid())
+  userId            String
+  questionIds       String[]
+  questions         Json             @default(dbgenerated("'[]'::jsonb"))
+  answerKey         Json
+  currentQuestionId String?
+  answers           Json             @default(dbgenerated("'{}'::jsonb"))
+  startTime         DateTime         @default(now())
+  endTime           DateTime
+  status            McqSessionStatus @default(active)
+  submittedAt       DateTime?
+  finalizedAt       DateTime?
+  score             Int?
+  correctCount      Int?
+  incorrectCount    Int?
+  skippedCount      Int?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceRoundAttempt WorkspaceRoundAttempt?
+
+  @@index([userId, status])
+  @@index([endTime, status])
+}
+
+model WorkspaceRoundAttempt {
+  id                      String                      @id @default(uuid())
+  workspaceId             String
+  workspaceRoundId        String
+  workspaceRegistrationId String
+  userId                  String
+  roundType               WorkspaceRoundType
+  mcqSessionId            String?                     @unique
+  dsaRoundSessionId       String?                     @unique
+  status                  WorkspaceRoundAttemptStatus @default(active)
+  score                   Int?
+  percentageScore         Int?
+  weightedScore           Int?
+  startedAt               DateTime                    @default(now())
+  completedAt             DateTime?
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+
+  workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceRound        WorkspaceRound        @relation(fields: [workspaceRoundId], references: [id], onDelete: Cascade)
+  workspaceRegistration WorkspaceRegistration @relation(fields: [workspaceRegistrationId], references: [id], onDelete: Cascade)
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mcqSession            McqSession?           @relation(fields: [mcqSessionId], references: [id], onDelete: SetNull)
+  dsaRoundSession       DsaRoundSession?      @relation(fields: [dsaRoundSessionId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceRegistrationId, workspaceRoundId])
+  @@index([workspaceId, status])
+  @@index([workspaceRoundId, status])
+  @@index([userId, status])
 }
 
 model Job {
@@ -499,6 +647,7 @@ model DsaRoundSession {
   user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   codeSessions     DsaCodeSession[]
   followUpSessions DsaFollowUpSession[]
+  workspaceRoundAttempts WorkspaceRoundAttempt[]
 
   @@index([userId])
   @@index([expTime])
