@@ -93,9 +93,9 @@ const deriveCertificationFromStages = (
     }
     return { level: 0, label: "Level 0 - Not Yet Certified" };
   }
-  if (completed.has("expert_interview")) return { level: 2, label: "Level 2 - Skill Passport Verified" };
+  if (completed.has("expert_interview")) return { level: 2, label: "Level 2 - AI Interview Cleared" };
   if (completed.has("dsa_round")) {
-    return { level: 1, label: "Level 1 - Cognitive Verified" };
+    return { level: 1, label: "Level 1 - DSA Verified" };
   }
   return { level: 0, label: "Level 0 - Not Yet Certified" };
 };
@@ -142,11 +142,8 @@ const JobSeekerDashboard = () => {
   /** v2: true until verification `profile_setup` is completed — server shows fresher stage order until then. */
   const [pipelinePendingProfileSetup, setPipelinePendingProfileSetup] = useState(false);
   const [resumeProfileLoading, setResumeProfileLoading] = useState(false);
-  const showJobTitleModal = Boolean(
-    !loading &&
-    profile &&
-    !(profile.targetJobTitle ?? profile.target_job_title)?.trim()
-  );
+  // Role-title modal is hidden for now; all jobseekers default to Full Stack Developer on the backend.
+  const showJobTitleModal = false;
   const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical" | "data";
   const nonTechFallbackOrder = useMemo(
     () => nonTechnicalFallbackOrder(profile?.experienceYears ?? profile?.experience_years ?? null),
@@ -210,6 +207,11 @@ const JobSeekerDashboard = () => {
   const getStageStatus = (stageName: string): 'done' | 'active' | 'locked' => {
     const stage = verificationStages.find((s: any) => s.stage_name === stageName);
     const idx = stageOrder.indexOf(stageName);
+    const dsaStage = verificationStages.find((s: any) => s.stage_name === "dsa_round");
+    const softwareExpertBlocked =
+      roleType === "technical" &&
+      stageName === "expert_interview" &&
+      dsaStage?.status !== "completed";
     const allPrevCompleted = idx <= 0 || stageOrder.slice(0, idx).every((prev) =>
       verificationStages.some((s: any) => s.stage_name === prev && s.status === 'completed')
     );
@@ -218,6 +220,7 @@ const JobSeekerDashboard = () => {
     }
     if (stage.status === 'pending_review') return 'locked';
     if (stage.status === 'completed') return 'done';
+    if (softwareExpertBlocked) return 'locked';
     if (stage.status === 'in_progress' || stage.status === 'failed') return 'active';
     // Locked but all previous completed = next to do, show Start button
     return allPrevCompleted ? 'active' : 'locked';
@@ -268,12 +271,12 @@ const JobSeekerDashboard = () => {
         : [
             {
               level: 1,
-              label: "Level 1 - Cognitive Verified",
-              stages: ["profile_setup", "dsa_round"],
+              label: "Level 1 - DSA Verified",
+              stages: ["dsa_round"],
             },
             {
               level: 2,
-              label: "Level 2 - Skill Passport",
+              label: "Level 2 - AI Interview Cleared",
               stages: ["expert_interview"],
             },
             {
@@ -446,7 +449,9 @@ const JobSeekerDashboard = () => {
             : null
       );
       setProvenhireCertSubtitle(
-        stagesOk && typeof stagesData?.certificationLabelShort === "string"
+        role === "technical"
+          ? null
+          : stagesOk && typeof stagesData?.certificationLabelShort === "string"
           ? stagesData.certificationLabelShort
           : null
       );
@@ -480,7 +485,7 @@ const JobSeekerDashboard = () => {
         profileViews: profile?.profileViews ?? 0,
       });
 
-      if ((profile?.roleType ?? profile?.role_type ?? "technical") === "technical" && !stale()) {
+      if (false && (profile?.roleType ?? profile?.role_type ?? "technical") === "technical" && !stale()) {
         try {
           const g = await api.get<{
             admin_review_status: string;
@@ -657,13 +662,17 @@ const JobSeekerDashboard = () => {
 
   return (
     <div className="min-h-screen">
-      <JobTitleModal
-        open={showJobTitleModal}
-        roleType={roleType}
-        onSave={(title) => {
-          setProfile((p: any) => (p ? { ...p, targetJobTitle: title } : p));
-        }}
-      />
+      {/* Role-title modal hidden for now; restore when candidate role selection returns.
+      {false && (
+        <JobTitleModal
+          open={showJobTitleModal}
+          roleType={roleType}
+          onSave={(title) => {
+            setProfile((p: any) => (p ? { ...p, targetJobTitle: title } : p));
+          }}
+        />
+      )}
+      */}
       <DashboardShell
         sidebarSections={sidebarSections}
         user={{
@@ -898,7 +907,7 @@ const JobSeekerDashboard = () => {
                 <p>
                   {roleType === "non_technical"
                     ? "Progressive proof, not paperwork. Finish each stage to grow your ProvenHire Resume and unlock better-matched roles."
-                    : "Evidence over claims. You earn Early Access after Level 1; Skill Passport and ProvenHire Resume unlock as you complete AI-verified stages—your path adapts to your experience band."}
+                    : "Evidence over claims. Complete Profile Setup first, earn L1 after DSA, and unlock L2 after the AI Expert Interview."}
                 </p>
                 {(roleType === "technical" || roleType === "data") && pipelinePendingProfileSetup && (
                   <p className="text-sm text-amber-200/90 border border-amber-400/30 bg-amber-500/10 rounded-lg px-3 py-2 mt-3 max-w-3xl">
@@ -918,8 +927,8 @@ const JobSeekerDashboard = () => {
                       ? certificationLevelNumber >= 3
                         ? "Level 3 — Elite verified"
                         : certificationLevelNumber >= 2
-                          ? "Level 2 — Skill Passport"
-                          : "Level 1 — Cognitive verified"
+                          ? "Level 2 - AI interview cleared"
+                          : "Level 1 - DSA verified"
                       : certificationLevelNumber >= 3
                         ? "Level 3 — AI Expert verified"
                         : certificationLevelNumber >= 2
@@ -938,12 +947,27 @@ const JobSeekerDashboard = () => {
                   const step = idx + 1;
                   const activeByNumber = certificationLevelNumber >= step;
                   const activeByCode = provenhireCertCode === code;
-                  const highlight = activeByCode || (provenhireCertCode == null && activeByNumber);
+                  const isTechnicalLadder = roleType === "technical" || roleType === "data";
+                  const profileStageDone = verificationStages.some(
+                    (s: any) => s.stage_name === "profile_setup" && s.status === "completed"
+                  );
+                  const technicalHighlight =
+                    code === "L1"
+                      ? profileStageDone
+                      : code === "L2"
+                        ? certificationLevelNumber >= 1
+                        : certificationLevelNumber >= 2;
+                  const highlight = isTechnicalLadder
+                    ? technicalHighlight
+                    : activeByCode || (provenhireCertCode == null && activeByNumber);
+                  const displayCode: Record<string, string> = isTechnicalLadder
+                    ? { L1: "Step 1", L2: "L1", L3: "L2" }
+                    : { L1: "L1", L2: "L2", L3: "L3" };
                   const titles: Record<string, string> =
                     roleType === "data"
-                      ? { L1: "Cognitive Verified", L2: "Skill Passport", L3: "Elite Verified" }
+                      ? { L1: "Profile Setup", L2: "DSA Completion", L3: "AI Interview Cleared" }
                       : roleType === "technical"
-                        ? { L1: "Cognitive Verified", L2: "Skill Passport", L3: "Reserved" }
+                        ? { L1: "Profile Setup", L2: "DSA Completion", L3: "AI Interview Cleared" }
                       : {
                           L1: "Foundation",
                           L2: "Assignment verified",
@@ -958,7 +982,7 @@ const JobSeekerDashboard = () => {
                           : "border-[var(--dash-navy-border)] opacity-80"
                       }`}
                     >
-                      <div className="text-xs font-semibold text-emerald-300/90">{code}</div>
+                      <div className="text-xs font-semibold text-emerald-300/90">{displayCode[code]}</div>
                       <div className="text-sm font-medium text-white mt-1">{titles[code]}</div>
                       {highlight && provenhireCertSubtitle ? (
                         <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">{provenhireCertSubtitle}</p>
@@ -966,16 +990,14 @@ const JobSeekerDashboard = () => {
                         <p className="text-xs text-[var(--dash-text-muted)] mt-2 leading-snug">
                           {roleType === "technical" || roleType === "data"
                             ? code === "L1"
-                              ? roleType === "data"
-                                ? "Profile, data fundamentals (early-career), then the Data Round"
-                                : "Profile, then experience-calibrated DSA"
+                              ? "First step before verification begins"
                               : code === "L2"
                                 ? roleType === "data"
                                   ? "Data AI Skills; mid/senior also complete Data System Design — then AI Expert"
-                                  : "AI Expert Interview — capstone on this track"
+                                  : "L1 unlocks after passing the DSA Round"
                                 : roleType === "data"
                                   ? "AI Expert interview caps the data verification path"
-                                  : "Reserved in the simplified developer path"
+                                  : "L2 unlocks after clearing the AI Expert Interview"
                             : code === "L1"
                               ? "Profile and (for early-career) domain fundamentals"
                               : code === "L2"
@@ -1178,7 +1200,8 @@ const JobSeekerDashboard = () => {
                   );
                 })}
 
-                {roleType === 'technical' && (() => {
+                {/* Human Expert Interview UI hidden for current simplified candidate flow. */}
+                {false && roleType === 'technical' && (() => {
                   const showHumanExpertCta =
                     getStageStatus('human_expert_interview') === 'active' ||
                     (humanInterviewGate &&

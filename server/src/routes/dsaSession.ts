@@ -3,6 +3,7 @@ import { z } from "zod";
 import { DSA_API_LANGUAGES } from "../constants/dsa.js";
 import { requireAuth, requireJobSeeker, type AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
+import { roleTypeToTrack } from "../constants/verificationPipeline.js";
 import { autoFinalizeDsaSession } from "../services/dsaAutoFinalize.service.js";
 import { bufferCodeDraft, bufferFollowUpAnswers, bufferSessionState, getFollowUpAnswers } from "../services/dsaDraftBuffer.service.js";
 import { getPublicDsaFollowUps, gradeAndPersistDsaFollowUps } from "../services/dsaFollowUps.service.js";
@@ -18,6 +19,26 @@ import {
 export const dsaSessionRouter = Router();
 
 dsaSessionRouter.use(requireAuth, requireJobSeeker);
+dsaSessionRouter.use(async (req: AuthedRequest, res, next) => {
+  try {
+    const profile = await prisma.jobSeekerProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { roleType: true },
+    });
+    if (roleTypeToTrack(profile?.roleType) !== "software") return next();
+    const profileDone = await prisma.verificationStage.findFirst({
+      where: { userId: req.user!.id, stageName: "profile_setup", status: "completed" },
+      select: { id: true },
+    });
+    if (!profileDone) {
+      return res.status(403).json({ error: "Complete Profile Setup before starting the DSA Round." });
+    }
+    return next();
+  } catch (err) {
+    console.error("[dsa/session:gate]", err);
+    return res.status(500).json({ error: "Could not verify DSA access." });
+  }
+});
 
 function isRoundExpired(session: { expTime: Date; pausedTime: Date | null }): boolean {
   return !session.pausedTime && session.expTime.getTime() <= Date.now();

@@ -303,9 +303,6 @@ export async function createOrGetDsaSession(userId: string): Promise<DsaSessionS
   const session = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dsa_session:${userId}`}))`;
 
-    const existing = await latestUnfinalizedSession(userId, tx);
-    if (existing) return existing;
-
     const profile = await tx.jobSeekerProfile.findUnique({
       where: { userId },
       select: { targetJobTitle: true, experienceYears: true, roleType: true },
@@ -313,6 +310,22 @@ export async function createOrGetDsaSession(userId: string): Promise<DsaSessionS
     if (roleTypeToTrack(profile?.roleType) === "non_technical") {
       throw new Error("DSA/Data round applies only to technical or data verification paths.");
     }
+    if (roleTypeToTrack(profile?.roleType) === "software") {
+      const profileDone = await tx.verificationStage.findFirst({
+        where: { userId, stageName: "profile_setup", status: "completed" },
+        select: { id: true },
+      });
+      if (!profileDone) {
+        throw new Error("Complete Profile Setup before starting the DSA Round.");
+      }
+      await tx.verificationStage.updateMany({
+        where: { userId, stageName: "dsa_round", status: "locked" },
+        data: { status: "in_progress" },
+      });
+    }
+
+    const existing = await latestUnfinalizedSession(userId, tx);
+    if (existing) return existing;
 
     const tier = experienceTierFromYears(profile?.experienceYears);
     const cfg = dsaTierConfig(tier);

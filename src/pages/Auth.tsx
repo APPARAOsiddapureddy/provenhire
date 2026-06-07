@@ -14,6 +14,9 @@ type AuthMode = "login" | "signup" | "forgot" | "reset";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).+$/;
+const TEAM_SIZE_SELECT_CLASS =
+  "w-full py-3 px-4 rounded-md bg-white/5 border text-foreground text-sm focus:outline-none focus:border-primary/50";
+const TEAM_SIZE_OPTION_STYLE = { backgroundColor: "#0B1C2D", color: "#F7F9FC" };
 
 const isValidEmail = (value: string) => EMAIL_REGEX.test(value.trim());
 const isStrongPassword = (value: string) =>
@@ -237,7 +240,7 @@ const Auth = () => {
     setSignUpErrors({});
     setSignupSubmitting(true);
     try {
-      const roleType = role === "jobseeker" ? (jobSeekerTrack === "tech" ? "technical" : "non_technical") : undefined;
+      const roleType = role === "jobseeker" ? "technical" : undefined;
       await signUp(
         normalizedEmail,
         signUpPassword,
@@ -345,7 +348,7 @@ const Auth = () => {
         googleRole,
         googleRole === "recruiter" ? googleCompanyName.trim() : undefined,
         googleRole === "recruiter" ? googleCompanySize || undefined : undefined,
-        googleRole === "jobseeker" ? googleJobSeekerTrack : undefined
+        googleRole === "jobseeker" ? "technical" : undefined
       );
     } catch {
       setGoogleRoleErrors({ form: "Could not save. Please try again." });
@@ -559,7 +562,8 @@ const Auth = () => {
                   </button>
                 </div>
               </div>
-              {googleRole === "jobseeker" && (
+              {/* Track selector hidden for now; restore this block when multi-track signup returns. */}
+              {false && googleRole === "jobseeker" && (
                 <div>
                   <label className="auth-label">Track</label>
                   <div className="grid grid-cols-2 gap-2 mb-2">
@@ -871,7 +875,8 @@ const Auth = () => {
                     </button>
                   </div>
                 </div>
-                {role === "jobseeker" && (
+                {/* Track selector hidden for now; restore this block when multi-track signup returns. */}
+                {false && role === "jobseeker" && (
                   <div>
                     <label className="auth-label">Track</label>
                     <div className="grid grid-cols-2 gap-2 mb-2">
@@ -919,14 +924,14 @@ const Auth = () => {
                           setSignUpErrors((prev) => ({ ...prev, companySize: undefined, form: undefined }));
                         }}
                         required={role === "recruiter"}
-                        className={`w-full py-3 px-4 rounded-md bg-white/5 border text-foreground text-sm focus:outline-none focus:border-primary/50 ${signUpErrors.companySize ? "border-red-500/80 !bg-red-500/5" : "border-border"}`}
+                        className={`${TEAM_SIZE_SELECT_CLASS} ${signUpErrors.companySize ? "border-red-500/80 !bg-red-500/5" : "border-border"}`}
                       >
-                        <option value="">Select</option>
-                        <option value="1-10">1-10</option>
-                        <option value="11-50">11-50</option>
-                        <option value="51-200">51-200</option>
-                        <option value="201-500">201-500</option>
-                        <option value="501+">501+</option>
+                        <option value="" style={TEAM_SIZE_OPTION_STYLE}>Select</option>
+                        <option value="1-10" style={TEAM_SIZE_OPTION_STYLE}>1-10</option>
+                        <option value="11-50" style={TEAM_SIZE_OPTION_STYLE}>11-50</option>
+                        <option value="51-200" style={TEAM_SIZE_OPTION_STYLE}>51-200</option>
+                        <option value="201-500" style={TEAM_SIZE_OPTION_STYLE}>201-500</option>
+                        <option value="501+" style={TEAM_SIZE_OPTION_STYLE}>501+</option>
                       </select>
                       {signUpErrors.companySize && <p className="mb-2 text-xs text-red-400/95 tracking-wide">• {signUpErrors.companySize}</p>}
                     </div>
@@ -1107,7 +1112,8 @@ const Auth = () => {
                     </button>
                   </div>
                 </div>
-                {role === "jobseeker" && (
+                {/* Track selector hidden for now; restore this block when multi-track signup returns. */}
+                {false && role === "jobseeker" && (
                   <div>
                     <label className="block text-sm font-medium mb-1">Track</label>
                     <div className="grid grid-cols-2 gap-2">
@@ -1146,14 +1152,14 @@ const Auth = () => {
                           setSignUpErrors((prev) => ({ ...prev, companySize: undefined, form: undefined }));
                         }}
                         required
-                        className={`w-full px-4 py-3 border rounded-lg bg-background ${signUpErrors.companySize ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
+                        className={`${TEAM_SIZE_SELECT_CLASS} rounded-lg bg-background ${signUpErrors.companySize ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
                       >
-                        <option value="">Select</option>
-                        <option value="1-10">1-10</option>
-                        <option value="11-50">11-50</option>
-                        <option value="51-200">51-200</option>
-                        <option value="201-500">201-500</option>
-                        <option value="501+">501+</option>
+                        <option value="" style={TEAM_SIZE_OPTION_STYLE}>Select</option>
+                        <option value="1-10" style={TEAM_SIZE_OPTION_STYLE}>1-10</option>
+                        <option value="11-50" style={TEAM_SIZE_OPTION_STYLE}>11-50</option>
+                        <option value="51-200" style={TEAM_SIZE_OPTION_STYLE}>51-200</option>
+                        <option value="201-500" style={TEAM_SIZE_OPTION_STYLE}>201-500</option>
+                        <option value="501+" style={TEAM_SIZE_OPTION_STYLE}>501+</option>
                       </select>
                       {signUpErrors.companySize && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {signUpErrors.companySize}</p>}
                     </div>

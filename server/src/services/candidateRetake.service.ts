@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { roleTypeToTrack } from "../constants/verificationPipeline.js";
 import {
   CANDIDATE_RETAKE_CREDIT_VALIDITY_DAYS,
   COOLDOWN_AI_EXPERT_MS,
@@ -62,12 +63,35 @@ const pricingBody = {
   bundleInr: CANDIDATE_RETAKE_BUNDLE_INR,
 };
 
+export async function hasCompletedDsaPrerequisite(userId: string): Promise<boolean> {
+  const dsaStage = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "dsa_round", status: "completed" },
+    select: { id: true },
+  });
+  return Boolean(dsaStage);
+}
+
 /**
  * Expert / AI interview session start — first finished session free; further sessions need cooldown + ledger credit.
  */
 export async function gateExpertInterviewStart(userId: string): Promise<
   { ok: true } | { ok: false; status: number; body: Record<string, unknown> }
 > {
+  const profile = await prisma.jobSeekerProfile.findUnique({
+    where: { userId },
+    select: { roleType: true },
+  });
+  if (roleTypeToTrack(profile?.roleType) === "software" && !(await hasCompletedDsaPrerequisite(userId))) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        code: "DSA_REQUIRED",
+        error: "Complete and pass the DSA Round before starting the AI Expert Interview.",
+      },
+    };
+  }
+
   const open = await prisma.interview.findFirst({
     where: { userId, interviewType: "ai_expert", status: "in_progress" },
     orderBy: { createdAt: "desc" },

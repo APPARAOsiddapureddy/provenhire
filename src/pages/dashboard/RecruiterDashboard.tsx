@@ -1,9 +1,10 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
-import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, FileText, CheckCircle2, Search, Settings, ExternalLink, Award } from "lucide-react";
+import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, CheckCircle2, Search, Settings, ExternalLink, Award, CreditCard, Send, Loader2, GraduationCap } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
@@ -95,6 +96,14 @@ interface TalentCandidate {
   current_role: string | null;
   experience_years: number | null;
   verification_status: string | null;
+  bio?: string | null;
+  location?: string | null;
+  college?: string | null;
+  graduation_year?: number | string | null;
+  phone?: string | null;
+  notice_period?: string | null;
+  current_salary?: string | null;
+  expected_salary?: string | null;
   skills: string[] | null;
   actively_looking_roles: string[] | null;
   resume_url: string | null;
@@ -106,7 +115,7 @@ interface TalentCandidate {
   aptitude_score?: number | null;
   dsa_score?: number | null;
   ai_interview_score?: number | null;
-  human_expert_interview_score?: number | null;
+  integrity_score?: number | null;
 }
 
 function recruiterCertPillClass(lvl: number): string {
@@ -119,10 +128,63 @@ function recruiterCertPillClass(lvl: number): string {
 function recruiterCertDisplay(c: TalentCandidate): { lvl: number; line: string } {
   const lvl = c.certification_level ?? 0;
   const short =
-    c.certificationLabelShort?.trim() ||
-    (lvl >= 3 ? "Elite Verified" : lvl === 2 ? "Skill Passport" : lvl === 1 ? "Cognitive Verified" : "Not Certified");
+    lvl === 2
+      ? "AI Interview Cleared"
+      : lvl === 1
+        ? "DSA Completed"
+        : c.certificationLabelShort?.trim() ||
+          (lvl >= 3 ? "Elite Verified" : "Not Certified");
   const code = c.certificationLevel ?? (lvl >= 1 && lvl <= 3 ? `L${lvl}` : "L0");
   return { lvl, line: `${code} · ${short}` };
+}
+
+function candidateHiringReadiness(candidate: TalentCandidate): number {
+  return Math.round(
+    ((candidate.aptitude_score ?? 0) +
+      (candidate.dsa_score ?? 0) +
+      (candidate.ai_interview_score ?? 0) +
+      (candidate.integrity_score ?? 100)) /
+      4
+  );
+}
+
+type TalentCategoryKey = "software_engineering";
+
+const TALENT_CATEGORY_CONFIG: Record<TalentCategoryKey, { label: string; keywords: string[] }> = {
+  software_engineering: {
+    label: "Software Engineering",
+    keywords: [
+      "software",
+      "engineer",
+      "developer",
+      "frontend",
+      "backend",
+      "full stack",
+      "fullstack",
+      "react",
+      "node",
+      "java",
+      "python",
+    ],
+  },
+};
+
+function normalizeTalentText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function candidateMatchesCategory(candidate: TalentCandidate, category: TalentCategoryKey): boolean {
+  const config = TALENT_CATEGORY_CONFIG[category];
+  const haystack = normalizeTalentText(
+    [
+      candidate.current_role,
+      ...(candidate.actively_looking_roles ?? []),
+      ...(candidate.skills ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+  return config.keywords.some((keyword) => haystack.includes(normalizeTalentText(keyword)));
 }
 
 const RecruiterDashboard = () => {
@@ -133,6 +195,11 @@ const RecruiterDashboard = () => {
   const [candidates, setCandidates] = useState<TalentCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<RecruiterProfile | null>(null);
+  const [candidateToPreview, setCandidateToPreview] = useState<TalentCandidate | null>(null);
+  const [candidateToContact, setCandidateToContact] = useState<TalentCandidate | null>(null);
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactingCandidate, setContactingCandidate] = useState<string | null>(null);
+  const [contactedCandidates, setContactedCandidates] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState({
     activeJobs: 0,
     totalApplicants: 0,
@@ -141,15 +208,12 @@ const RecruiterDashboard = () => {
     profileViews: 0,
   });
   const [activeTab, setActiveTab] = useState<'discover' | 'jobs' | 'pipeline'>('discover');
-  const [domainFilter, setDomainFilter] = useState<Record<string, boolean>>({
-    'Software Engineering': true,
-    'Data Science': false,
-    'Product Management': false,
+  const [domainFilter, setDomainFilter] = useState<Record<TalentCategoryKey, boolean>>({
+    software_engineering: true,
   });
   const [tierFilter, setTierFilter] = useState<Record<string, boolean>>({
-    'A': true,
-    'B': true,
-    'C': false,
+    L1: false,
+    L2: false,
   });
   const [talentSort, setTalentSort] = useState<string>('highest_score');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -319,6 +383,30 @@ const RecruiterDashboard = () => {
     }
   };
 
+  const openExpressInterestDialog = (candidate: TalentCandidate) => {
+    setCandidateToContact(candidate);
+    setContactMessage("");
+  };
+
+  const handleExpressInterest = async () => {
+    if (!candidateToContact) return;
+    setContactingCandidate(candidateToContact.user_id);
+    try {
+      await api.post("/api/notifications/contact-candidate", {
+        candidateUserId: candidateToContact.user_id,
+        recruiterMessage: contactMessage.trim() || undefined,
+      });
+      setContactedCandidates((prev) => new Set(prev).add(candidateToContact.user_id));
+      setCandidateToContact(null);
+      setContactMessage("");
+      toast.success("Interest sent. The candidate has been notified.");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to contact candidate.");
+    } finally {
+      setContactingCandidate(null);
+    }
+  };
+
   const handleUpdateProfile = async () => {
     if (isTestAccount) {
       toast.info('Test accounts can\'t save profile changes. Sign in with a full account to update your profile.');
@@ -349,18 +437,28 @@ const RecruiterDashboard = () => {
 
   const filteredCandidates = useMemo(() => {
     let list = [...candidates];
-    const activeDomains = Object.entries(domainFilter).filter(([, v]) => v).map(([k]) => k);
+    const activeDomains = Object.entries(domainFilter)
+      .filter(([, v]) => v)
+      .map(([k]) => k as TalentCategoryKey);
     if (activeDomains.length > 0) {
-      list = list.filter(c => {
-        const roles = c.actively_looking_roles || [];
-        const roleStr = (c.current_role || '') + (roles.join(' '));
-        return activeDomains.some(d => roleStr.toLowerCase().includes(d.toLowerCase().replace(/\s/g, '')) || (c.skills || []).some(s => s.toLowerCase().includes(d.split(' ')[0].toLowerCase())));
+      list = list.filter((candidate) =>
+        activeDomains.some((category) => candidateMatchesCategory(candidate, category))
+      );
+    }
+    const activeTiers = Object.entries(tierFilter).filter(([, v]) => v).map(([k]) => k);
+    if (activeTiers.length > 0) {
+      list = list.filter((candidate) => {
+        const level = candidate.certification_level ?? 0;
+        return (
+          (activeTiers.includes("L1") && level >= 1) ||
+          (activeTiers.includes("L2") && level >= 2)
+        );
       });
     }
     if (talentSort === 'highest_score') list = [...list].sort((a, b) => (b.experience_years ?? 0) - (a.experience_years ?? 0));
     if (talentSort === 'newest') list = [...list].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     return list;
-  }, [candidates, domainFilter, talentSort]);
+  }, [candidates, domainFilter, tierFilter, talentSort]);
 
   const normalizeJobStatus = (status: string | null | undefined): string => {
     if (!status) return "published";
@@ -405,6 +503,7 @@ const RecruiterDashboard = () => {
         { label: "Search Candidates", to: "/candidate-search", icon: <Search className="w-[18px] h-[18px]" /> },
         { label: "My Jobs", active: activeTab === 'jobs', onClick: () => setActiveTab('jobs'), icon: <Briefcase className="w-[18px] h-[18px]" /> },
         { label: "Pipeline & Tracking", active: activeTab === 'pipeline', onClick: () => setActiveTab('pipeline'), icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
+        { label: "Plans & Upgrade", to: "/dashboard/recruiter/plans", icon: <CreditCard className="w-[18px] h-[18px]" /> },
         { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
       ],
     },
@@ -528,16 +627,15 @@ const RecruiterDashboard = () => {
               <div className="dashboard-recruiter-layout">
                 <div className="dashboard-filter-panel">
                   <div className="dashboard-filter-panel-title">Domain / Role</div>
-                  {(['Software Engineering', 'Data Science', 'Product Management'] as const).map((d) => (
-                    <label key={d}>
-                      <input type="checkbox" checked={domainFilter[d] ?? false} onChange={() => setDomainFilter(prev => ({ ...prev, [d]: !prev[d] }))} />
-                      <span>{d}</span>
+                  {(Object.entries(TALENT_CATEGORY_CONFIG) as Array<[TalentCategoryKey, { label: string; keywords: string[] }]>).map(([key, category]) => (
+                    <label key={key}>
+                      <input type="checkbox" checked={domainFilter[key] ?? false} onChange={() => setDomainFilter(prev => ({ ...prev, [key]: !prev[key] }))} />
+                      <span>{category.label}</span>
                     </label>
                   ))}
                   <div className="dashboard-filter-panel-title" style={{ marginTop: 20 }}>Verification Tier</div>
-                  <label><input type="checkbox" checked={tierFilter['A'] ?? false} onChange={() => setTierFilter(prev => ({ ...prev, 'A': !prev['A'] }))} /><span>Level A (Top 5%)</span></label>
-                  <label><input type="checkbox" checked={tierFilter['B'] ?? false} onChange={() => setTierFilter(prev => ({ ...prev, 'B': !prev['B'] }))} /><span>Level B (Top 15%)</span></label>
-                  <label><input type="checkbox" checked={tierFilter['C'] ?? false} onChange={() => setTierFilter(prev => ({ ...prev, 'C': !prev['C'] }))} /><span>Level C (Top 30%)</span></label>
+                  <label><input type="checkbox" checked={tierFilter.L1 ?? false} onChange={() => setTierFilter(prev => ({ ...prev, L1: !prev.L1 }))} /><span>L1 - DSA Completed</span></label>
+                  <label><input type="checkbox" checked={tierFilter.L2 ?? false} onChange={() => setTierFilter(prev => ({ ...prev, L2: !prev.L2 }))} /><span>L2 - AI Interview Cleared</span></label>
                 </div>
                 <div className="dashboard-talent-content">
                   <div className="dashboard-talent-header">
@@ -590,11 +688,10 @@ const RecruiterDashboard = () => {
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-sm font-medium mb-4">
                             <div className="bg-white/5 rounded px-2 py-1.5">
-                              <span className="text-[var(--dash-text-muted)]">HUMAN EXPERT</span>{" "}
+                              <span className="text-[var(--dash-text-muted)]">LEVEL</span>{" "}
                               <strong className="text-white">
-                                {c.human_expert_interview_score != null ? Math.round(c.human_expert_interview_score) : "—"}
+                                {c.certification_level != null ? `L${c.certification_level}` : "L0"}
                               </strong>
-                              /100
                             </div>
                             <div className="bg-white/5 rounded px-2 py-1.5">
                               <span className="text-[var(--dash-text-muted)]">DSA ROUND</span>{" "}
@@ -611,18 +708,31 @@ const RecruiterDashboard = () => {
                               /100
                             </div>
                             <div className="bg-white/5 rounded px-2 py-1.5">
-                              <span className="text-[var(--dash-text-muted)]">APTITUDE</span>{" "}
-                              <strong className="text-white">
-                                {c.aptitude_score != null ? Math.round(c.aptitude_score) : "—"}
-                              </strong>
+                              <span className="text-[var(--dash-text-muted)]">HIRING READINESS</span>{" "}
+                              <strong className="text-white">{candidateHiringReadiness(c)}%</strong>
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <Button variant="outline" size="sm" className="dashboard-btn-ghost flex-1" asChild>
-                              <Link to="/candidate-search"><FileText className="h-3.5 w-3 mr-1" /> View Skill Passport</Link>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="dashboard-btn-ghost flex-1"
+                              onClick={() => setCandidateToPreview(c)}
+                            >
+                              <Search className="h-3.5 w-3 mr-1" /> Quick Preview
                             </Button>
-                            <Button size="sm" className="dashboard-btn-gold flex-1" onClick={() => navigate('/post-job')}>
-                              <Briefcase className="h-3.5 w-3 mr-1" /> Invite to Job
+                            <Button
+                              size="sm"
+                              className="dashboard-btn-gold flex-1"
+                              disabled={contactingCandidate === c.user_id || contactedCandidates.has(c.user_id)}
+                              onClick={() => openExpressInterestDialog(c)}
+                            >
+                              {contactingCandidate === c.user_id ? (
+                                <Loader2 className="h-3.5 w-3 mr-1 animate-spin" />
+                              ) : (
+                                <Send className="h-3.5 w-3 mr-1" />
+                              )}
+                              {contactedCandidates.has(c.user_id) ? "Interest Sent" : "Express Interest"}
                             </Button>
                           </div>
                         </div>
@@ -743,6 +853,197 @@ const RecruiterDashboard = () => {
           </>
         )}
       </DashboardShell>
+
+      {/* Candidate Quick Preview Dialog */}
+      <Dialog open={!!candidateToPreview} onOpenChange={(open) => !open && setCandidateToPreview(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-start justify-between gap-3">
+              <span>{candidateToPreview?.full_name || "Verified Candidate"}</span>
+              <div className="flex flex-wrap justify-end gap-2">
+                {candidateToPreview && (() => {
+                  const { lvl, line } = recruiterCertDisplay(candidateToPreview);
+                  return (
+                    <Badge variant="outline" className={recruiterCertPillClass(lvl)}>
+                      {line}
+                    </Badge>
+                  );
+                })()}
+                <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Verified
+                </Badge>
+              </div>
+            </DialogTitle>
+            <DialogDescription>
+              {candidateToPreview?.location && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-4 w-4" /> {candidateToPreview.location}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {candidateToPreview && (
+            <div className="space-y-6 mt-4">
+              {candidateToPreview.bio && (
+                <div>
+                  <h4 className="font-semibold mb-2">About</h4>
+                  <p className="text-muted-foreground">{candidateToPreview.bio}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Briefcase className="h-4 w-4" /> Experience
+                  </h4>
+                  <p className="text-muted-foreground">{candidateToPreview.experience_years ?? 0} years</p>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <GraduationCap className="h-4 w-4" /> Education
+                  </h4>
+                  <p className="text-muted-foreground">
+                    {candidateToPreview.college || "Not specified"}
+                    {candidateToPreview.graduation_year && ` (${candidateToPreview.graduation_year})`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <h4 className="font-semibold mb-1">Notice period</h4>
+                  <p className="text-muted-foreground">{candidateToPreview.notice_period || "Not specified"}</p>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-1">Current salary</h4>
+                  <p className="text-muted-foreground">{candidateToPreview.current_salary || "Not specified"}</p>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-1">Expected salary</h4>
+                  <p className="text-muted-foreground">{candidateToPreview.expected_salary || "Not specified"}</p>
+                </div>
+              </div>
+
+              {candidateToPreview.skills && candidateToPreview.skills.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">Skills</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {candidateToPreview.skills.map((skill, i) => (
+                      <Badge key={`${skill}-${i}`} variant="secondary">{skill}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {candidateToPreview.actively_looking_roles && candidateToPreview.actively_looking_roles.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">Looking For Roles</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {candidateToPreview.actively_looking_roles.map((role, i) => (
+                      <Badge key={`${role}-${i}`} variant="outline">{role}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3 pt-4 border-t">
+                <Button
+                  className="dashboard-btn-gold"
+                  disabled={contactedCandidates.has(candidateToPreview.user_id) || contactingCandidate === candidateToPreview.user_id}
+                  onClick={() => {
+                    const candidate = candidateToPreview;
+                    setCandidateToPreview(null);
+                    openExpressInterestDialog(candidate);
+                  }}
+                >
+                  {contactedCandidates.has(candidateToPreview.user_id) ? (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-2" />
+                  )}
+                  {contactedCandidates.has(candidateToPreview.user_id) ? "Interest Sent" : "Express Interest"}
+                </Button>
+                {candidateToPreview.phone && (
+                  <Button variant="outline" size="sm">
+                    <Phone className="h-4 w-4 mr-2" />
+                    {candidateToPreview.phone}
+                  </Button>
+                )}
+                {candidateToPreview.resume_url && (
+                  <ResumeViewButton resumeUrl={candidateToPreview.resume_url} label="View Resume" />
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Express Interest Dialog */}
+      <Dialog
+        open={!!candidateToContact}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCandidateToContact(null);
+            setContactMessage("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-primary" />
+              Express Interest
+            </DialogTitle>
+            <DialogDescription>
+              Send a notification to {candidateToContact?.full_name || "this candidate"} letting them know you're interested in their profile.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Add a personal message (optional)</label>
+              <Textarea
+                placeholder="e.g., We have an exciting opportunity that matches your skills..."
+                value={contactMessage}
+                onChange={(e) => setContactMessage(e.target.value)}
+                className="min-h-[100px]"
+              />
+            </div>
+            <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground">
+              <p>The candidate will receive a notification with your company details and message.</p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setCandidateToContact(null);
+                  setContactMessage("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleExpressInterest}
+                disabled={contactingCandidate !== null}
+                className="dashboard-btn-gold"
+              >
+                {contactingCandidate ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Send Interest
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Job Details Dialog */}
       <Dialog open={showJobDetails} onOpenChange={setShowJobDetails}>

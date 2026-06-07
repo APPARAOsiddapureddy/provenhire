@@ -10,6 +10,7 @@ import { sendSignupVerificationCodeEmail } from "../services/resend.js";
 import { verifyFirebaseIdToken } from "../services/firebase.service.js";
 
 const REFRESH_EXPIRY_DAYS = 7;
+const DEFAULT_TARGET_JOB_TITLE = "Full Stack Developer";
 
 const registerSchema = z.object({
   name: z.string().optional(),
@@ -229,7 +230,7 @@ export async function register(req: Request, res: Response) {
         fields: fieldErrors,
       });
     }
-    const { name, email, password, role, roleType } = parsed.data;
+    const { name, email, password, role } = parsed.data;
     const effectiveRole = role === "recruiter" ? "recruiter" : "jobseeker";
     const normalizedEmail = email.trim().toLowerCase();
     if (isBlockedEmailListEnforced()) {
@@ -261,9 +262,10 @@ export async function register(req: Request, res: Response) {
           userId: user.id,
           fullName: name || null,
           email: normalizedEmail,
-          roleType: roleType ?? "technical",
+          roleType: "technical",
+          targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
         },
-        update: { roleType: roleType ?? "technical" },
+        update: { roleType: "technical" },
       });
     }
     let session;
@@ -399,6 +401,7 @@ export async function googleAuth(req: Request, res: Response) {
           fullName: firebaseUser.name ?? null,
           email,
           roleType: "technical",
+          targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
         },
         update: { fullName: firebaseUser.name ?? user.name },
       });
@@ -420,6 +423,10 @@ export async function googleAuth(req: Request, res: Response) {
         where: { userId: user.id, roleType: null },
         data: { roleType: "technical" },
       });
+      await prisma.jobSeekerProfile.updateMany({
+        where: { userId: user.id, targetJobTitle: null },
+        data: { targetJobTitle: DEFAULT_TARGET_JOB_TITLE },
+      });
     }
     const session = await createSession(user);
     return res.json({ ...session, isNewUser });
@@ -438,7 +445,7 @@ export async function googleSelectRole(req: Request, res: Response) {
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid role. Choose jobseeker or recruiter." });
   }
-  const { role, companyName, companySize, roleType } = parsed.data;
+  const { role, companyName, companySize } = parsed.data;
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return res.status(404).json({ error: "User not found" });
   if (role === "recruiter") {
@@ -457,18 +464,22 @@ export async function googleSelectRole(req: Request, res: Response) {
     });
   } else {
     await prisma.user.update({ where: { id: userId }, data: { role: "jobseeker" } });
-    const jobSeekerRoleType = roleType ?? "technical";
     await prisma.jobSeekerProfile.upsert({
       where: { userId },
       create: {
         userId,
         email: user.email,
         fullName: user.name,
-        roleType: jobSeekerRoleType,
+        roleType: "technical",
+        targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
       },
       update: {
-        roleType: jobSeekerRoleType,
+        roleType: "technical",
       },
+    });
+    await prisma.jobSeekerProfile.updateMany({
+      where: { userId, targetJobTitle: null },
+      data: { targetJobTitle: DEFAULT_TARGET_JOB_TITLE },
     });
   }
   const updated = await prisma.user.findUnique({ where: { id: userId } });

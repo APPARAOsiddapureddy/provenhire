@@ -23,6 +23,7 @@ import {
 export const usersRouter = Router();
 
 const ANON_CANDIDATE_NAME = "Verified candidate";
+const DEFAULT_TARGET_JOB_TITLE = "Full Stack Developer";
 
 async function revealedJobSeekerIdsForRecruiter(recruiterProfileId: string): Promise<Set<string>> {
   const rows = await prisma.jobApplication.findMany({
@@ -92,6 +93,10 @@ usersRouter.get("/me", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 usersRouter.get("/job-seeker-profile", requireAuth, async (req: AuthedRequest, res) => {
+  await prisma.jobSeekerProfile.updateMany({
+    where: { userId: req.user!.id, targetJobTitle: null },
+    data: { targetJobTitle: DEFAULT_TARGET_JOB_TITLE, roleType: "technical" },
+  });
   const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
   res.json({ profile });
 });
@@ -371,12 +376,28 @@ usersRouter.post("/job-seeker-profile", requireAuth, async (req: AuthedRequest, 
     delete data.employmentStatus;
     delete data.enforceRequiredFields;
     delete data.verificationStatus;
+    if ("roleType" in data) data.roleType = "technical";
+    if ("targetJobTitle" in data) {
+      const title = String(data.targetJobTitle ?? "").trim();
+      data.targetJobTitle = title || DEFAULT_TARGET_JOB_TITLE;
+    }
     const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { email: true } });
-    const profile = await prisma.jobSeekerProfile.upsert({
+    await prisma.jobSeekerProfile.upsert({
       where: { userId: req.user!.id },
-      create: { userId: req.user!.id, email: user?.email ?? null, ...data },
+      create: {
+        userId: req.user!.id,
+        email: user?.email ?? null,
+        roleType: "technical",
+        targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
+        ...data,
+      },
       update: data,
     });
+    await prisma.jobSeekerProfile.updateMany({
+      where: { userId: req.user!.id, targetJobTitle: null },
+      data: { targetJobTitle: DEFAULT_TARGET_JOB_TITLE },
+    });
+    const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
     void syncProvenhireResumeFromSources(req.user!.id).catch(() => {});
     return res.json({ profile });
   } catch (e) {

@@ -21,8 +21,9 @@ import {
   getAntigravityApiBaseUrl,
   getAntigravityFrontendUrl,
 } from "../config/antigravity.js";
-import { gateExpertInterviewStart } from "../services/candidateRetake.service.js";
+import { gateExpertInterviewStart, hasCompletedDsaPrerequisite } from "../services/candidateRetake.service.js";
 import { getCandidateModuleContext } from "../services/performancePipeline.js";
+import { roleTypeToTrack } from "../constants/verificationPipeline.js";
 
 export const aiInterviewAdapterRouter = Router();
 
@@ -350,6 +351,9 @@ aiInterviewAdapterRouter.post(
 
     const gate = await gateExpertInterviewStart(userId);
     if (!gate.ok) {
+      if (gate.body?.code === "DSA_REQUIRED") {
+        return res.status(gate.status).json(gate.body);
+      }
       const active = await prisma.antigravityHandoff.findFirst({
         where: {
           userId,
@@ -767,6 +771,21 @@ aiInterviewAdapterRouter.get(
     const userId = req.user!.id;
 
     try {
+      const profile = await prisma.jobSeekerProfile.findUnique({
+        where: { userId },
+        select: { roleType: true },
+      });
+      if (roleTypeToTrack(profile?.roleType) === "software" && !(await hasCompletedDsaPrerequisite(userId))) {
+        await prisma.interview.updateMany({
+          where: { userId, interviewType: "ai_expert", status: "in_progress" },
+          data: { status: "abandoned" },
+        });
+        return res.status(403).json({
+          code: "DSA_REQUIRED",
+          error: "Complete and pass the DSA Round before starting the AI Expert Interview.",
+        });
+      }
+
       const open = await prisma.interview.findFirst({
         where: { userId, interviewType: "ai_expert", status: "in_progress" },
         orderBy: { createdAt: "desc" },

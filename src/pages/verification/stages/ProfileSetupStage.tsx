@@ -100,7 +100,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
   const [noticePeriod, setNoticePeriod] = useState("");
   const [currentSalary, setCurrentSalary] = useState("");
   const [expectedSalary, setExpectedSalary] = useState("");
-  const [targetJobTitle, setTargetJobTitle] = useState("");
+  const [targetJobTitle, setTargetJobTitle] = useState("Full Stack Developer");
   const [portfolioUrl, setPortfolioUrl] = useState("");
 
   const [saving, setSaving] = useState(false);
@@ -141,7 +141,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
       .then(({ profile }) => {
         if (cancelled || !profile) return;
         setTargetJobTitle(
-          String(profile.targetJobTitle ?? (profile as { target_job_title?: string }).target_job_title ?? "")
+          String(profile.targetJobTitle ?? (profile as { target_job_title?: string }).target_job_title ?? "Full Stack Developer")
         );
         setPortfolioUrl(
           String(profile.portfolioUrl ?? (profile as { portfolio_url?: string }).portfolio_url ?? "")
@@ -188,9 +188,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
       applyParsed(parsed);
       setShowForm(true);
       toast.success("Resume parsed. Review and save.");
-      if (roleType === "technical" && suggestedRoleType === "non_technical") {
-        setShowSwitchToNonTechDialog(true);
-      }
+      // Track switching is disabled for now; all jobseekers stay on the Technical path.
+      void suggestedRoleType;
     } catch (err: unknown) {
       clearTimeout(phaseTimer);
       let msg = err instanceof Error ? err.message : "Could not parse resume";
@@ -321,6 +320,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         noticePeriod: isEmployed ? (noticePeriod.trim() || undefined) : null,
         currentSalary: isEmployed ? (currentSalary.trim() || undefined) : null,
         expectedSalary: expectedSalary.trim() || undefined,
+        roleType: "technical",
+        targetJobTitle: targetJobTitle.trim() || "Full Stack Developer",
         ...(roleType === "non_technical"
           ? { portfolioUrl: portfolioUrl.trim() ? portfolioUrl.trim() : "" }
           : {}),
@@ -699,6 +700,8 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
         )}
 
         {/* Dialog: resume suggests non-technical — offer to switch track */}
+        {/* Non-technical switch dialog hidden for current technical-only flow; restore when tracks return. */}
+        {false && (
         <Dialog open={showSwitchToNonTechDialog} onOpenChange={setShowSwitchToNonTechDialog}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
@@ -722,6 +725,7 @@ const ProfileSetupStage = ({ onComplete, onContinueToVerification, roleType = "t
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )}
 
         {/* Post-save: choose Homepage or continue to next stage */}
         {profileJustSaved && (

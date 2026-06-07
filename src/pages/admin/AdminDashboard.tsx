@@ -25,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download, Settings, Shield, ClipboardList } from "lucide-react";
+import { Users, Briefcase, Mail, LogOut, RefreshCw, Flag, BarChart3, Bell, Scale, Video, CheckCircle, FileText, UserPlus, X, MoreHorizontal, Trash2, MessageSquare, Download, Settings, Shield, ClipboardList, CreditCard } from "lucide-react";
 import BroadcastMessageDialog from "@/components/admin/BroadcastMessageDialog";
 import { toast } from "sonner";
 
@@ -114,6 +114,29 @@ interface InterviewerApplication {
   reviewedAt: string | null;
 }
 
+interface AdminNotification {
+  id: string;
+  title?: string | null;
+  subject?: string | null;
+  message?: string | null;
+  read?: boolean | null;
+  is_read?: boolean | null;
+  createdAt?: string | null;
+  created_at?: string | null;
+}
+
+function isUpgradeRequestNotification(notification: AdminNotification): boolean {
+  return (notification.title ?? notification.subject ?? "").toLowerCase() === "recruiter upgrade request";
+}
+
+function isNotificationRead(notification: AdminNotification): boolean {
+  return Boolean(notification.read ?? notification.is_read);
+}
+
+function notificationCreatedAt(notification: AdminNotification): string | null {
+  return notification.created_at ?? notification.createdAt ?? null;
+}
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user: authUser, userRole, signOut } = useAuth();
@@ -136,6 +159,7 @@ const AdminDashboard = () => {
   });
   const [applications, setApplications] = useState<any[]>([]);
   const [interviewerApplications, setInterviewerApplications] = useState<InterviewerApplication[]>([]);
+  const [upgradeRequests, setUpgradeRequests] = useState<AdminNotification[]>([]);
   const [jobSeekerSearch, setJobSeekerSearch] = useState("");
   const [jobSeekerStatusFilter, setJobSeekerStatusFilter] = useState("all");
   const [recruiterSearch, setRecruiterSearch] = useState("");
@@ -195,13 +219,14 @@ const AdminDashboard = () => {
     const FETCH_TIMEOUT_MS = 20000;
     setLoading(true);
     try {
-      const [jobsRes, jobSeekersRes, recruitersRes, statsRes, applicationsRes, interviewerAppsRes] = await Promise.allSettled([
+      const [jobsRes, jobSeekersRes, recruitersRes, statsRes, applicationsRes, interviewerAppsRes, notificationsRes] = await Promise.allSettled([
         api.get<{ jobs: Job[] }>("/api/admin/jobs"),
         api.get<{ jobSeekers: JobSeeker[] }>("/api/admin/job-seekers"),
         api.get<{ recruiters: Recruiter[] }>("/api/admin/recruiters"),
         api.get<{ totalJobSeekers: number; totalRecruiters: number; totalInterviewers: number; totalJobs: number; totalApplications: number; totalVerified: number; certificationLevels?: Record<number, number> }>("/api/admin/stats"),
         api.get<{ applications: any[] }>("/api/admin/applications"),
         api.get<{ applications: InterviewerApplication[] }>("/api/admin/interviewer-applications"),
+        api.get<{ notifications: AdminNotification[] }>("/api/notifications"),
       ]);
 
       const jobsData = jobsRes.status === "fulfilled" ? jobsRes.value?.jobs ?? [] : [];
@@ -210,12 +235,14 @@ const AdminDashboard = () => {
       const statsData = statsRes.status === "fulfilled" ? statsRes.value : null;
       const appsData = applicationsRes.status === "fulfilled" ? applicationsRes.value?.applications ?? [] : [];
       const interviewerAppsData = interviewerAppsRes.status === "fulfilled" ? interviewerAppsRes.value?.applications ?? [] : [];
+      const notificationData = notificationsRes.status === "fulfilled" ? notificationsRes.value?.notifications ?? [] : [];
 
       setJobs(jobsData);
       setJobSeekers(seekersData);
       setRecruiters(recruitersData);
       setApplications(appsData);
       setInterviewerApplications(interviewerAppsData);
+      setUpgradeRequests(notificationData.filter(isUpgradeRequestNotification));
       setStats({
         totalJobSeekers: statsData?.totalJobSeekers ?? seekersData.length,
         totalRecruiters: statsData?.totalRecruiters ?? recruitersData.length,
@@ -322,6 +349,8 @@ const AdminDashboard = () => {
       a.seekerEmail?.toLowerCase().includes(q)
     );
   });
+
+  const unreadUpgradeRequestCount = upgradeRequests.filter((request) => !isNotificationRead(request)).length;
 
   const allFilteredSeekersSelected =
     filteredJobSeekers.length > 0 && filteredJobSeekers.every((s) => selectedSeekerUserIds.has(s.user_id));
@@ -501,6 +530,20 @@ const AdminDashboard = () => {
       { id: crypto.randomUUID(), action: "Broadcast message sent", time: new Date().toISOString() },
       ...prev,
     ]);
+  };
+
+  const handleMarkUpgradeRequestRead = async (id: string) => {
+    try {
+      await api.post("/api/notifications/read", { id });
+      setUpgradeRequests((prev) =>
+        prev.map((request) =>
+          request.id === id ? { ...request, read: true, is_read: true } : request
+        )
+      );
+      toast.success("Upgrade request marked read.");
+    } catch (err: any) {
+      toast.error(err?.message || "Could not mark upgrade request read.");
+    }
   };
 
   if (loading) {
@@ -743,6 +786,15 @@ const AdminDashboard = () => {
               Analytics
             </TabsTrigger>
             <TabsTrigger value="subscribers" className="shrink-0">Subscribers</TabsTrigger>
+            <TabsTrigger value="upgrade-requests" className="flex items-center gap-1 shrink-0">
+              <CreditCard className="h-3 w-3" />
+              Upgrade Requests
+              {unreadUpgradeRequestCount > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                  {unreadUpgradeRequestCount}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="interviewer-apps" className="flex items-center gap-1 shrink-0">
               <UserPlus className="h-3 w-3" />
               Interviewer Apps
@@ -1573,6 +1625,82 @@ const AdminDashboard = () => {
                   <Mail className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>Subscriber data is protected and viewable via backend only.</p>
                   <p className="text-sm mt-2">Total subscribers: {stats.totalSubscribers}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="upgrade-requests">
+            <Card>
+              <CardHeader className="p-4 sm:p-6">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Recruiter Upgrade Requests</CardTitle>
+                    <CardDescription>
+                      Manual plan upgrade requests sent from recruiter Plans & Upgrade.
+                    </CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={fetchAllData} className="shrink-0 w-fit">
+                    <RefreshCw className="h-4 w-4 sm:mr-2" />
+                    Refresh
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[760px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Request</TableHead>
+                        <TableHead>Received</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {upgradeRequests.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                            No recruiter upgrade requests yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        upgradeRequests.map((request) => {
+                          const read = isNotificationRead(request);
+                          return (
+                            <TableRow key={request.id}>
+                              <TableCell className="align-top">
+                                <Badge variant={read ? "secondary" : "default"}>
+                                  {read ? "Read" : "New"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <div className="font-medium">
+                                  {request.title ?? request.subject ?? "Recruiter upgrade request"}
+                                </div>
+                                <div className="mt-1 max-w-3xl whitespace-pre-wrap text-sm text-muted-foreground">
+                                  {request.message || "No request details provided."}
+                                </div>
+                              </TableCell>
+                              <TableCell className="align-top whitespace-nowrap">
+                                {formatDateDisplay(notificationCreatedAt(request))}
+                              </TableCell>
+                              <TableCell className="align-top text-right">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={read}
+                                  onClick={() => handleMarkUpgradeRequestRead(request.id)}
+                                >
+                                  Mark read
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>

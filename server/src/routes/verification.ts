@@ -29,7 +29,6 @@ import {
   allowedStageNamesForTrack,
   verificationStagesForProfile,
   nonTechnicalStagesForProfile,
-  detectTrack,
   detectNonTechSubtrack,
   detectDataSubtrack,
   type VerificationTrack,
@@ -61,7 +60,11 @@ import { getHumanInterviewEligibility } from "../services/humanInterviewGate.ser
 import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
 import { COOLDOWN_DSA_MS, COOLDOWN_DATA_ROUND_MS } from "../constants/revenue.js";
 import { gatePaidVerificationStageInProgress } from "../services/verificationStageRetakeGate.service.js";
-import { gateNonTechAssignmentSubmit, nextNonTechAssignmentPaidCooldownBoundary } from "../services/candidateRetake.service.js";
+import {
+  gateNonTechAssignmentSubmit,
+  hasCompletedDsaPrerequisite,
+  nextNonTechAssignmentPaidCooldownBoundary,
+} from "../services/candidateRetake.service.js";
 import { isObjectStorageConfigured, uploadObject } from "../services/storage.service.js";
 import { UPLOADS_DIR } from "./uploads.js";
 import { dsaFollowUpsRouter } from "./dsaFollowUps.js";
@@ -368,75 +371,33 @@ async function reconcileVerificationStages(userId: string): Promise<void> {
   }
 }
 
-/** Ensure DSA round is in_progress when prerequisites are completed (aptitude/cs fund or profile for mid/senior). */
+/** Ensure DSA round is in_progress only after Profile Setup is completed. */
 async function ensureDsaRoundActiveForOfficialApis(userId: string): Promise<boolean> {
-  // TEMPORARY TESTING BYPASS:
-  // This allows direct DSA round testing without completing aptitude / prerequisite stages.
-  // Remove this return and uncomment/restore the normal gate below after DSA Judge0 testing is done.
-  void userId;
-  return true;
-
-  /*
-  NORMAL DSA GATE - UNCOMMENT AFTER TESTING.
-
-  const already = await prisma.verificationStage.findFirst({
-    where: { userId, stageName: "dsa_round", status: "in_progress" },
-  });
-  if (already) return true;
-
   const profile = await prisma.jobSeekerProfile.findUnique({
     where: { userId },
-    select: { experienceYears: true, roleType: true },
+    select: { roleType: true },
   });
-  if ((profile?.roleType ?? "technical") === "non_technical") return false;
+  if (roleTypeToTrack(profile?.roleType) !== "software") return false;
 
-  const dsa = await prisma.verificationStage.findFirst({ where: { userId, stageName: "dsa_round" } });
-  if (!dsa || dsa.status !== "locked") return false;
+  const profileDone = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "profile_setup", status: "completed" },
+    select: { id: true },
+  });
+  if (!profileDone) return false;
 
-  if (!isVerificationPipelineV2()) {
-    const apt = await prisma.verificationStage.findFirst({
-      where: { userId, stageName: "aptitude_test", status: "completed" },
+  const dsa = await prisma.verificationStage.findFirst({
+    where: { userId, stageName: "dsa_round" },
+    select: { status: true },
+  });
+  if (dsa?.status === "completed" || dsa?.status === "in_progress") return true;
+  if (dsa?.status === "locked") {
+    await prisma.verificationStage.updateMany({
+      where: { userId, stageName: "dsa_round", status: "locked" },
+      data: { status: "in_progress" },
     });
-    if (apt) {
-      await prisma.verificationStage.updateMany({
-        where: { userId, stageName: "dsa_round" },
-        data: { status: "in_progress" },
-      });
-      return true;
-    }
-    return false;
-  }
-
-  const tier = experienceTierFromYears(profile?.experienceYears);
-  if (tier === "fresher") {
-    const ok =
-      (await prisma.verificationStage.findFirst({
-        where: { userId, stageName: "cs_fundamentals", status: "completed" },
-      })) ||
-      (await prisma.verificationStage.findFirst({
-        where: { userId, stageName: "aptitude_test", status: "completed" },
-      }));
-    if (ok) {
-      await prisma.verificationStage.updateMany({
-        where: { userId, stageName: "dsa_round" },
-        data: { status: "in_progress" },
-      });
-      return true;
-    }
-  } else {
-    const profDone = await prisma.verificationStage.findFirst({
-      where: { userId, stageName: "profile_setup", status: "completed" },
-    });
-    if (profDone) {
-      await prisma.verificationStage.updateMany({
-        where: { userId, stageName: "dsa_round" },
-        data: { status: "in_progress" },
-      });
-      return true;
-    }
+    return true;
   }
   return false;
-  */
 }
 
 verificationRouter.get("/stages", requireAuth, requireJobSeeker, async (req: AuthedRequest, res) => {
@@ -544,6 +505,18 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
       return res.json({ updated: 1 });
     }
     return res.status(404).json({ error: "Unknown verification stage" });
+  }
+
+  if (
+    roleTypeToTrack(roleType) === "software" &&
+    stageName === "expert_interview" &&
+    status === "in_progress" &&
+    !(await hasCompletedDsaPrerequisite(userId))
+  ) {
+    return res.status(403).json({
+      code: "DSA_REQUIRED",
+      error: "Complete and pass the DSA Round before starting the AI Expert Interview.",
+    });
   }
 
   if (status === "in_progress" && existing.status !== "in_progress") {
@@ -702,15 +675,28 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     data: updateData,
   });
 
+  if (roleTypeToTrack(roleType) === "software" && stageName === "dsa_round" && status === "failed") {
+    await Promise.all([
+      prisma.verificationStage.updateMany({
+        where: {
+          userId,
+          stageName: "expert_interview",
+          status: { notIn: ["completed", "pending_review"] },
+        },
+        data: { status: "locked", score: null },
+      }),
+      prisma.interview.updateMany({
+        where: { userId, interviewType: "ai_expert", status: "in_progress" },
+        data: { status: "abandoned" },
+      }),
+    ]);
+  }
+
   if (stageName === "profile_setup" && status === "completed") {
-    // Auto-detect track from job title when profile_setup completes
+    // Track switching is disabled for the current simplified candidate flow.
     const freshProfile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
-    const currentRoleType = freshProfile?.roleType ?? "technical";
-    if (currentRoleType === "technical") {
-      const detected = detectTrack(freshProfile?.targetJobTitle);
-      if (detected === "data") {
-        await prisma.jobSeekerProfile.update({ where: { userId }, data: { roleType: "data" } });
-      }
+    if (freshProfile?.roleType !== "technical") {
+      await prisma.jobSeekerProfile.update({ where: { userId }, data: { roleType: "technical" } });
     }
     const updatedProfile = await prisma.jobSeekerProfile.findUnique({ where: { userId } });
     const rtFinal = updatedProfile?.roleType ?? "technical";
@@ -1591,7 +1577,7 @@ verificationRouter.get("/dsa/questions", requireAuth, requireJobSeeker, async (r
   if (!ok) {
     return res.status(403).json({
       error:
-        "DSA round is not active yet. Finish the Cognitive Assessment, then open the DSA step from verification (or refresh the page).",
+        "DSA round is not active yet. Finish Profile Setup, then open the DSA step from verification (or refresh the page).",
     });
   }
 

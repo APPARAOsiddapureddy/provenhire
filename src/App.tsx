@@ -38,6 +38,7 @@ const AntigravityReturnPage = lazy(() => import("./pages/ai-interview/Antigravit
 const AntigravityPage = lazy(() => import("./pages/ai-interview/AntigravityPage"));
 
 const RecruiterOnboarding = lazy(() => import("./pages/dashboard/RecruiterOnboarding"));
+const RecruiterPlansPage = lazy(() => import("./pages/dashboard/RecruiterPlansPage"));
 const PostJob = lazy(() => import("./pages/dashboard/PostJob"));
 const CandidateSearch = lazy(() => import("./pages/dashboard/CandidateSearch"));
 const CandidateProfilePage = lazy(() => import("./pages/dashboard/CandidateProfilePage"));
@@ -437,6 +438,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="recruiter">
                     <JobCandidateDiscovery />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/recruiter/plans"
+                element={
+                  <ProtectedRoute allowedRole="recruiter">
+                    <RecruiterPlansPage />
                   </ProtectedRoute>
                 }
               />

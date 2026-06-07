@@ -18,7 +18,7 @@ const PIPELINE_LABELS: Record<string, string> = {
   dsa_round: "Live Coding (DSA)",
   ai_skills_interview: "AI Skills Interview",
   system_design_interview: "System Design",
-  expert_interview: "Expert Interview",
+  expert_interview: "AI Expert Interview",
   human_expert_interview: "Expert Interview",
 };
 
@@ -86,21 +86,27 @@ export function VerificationPipelineCard({
     .join("")
     .toUpperCase() || "U";
 
-  const levelShort = certificationLabel.replace(/^Level \d+ - /i, "").trim();
+  const levelShort =
+    certificationLevelNumber >= 2
+      ? "AI Interview Cleared"
+      : certificationLevelNumber >= 1
+        ? "DSA Verified"
+        : certificationLabel.replace(/^Level \d+ - /i, "").trim();
   const levelBadgeText = certificationLevelNumber >= 1 ? `L${certificationLevelNumber} · ${levelShort}` : "L0 · Not Certified";
 
   const userSub =
     certificationLevelNumber >= 3
       ? "Elite Verified"
       : certificationLevelNumber >= 2
-        ? "Skill Passport"
+        ? "AI Interview Cleared"
         : certificationLevelNumber >= 1
-          ? "Cognitive Verified"
+          ? "DSA Verified"
           : "In progress";
 
   const firstIncompleteStage = pipelineSteps.find(
     (name) => getPipelineStepStatus(stages, name, getStageStatus) !== "done"
   );
+  const profileSetupDone = stages.some((s) => s.stage_name === "profile_setup" && s.status === "completed");
   const ctaLabel = firstIncompleteStage
     ? (() => {
         const status = getPipelineStepStatus(stages, firstIncompleteStage, getStageStatus);
@@ -169,20 +175,20 @@ export function VerificationPipelineCard({
       <div className="vpc-levels">
         <div className="vpc-section-label">Certification path</div>
         <div className="vpc-levels-row">
+          <div className={`vpc-lvl ${profileSetupDone ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
+            <div className="vpc-lvl-tag">Step 1</div>
+            <div className="vpc-lvl-name">Profile Setup</div>
+            <div className="vpc-lvl-reqs">Complete your profile before verification</div>
+          </div>
           <div className={`vpc-lvl ${certificationLevelNumber >= 1 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
-            <div className="vpc-lvl-tag">{certificationLevelNumber >= 1 ? "L1 · Now" : "L1"}</div>
-            <div className="vpc-lvl-name">Cognitive Verified</div>
-            <div className="vpc-lvl-reqs">Live coding: DSA round</div>
+            <div className="vpc-lvl-tag">{certificationLevelNumber >= 1 ? "L1 - Now" : "L1"}</div>
+            <div className="vpc-lvl-name">DSA Completion</div>
+            <div className="vpc-lvl-reqs">Pass the DSA Round</div>
           </div>
-          <div className={`vpc-lvl ${certificationLevelNumber === 2 ? "vpc-lvl--current" : certificationLevelNumber > 2 ? "vpc-lvl--past" : "vpc-lvl--future"}`}>
-            <div className="vpc-lvl-tag">{certificationLevelNumber === 2 ? "L2 · Now" : "L2"}</div>
-            <div className="vpc-lvl-name">Skill Passport</div>
-            <div className="vpc-lvl-reqs">AI Expert Interview</div>
-          </div>
-          <div className={`vpc-lvl ${certificationLevelNumber >= 3 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
-            <div className="vpc-lvl-tag">{certificationLevelNumber >= 3 ? "L3 · Now" : "L3"}</div>
-            <div className="vpc-lvl-name">Reserved</div>
-            <div className="vpc-lvl-reqs">Not awarded in current developer flow</div>
+          <div className={`vpc-lvl ${certificationLevelNumber >= 2 ? "vpc-lvl--current" : "vpc-lvl--future"}`}>
+            <div className="vpc-lvl-tag">{certificationLevelNumber >= 2 ? "L2 - Now" : "L2"}</div>
+            <div className="vpc-lvl-name">AI Interview Cleared</div>
+            <div className="vpc-lvl-reqs">Clear the AI Expert Interview</div>
           </div>
         </div>
       </div>

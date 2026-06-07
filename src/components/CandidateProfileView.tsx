@@ -101,7 +101,11 @@ export default function CandidateProfileView({
   const certLevel = profile.certification_level ?? 0;
   const certLabel = CERT_LABELS[certLevel] ?? profile.certification_label ?? "Not Yet Certified";
   const hiringReadiness = Math.round(
-    ((profile.aptitude_score ?? 0) + (profile.dsa_score ?? 0) + (profile.ai_interview_score ?? 0) + (profile.integrity_score ?? 100)) / 4
+    ((profile.aptitude_score ?? 0) +
+      (profile.dsa_score ?? 0) +
+      (profile.ai_interview_score ?? 0) +
+      (profile.integrity_score ?? 100)) /
+      4
   );
 
   return (
@@ -488,12 +492,6 @@ export default function CandidateProfileView({
               <Card className="border-[var(--dash-navy-border)] bg-[var(--dash-navy-mid)]">
                 <CardContent className="pt-6">
                   <p className="text-xs font-bold text-primary uppercase tracking-wider mb-4">Job Match</p>
-                  <div className="text-center mb-4">
-                    <div className="w-24 h-24 rounded-full border-4 border-primary mx-auto flex items-center justify-center">
-                      <span className="text-2xl font-bold text-primary">{hiringReadiness}%</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">Overall fit</p>
-                  </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Technical</span>

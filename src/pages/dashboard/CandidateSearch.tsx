@@ -84,9 +84,8 @@ const CandidateSearch = () => {
 
   const fetchCandidates = async () => {
     try {
-      // "View all candidates" shows only Elite (Level 3) verified users per product spec
       const { profiles } = await api.get<{ profiles: JobSeekerProfile[] }>(
-        "/api/users/candidates?eliteOnly=true"
+        "/api/users/candidates"
       );
       const list = profiles || [];
       setCandidates(list);
@@ -152,9 +151,7 @@ const CandidateSearch = () => {
     }
 
     // Certification level filter
-    if (certificationFilter === "level_3") {
-      filtered = filtered.filter((c) => (c.certification_level ?? 0) >= 3);
-    } else if (certificationFilter === "level_2_plus") {
+    if (certificationFilter === "level_2_plus") {
       filtered = filtered.filter((c) => (c.certification_level ?? 0) >= 2);
     } else if (certificationFilter === "level_1_plus") {
       filtered = filtered.filter((c) => (c.certification_level ?? 0) >= 1);
@@ -196,10 +193,20 @@ const CandidateSearch = () => {
 
   const getCertificationBadge = (candidate: JobSeekerProfile) => {
     const lvl = candidate.certification_level ?? 0;
+    const simplifiedLabel =
+      lvl >= 3
+        ? "Elite Verified"
+        : lvl === 2
+          ? "AI Interview Cleared"
+          : lvl === 1
+            ? "DSA Completed"
+            : "Not Certified";
     const label =
-      candidate.certificationLabelShort?.trim() ||
-      candidate.certification_label ||
-      (lvl >= 3 ? "Elite Verified" : lvl === 2 ? "Skill Passport" : lvl === 1 ? "Cognitive Verified" : "Not Certified");
+      lvl === 1 || lvl === 2
+        ? simplifiedLabel
+        : candidate.certificationLabelShort?.trim() ||
+          candidate.certification_label ||
+          simplifiedLabel;
     const tone =
       lvl >= 3
         ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-300"
@@ -268,7 +275,7 @@ const CandidateSearch = () => {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">Elite Verified Candidates</h1>
           <p className="text-muted-foreground">
-            Browse Level 3 (Elite) verified job seekers — all assessments complete, ready for hire
+            Browse Level 2 verified job seekers - current verification complete, ready for hire
           </p>
         </div>
 
@@ -329,8 +336,7 @@ const CandidateSearch = () => {
                 <SelectContent>
                   <SelectItem value="all">All Levels</SelectItem>
                   <SelectItem value="level_1_plus">Level 1+</SelectItem>
-                  <SelectItem value="level_2_plus">Level 2+</SelectItem>
-                  <SelectItem value="level_3">Level 3 only</SelectItem>
+                  <SelectItem value="level_2_plus">Level 2</SelectItem>
                 </SelectContent>
               </Select>
 
