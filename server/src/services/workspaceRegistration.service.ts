@@ -3,6 +3,10 @@ import { prisma } from "../config/prisma.js";
 import { discardActiveWorkspaceRegistrationMcqAttempts } from "./mcqAutoFinalize.service.js";
 import { discardActiveWorkspaceRegistrationDsaAttempts } from "./workspaceDsaFinalize.service.js";
 import { WorkspaceServiceError, syncWorkspaceLifecycle } from "./workspace.service.js";
+import {
+  sendWorkspaceInvitationEmail,
+  sendWorkspaceRemovalEmail,
+} from "./resend.js";
 
 export type WorkspaceActor = {
   id: string;
@@ -545,6 +549,26 @@ export async function removeWorkspaceRegistration(actor: WorkspaceActor, workspa
   });
   await discardActiveWorkspaceRegistrationMcqAttempts(workspaceId, userId);
   await discardActiveWorkspaceRegistrationDsaAttempts(workspaceId, userId);
+  if (registration.removedAt) {
+    const details = await prisma.workspaceRegistration.findUnique({
+      where: { id: registration.id },
+      include: {
+        workspace: { select: { name: true, organization: true } },
+        user: { select: { email: true, name: true, jobSeekerProfile: { select: { fullName: true } } } },
+      },
+    });
+    if (details?.user.email) {
+      void sendWorkspaceRemovalEmail({
+        to: details.user.email,
+        name: details.user.jobSeekerProfile?.fullName || details.user.name,
+        workspaceName: details.workspace.name,
+        organization: details.workspace.organization,
+        eventKey: `workspace-removal:${registration.id}:${registration.removedAt.getTime()}`,
+      }).catch((err) => {
+        console.warn("[workspace/remove-registration] email failed:", err instanceof Error ? err.message : err);
+      });
+    }
+  }
   return registration;
 }
 
@@ -598,11 +622,14 @@ export async function importAllowedWorkspaceEmailsFromCsv(params: {
     validEmails.push(email);
   }
 
-  const existing = validEmails.length
-    ? await prisma.workspaceAllowedEmail.count({
+  const existingRows = validEmails.length
+    ? await prisma.workspaceAllowedEmail.findMany({
         where: { workspaceId: workspace.id, email: { in: validEmails } },
+        select: { email: true },
       })
-    : 0;
+    : [];
+  const existingEmailSet = new Set(existingRows.map((row) => row.email));
+  const newEmails = validEmails.filter((email) => !existingEmailSet.has(email));
 
   const inserted = validEmails.length
     ? (await prisma.workspaceAllowedEmail.createMany({
@@ -610,6 +637,27 @@ export async function importAllowedWorkspaceEmailsFromCsv(params: {
         skipDuplicates: true,
       })).count
     : 0;
+
+  if (newEmails.length > 0) {
+    const workspaceDetails = await prisma.workspace.findUnique({
+      where: { id: workspace.id },
+      select: { name: true, organization: true, code: true, startAt: true },
+    });
+    if (workspaceDetails) {
+      for (const email of newEmails) {
+        void sendWorkspaceInvitationEmail({
+          to: email,
+          workspaceName: workspaceDetails.name,
+          organization: workspaceDetails.organization,
+          code: workspaceDetails.code,
+          startsAt: workspaceDetails.startAt,
+          eventKey: `workspace-invitation:${workspace.id}:${email}`,
+        }).catch((err) => {
+          console.warn("[workspace/allowed-emails/import] invitation email failed:", err instanceof Error ? err.message : err);
+        });
+      }
+    }
+  }
 
   return {
     workspaceId: workspace.id,
@@ -619,7 +667,7 @@ export async function importAllowedWorkspaceEmailsFromCsv(params: {
     invalid,
     duplicatesInFile,
     inserted,
-    alreadyPresent: existing,
+    alreadyPresent: existingRows.length,
     invalidSamples,
   };
 }

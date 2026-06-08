@@ -72,6 +72,11 @@ export function preferGoogleRedirectSignIn(): boolean {
 /** User-friendly messages for Firebase auth error codes. */
 function firebaseAuthErrorMessage(code: string): string {
   const messages: Record<string, string> = {
+    "auth/unauthorized-domain": "This website domain is not authorized for Google sign-in. Add localhost and your production domain in Firebase Authentication > Settings > Authorized domains.",
+    "auth/operation-not-allowed": "Google sign-in is not enabled in Firebase. Enable Google under Firebase Authentication > Sign-in method.",
+    "auth/invalid-api-key": "Firebase API key is invalid. Check the VITE_FIREBASE_API_KEY value in the frontend .env file.",
+    "auth/app-not-authorized": "This Firebase app is not authorized for authentication. Check the Firebase web app config and authorized domains.",
+    "auth/configuration-not-found": "Firebase Authentication is not configured for this project. Enable Authentication and Google sign-in in Firebase.",
     "auth/popup-closed-by-user": "Sign-in was cancelled. Please try again.",
     "auth/cancelled-popup-request": "Sign-in was cancelled. Please try again.",
     "auth/popup-blocked": "Pop-up was blocked. Allow pop-ups for this site and try again.",
@@ -79,9 +84,19 @@ function firebaseAuthErrorMessage(code: string): string {
     "auth/network-request-failed": "Network error. Check your connection and try again.",
     "auth/too-many-requests": "Too many attempts. Please try again later.",
     "auth/invalid-credential": "Invalid or expired sign-in. Please try again.",
+    "auth/invalid-app-credential": "Firebase rejected this app credential. Check the Firebase web app config and Google provider setup.",
+    "auth/web-storage-unsupported": "This browser is blocking required storage for Google sign-in. Enable cookies/site storage and try again.",
     "auth/user-disabled": "This account has been disabled.",
   };
   return messages[code] || "Google sign-in failed. Please try again.";
+}
+
+function toFirebaseAuthError(err: unknown): Error {
+  const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+  if (typeof code === "string" && code.startsWith("auth/")) {
+    return new Error(firebaseAuthErrorMessage(code));
+  }
+  return err instanceof Error ? err : new Error("Google sign-in failed. Please try again.");
 }
 
 /** Google sign-in via popup. Returns id token on success. */
@@ -94,11 +109,7 @@ export async function signInWithGooglePopup(): Promise<string> {
     if (!token) throw new Error("Failed to get Google ID token");
     return token;
   } catch (err: unknown) {
-    const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
-    if (typeof code === "string" && code.startsWith("auth/")) {
-      throw new Error(firebaseAuthErrorMessage(code));
-    }
-    throw err;
+    throw toFirebaseAuthError(err);
   }
 }
 
@@ -110,7 +121,11 @@ export async function signInWithGooglePopup(): Promise<string> {
 export async function signInWithGoogleRedirect(): Promise<void> {
   const auth = getAuth(getFirebaseApp());
   const provider = new GoogleAuthProvider();
-  await signInWithRedirect(auth, provider);
+  try {
+    await signInWithRedirect(auth, provider);
+  } catch (err: unknown) {
+    throw toFirebaseAuthError(err);
+  }
 }
 
 /** Call on app load after returning from Google OAuth redirect (legacy). Returns id token if user just signed in, else null. */

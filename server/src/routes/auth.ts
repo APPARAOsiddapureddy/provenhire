@@ -20,6 +20,8 @@ import {
   authRefreshLimiter,
   authForgotPasswordLimiter,
   authResetPasswordLimiter,
+  authEmailVerificationSendLimiter,
+  authEmailVerificationVerifyLimiter,
 } from "../middleware/authRateLimit.js";
 
 const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) =>
@@ -36,8 +38,8 @@ authRouter.post("/register", authRegisterLimiter, register);
 authRouter.post("/login", authLoginLimiter, login);
 authRouter.post("/google", googleAuth);
 authRouter.post("/google/select-role", requireAuth, googleSelectRole);
-authRouter.post("/email-verification/send", asyncHandler(sendEmailVerificationCode));
-authRouter.post("/email-verification/verify", verifyEmailVerificationCode);
+authRouter.post("/email-verification/send", authEmailVerificationSendLimiter, asyncHandler(sendEmailVerificationCode));
+authRouter.post("/email-verification/verify", authEmailVerificationVerifyLimiter, asyncHandler(verifyEmailVerificationCode));
 authRouter.post("/refresh", authRefreshLimiter, refresh);
 authRouter.post("/logout", requireAuth, logout);
 authRouter.get("/me", requireAuth, me);

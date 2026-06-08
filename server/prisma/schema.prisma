@@ -1037,6 +1037,20 @@ model Notification {
   user User @relation(fields: [userId], references: [id])
 }
 
+model TransactionalEmailLog {
+  id          String   @id @default(uuid())
+  eventKey    String   @unique
+  eventType   String
+  recipient   String
+  subject     String
+  status      String   @default("sent")
+  sentAt      DateTime @default(now())
+  metadata    Json?
+
+  @@index([eventType, sentAt])
+  @@index([recipient])
+}
+
 model JobAlertSubscription {
   id                 String   @id @default(uuid())
   userId             String   @unique

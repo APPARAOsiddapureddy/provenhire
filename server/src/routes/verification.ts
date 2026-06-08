@@ -57,7 +57,10 @@ import { DSA_API_LANGUAGES, DSA_PRACTICE_COUNT, DSA_QUESTIONS_COUNT, type DsaApi
 import { checkRateLimit } from "../middleware/dsaRateLimit.js";
 import { evaluateDsaAgainstTestCases, persistDsaSubmission } from "../services/dsaEvaluation.js";
 import { getHumanInterviewEligibility } from "../services/humanInterviewGate.service.js";
-import { sendHumanInterviewSlotBookedEmail } from "../services/resend.js";
+import {
+  sendHumanInterviewSlotBookedEmail,
+  sendHumanInterviewSlotBookedForInterviewerEmail,
+} from "../services/resend.js";
 import { COOLDOWN_DSA_MS, COOLDOWN_DATA_ROUND_MS } from "../constants/revenue.js";
 import { gatePaidVerificationStageInProgress } from "../services/verificationStageRetakeGate.service.js";
 import {
@@ -2384,7 +2387,19 @@ verificationRouter.post("/book-slot", requireAuth, requireJobSeeker, async (req:
 
   const slot = await prisma.interviewerSlot.findUnique({
     where: { id: slotId },
-    include: { interviewer: { select: { id: true, userId: true, name: true, track: true, domain: true, domains: true } } },
+    include: {
+      interviewer: {
+        select: {
+          id: true,
+          userId: true,
+          name: true,
+          track: true,
+          domain: true,
+          domains: true,
+          user: { select: { email: true, name: true } },
+        },
+      },
+    },
   });
   if (!slot) return res.status(404).json({ error: "Slot not found" });
   if (slot.status !== "available") return res.status(400).json({ error: "Slot is no longer available" });
@@ -2505,8 +2520,22 @@ verificationRouter.post("/book-slot", requireAuth, requireJobSeeker, async (req:
       booker.email,
       booker.name,
       slotLabel,
-      slot.interviewer?.name
+      slot.interviewer?.name,
+      `human-interview-slot-booked-candidate:${session.id}`
     ).catch(() => {});
+  }
+  const interviewerEmail = slot.interviewer?.user?.email;
+  if (interviewerEmail && booker?.email) {
+    void sendHumanInterviewSlotBookedForInterviewerEmail({
+      to: interviewerEmail,
+      interviewerName: slot.interviewer?.name || slot.interviewer?.user?.name,
+      candidateName: booker.name,
+      candidateEmail: booker.email,
+      scheduledAt: slot.startsAt,
+      eventKey: `human-interview-slot-booked-interviewer:${session.id}`,
+    }).catch((err) => {
+      console.warn("[verification/book-slot] interviewer email failed:", err instanceof Error ? err.message : err);
+    });
   }
 
   res.status(201).json({ session, message: "Slot booked successfully" });

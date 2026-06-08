@@ -41,3 +41,25 @@ export const authResetPasswordLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many attempts. Try again later." },
 });
+
+export const authEmailVerificationSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: "Too many verification code requests. Try again later.",
+    code: "VERIFICATION_RATE_LIMITED",
+  },
+});
+
+export const authEmailVerificationVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: "Too many verification attempts. Try again later.",
+    code: "VERIFICATION_RATE_LIMITED",
+  },
+});

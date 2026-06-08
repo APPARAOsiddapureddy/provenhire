@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
 import SEO from "@/components/SEO";
 import { api } from "@/lib/api";
+import { savePendingEmailVerification } from "@/lib/emailVerification";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 
@@ -178,6 +179,14 @@ const Auth = () => {
         await signIn(normalizedEmail, signInPassword || "");
       }
     } catch (err: any) {
+      const apiData = err?.response?.data as { code?: string; email?: string; error?: string } | undefined;
+      if (apiData?.code === "EMAIL_NOT_VERIFIED") {
+        const pendingEmail = (apiData.email || normalizedEmail).trim().toLowerCase();
+        savePendingEmailVerification({ email: pendingEmail });
+        toast.info("Verify your email to continue.");
+        navigate(`/verify-email?email=${encodeURIComponent(pendingEmail)}`);
+        return;
+      }
       const hint = err?.response?.data?.hint as string | undefined;
       const msg = err?.message ?? "Sign in failed";
       if (hint) {
@@ -241,7 +250,7 @@ const Auth = () => {
     setSignupSubmitting(true);
     try {
       const roleType = role === "jobseeker" ? "technical" : undefined;
-      await signUp(
+      const result = await signUp(
         normalizedEmail,
         signUpPassword,
         role,
@@ -250,6 +259,17 @@ const Auth = () => {
         role === "recruiter" ? companySize : undefined,
         roleType
       );
+      if ("requiresEmailVerification" in result && result.requiresEmailVerification) {
+        savePendingEmailVerification({
+          email: result.email || normalizedEmail,
+          role: result.role || role,
+          expiresAt: result.expiresAt,
+          message: result.message,
+        });
+        toast.success("Account created. Verify your email to continue.");
+        navigate(`/verify-email?email=${encodeURIComponent(result.email || normalizedEmail)}`, { replace: true });
+        return;
+      }
       toast.success("Account created. Redirecting to your dashboard…");
     } catch (error: any) {
       const is409 = error?.status === 409 || String(error?.message || "").toLowerCase().includes("already registered");

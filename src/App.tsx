@@ -14,6 +14,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Jobs from "./pages/Jobs";
 import About from "./pages/About";
+import EmailVerification from "./pages/EmailVerification";
 import SeoMarketingPage from "./pages/seo/SeoMarketingPage";
 import { FeaturesHubPage, ResourcesHubPage } from "./pages/seo/SeoHubPage";
 import BlogIndexPage from "./pages/seo/BlogIndexPage";
@@ -157,6 +158,7 @@ const App = () => (
               <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
               <Route path="/signup" element={<Navigate to="/auth?mode=signup" replace />} />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/verify-email" element={<EmailVerification />} />
               <Route path="/jobs" element={<Jobs />} />
               <Route path="/jobs/:seoSlug" element={<ProgrammaticJobSlugRoute />} />
               <Route path="/skills/:skillSlug" element={<ProgrammaticSkillSlugRoute />} />

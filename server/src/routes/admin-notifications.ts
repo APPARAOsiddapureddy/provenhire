@@ -1,12 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAdmin, AuthedRequest } from "../middleware/auth.js";
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 import { prisma } from "../config/prisma.js";
-import { sendBroadcastEmails } from "../services/resend.js";
+import { escapeHtml, sendBroadcastEmails } from "../services/resend.js";
 
 const TARGET_ROLES = ["all", "jobseeker", "recruiter", "expert_interviewer"] as const;
 
@@ -136,12 +132,13 @@ adminNotificationsRouter.post("/broadcast", async (req: AuthedRequest, res) => {
     let emailResult = { sent: 0, failed: 0, skipped: true };
     if (sendEmail) {
       const baseUrl = process.env.BASE_URL || "http://localhost:8080";
+      const safeMessage = escapeHtml(message).replace(/\r?\n/g, "<br>");
       const htmlBody = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #333;">${escapeHtml(title)}</h2>
-          <div style="color: #555; line-height: 1.6;">${message}</div>
+          <div style="color: #555; line-height: 1.6;">${safeMessage}</div>
           <p style="margin-top: 24px; color: #888; font-size: 12px;">
-            This message was sent from ProvenHire. <a href="${baseUrl}">Open app</a>
+            This message was sent from ProvenHire. <a href="${escapeHtml(baseUrl)}">Open app</a>
           </p>
         </div>
       `;

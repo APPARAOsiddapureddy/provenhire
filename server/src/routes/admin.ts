@@ -6,7 +6,11 @@ import { requireAdmin, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { hashToken, generateRefreshToken } from "../utils/jwt.js";
 import { adminNotificationsRouter } from "./admin-notifications.js";
-import { sendInterviewerAcceptanceEmail } from "../services/resend.js";
+import {
+  sendInterviewerAcceptanceEmail,
+  sendInterviewerApplicationRejectedEmail,
+  sendRecruiterVerificationResultEmail,
+} from "../services/resend.js";
 import { calculateCertificationLevelsForUsers } from "../services/verificationLevel.service.js";
 import {
   getSessionEventCounts,
@@ -169,10 +173,15 @@ adminRouter.patch("/recruiters/:id/verification", async (req: AuthedRequest, res
     return res.status(400).json({ error: "Invalid payload", validStatuses: ["verified", "rejected"] });
   }
   const { id: profileId } = req.params;
-  const profile = await prisma.recruiterProfile.findUnique({ where: { id: profileId } });
+  const profile = await prisma.recruiterProfile.findUnique({
+    where: { id: profileId },
+    include: { user: { select: { id: true, email: true, name: true } } },
+  });
   if (!profile) {
     return res.status(404).json({ error: "Recruiter profile not found" });
   }
+  const priorStatus = profile.verificationStatus;
+  const priorReason = profile.verificationRejectedReason ?? null;
   await prisma.recruiterProfile.update({
     where: { id: profileId },
     data: {
@@ -180,6 +189,41 @@ adminRouter.patch("/recruiters/:id/verification", async (req: AuthedRequest, res
       verificationRejectedReason: parsed.data.status === "rejected" ? (parsed.data.reason ?? null) : null,
     },
   });
+  const nextReason = parsed.data.status === "rejected" ? (parsed.data.reason ?? null) : null;
+  const changed = priorStatus !== parsed.data.status || priorReason !== nextReason;
+  if (changed) {
+    const title =
+      parsed.data.status === "verified"
+        ? "Recruiter profile approved"
+        : "Recruiter verification rejected";
+    const message =
+      parsed.data.status === "verified"
+        ? "Your recruiter profile has been approved. You can now post jobs on ProvenHire."
+        : `Your recruiter verification was rejected.${nextReason ? ` Reason: ${nextReason}` : ""}`;
+    await prisma.notification.create({
+      data: {
+        userId: profile.userId,
+        title,
+        message,
+        targetRole: "recruiter",
+        sentBy: req.user?.id ?? null,
+      },
+    }).catch((err) => {
+      console.warn("[admin/recruiters/verification] notification failed:", err instanceof Error ? err.message : err);
+    });
+    const to = profile.workEmail || profile.user?.email;
+    if (to) {
+      void sendRecruiterVerificationResultEmail({
+        to,
+        name: profile.fullName || profile.user?.name || profile.companyName,
+        status: parsed.data.status,
+        reason: nextReason,
+        eventKey: `recruiter-verification:${profile.id}:${parsed.data.status}`,
+      }).catch((err) => {
+        console.warn("[admin/recruiters/verification] email failed:", err instanceof Error ? err.message : err);
+      });
+    }
+  }
   res.json({ ok: true, verificationStatus: parsed.data.status });
 });
 
@@ -437,6 +481,13 @@ adminRouter.post("/interviewer-applications/:id/reject", async (req, res) => {
   await prisma.interviewerApplication.update({
     where: { id },
     data: { status: "rejected", reviewedAt: new Date() },
+  });
+  void sendInterviewerApplicationRejectedEmail({
+    to: app.email,
+    name: app.name,
+    eventKey: `interviewer-application-rejected:${app.id}`,
+  }).catch((err) => {
+    console.warn("[admin/interviewer-applications/reject] email failed:", err instanceof Error ? err.message : err);
   });
   res.json({ ok: true });
 });
