@@ -14,6 +14,7 @@ import { createContext, useContext, useCallback, useEffect, useMemo, useRef, use
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, hasAuthToken, getAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
+import { savePendingEmailVerification } from "@/lib/emailVerification";
 import {
   signInWithGooglePopup,
   signInWithGoogleRedirect,
@@ -30,6 +31,21 @@ type User = {
   email: string;
   role: UserRole;
   authProvider?: string | null;
+};
+
+type AuthSessionResponse = {
+  user: User;
+  token: string;
+  refreshToken?: string;
+};
+
+type EmailVerificationResponse = {
+  ok: boolean;
+  requiresEmailVerification?: boolean;
+  email?: string;
+  role?: UserRole;
+  message?: string;
+  expiresAt?: string;
 };
 
 interface AuthContextType {
@@ -55,8 +71,10 @@ interface AuthContextType {
     companyName?: string,
     companySize?: string,
     roleType?: "technical" | "non_technical"
-  ) => Promise<void>;
+  ) => Promise<EmailVerificationResponse | AuthSessionResponse>;
   signIn: (email: string, password: string, role?: UserRole) => Promise<void>;
+  verifyEmailCode: (email: string, code: string) => Promise<User>;
+  resendEmailVerification: (email: string) => Promise<EmailVerificationResponse>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -260,30 +278,75 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       companySize?: string,
       roleType?: "technical" | "non_technical"
     ) => {
-      // Email registration only — establish app session from register response (same as a successful login).
-      // Avoids a separate login step that was racing dashboard mounts and triggering 401 + portal errors.
-      const data = await api.post<{ user: User; token: string; refreshToken?: string }>("/api/auth/register", {
+      // Email registration creates an unverified account; the session is created after code verification.
+      const data = await api.post<EmailVerificationResponse | AuthSessionResponse>("/api/auth/register", {
         email: email.trim().toLowerCase(),
         password,
         role: role ?? "jobseeker",
         name: fullName ?? undefined,
         roleType: roleType ?? undefined,
+        ...(role === "recruiter" && { companyName, companySize }),
       });
 
-      if (!data?.token) {
-        throw new Error("Invalid response from server. Please try again.");
+      if ("requiresEmailVerification" in data && data.requiresEmailVerification) {
+        setAuthToken(null);
+        setRefreshToken(null);
+        setUser(null);
+        setUserRole(null);
+        setNeedsGoogleRoleSelection(false);
+        savePendingEmailVerification({
+          email: data.email || email.trim().toLowerCase(),
+          role: data.role ?? role,
+          expiresAt: data.expiresAt,
+          message: data.message,
+        });
+        return data;
       }
-      if (role === "recruiter") {
-        await api.post("/api/users/recruiter-profile", { companyName, companySize }, { token: data.token });
+
+      if (!("token" in data) || !data?.token) {
+        throw new Error("Invalid response from server. Please try again.");
       }
       setAuthToken(data.token);
       if (data.refreshToken) setRefreshToken(data.refreshToken);
       setUser(data.user);
       setUserRole(data.user.role);
       setNeedsGoogleRoleSelection(false);
+      return data;
     },
     []
   );
+
+  const verifyEmailCode = useCallback(async (email: string, code: string): Promise<User> => {
+    const data = await api.post<AuthSessionResponse & { ok: boolean; message?: string }>(
+      "/api/auth/email-verification/verify",
+      {
+        email: email.trim().toLowerCase(),
+        code,
+      }
+    );
+    if (!data?.token || !data?.user) {
+      throw new Error("Invalid verification response. Please try again.");
+    }
+    setAuthToken(data.token);
+    if (data.refreshToken) setRefreshToken(data.refreshToken);
+    setUser(data.user);
+    setUserRole(data.user.role);
+    setNeedsGoogleRoleSelection(false);
+    return data.user;
+  }, []);
+
+  const resendEmailVerification = useCallback(async (email: string): Promise<EmailVerificationResponse> => {
+    const data = await api.post<EmailVerificationResponse>("/api/auth/email-verification/send", {
+      email: email.trim().toLowerCase(),
+    });
+    savePendingEmailVerification({
+      email: data.email || email.trim().toLowerCase(),
+      role: data.role,
+      expiresAt: data.expiresAt,
+      message: data.message,
+    });
+    return data;
+  }, []);
 
   const signIn = useCallback(async (email: string, password: string, _role?: UserRole) => {
     void _role; // demo / UI only; login API does not accept role
@@ -441,6 +504,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       signInWithGoogle,
       signUp,
       signIn,
+      verifyEmailCode,
+      resendEmailVerification,
       signOut,
       resetPassword,
       changePassword,
@@ -455,6 +520,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       signInWithGoogle,
       signUp,
       signIn,
+      verifyEmailCode,
+      resendEmailVerification,
       signOut,
       resetPassword,
       changePassword,

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../config/prisma.js";
 import { getTrackForRole } from "../data/interviewerRoles.js";
+import { sendInterviewerApplicationSubmittedEmail } from "../services/resend.js";
 
 const applySchema = z.object({
   name: z.string().min(1).max(200),
@@ -46,6 +47,13 @@ interviewerApplicationRouter.post("/", async (req, res) => {
       currentCompany: data.currentCompany.trim(),
       jobTitle: data.jobTitle.trim(),
     },
+  });
+  void sendInterviewerApplicationSubmittedEmail({
+    to: app.email,
+    name: app.name,
+    eventKey: `interviewer-application-submitted:${app.id}`,
+  }).catch((err) => {
+    console.warn("[interviewer-application] confirmation email failed:", err instanceof Error ? err.message : err);
   });
   res.status(201).json({ id: app.id, message: "Application submitted successfully." });
 });

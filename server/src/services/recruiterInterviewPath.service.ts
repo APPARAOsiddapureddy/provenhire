@@ -5,6 +5,7 @@ import {
   getLatestAdminQueueForCandidate,
 } from "./humanInterviewGate.service.js";
 import { isVerificationPipelineV2, roleTypeToTrack } from "../constants/verificationPipeline.js";
+import { sendApplicationStatusChangedEmail } from "./resend.js";
 
 export const RECRUITER_INTERVIEW_MODES = ["provenhire_ai", "human_expert", "company_employee"] as const;
 export type RecruiterInterviewMode = (typeof RECRUITER_INTERVIEW_MODES)[number];
@@ -15,6 +16,12 @@ const bodySchema = z.object({
 
 function expertInterviewSufficient(status: string | null | undefined): boolean {
   return status === "completed" || status === "pending_review";
+}
+
+function modeLabel(mode: RecruiterInterviewMode): string {
+  if (mode === "human_expert") return "ProvenHire Human Expert Interview";
+  if (mode === "provenhire_ai") return "ProvenHire AI Interview";
+  return "Company interview";
 }
 
 /**
@@ -37,7 +44,14 @@ export async function setRecruiterInterviewPathForApplication(params: {
   const application = await prisma.jobApplication.findUnique({
     where: { id: params.applicationId },
     include: {
-      job: { select: { id: true, postedById: true, title: true } },
+      job: { select: { id: true, postedById: true, title: true, company: true } },
+      jobSeeker: {
+        select: {
+          email: true,
+          name: true,
+          jobSeekerProfile: { select: { fullName: true } },
+        },
+      },
     },
   });
   if (!application) return { ok: false, status: 404, error: "Application not found" };
@@ -71,14 +85,30 @@ export async function setRecruiterInterviewPathForApplication(params: {
     };
   }
 
+  const pathChanged = application.recruiterNextInterviewMode !== parsed.data.mode;
+  const changedAt = new Date();
   await prisma.jobApplication.update({
     where: { id: application.id },
     data: {
       recruiterNextInterviewMode: parsed.data.mode,
-      recruiterInterviewPathSetAt: new Date(),
+      recruiterInterviewPathSetAt: changedAt,
       recruiterInterviewPathSetByUserId: params.recruiterUserId,
     },
   });
+
+  const notifyCandidate = () => {
+    if (!pathChanged) return;
+    void sendApplicationStatusChangedEmail({
+      to: application.jobSeeker.email,
+      candidateName: application.jobSeeker.jobSeekerProfile?.fullName || application.jobSeeker.name,
+      jobTitle: application.job.title,
+      company: application.job.company,
+      status: modeLabel(parsed.data.mode),
+      eventKey: `job-application-interview-path:${application.id}:${parsed.data.mode}:${changedAt.getTime()}`,
+    }).catch((err) => {
+      console.warn("[recruiterInterviewPath] candidate email failed:", err instanceof Error ? err.message : err);
+    });
+  };
 
   const latestQueue = await getLatestAdminQueueForCandidate(application.jobSeekerId);
 
@@ -104,6 +134,7 @@ export async function setRecruiterInterviewPathForApplication(params: {
         reviewerUserId: params.recruiterUserId,
       });
     }
+    notifyCandidate();
     return { ok: true };
   }
 
@@ -115,5 +146,6 @@ export async function setRecruiterInterviewPathForApplication(params: {
     });
   }
 
+  notifyCandidate();
   return { ok: true };
 }

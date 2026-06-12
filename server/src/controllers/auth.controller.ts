@@ -11,20 +11,34 @@ import { verifyFirebaseIdToken } from "../services/firebase.service.js";
 
 const REFRESH_EXPIRY_DAYS = 7;
 const DEFAULT_TARGET_JOB_TITLE = "Full Stack Developer";
+const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
+const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
+const MAX_VERIFICATION_ATTEMPTS = 5;
 
-const registerSchema = z.object({
-  name: z.string().optional(),
-  email: z.string().email("Enter a valid email address."),
-  /** Matches Auth.tsx: min 8, at least one letter and one number. */
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters.")
-    .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, "Password must include at least one letter and one number."),
-  /** Privileged roles must never be self-service; only jobseeker/recruiter via public signup. */
-  role: z.enum(["jobseeker", "recruiter"]).nullish(),
-  roleType: z.enum(["technical", "non_technical", "data"]).nullish(),
-  verificationToken: z.string().optional(), // Optional for now; will add when scaling
-});
+const registerSchema = z
+  .object({
+    name: z.string().optional(),
+    email: z.string().email("Enter a valid email address."),
+    /** Matches Auth.tsx: min 8, at least one letter and one number. */
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters.")
+      .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, "Password must include at least one letter and one number."),
+    /** Privileged roles must never be self-service; only jobseeker/recruiter via public signup. */
+    role: z.enum(["jobseeker", "recruiter"]).nullish(),
+    roleType: z.enum(["technical", "non_technical", "data"]).nullish(),
+    companyName: z.string().trim().min(2).max(120).optional(),
+    companySize: z.string().trim().max(50).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.role === "recruiter" && !value.companyName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["companyName"],
+        message: "Company name is required for recruiter accounts.",
+      });
+    }
+  });
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -64,7 +78,69 @@ const emailVerificationVerifySchema = z.object({
 });
 
 function generateSixDigitCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 1_000_000));
+}
+
+async function getVerificationCooldownSeconds(email: string): Promise<number> {
+  const latest = await prisma.emailVerificationCode.findFirst({
+    where: {
+      email,
+      verifiedAt: null,
+      consumedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!latest) return 0;
+  const elapsedMs = Date.now() - latest.createdAt.getTime();
+  const remainingMs = VERIFICATION_RESEND_COOLDOWN_MS - elapsedMs;
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
+}
+
+async function createEmailVerificationCode(
+  tx: Prisma.TransactionClient,
+  email: string,
+): Promise<{ code: string; expiresAt: Date }> {
+  const code = generateSixDigitCode();
+  const expiresAt = new Date(Date.now() + VERIFICATION_CODE_TTL_MS);
+  const now = new Date();
+
+  await tx.emailVerificationCode.updateMany({
+    where: {
+      email,
+      consumedAt: null,
+      verifiedAt: null,
+    },
+    data: { consumedAt: now },
+  });
+  await tx.emailVerificationCode.create({
+    data: {
+      email,
+      codeHash: hashToken(code),
+      expiresAt,
+    },
+  });
+
+  return { code, expiresAt };
+}
+
+async function consumeVerificationCode(email: string, codeId?: string): Promise<void> {
+  const now = new Date();
+  await prisma.emailVerificationCode.updateMany({
+    where: {
+      email,
+      consumedAt: null,
+      ...(codeId ? { id: codeId } : {}),
+    },
+    data: { consumedAt: now },
+  });
+}
+
+async function deliverVerificationCode(email: string, code: string): Promise<boolean> {
+  const sent = await sendSignupVerificationCodeEmail(email, code);
+  if (!sent) {
+    console.warn("[email-verification] Verification email was not sent to", email);
+  }
+  return sent;
 }
 
 /**
@@ -83,98 +159,140 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
 
     const email = parsed.data.email.trim().toLowerCase();
     const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: "Email already registered" });
-
-    const code = generateSixDigitCode();
-    const codeHash = hashToken(code);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-    await prisma.emailVerificationCode.create({
-      data: { email, codeHash, expiresAt },
-    });
-
-    // When DISPLAY_VERIFICATION_CODE_ON_PAGE=false, send email only. Otherwise show code on page.
-    const sendEmail = process.env.DISPLAY_VERIFICATION_CODE_ON_PAGE === "false";
-
-    if (sendEmail) {
-      sendSignupVerificationCodeEmail(email, code)
-        .then((sent) => {
-          if (!sent) {
-            console.warn("[sendEmailVerificationCode] Email failed to send to", email);
-          }
-        })
-        .catch((e) => console.error("[sendEmailVerificationCode] Background send error:", e));
+    if (!existing || existing.emailVerified || (existing as { authProvider?: string | null }).authProvider === "GOOGLE") {
+      return res.json({
+        ok: true,
+        message: "If this email has a pending ProvenHire account, a new verification code has been sent.",
+      });
     }
 
-    // Always include devCode so signup page can display it (testing/virtual deployment).
-    // Set DISPLAY_VERIFICATION_CODE_ON_PAGE=false for production email-only.
+    const cooldownSeconds = await getVerificationCooldownSeconds(email);
+    if (cooldownSeconds > 0) {
+      return res.status(429).json({
+        error: `Please wait ${cooldownSeconds} second${cooldownSeconds === 1 ? "" : "s"} before requesting another code.`,
+        code: "VERIFICATION_RESEND_COOLDOWN",
+        retryAfterSeconds: cooldownSeconds,
+      });
+    }
+
+    const issued = await prisma.$transaction((tx) => createEmailVerificationCode(tx, email));
+    const sent = await deliverVerificationCode(email, issued.code);
+
+    if (!sent) {
+      await consumeVerificationCode(email);
+      return res.status(502).json({
+        error: "We could not send the verification email right now. Please try again.",
+        code: "EMAIL_DELIVERY_FAILED",
+      });
+    }
     return res.json({
       ok: true,
-      message: sendEmail
-        ? `Verification code sent to ${email}. Check your inbox and spam folder—it may take up to a minute to arrive.`
-        : `Verification code generated for ${email}. Use the code shown below.`,
-      devCode: code,
+      email: existing.email,
+      role: existing.role,
+      expiresAt: issued.expiresAt.toISOString(),
+      message: "If this email has a pending ProvenHire account, a new verification code has been sent.",
     });
   } catch (err) {
     const errObj = err instanceof Error ? err : new Error(String(err));
     console.error("[sendEmailVerificationCode]", errObj);
-    const isPrisma = err && typeof err === "object" && ("code" in err || "meta" in err);
-    const prismaCode = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : null;
-    let hint: string;
-    if (isPrisma) {
-      if (prismaCode === "P2021" || prismaCode === "P2003") {
-        hint = "EmailVerificationCode table missing. Run: cd server && npx prisma db push && npx prisma generate";
-      } else {
-        hint = "Database error. Run: cd server && npx prisma db push && npx prisma generate";
-      }
-    } else {
-      hint = String(errObj.message);
-    }
-    const devHint = process.env.NODE_ENV !== "production" ? ` ${hint}` : "";
-    return res.status(500).json({ error: `Failed to send verification code.${devHint}` });
+    return res.status(500).json({ error: "Failed to send verification code. Please try again." });
   }
 }
 
 export async function verifyEmailVerificationCode(req: Request, res: Response) {
-  const parsed = emailVerificationVerifySchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  try {
+    const parsed = emailVerificationVerifySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
 
-  const email = parsed.data.email.trim().toLowerCase();
-  const codeHash = hashToken(parsed.data.code);
-
-  const record = await prisma.emailVerificationCode.findFirst({
-    where: {
-      email,
-      codeHash,
-      verifiedAt: null,
-      consumedAt: null,
-      expiresAt: { gt: new Date() },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!record) {
-    await prisma.emailVerificationCode.updateMany({
-      where: { email, verifiedAt: null, consumedAt: null, expiresAt: { gt: new Date() } },
-      data: { attempts: 1 },
+    const email = parsed.data.email.trim().toLowerCase();
+    const now = new Date();
+    const record = await prisma.emailVerificationCode.findFirst({
+      where: {
+        email,
+        verifiedAt: null,
+        consumedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
     });
-    return res.status(400).json({ error: "Invalid or expired verification code." });
+
+    if (!record) {
+      return res.status(400).json({
+        error: "Invalid or expired verification code.",
+        code: "INVALID_VERIFICATION_CODE",
+      });
+    }
+
+    if (record.expiresAt <= now) {
+      await consumeVerificationCode(email, record.id);
+      return res.status(400).json({
+        error: "Verification code expired. Request a new code.",
+        code: "VERIFICATION_CODE_EXPIRED",
+      });
+    }
+
+    if (record.attempts >= MAX_VERIFICATION_ATTEMPTS) {
+      await consumeVerificationCode(email, record.id);
+      return res.status(429).json({
+        error: "Too many invalid attempts. Request a new code.",
+        code: "VERIFICATION_CODE_LOCKED",
+      });
+    }
+
+    const submittedCodeHash = hashToken(parsed.data.code);
+    if (record.codeHash !== submittedCodeHash) {
+      const attempts = record.attempts + 1;
+      await prisma.emailVerificationCode.update({
+        where: { id: record.id },
+        data: {
+          attempts,
+          ...(attempts >= MAX_VERIFICATION_ATTEMPTS ? { consumedAt: now } : {}),
+        },
+      });
+      return res.status(attempts >= MAX_VERIFICATION_ATTEMPTS ? 429 : 400).json({
+        error:
+          attempts >= MAX_VERIFICATION_ATTEMPTS
+            ? "Too many invalid attempts. Request a new code."
+            : "Invalid verification code.",
+        code: attempts >= MAX_VERIFICATION_ATTEMPTS ? "VERIFICATION_CODE_LOCKED" : "INVALID_VERIFICATION_CODE",
+        remainingAttempts: Math.max(0, MAX_VERIFICATION_ATTEMPTS - attempts),
+      });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (!existing) {
+      await consumeVerificationCode(email, record.id);
+      return res.status(400).json({
+        error: "Invalid or expired verification code.",
+        code: "INVALID_VERIFICATION_CODE",
+      });
+    }
+
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: existing.id },
+        data: { emailVerified: true },
+      });
+      await tx.emailVerificationCode.updateMany({
+        where: { email, consumedAt: null },
+        data: {
+          verifiedAt: now,
+          consumedAt: now,
+        },
+      });
+      return updated;
+    });
+
+    const session = await createSession(user);
+    return res.json({
+      ok: true,
+      message: "Email verified successfully.",
+      ...session,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Email verification failed";
+    console.error("[email-verification/verify]", msg, err);
+    return res.status(500).json({ error: "Email verification failed. Please try again." });
   }
-
-  const verificationToken = generateRefreshToken();
-  await prisma.emailVerificationCode.update({
-    where: { id: record.id },
-    data: {
-      verifiedAt: new Date(),
-      verificationTokenHash: hashToken(verificationToken),
-    },
-  });
-
-  return res.json({
-    ok: true,
-    verificationToken,
-    message: "Email verified successfully.",
-  });
 }
 
 async function createSession(user: {
@@ -182,8 +300,12 @@ async function createSession(user: {
   role: string;
   name: string | null;
   email: string;
+  emailVerified?: boolean;
   authProvider?: string | null;
 }) {
+  if (user.authProvider !== "GOOGLE" && user.emailVerified === false) {
+    throw new Error("Email verification required before session creation.");
+  }
   const accessToken = signJwt({ userId: user.id, role: user.role });
   const refreshTokenPlain = generateRefreshToken();
   const refreshExpires = new Date();
@@ -230,8 +352,9 @@ export async function register(req: Request, res: Response) {
         fields: fieldErrors,
       });
     }
-    const { name, email, password, role } = parsed.data;
+    const { name, email, password, role, roleType, companyName, companySize } = parsed.data;
     const effectiveRole = role === "recruiter" ? "recruiter" : "jobseeker";
+    const effectiveRoleType = roleType ?? "technical";
     const normalizedEmail = email.trim().toLowerCase();
     if (isBlockedEmailListEnforced()) {
       const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
@@ -240,47 +363,106 @@ export async function register(req: Request, res: Response) {
       }
     }
     const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (existing) {
+    if (existing?.emailVerified) {
       return res.status(409).json({ error: "Email already registered" });
     }
+    if (existing && (existing as { authProvider?: string | null }).authProvider === "GOOGLE") {
+      return res.status(409).json({ error: "This email already uses Google sign-in. Continue with Google." });
+    }
+    if (existing) {
+      const cooldownSeconds = await getVerificationCooldownSeconds(normalizedEmail);
+      if (cooldownSeconds > 0) {
+        return res.json({
+          ok: true,
+          requiresEmailVerification: true,
+          email: existing.email,
+          role: existing.role,
+          message: "A verification code was already sent. Check your inbox or request a new code in a moment.",
+        });
+      }
+    }
 
-    // Email verification bypassed for now; will add when scaling
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({
-      data: {
-        name: name || null,
-        email: normalizedEmail,
-        passwordHash,
-        role: effectiveRole,
-        emailVerified: true,
-      },
+    const result = await prisma.$transaction(async (tx) => {
+      const user = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              name: name || null,
+              passwordHash,
+              role: effectiveRole,
+              emailVerified: false,
+              authProvider: "EMAIL",
+            },
+          })
+        : await tx.user.create({
+            data: {
+              name: name || null,
+              email: normalizedEmail,
+              passwordHash,
+              role: effectiveRole,
+              emailVerified: false,
+              authProvider: "EMAIL",
+            },
+          });
+
+      if (user.role === "jobseeker") {
+        await tx.recruiterProfile.deleteMany({ where: { userId: user.id } });
+        await tx.jobSeekerProfile.upsert({
+          where: { userId: user.id },
+          create: {
+            userId: user.id,
+            fullName: name || null,
+            email: normalizedEmail,
+            roleType: effectiveRoleType,
+            targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
+          },
+          update: {
+            fullName: name || null,
+            email: normalizedEmail,
+            roleType: effectiveRoleType,
+            targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
+          },
+        });
+      } else {
+        await tx.jobSeekerProfile.deleteMany({ where: { userId: user.id } });
+        await tx.recruiterProfile.upsert({
+          where: { userId: user.id },
+          create: {
+            userId: user.id,
+            companyName: companyName ?? null,
+            companySize: companySize ?? null,
+            workEmail: normalizedEmail,
+          },
+          update: {
+            companyName: companyName ?? null,
+            companySize: companySize ?? null,
+            workEmail: normalizedEmail,
+          },
+        });
+      }
+
+      const issued = await createEmailVerificationCode(tx, normalizedEmail);
+      return { user, issued };
     });
-    if (user.role === "jobseeker") {
-      await prisma.jobSeekerProfile.upsert({
-        where: { userId: user.id },
-        create: {
-          userId: user.id,
-          fullName: name || null,
-          email: normalizedEmail,
-          roleType: "technical",
-          targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
-        },
-        update: { roleType: "technical" },
+
+    const sent = await deliverVerificationCode(normalizedEmail, result.issued.code);
+    if (!sent) {
+      await consumeVerificationCode(normalizedEmail);
+      return res.status(502).json({
+        error: "We could not send the verification email right now. Please try again.",
+        code: "EMAIL_DELIVERY_FAILED",
       });
     }
-    let session;
-    try {
-      session = await createSession(user);
-    } catch (sessionErr) {
-      const sm = sessionErr instanceof Error ? sessionErr.message : "Session failed";
-      console.error("[auth/register] createSession:", sm, sessionErr);
-      const se = sessionErr as { code?: string };
-      if (typeof se?.code === "string") {
-        return res.status(500).json({ error: "Registration failed.", code: se.code });
-      }
-      return res.status(500).json({ error: "Registration failed. Please try again." });
-    }
-    return res.json(session);
+
+    return res.status(201).json({
+      ok: true,
+      requiresEmailVerification: true,
+      email: result.user.email,
+      role: result.user.role,
+      expiresAt: result.issued.expiresAt.toISOString(),
+      message: `Verification code sent to ${normalizedEmail}. Check your inbox and spam folder.`,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Registration failed";
     console.error("[auth/register]", msg, err);
@@ -339,6 +521,13 @@ export async function login(req: Request, res: Response) {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
       return res.status(401).json({ error: "Invalid email or password" });
+    }
+    if (!user.emailVerified) {
+      return res.status(403).json({
+        error: "Please verify your email before signing in.",
+        code: "EMAIL_NOT_VERIFIED",
+        email: user.email,
+      });
     }
     const session = await createSession(user);
     return res.json(session);
@@ -406,13 +595,27 @@ export async function googleAuth(req: Request, res: Response) {
         update: { fullName: firebaseUser.name ?? user.name },
       });
     } else if (!(user as { googleUid?: string | null }).googleUid) {
-      await prisma.user.update({
+      const shouldConvertPendingEmailAccount =
+        !user.emailVerified && (user as { authProvider?: string | null }).authProvider !== "GOOGLE";
+      user = await prisma.user.update({
         where: { id: user.id },
         data: {
           googleUid: firebaseUser.uid,
           profileImage: firebaseUser.picture ?? (user as { profileImage?: string | null }).profileImage ?? null,
           name: firebaseUser.name ?? user.name,
+          emailVerified: true,
+          ...(shouldConvertPendingEmailAccount
+            ? {
+                authProvider: "GOOGLE",
+                passwordHash: await bcrypt.hash(crypto.randomUUID(), 10),
+              }
+            : {}),
         } as Prisma.UserUpdateInput,
+      });
+    } else if (!user.emailVerified) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: true },
       });
     }
 
@@ -512,6 +715,14 @@ export async function refresh(req: Request, res: Response) {
     if (stored) await prisma.refreshToken.delete({ where: { id: stored.id } }).catch(() => {});
     return res.status(401).json({ error: "Invalid or expired refresh token" });
   }
+  if (stored.user.authProvider !== "GOOGLE" && !stored.user.emailVerified) {
+    await prisma.refreshToken.deleteMany({ where: { userId: stored.user.id } }).catch(() => {});
+    return res.status(403).json({
+      error: "Please verify your email before continuing.",
+      code: "EMAIL_NOT_VERIFIED",
+      email: stored.user.email,
+    });
+  }
   const accessToken = signJwt({ userId: stored.user.id, role: stored.user.role });
   return res.json({
     user: { id: stored.user.id, name: stored.user.name, email: stored.user.email, role: stored.user.role },
@@ -526,11 +737,16 @@ export async function me(req: Request, res: Response) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   try {
-    const [user, certification] = await Promise.all([
-      prisma.user.findUnique({ where: { id: userId } }),
-      calculateCertificationLevel(userId),
-    ]);
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.authProvider !== "GOOGLE" && !user.emailVerified) {
+      return res.status(403).json({
+        error: "Please verify your email before continuing.",
+        code: "EMAIL_NOT_VERIFIED",
+        email: user.email,
+      });
+    }
+    const certification = await calculateCertificationLevel(userId);
     return res.json({
       user: { id: user.id, name: user.name, email: user.email, role: user.role, authProvider: user.authProvider },
       certification_level: certification.level,

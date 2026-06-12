@@ -9,6 +9,7 @@ import {
 } from "../services/humanInterviewGate.service.js";
 import {
   sendHumanInterviewPaymentFailedEmail,
+  sendHumanInterviewPaymentConfirmedEmail,
 } from "../services/resend.js";
 
 export const humanInterviewRouter = Router();
@@ -131,6 +132,7 @@ humanInterviewRouter.post("/payment/verify", requireAuth, async (req: AuthedRequ
   }
 
   try {
+    let shouldSendPaymentConfirmedEmail = false;
     await prisma.$transaction(async (tx) => {
       const att = await tx.humanInterviewAttempt.findFirst({
         where: { razorpayOrderId: orderId, candidateId: req.user!.id },
@@ -148,6 +150,7 @@ humanInterviewRouter.post("/payment/verify", requireAuth, async (req: AuthedRequ
         where: { id: att.id },
         data: { paymentStatus: "paid", razorpayPaymentId: paymentId },
       });
+      shouldSendPaymentConfirmedEmail = true;
       await tx.verificationStage.upsert({
         where: {
           userId_stageName: { userId: req.user!.id, stageName: "human_expert_interview" },
@@ -160,6 +163,21 @@ humanInterviewRouter.post("/payment/verify", requireAuth, async (req: AuthedRequ
         update: { status: "in_progress" },
       });
     });
+    if (shouldSendPaymentConfirmedEmail) {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.id },
+        select: { email: true, name: true },
+      });
+      if (user?.email) {
+        void sendHumanInterviewPaymentConfirmedEmail({
+          to: user.email,
+          name: user.name,
+          eventKey: `human-interview-payment-confirmed:${orderId}:${paymentId}`,
+        }).catch((err) => {
+          console.warn("[human-interview/payment/verify] confirmation email failed:", err instanceof Error ? err.message : err);
+        });
+      }
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error("[human-interview/payment/verify]", e);

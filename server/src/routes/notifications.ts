@@ -7,6 +7,7 @@ import {
   contactLimit,
   normalizeSubscriptionTier,
 } from "../utils/recruiterSubscription.js";
+import { sendRecruiterCandidateInterestEmail } from "../services/resend.js";
 
 export const notificationsRouter = Router();
 
@@ -149,7 +150,13 @@ notificationsRouter.post("/contact-candidate", requireAuth, async (req: AuthedRe
 
   const candidate = await prisma.user.findUnique({
     where: { id: parsed.data.candidateUserId },
-    select: { id: true, role: true },
+    select: {
+      id: true,
+      role: true,
+      email: true,
+      name: true,
+      jobSeekerProfile: { select: { fullName: true } },
+    },
   });
   if (!candidate || candidate.role !== "jobseeker") {
     return res.status(404).json({ error: "Candidate not found" });
@@ -166,6 +173,15 @@ notificationsRouter.post("/contact-candidate", requireAuth, async (req: AuthedRe
     "Open ProvenHire to respond and see next steps.";
   await prisma.notification.create({
     data: { userId: candidate.id, title, message: msg },
+  });
+  void sendRecruiterCandidateInterestEmail({
+    to: candidate.email,
+    candidateName: candidate.jobSeekerProfile?.fullName || candidate.name,
+    companyName: recruiter.companyName,
+    recruiterMessage: parsed.data.recruiterMessage?.trim() || null,
+    eventKey: `candidate-interest:${candidate.id}:${recruiter.id}`,
+  }).catch((err) => {
+    console.warn("[notifications/contact-candidate] email failed:", err instanceof Error ? err.message : err);
   });
 
   res.json({ ok: true });

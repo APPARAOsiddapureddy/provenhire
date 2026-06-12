@@ -21,6 +21,10 @@ import {
   normalizeSubscriptionTier,
   profileViewLimit,
 } from "../utils/recruiterSubscription.js";
+import {
+  sendApplicationStatusChangedEmail,
+  sendJobApplicationSubmittedEmail,
+} from "../services/resend.js";
 
 export const jobsRouter = Router();
 
@@ -363,7 +367,14 @@ jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
   const jobId = req.params.id;
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      postedBy: {
+        include: { user: { select: { email: true, name: true } } },
+      },
+    },
+  });
   if (!job) return res.status(404).json({ error: "Job not found" });
   const profile = await prisma.jobSeekerProfile.findUnique({ where: { userId: req.user!.id } });
   if (profile) {
@@ -390,6 +401,13 @@ jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
   if (job.assignment && !parsed.data.assignmentResponse?.trim()) {
     return res.status(400).json({ error: "This job requires an assignment submission. Please complete the assignment and try again." });
   }
+  const existingApplication = await prisma.jobApplication.findFirst({
+    where: { jobId, jobSeekerId: req.user!.id },
+    select: { id: true },
+  });
+  if (existingApplication) {
+    return res.status(409).json({ error: "You have already applied to this job.", applicationId: existingApplication.id });
+  }
   const application = await prisma.jobApplication.create({
     data: {
       jobId,
@@ -398,6 +416,25 @@ jobsRouter.post("/:id/apply", requireAuth, async (req: AuthedRequest, res) => {
       assignmentResponse: parsed.data.assignmentResponse ?? null,
     },
   });
+  const candidate = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    include: { jobSeekerProfile: { select: { fullName: true } } },
+  });
+  const recruiterEmail = job.postedBy?.workEmail || job.postedBy?.user?.email;
+  if (recruiterEmail) {
+    void sendJobApplicationSubmittedEmail({
+      to: recruiterEmail,
+      recruiterName: job.postedBy?.fullName || job.postedBy?.user?.name || job.postedBy?.companyName,
+      candidateName: candidate?.jobSeekerProfile?.fullName || candidate?.name,
+      candidateEmail: candidate?.email || req.user!.id,
+      jobTitle: job.title,
+      company: job.company,
+      jobId: job.id,
+      eventKey: `job-application-submitted:${application.id}`,
+    }).catch((err) => {
+      console.warn("[jobs/apply] recruiter email failed:", err instanceof Error ? err.message : err);
+    });
+  }
   res.json({ application });
 });
 
@@ -948,9 +985,44 @@ jobsRouter.post("/applications/:id/status", requireAuth, async (req: AuthedReque
   const schema = z.object({ status: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const existing = await prisma.jobApplication.findUnique({
+    where: { id: req.params.id },
+    include: {
+      job: { include: { postedBy: { select: { userId: true } } } },
+      jobSeeker: { include: { jobSeekerProfile: { select: { fullName: true } } } },
+    },
+  });
+  if (!existing) return res.status(404).json({ error: "Application not found" });
+  if (req.user!.role === "recruiter") {
+    const recruiter = await prisma.recruiterProfile.findUnique({ where: { userId: req.user!.id } });
+    if (!recruiter || existing.job.postedById !== recruiter.id) {
+      return res.status(403).json({ error: "Not authorized to update this application" });
+    }
+  } else if (req.user!.role !== "admin") {
+    return res.status(403).json({ error: "Recruiter or admin access required" });
+  }
+
+  const nextStatus = parsed.data.status.trim();
+  const changed = existing.status !== nextStatus;
+  const stageChangedAt = changed ? new Date() : existing.stageChangedAt;
   const application = await prisma.jobApplication.update({
     where: { id: req.params.id },
-    data: { status: parsed.data.status },
+    data: {
+      status: nextStatus,
+      ...(changed ? { stageChangedAt } : {}),
+    },
   });
+  if (changed) {
+    void sendApplicationStatusChangedEmail({
+      to: existing.jobSeeker.email,
+      candidateName: existing.jobSeeker.jobSeekerProfile?.fullName || existing.jobSeeker.name,
+      jobTitle: existing.job.title,
+      company: existing.job.company,
+      status: nextStatus,
+      eventKey: `job-application-status:${application.id}:${nextStatus}:${stageChangedAt?.getTime() ?? Date.now()}`,
+    }).catch((err) => {
+      console.warn("[jobs/applications/status] candidate email failed:", err instanceof Error ? err.message : err);
+    });
+  }
   res.json({ application });
 });
