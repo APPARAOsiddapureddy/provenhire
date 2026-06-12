@@ -231,6 +231,41 @@ adminRouter.patch("/recruiters/:id/plan", async (req: AuthedRequest, res) => {
   res.json({ ok: true, subscriptionTier: tier });
 });
 
+adminRouter.get("/recruiter-plan-payments", async (_req, res) => {
+  const payments = await prisma.recruiterPlanPayment.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    include: {
+      recruiter: {
+        include: {
+          user: { select: { email: true, name: true } },
+        },
+      },
+    },
+  });
+
+  res.json({
+    payments: payments.map((payment) => ({
+      id: payment.id,
+      recruiter_id: payment.recruiterId,
+      recruiter_email: payment.recruiter.workEmail ?? payment.recruiter.user?.email ?? null,
+      recruiter_name: payment.recruiter.fullName ?? payment.recruiter.user?.name ?? null,
+      company_name: payment.recruiter.companyName ?? null,
+      tier: payment.tier,
+      amount_paise: payment.amountPaise,
+      currency: payment.currency,
+      status: payment.status,
+      razorpay_order_id: payment.razorpayOrderId,
+      razorpay_payment_id: payment.razorpayPaymentId,
+      failure_reason: payment.failureReason,
+      period_start: payment.periodStart,
+      period_end: payment.periodEnd,
+      paid_at: payment.paidAt,
+      created_at: payment.createdAt,
+    })),
+  });
+});
+
 /** All jobs (draft + published) with poster user — `createdAt` is the job posted timestamp */
 adminRouter.get("/jobs", async (_req, res) => {
   const jobs = await prisma.job.findMany({

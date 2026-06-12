@@ -245,6 +245,7 @@ model RecruiterProfile {
   user                 User                           @relation(fields: [userId], references: [id])
   jobs                 Job[]
   usage                RecruiterUsage?
+  planPayments         RecruiterPlanPayment[]
   candidateResumeViews RecruiterCandidateResumeView[]
   ownedWorkspaces      Workspace[]
 }
@@ -268,6 +269,41 @@ model RecruiterUsage {
   updatedAt             DateTime  @updatedAt
 
   recruiter RecruiterProfile @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+}
+
+model RecruiterPlanPayment {
+  id                String    @id @default(uuid())
+  recruiterId       String
+  tier              String
+  amountPaise       Int
+  currency          String    @default("INR")
+  status            String    @default("created")
+  razorpayOrderId   String?   @unique
+  razorpayPaymentId String?   @unique
+  razorpaySignature String?
+  failureReason     String?   @db.Text
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  paidAt            DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  recruiter RecruiterProfile @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+
+  @@index([recruiterId, createdAt])
+  @@index([status])
+}
+
+model RazorpayWebhookEvent {
+  id          String   @id @default(uuid())
+  eventId     String   @unique
+  eventName   String
+  processedAt DateTime @default(now())
+  paymentId   String?
+  orderId     String?
+  status      String   @default("processed")
+
+  @@index([processedAt])
 }
 
 /// Paid retake credits (₹399 single / ₹649 bundle). Admin grants until Razorpay (PRD §7).

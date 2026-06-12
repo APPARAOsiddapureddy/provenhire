@@ -36,15 +36,64 @@ type RecruiterProfile = {
   companyName?: string | null;
 };
 
-type UpgradeRequestResponse = {
-  ok: boolean;
-  notified_admin_count?: number;
+type RecruiterPayment = {
+  id: string;
+  tier: SubscriptionTier;
+  amountPaise: number;
+  currency: string;
+  status: string;
+  razorpayOrderId?: string | null;
+  razorpayPaymentId?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  paidAt?: string | null;
+  createdAt?: string | null;
 };
+
+type RecruiterPaymentCurrent = {
+  subscriptionTier: SubscriptionTier;
+  activePaidUntil: string | null;
+  latestPayment: RecruiterPayment | null;
+};
+
+type RecruiterPaymentOrder = {
+  orderId: string;
+  amount: number;
+  currency: string;
+  keyId?: string | null;
+  paymentRecordId: string;
+  tier: SubscriptionTier;
+  planName: string;
+};
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+  }
+}
+
+function loadRazorpayScript(): Promise<void> {
+  if (window.Razorpay) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Failed to load Razorpay")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Razorpay"));
+    document.body.appendChild(script);
+  });
+}
 
 const PLAN_CARDS: Array<{
   tier: SubscriptionTier;
   name: string;
   description: string;
+  price: string;
   cta: string;
   features: string[];
 }> = [
@@ -52,6 +101,7 @@ const PLAN_CARDS: Array<{
     tier: "free",
     name: "Free",
     description: "Start hiring with basic access.",
+    price: "₹0",
     cta: "Current free plan",
     features: [
       "2 active job listings",
@@ -64,7 +114,8 @@ const PLAN_CARDS: Array<{
     tier: "starter",
     name: "Starter",
     description: "For small teams actively shortlisting.",
-    cta: "Request Starter",
+    price: "₹2,999 / month",
+    cta: "Pay ₹2,999",
     features: [
       "5 active job listings",
       "50 full profile views/month",
@@ -76,7 +127,8 @@ const PLAN_CARDS: Array<{
     tier: "growth",
     name: "Growth",
     description: "For teams that need deeper hiring workflows.",
-    cta: "Request Growth",
+    price: "₹7,999 / month",
+    cta: "Pay ₹7,999",
     features: [
       "Unlimited active job listings",
       "Unlimited full profile views",
@@ -97,23 +149,49 @@ function usagePercent(used: number, limit: number): number {
   return Math.min(100, Math.round((used / limit) * 100));
 }
 
+function formatPaymentAmount(amountPaise: number, currency = "INR"): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amountPaise / 100);
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) return "Not available";
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function paymentBadgeClass(status: string): string {
+  if (status === "paid") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+  if (status === "failed" || status === "refunded") return "bg-red-500/15 text-red-200 border-red-500/30";
+  return "bg-amber-500/15 text-amber-200 border-amber-500/30";
+}
+
 export default function RecruiterPlansPage() {
   const { user } = useAuth();
   const [subscription, setSubscription] = useState<RecruiterSubscription | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<RecruiterPaymentCurrent | null>(null);
   const [profile, setProfile] = useState<RecruiterProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [requestingTier, setRequestingTier] = useState<SubscriptionTier | null>(null);
+  const [payingTier, setPayingTier] = useState<SubscriptionTier | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [subRes, profileRes] = await Promise.all([
+        const [subRes, paymentRes, profileRes] = await Promise.all([
           api.get<RecruiterSubscription>("/api/users/me/recruiter-subscription"),
+          api.get<RecruiterPaymentCurrent>("/api/recruiter/payments/current"),
           api.get<{ profile: RecruiterProfile | null }>("/api/users/recruiter-profile"),
         ]);
         if (!cancelled) {
           setSubscription(subRes);
+          setPaymentStatus(paymentRes);
           setProfile(profileRes.profile);
         }
       } catch (error: any) {
@@ -148,22 +226,81 @@ export default function RecruiterPlansPage() {
   const userRole = profile?.company_name || profile?.companyName || "Recruiter";
   const userInitials = userName.toString().split(/\s|@/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 
-  const requestUpgrade = async (tier: SubscriptionTier) => {
-    setRequestingTier(tier);
+  const refreshPlanDetails = async () => {
+    const [subRes, paymentRes] = await Promise.all([
+      api.get<RecruiterSubscription>("/api/users/me/recruiter-subscription"),
+      api.get<RecruiterPaymentCurrent>("/api/recruiter/payments/current"),
+    ]);
+    setSubscription(subRes);
+    setPaymentStatus(paymentRes);
+  };
+
+  const startPayment = async (tier: SubscriptionTier) => {
+    if (tier === "free") return;
+    setPayingTier(tier);
     try {
-      const result = await api.post<UpgradeRequestResponse>("/api/jobs/recruiter/upgrade-request", {
-        message: `Recruiter requested ${tier} plan from Plans & Upgrade page.`,
-      });
-      const planName = tier === "starter" ? "Starter" : "Growth";
-      if ((result.notified_admin_count ?? 0) > 0) {
-        toast.success(`${planName} request sent to admin.`);
-      } else {
-        toast.warning(`${planName} request was not delivered because no admin account was found.`);
+      const order = await api.post<RecruiterPaymentOrder>("/api/recruiter/payments/create-order", { tier });
+      if (!order.keyId) {
+        toast.error("Payment gateway is not configured.");
+        setPayingTier(null);
+        return;
       }
+      await loadRazorpayScript();
+      const Razorpay = window.Razorpay;
+      if (!Razorpay) {
+        toast.error("Could not load Razorpay checkout.");
+        setPayingTier(null);
+        return;
+      }
+
+      const checkout = new Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.orderId,
+        name: "ProvenHire",
+        description: `${order.planName} recruiter plan`,
+        prefill: {
+          name: userName,
+          email: user?.email,
+        },
+        notes: {
+          product: "recruiter_plan",
+          tier,
+        },
+        theme: {
+          color: "#e5bd2e",
+        },
+        handler: async (response: {
+          razorpay_order_id: string;
+          razorpay_payment_id: string;
+          razorpay_signature: string;
+        }) => {
+          try {
+            await api.post("/api/recruiter/payments/verify", {
+              orderId: response.razorpay_order_id,
+              paymentId: response.razorpay_payment_id,
+              signature: response.razorpay_signature,
+            });
+            await refreshPlanDetails();
+            toast.success(`${order.planName} plan activated.`);
+          } catch (error: any) {
+            toast.error(error?.message || "Payment succeeded, but verification is pending. Please refresh in a moment.");
+          } finally {
+            setPayingTier(null);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setPayingTier(null);
+            toast.message("Payment cancelled. Your plan was not changed.");
+          },
+        },
+      });
+      checkout.open();
     } catch (error: any) {
-      toast.error(error?.message || "Could not send upgrade request.");
-    } finally {
-      setRequestingTier(null);
+      setPayingTier(null);
+      toast.error(error?.message || "Could not start payment.");
     }
   };
 
@@ -176,7 +313,7 @@ export default function RecruiterPlansPage() {
         <div className="dashboard-section-header flex-wrap gap-4">
           <div>
             <h1>Plans & Upgrade</h1>
-            <p>Review recruiter plan limits and request a manual upgrade.</p>
+            <p>Review recruiter plan limits and pay securely with Razorpay.</p>
           </div>
           <Button className="dashboard-btn-ghost" asChild>
             <Link to="/dashboard/recruiter">Back to dashboard</Link>
@@ -229,6 +366,51 @@ export default function RecruiterPlansPage() {
               </Card>
             )}
 
+            {paymentStatus?.latestPayment && (
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <CreditCard className="h-5 w-5 text-primary" />
+                        Latest payment
+                      </CardTitle>
+                      <CardDescription>
+                        {paymentStatus.latestPayment.status === "paid"
+                          ? `Access active until ${formatDate(paymentStatus.latestPayment.periodEnd)}.`
+                          : "Use this status when retrying payment or contacting support."}
+                      </CardDescription>
+                    </div>
+                    <Badge className={paymentBadgeClass(paymentStatus.latestPayment.status)}>
+                      {paymentStatus.latestPayment.status}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <p className="text-[var(--dash-text-muted)]">Plan</p>
+                    <p className="font-semibold capitalize text-white">{paymentStatus.latestPayment.tier}</p>
+                  </div>
+                  <div>
+                    <p className="text-[var(--dash-text-muted)]">Amount</p>
+                    <p className="font-semibold text-white">
+                      {formatPaymentAmount(paymentStatus.latestPayment.amountPaise, paymentStatus.latestPayment.currency)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[var(--dash-text-muted)]">Order</p>
+                    <p className="truncate font-mono text-xs text-white">
+                      {paymentStatus.latestPayment.razorpayOrderId ?? "Not created"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[var(--dash-text-muted)]">Paid</p>
+                    <p className="font-semibold text-white">{formatDate(paymentStatus.latestPayment.paidAt)}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <div className="grid gap-4 lg:grid-cols-3">
               {PLAN_CARDS.map((plan) => {
                 const isCurrent = subscription?.subscriptionTier === plan.tier;
@@ -243,6 +425,7 @@ export default function RecruiterPlansPage() {
                         )}
                       </div>
                       <CardDescription>{plan.description}</CardDescription>
+                      <div className="pt-2 text-2xl font-semibold text-white">{plan.price}</div>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <ul className="space-y-2">
@@ -256,10 +439,19 @@ export default function RecruiterPlansPage() {
                       {isPaid ? (
                         <Button
                           className="dashboard-btn-gold w-full"
-                          disabled={isCurrent || requestingTier !== null}
-                          onClick={() => requestUpgrade(plan.tier)}
+                          disabled={isCurrent || payingTier !== null}
+                          onClick={() => startPayment(plan.tier)}
                         >
-                          {requestingTier === plan.tier ? "Sending..." : isCurrent ? "Current plan" : plan.cta}
+                          {payingTier === plan.tier ? (
+                            <span className="inline-flex items-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Opening checkout
+                            </span>
+                          ) : isCurrent ? (
+                            "Current plan"
+                          ) : (
+                            plan.cta
+                          )}
                         </Button>
                       ) : (
                         <Button className="dashboard-btn-ghost w-full" disabled>

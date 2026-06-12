@@ -9,7 +9,12 @@ export type SubscriptionTier = "free" | "starter" | "growth";
 export function normalizeSubscriptionTier(usage: {
   planType: string;
   subscriptionTier: string;
+  periodEnd?: Date | string | null;
 }): SubscriptionTier {
+  if (usage.periodEnd) {
+    const end = usage.periodEnd instanceof Date ? usage.periodEnd : new Date(usage.periodEnd);
+    if (!Number.isNaN(end.getTime()) && end <= new Date()) return "free";
+  }
   const t = (usage.subscriptionTier || "").toLowerCase();
   if (t === "starter" || t === "growth") return t;
   if (usage.planType === "paid") return "growth";

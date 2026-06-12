@@ -125,6 +125,24 @@ interface AdminNotification {
   created_at?: string | null;
 }
 
+interface RecruiterPlanPayment {
+  id: string;
+  recruiter_email: string | null;
+  recruiter_name: string | null;
+  company_name: string | null;
+  tier: string;
+  amount_paise: number;
+  currency: string;
+  status: string;
+  razorpay_order_id: string | null;
+  razorpay_payment_id: string | null;
+  failure_reason: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
 function isUpgradeRequestNotification(notification: AdminNotification): boolean {
   return (notification.title ?? notification.subject ?? "").toLowerCase() === "recruiter upgrade request";
 }
@@ -160,6 +178,7 @@ const AdminDashboard = () => {
   const [applications, setApplications] = useState<any[]>([]);
   const [interviewerApplications, setInterviewerApplications] = useState<InterviewerApplication[]>([]);
   const [upgradeRequests, setUpgradeRequests] = useState<AdminNotification[]>([]);
+  const [recruiterPlanPayments, setRecruiterPlanPayments] = useState<RecruiterPlanPayment[]>([]);
   const [jobSeekerSearch, setJobSeekerSearch] = useState("");
   const [jobSeekerStatusFilter, setJobSeekerStatusFilter] = useState("all");
   const [recruiterSearch, setRecruiterSearch] = useState("");
@@ -219,7 +238,7 @@ const AdminDashboard = () => {
     const FETCH_TIMEOUT_MS = 20000;
     setLoading(true);
     try {
-      const [jobsRes, jobSeekersRes, recruitersRes, statsRes, applicationsRes, interviewerAppsRes, notificationsRes] = await Promise.allSettled([
+      const [jobsRes, jobSeekersRes, recruitersRes, statsRes, applicationsRes, interviewerAppsRes, notificationsRes, recruiterPaymentsRes] = await Promise.allSettled([
         api.get<{ jobs: Job[] }>("/api/admin/jobs"),
         api.get<{ jobSeekers: JobSeeker[] }>("/api/admin/job-seekers"),
         api.get<{ recruiters: Recruiter[] }>("/api/admin/recruiters"),
@@ -227,6 +246,7 @@ const AdminDashboard = () => {
         api.get<{ applications: any[] }>("/api/admin/applications"),
         api.get<{ applications: InterviewerApplication[] }>("/api/admin/interviewer-applications"),
         api.get<{ notifications: AdminNotification[] }>("/api/notifications"),
+        api.get<{ payments: RecruiterPlanPayment[] }>("/api/admin/recruiter-plan-payments"),
       ]);
 
       const jobsData = jobsRes.status === "fulfilled" ? jobsRes.value?.jobs ?? [] : [];
@@ -236,6 +256,7 @@ const AdminDashboard = () => {
       const appsData = applicationsRes.status === "fulfilled" ? applicationsRes.value?.applications ?? [] : [];
       const interviewerAppsData = interviewerAppsRes.status === "fulfilled" ? interviewerAppsRes.value?.applications ?? [] : [];
       const notificationData = notificationsRes.status === "fulfilled" ? notificationsRes.value?.notifications ?? [] : [];
+      const recruiterPaymentsData = recruiterPaymentsRes.status === "fulfilled" ? recruiterPaymentsRes.value?.payments ?? [] : [];
 
       setJobs(jobsData);
       setJobSeekers(seekersData);
@@ -243,6 +264,7 @@ const AdminDashboard = () => {
       setApplications(appsData);
       setInterviewerApplications(interviewerAppsData);
       setUpgradeRequests(notificationData.filter(isUpgradeRequestNotification));
+      setRecruiterPlanPayments(recruiterPaymentsData);
       setStats({
         totalJobSeekers: statsData?.totalJobSeekers ?? seekersData.length,
         totalRecruiters: statsData?.totalRecruiters ?? recruitersData.length,
@@ -1631,6 +1653,7 @@ const AdminDashboard = () => {
           </TabsContent>
 
           <TabsContent value="upgrade-requests">
+            <div className="space-y-4">
             <Card>
               <CardHeader className="p-4 sm:p-6">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1704,6 +1727,84 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+            <Card>
+              <CardHeader className="p-4 sm:p-6">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">Recruiter Razorpay Payments</CardTitle>
+                    <CardDescription>
+                      Latest Starter/Growth payment records for support and reconciliation.
+                    </CardDescription>
+                  </div>
+                  <Badge variant="secondary">{recruiterPlanPayments.length} records</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[980px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Recruiter</TableHead>
+                        <TableHead>Plan</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Razorpay IDs</TableHead>
+                        <TableHead>Paid / Access</TableHead>
+                        <TableHead>Issue</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recruiterPlanPayments.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                            No Razorpay recruiter payments yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        recruiterPlanPayments.map((payment) => (
+                          <TableRow key={payment.id}>
+                            <TableCell className="align-top">
+                              <Badge variant={payment.status === "paid" ? "default" : payment.status === "failed" ? "destructive" : "secondary"}>
+                                {payment.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div className="font-medium">{payment.recruiter_name || payment.recruiter_email || "Recruiter"}</div>
+                              <div className="text-sm text-muted-foreground">{payment.company_name || "No company"}</div>
+                              {payment.recruiter_email && (
+                                <div className="text-xs text-muted-foreground">{payment.recruiter_email}</div>
+                              )}
+                            </TableCell>
+                            <TableCell className="align-top capitalize">{payment.tier}</TableCell>
+                            <TableCell className="align-top">
+                              {new Intl.NumberFormat("en-IN", {
+                                style: "currency",
+                                currency: payment.currency || "INR",
+                                maximumFractionDigits: 0,
+                              }).format((payment.amount_paise || 0) / 100)}
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div className="font-mono text-xs">order: {payment.razorpay_order_id || "-"}</div>
+                              <div className="font-mono text-xs">pay: {payment.razorpay_payment_id || "-"}</div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div>{formatDateDisplay(payment.paid_at)}</div>
+                              <div className="text-xs text-muted-foreground">
+                                until {formatDateDisplay(payment.period_end)}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top max-w-xs text-sm text-muted-foreground">
+                              {payment.failure_reason || "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="integrity">

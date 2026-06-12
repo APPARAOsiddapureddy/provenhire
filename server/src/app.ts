@@ -28,6 +28,8 @@ import { candidateContextRouter } from "./routes/candidateContext.js";
 import { workspacesRouter } from "./routes/workspaces.js";
 import { userWorkspacesRouter } from "./routes/userWorkspaces.js";
 import { sessionRouter } from "./routes/session.js";
+import { recruiterPaymentsRouter } from "./routes/recruiterPayments.js";
+import { razorpayWebhookRouter } from "./routes/razorpayWebhook.js";
 
 export function createApp() {
   const app = express();
@@ -77,6 +79,7 @@ export function createApp() {
       crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     })
   );
+  app.use("/api/webhooks/razorpay", express.raw({ type: "application/json", limit: "1mb" }), razorpayWebhookRouter);
   app.use(express.json({ limit: "2mb" }));
   if (process.env.HTTP_ACCESS_LOGS === "true") {
     app.use(
@@ -223,6 +226,8 @@ export function createApp() {
         "/api/workspaces",
         "/api/user/workspaces",
         "/api/session",
+        "/api/recruiter/payments",
+        "/api/webhooks/razorpay",
       ],
     });
   });
@@ -253,6 +258,7 @@ export function createApp() {
   app.use("/api/workspaces", workspacesRouter);
   app.use("/api/user/workspaces", userWorkspacesRouter);
   app.use("/api/session", sessionRouter);
+  app.use("/api/recruiter/payments", recruiterPaymentsRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Route not found" });
