@@ -54,19 +54,19 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://provenhire-updated.onrender.com/api/:path*"
+      "destination": "https://provenhire.onrender.com/api/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://provenhire-updated.onrender.com/health"
+      "destination": "https://provenhire.onrender.com/health"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://provenhire-updated.onrender.com/uploads/:path*"
+      "destination": "https://provenhire.onrender.com/uploads/:path*"
     },
     {
       "source": "/diagnostic",
-      "destination": "https://provenhire-updated.onrender.com/diagnostic"
+      "destination": "https://provenhire.onrender.com/diagnostic"
     },
     { "source": "/((?!assets/).*)", "destination": "/" }
   ]
