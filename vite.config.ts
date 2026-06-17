@@ -1,5 +1,4 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
 /** In dev only: replace Vite proxy connection errors with one friendly line. Production does not use Vite proxy. */
@@ -175,7 +174,7 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-  plugins: [quietProxyErrors(), coopHeader(), apiHealthProxy(), googleSiteVerificationHtml(), react()],
+  plugins: [quietProxyErrors(), coopHeader(), apiHealthProxy(), googleSiteVerificationHtml()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -227,5 +226,6 @@ export default defineConfig(({ mode }) => ({
   },
   optimizeDeps: {
     include: ["react", "react-dom", "@tanstack/react-query"],
+    exclude: ["lucide-react"],
   },
 }));
