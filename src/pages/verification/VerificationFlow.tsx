@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useEffect, useCallback } from "react";
+import { type ReactNode, Suspense, lazy, useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -29,6 +29,9 @@ const SystemDesignInterviewStage = lazy(() => import("./stages/SystemDesignInter
 import PracticeStageDialog from "@/components/PracticeStageDialog";
 import { checkInvalidatedTests, checkCooldownStatus } from "@/utils/recordingUpload";
 import { stopInterviewAudioOutput } from "@/lib/interviewTts";
+import DashboardShell from "@/components/DashboardShell";
+import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
+import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
 import {
   normalizeTechnicalStageOrderForDisplay,
   technicalStageOrderFallback,
@@ -63,6 +66,7 @@ const VerificationFlow = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  const { shellUser } = useJobSeekerShellIdentity();
   const [stages, setStages] = useState<VerificationStage[]>([]);
   const [currentStage, setCurrentStage] = useState<string>('profile_setup');
   const [loading, setLoading] = useState(true);
@@ -113,6 +117,17 @@ const VerificationFlow = () => {
   const [pipelineOrderFromApi, setPipelineOrderFromApi] = useState<string[]>(() => technicalStagesForTier("fresher"));
   const stageOrder = pipelineOrderFromApi;
   const LOAD_TIMEOUT_MS = 30000;
+  const sidebarSections = buildJobSeekerSidebarSections({
+    activeItem: "verification",
+    onDashboardSection: (section: JobSeekerDashboardSection) => {
+      navigate("/dashboard/jobseeker", { state: { section } });
+    },
+  });
+  const renderShell = (children: ReactNode) => (
+    <DashboardShell sidebarSections={sidebarSections} user={shellUser}>
+      {children}
+    </DashboardShell>
+  );
 
   const resolveTechnicalOrderForResponse = (
     rt: string,
@@ -161,6 +176,14 @@ const VerificationFlow = () => {
     order.map(
       (name) => data.find((s) => s.stage_name === name) ?? { stage_name: name, status: 'locked' as StageStatus }
     );
+
+  const resolveCurrentStageFromOrder = (stagesList: VerificationStage[], order: string[]) => {
+    for (const stageName of order) {
+      const status = stagesList.find((s) => s.stage_name === stageName)?.status ?? "locked";
+      if (status !== "completed") return stageName;
+    }
+    return "verification_complete";
+  };
 
   const checkCooldowns = useCallback(async () => {
     if (!user) return;
@@ -236,21 +259,7 @@ const VerificationFlow = () => {
 
         const stagesList = mergeStagesWithOrder(data as VerificationStage[], orderEff);
         setStages(stagesList);
-        const firstInProgress = stagesList.find((s) => s.status === 'in_progress');
-        const firstFailed = stagesList.find((s) => s.status === 'failed');
-        const firstPendingReview = stagesList.find((s) => s.status === 'pending_review');
-        const firstLocked = stagesList.find((s) => s.status === 'locked');
-        if (firstInProgress) setCurrentStage(firstInProgress.stage_name);
-        else if (firstFailed) setCurrentStage(firstFailed.stage_name);
-        else if (firstPendingReview) setCurrentStage(firstPendingReview.stage_name);
-        else if (firstLocked) setCurrentStage(firstLocked.stage_name);
-        else {
-          const lastCompleted = stagesList.filter((s) => s.status === "completed").pop();
-          if (lastCompleted) {
-            const nextIndex = orderEff.indexOf(lastCompleted.stage_name) + 1;
-            if (nextIndex < orderEff.length) setCurrentStage(orderEff[nextIndex]!);
-          }
-        }
+        setCurrentStage(resolveCurrentStageFromOrder(stagesList, orderEff));
 
       };
 
@@ -302,6 +311,15 @@ const VerificationFlow = () => {
   const getStageStatus = (stageName: string): StageStatus => {
     const stage = stages.find(s => s.stage_name === stageName);
     return stage?.status || 'locked';
+  };
+
+  const getSequentialStageStatus = (stageName: string): StageStatus => {
+    const stageIndex = stageOrder.indexOf(stageName);
+    if (stageIndex <= 0) return getStageStatus(stageName);
+    const hasEarlierBlocker = stageOrder
+      .slice(0, stageIndex)
+      .some((name) => getStageStatus(name) !== "completed");
+    return hasEarlierBlocker ? "locked" : getStageStatus(stageName);
   };
 
   const getStageIcon = (status: StageStatus) => {
@@ -949,9 +967,13 @@ const VerificationFlow = () => {
                       onClick={async () => {
                         try {
                           await launchAntigravityLabForStage("expert_interview");
-                        } catch {
-                          setTestStageStarted((p) => ({ ...p, expert_interview: true }));
-                          navigate("/dashboard/jobseeker/antigravity");
+                        } catch (err: unknown) {
+                          toast({
+                            title: "Cannot start AI Interview",
+                            description: (err as Error)?.message || "Complete the previous verification step before continuing.",
+                            variant: "destructive",
+                          });
+                          await loadVerificationStages();
                         }
                       }}
                     >
@@ -1175,17 +1197,17 @@ const VerificationFlow = () => {
     }
   };
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
+    return renderShell(
+      <div className="verification-page verification-page--center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
 
   if (loadError) {
-    return (
-      <div className="min-h-screen bg-gradient-subtle p-4 flex items-center justify-center">
-        <Card className="max-w-md w-full">
+    return renderShell(
+      <div className="verification-page verification-page--center">
+        <Card className="verification-panel max-w-md w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5" />
@@ -1216,16 +1238,16 @@ const VerificationFlow = () => {
     (currentStage === "data_system_design" && testStageStarted.data_system_design) ||
     (currentStage === "system_design_interview" && testStageStarted.system_design_interview);
 
-  return (
-    <div className={`min-h-screen bg-gradient-subtle ${isInActiveTest ? "p-0 sm:p-2" : "p-4"}`}>
-      <div className={`mx-auto ${isInActiveTest ? "w-full max-w-none px-3 sm:px-6 py-2 sm:py-3" : "container max-w-6xl py-8"}`}>
+  return renderShell(
+    <div className={`verification-page ${isInActiveTest ? "verification-page--active-test" : ""}`}>
+      <div className={isInActiveTest ? "verification-inner verification-inner--wide" : "verification-inner"}>
         {!isInActiveTest && (
-          <Card className="mb-8">
+          <Card className="verification-panel mb-8">
             <CardHeader>
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <CardTitle>Verification Process</CardTitle>
-                  <CardDescription>Complete each stage to become a verified job seeker</CardDescription>
+                  <CardTitle className="text-white">Verification Process</CardTitle>
+                  <CardDescription className="text-[var(--dash-text-muted)]">Complete each stage to become a verified job seeker</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   {canRetryStage(currentStage) && (
@@ -1240,7 +1262,7 @@ const VerificationFlow = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="mb-4 rounded-lg border bg-muted/20 p-3">
+              <div className="verification-cert-summary">
                 <p className="text-sm font-medium">Current certification: L{certificationLevel} - {certificationLabel}</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Complete the remaining stages to unlock higher-level opportunities.
@@ -1253,22 +1275,20 @@ const VerificationFlow = () => {
                 )}
               </div>
               <Progress value={calculateProgress()} className="h-3 mb-6" />
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="verification-stage-grid">
                 {stageOrder.map((stage) => (
                   <div
                     key={stage}
-                    className={`p-4 rounded-lg border ${
-                      currentStage === stage ? 'border-primary bg-primary/5' : 'border-border'
-                    }`}
+                    className={`verification-stage-card ${currentStage === stage ? 'verification-stage-card--active' : ''}`}
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      {getStageIcon(getStageStatus(stage))}
+                      {getStageIcon(getSequentialStageStatus(stage))}
                       <span className="text-sm font-medium">
                         {getStageLabel(stage)}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground capitalize">
-                      {getStageStatus(stage).split('_').join(' ')}
+                      {getSequentialStageStatus(stage).split('_').join(' ')}
                     </p>
                   </div>
                 ))}

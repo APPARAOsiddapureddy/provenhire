@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
-/** Technical: profile → aptitude → dsa → ai_interview → expert */
-/** Non-technical: profile → [domain] → assignment → expert (AI) */
+/** Technical display: Profile Setup -> DSA Round -> AI Interview */
+/** Non-technical: profile -> [domain] -> assignment -> expert (AI) */
 export type CompletedUpToStage =
   | "profile"
   | "aptitude"
@@ -31,12 +31,19 @@ interface SkillPassportProps {
   compact?: boolean;
 }
 
+const getTechnicalDisplayStageIndex = (stage: CompletedUpToStage) => {
+  if (!stage) return -1;
+  if (stage === "profile" || stage === "aptitude") return 0;
+  if (stage === "dsa") return 1;
+  if (stage === "ai_interview" || stage === "expert") return 2;
+  return -1;
+};
+
 const SkillPassport = ({
   certificationLevel,
   skills,
   verificationStatus,
   completedUpToStage = null,
-  aptitudeScore,
   dsaScore,
   interviewScore,
   roleType = "technical",
@@ -87,63 +94,56 @@ const SkillPassport = ({
   const isFullyVerified =
     verificationStatus === "verified" || verificationStatus === "expert_verified";
 
-  /** Technical stages in order; non-tech uses profile → assignment → expert */
-  const techStageOrder: CompletedUpToStage[] = [
-    "profile",
-    "aptitude",
-    "dsa",
-    "ai_interview",
-    "expert",
-  ];
-  const nonTechStageOrder: CompletedUpToStage[] = nonTechHasDomainFundamentals
-    ? ["profile", "domain", "assignment", "expert"]
-    : ["profile", "assignment", "expert"];
-
-  const stageOrder =
-    roleType === "non_technical" ? nonTechStageOrder : techStageOrder;
-  const stageIndex = completedUpToStage
-    ? stageOrder.indexOf(completedUpToStage)
-    : -1;
-
-  /** Determine effective stage for display (full verified overrides) */
   const effectiveStage: CompletedUpToStage = isFullyVerified
     ? "expert"
     : completedUpToStage;
 
+  const nonTechStageOrder: CompletedUpToStage[] = nonTechHasDomainFundamentals
+    ? ["profile", "domain", "assignment", "expert"]
+    : ["profile", "assignment", "expert"];
+  const stageIndex = completedUpToStage
+    ? nonTechStageOrder.indexOf(completedUpToStage)
+    : -1;
+
+  const technicalDisplayStageIndex =
+    roleType === "technical" ? getTechnicalDisplayStageIndex(effectiveStage) : -1;
+  const technicalStageStatus =
+    technicalDisplayStageIndex === 0
+      ? "Profile Setup complete - Next: DSA Round"
+      : technicalDisplayStageIndex === 1
+        ? "DSA Round complete - Next: AI Interview"
+        : technicalDisplayStageIndex === 2
+          ? "AI Interview complete"
+          : "In progress";
+
   const showScoresFromDsa =
-    roleType === "technical" &&
-    (effectiveStage === "dsa" ||
-      effectiveStage === "ai_interview" ||
-      effectiveStage === "expert");
+    roleType === "technical" && technicalDisplayStageIndex >= 1;
   const nonTechAssignmentIdx = nonTechStageOrder.indexOf("assignment");
-  const showScoresFromAptitude =
-    (roleType === "technical" && stageIndex >= 1) ||
-    (roleType === "non_technical" &&
-      nonTechAssignmentIdx >= 0 &&
-      stageIndex >= nonTechAssignmentIdx &&
-      (effectiveStage === "assignment" || effectiveStage === "expert"));
+  const showAssignmentComplete =
+    roleType === "non_technical" &&
+    nonTechAssignmentIdx >= 0 &&
+    stageIndex >= nonTechAssignmentIdx &&
+    (effectiveStage === "assignment" || effectiveStage === "expert");
   const showInterviewScore =
-    (roleType === "technical" && (effectiveStage === "ai_interview" || effectiveStage === "expert")) ||
+    (roleType === "technical" && technicalDisplayStageIndex >= 2) ||
     (roleType === "non_technical" && effectiveStage === "expert");
 
   const getNextStepMessage = (): string => {
     if (isFullyVerified) return "";
     if (roleType === "technical") {
-      if (!effectiveStage || effectiveStage === "profile")
-        return "Complete Cognitive Assessment to unlock scores";
-      if (effectiveStage === "aptitude") return "Complete DSA Round to unlock more";
-      if (effectiveStage === "dsa") return "Complete AI Interview to unlock Skill Passport";
-      if (effectiveStage === "ai_interview")
-        return "Complete Human Expert Interview for full certification";
-    } else {
-      if (!effectiveStage || effectiveStage === "profile") {
-        return nonTechHasDomainFundamentals
-          ? "Complete Domain Fundamentals to continue"
-          : "Complete Assignment to unlock scores";
+      if (!effectiveStage || effectiveStage === "profile" || effectiveStage === "aptitude") {
+        return "Complete DSA Round to unlock scores";
       }
-      if (effectiveStage === "domain") return "Complete Assignment to unlock scores";
-      if (effectiveStage === "assignment") return "Complete AI Expert Interview to unlock Skill Passport";
+      if (effectiveStage === "dsa") return "Complete AI Interview to unlock Skill Passport";
+      return "";
     }
+    if (!effectiveStage || effectiveStage === "profile") {
+      return nonTechHasDomainFundamentals
+        ? "Complete Domain Fundamentals to continue"
+        : "Complete Assignment to unlock scores";
+    }
+    if (effectiveStage === "domain") return "Complete Assignment to unlock scores";
+    if (effectiveStage === "assignment") return "Complete AI Expert Interview to unlock Skill Passport";
     return "";
   };
 
@@ -227,23 +227,15 @@ const SkillPassport = ({
               ) : effectiveStage ? (
                 <p className="text-sm text-primary/90">
                   {roleType === "technical"
-                    ? effectiveStage === "profile"
-                      ? "Profile complete · Next: Cognitive Assessment"
-                      : effectiveStage === "aptitude"
-                        ? "Cognitive Assessment complete · Next: DSA"
-                        : effectiveStage === "dsa"
-                          ? "DSA complete · Next: AI Interview"
-                          : effectiveStage === "ai_interview"
-                            ? "AI Interview complete · Next: Human Expert"
-                            : "In progress"
+                    ? technicalStageStatus
                     : effectiveStage === "profile"
                       ? nonTechHasDomainFundamentals
-                        ? "Profile complete · Next: Domain fundamentals"
-                        : "Profile complete · Next: Assignment"
+                        ? "Profile complete - Next: Domain fundamentals"
+                        : "Profile complete - Next: Assignment"
                       : effectiveStage === "domain"
-                        ? "Domain fundamentals complete · Next: Assignment"
+                        ? "Domain fundamentals complete - Next: Assignment"
                         : effectiveStage === "assignment"
-                          ? "Assignment complete · Next: AI Expert Interview"
+                          ? "Assignment complete - Next: AI Expert Interview"
                           : "In progress"}
                 </p>
               ) : (
@@ -272,18 +264,14 @@ const SkillPassport = ({
       </CardHeader>
 
       <CardContent className="relative space-y-4">
-        {/* Stage progress indicator (when not fully verified) */}
         {!isFullyVerified && roleType === "technical" && (
           <div className="flex items-center gap-2 flex-wrap">
             {[
-              { key: "profile", label: "Profile" },
-              { key: "aptitude", label: "Aptitude" },
-              { key: "dsa", label: "DSA" },
+              { key: "profile_setup", label: "Profile Setup" },
+              { key: "dsa_round", label: "DSA Round" },
               { key: "ai_interview", label: "AI Interview" },
-              { key: "expert", label: "Expert" },
             ].map(({ key, label }, i) => {
-              const idx = techStageOrder.indexOf(key as CompletedUpToStage);
-              const done = stageIndex >= idx && idx >= 0;
+              const done = technicalDisplayStageIndex >= i;
               return (
                 <div
                   key={key}
@@ -340,10 +328,10 @@ const SkillPassport = ({
           </div>
         )}
 
-        {/* Scores - shown progressively based on completed stages */}
         <div
           className={cn(
-            roleType === "non_technical" ? "grid grid-cols-2 gap-3" : "grid grid-cols-3 gap-3"
+            "grid gap-3",
+            roleType === "non_technical" ? "grid-cols-2" : "grid-cols-1 sm:grid-cols-2"
           )}
         >
           {roleType === "non_technical" ? (
@@ -351,12 +339,12 @@ const SkillPassport = ({
               <div
                 className={cn(
                   "text-center p-3 rounded-lg",
-                  showScoresFromAptitude ? "bg-background/60" : "bg-muted/30"
+                  showAssignmentComplete ? "bg-background/60" : "bg-muted/30"
                 )}
               >
-                {showScoresFromAptitude ? (
+                {showAssignmentComplete ? (
                   <>
-                    <p className="text-2xl font-bold text-primary">✓</p>
+                    <p className="text-2xl font-bold text-primary">Done</p>
                     <p className="text-xs text-muted-foreground">Assignment</p>
                   </>
                 ) : (
@@ -392,26 +380,6 @@ const SkillPassport = ({
               <div
                 className={cn(
                   "text-center p-3 rounded-lg",
-                  showScoresFromAptitude ? "bg-background/60" : "bg-muted/30"
-                )}
-              >
-                {showScoresFromAptitude ? (
-                  <>
-                    <p className="text-2xl font-bold text-primary">
-                      {aptitudeScore ?? 0}%
-                    </p>
-                    <p className="text-xs text-muted-foreground">Aptitude</p>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
-                    <p className="text-xs text-muted-foreground">Aptitude</p>
-                  </>
-                )}
-              </div>
-              <div
-                className={cn(
-                  "text-center p-3 rounded-lg",
                   showScoresFromDsa ? "bg-background/60" : "bg-muted/30"
                 )}
               >
@@ -420,12 +388,12 @@ const SkillPassport = ({
                     <p className="text-2xl font-bold text-primary">
                       {dsaScore ?? 0}%
                     </p>
-                    <p className="text-xs text-muted-foreground">Technical</p>
+                    <p className="text-xs text-muted-foreground">DSA Round</p>
                   </>
                 ) : (
                   <>
                     <Lock className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
-                    <p className="text-xs text-muted-foreground">Technical</p>
+                    <p className="text-xs text-muted-foreground">DSA Round</p>
                   </>
                 )}
               </div>
@@ -440,12 +408,12 @@ const SkillPassport = ({
                     <p className="text-2xl font-bold text-primary">
                       {interviewScore ?? 0}%
                     </p>
-                    <p className="text-xs text-muted-foreground">Interview</p>
+                    <p className="text-xs text-muted-foreground">AI Interview</p>
                   </>
                 ) : (
                   <>
                     <Lock className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
-                    <p className="text-xs text-muted-foreground">Interview</p>
+                    <p className="text-xs text-muted-foreground">AI Interview</p>
                   </>
                 )}
               </div>
@@ -453,17 +421,15 @@ const SkillPassport = ({
           )}
         </div>
 
-        {/* Next step CTA */}
         {nextStepMessage && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
             <p className="text-sm text-muted-foreground mb-2">{nextStepMessage}</p>
             <Button asChild size="sm" className="w-full sm:w-auto">
-              <Link to="/verification">Continue Verification →</Link>
+              <Link to="/verification">{"Continue Verification ->"}</Link>
             </Button>
           </div>
         )}
 
-        {/* Verified Skills */}
         {skills && skills.length > 0 && (
           <div>
             <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
@@ -487,14 +453,13 @@ const SkillPassport = ({
           </div>
         )}
 
-        {/* Certification info */}
         {isFullyVerified && (
           <div className="pt-3 border-t border-border/50">
             <p className="text-xs text-muted-foreground flex items-center gap-2">
               <Shield className="h-3 w-3" />
               {roleType === "technical"
-                ? "5-Stage Verified • Only 18% of candidates pass"
-                : "3-Stage Verified • Only 18% of candidates pass"}
+                ? "3-Stage Verified - Only 18% of candidates pass"
+                : "3-Stage Verified - Only 18% of candidates pass"}
             </p>
           </div>
         )}

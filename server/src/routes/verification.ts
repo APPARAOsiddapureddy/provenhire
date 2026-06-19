@@ -678,21 +678,24 @@ verificationRouter.post("/stages/update", requireAuth, requireJobSeeker, async (
     data: updateData,
   });
 
-  if (roleTypeToTrack(roleType) === "software" && stageName === "dsa_round" && status === "failed") {
-    await Promise.all([
-      prisma.verificationStage.updateMany({
+  if (status === "failed") {
+    const { neededStages: currentStageOrder } = await resolveNeededVerificationStages(userId, profile);
+    const failedIndex = currentStageOrder.indexOf(stageName);
+    if (failedIndex >= 0) {
+      await prisma.verificationStage.updateMany({
         where: {
           userId,
-          stageName: "expert_interview",
-          status: { notIn: ["completed", "pending_review"] },
+          stageName: { in: currentStageOrder.slice(failedIndex + 1) },
         },
         data: { status: "locked", score: null },
-      }),
-      prisma.interview.updateMany({
-        where: { userId, interviewType: "ai_expert", status: "in_progress" },
+      });
+    }
+    if (stageName === "dsa_round") {
+      await prisma.interview.updateMany({
+        where: { userId, interviewType: { in: ["ai_expert", "ai_skills", "system_design"] }, status: "in_progress" },
         data: { status: "abandoned" },
-      }),
-    ]);
+      });
+    }
   }
 
   if (stageName === "profile_setup" && status === "completed") {

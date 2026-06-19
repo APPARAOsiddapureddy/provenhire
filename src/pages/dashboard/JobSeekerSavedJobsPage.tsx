@@ -2,7 +2,7 @@
  * Full list of saved jobs for job seekers. Linked from dashboard "See All" in Saved Jobs section.
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Briefcase, ExternalLink, Trash2 } from "lucide-react";
@@ -10,12 +10,15 @@ import { api } from "@/lib/api";
 import DashboardShell from "@/components/DashboardShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { ListChecks, Settings, LayoutGrid } from "lucide-react";
+import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
+import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
 
 export default function JobSeekerSavedJobsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [savedJobs, setSavedJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const { shellUser } = useJobSeekerShellIdentity();
 
   const loadSaved = () => {
     if (!user) return;
@@ -41,27 +44,17 @@ export default function JobSeekerSavedJobsPage() {
     }
   };
 
-  const sidebarSections = [
-    {
-      sectionLabel: "Candidate",
-      items: [
-        { label: "Dashboard", to: "/dashboard/jobseeker", icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
-        { label: "Applications", to: "/dashboard/jobseeker/applications", icon: <ListChecks className="w-[18px] h-[18px]" /> },
-        { label: "Saved Jobs", to: "/dashboard/jobseeker/saved", active: true, icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
-      ],
+  const sidebarSections = buildJobSeekerSidebarSections({
+    onDashboardSection: (section: JobSeekerDashboardSection) => {
+      navigate("/dashboard/jobseeker", { state: { section } });
     },
-  ];
-
-  const userName = user?.email?.split("@")[0] || "Candidate";
-  const initials = (userName || "U").slice(0, 2).toUpperCase();
+  });
 
   return (
     <div className="min-h-screen">
       <DashboardShell
         sidebarSections={sidebarSections}
-        user={{ name: userName, role: "Job Seeker", initials }}
+        user={shellUser}
       >
         <div className="dashboard-section-content">
           <div className="dashboard-section-header flex flex-wrap items-start justify-between gap-4">

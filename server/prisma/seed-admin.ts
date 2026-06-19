@@ -24,7 +24,7 @@ async function main() {
     // Promote existing user to admin
     await prisma.user.update({
       where: { id: existing.id },
-      data: { role: "admin" },
+      data: { role: "admin", emailVerified: true, authProvider: "EMAIL" },
     });
     console.log("Promoted existing user to admin.");
   } else {
@@ -35,6 +35,8 @@ async function main() {
         name: TEST_NAME,
         passwordHash: hash,
         role: "admin",
+        emailVerified: true,
+        authProvider: "EMAIL",
       },
     });
     console.log("Created test admin user.");

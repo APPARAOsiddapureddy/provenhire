@@ -9,10 +9,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Archive, ArrowLeft, ClipboardList, Eye, Play, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import type { Workspace, WorkspaceListResponse, WorkspaceStatus } from "./types";
 import { formatDateTime, statusBadgeClass, statusLabel, WORKSPACE_STATUSES } from "./workspaceUtils";
 
 const PAGE_SIZE = 20;
+
+type WorkspaceConfirmState = {
+  workspace: Workspace;
+  action: "archive" | "start" | "delete";
+} | null;
 
 export default function AdminWorkspacesPage() {
   const navigate = useNavigate();
@@ -25,6 +31,7 @@ export default function AdminWorkspacesPage() {
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<WorkspaceConfirmState>(null);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
@@ -51,12 +58,12 @@ export default function AdminWorkspacesPage() {
   }, [query]);
 
   const archiveWorkspace = async (workspace: Workspace) => {
-    if (!window.confirm(`Archive ${workspace.name}? Active MCQ sessions will be auto-evaluated.`)) return;
     setArchivingId(workspace.id);
     try {
       await api.patch(`/api/workspaces/${workspace.id}/status`, { status: "archived" });
       toast.success("Workspace archived.");
       await fetchWorkspaces();
+      setConfirmState(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Archive failed");
     } finally {
@@ -65,12 +72,12 @@ export default function AdminWorkspacesPage() {
   };
 
   const startWorkspace = async (workspace: Workspace) => {
-    if (!window.confirm(`Start ${workspace.name}? Registered users will be able to attempt rounds.`)) return;
     setStartingId(workspace.id);
     try {
       await api.post(`/api/workspaces/${workspace.id}/start`, {});
       toast.success("Workspace started.");
       await fetchWorkspaces();
+      setConfirmState(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Start failed");
     } finally {
@@ -79,19 +86,48 @@ export default function AdminWorkspacesPage() {
   };
 
   const deleteWorkspace = async (workspace: Workspace) => {
-    if (!window.confirm(`Delete ${workspace.name} (${workspace.code})? This permanently removes the workspace and related setup data.`)) return;
     setDeletingId(workspace.id);
     try {
       await api.del(`/api/workspaces/${workspace.id}`);
       toast.success("Workspace deleted.");
       setWorkspaces((prev) => prev.filter((item) => item.id !== workspace.id));
       await fetchWorkspaces();
+      setConfirmState(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Delete failed");
     } finally {
       setDeletingId(null);
     }
   };
+
+  const confirmCopy = confirmState
+    ? {
+        archive: {
+          title: `Archive ${confirmState.workspace.name}?`,
+          description: "Active MCQ sessions will be auto-evaluated.",
+          confirmLabel: "Yes, Archive",
+          variant: "default" as const,
+          loading: archivingId === confirmState.workspace.id,
+          onConfirm: () => archiveWorkspace(confirmState.workspace),
+        },
+        start: {
+          title: `Start ${confirmState.workspace.name}?`,
+          description: "Registered users will be able to attempt rounds.",
+          confirmLabel: "Yes, Start",
+          variant: "default" as const,
+          loading: startingId === confirmState.workspace.id,
+          onConfirm: () => startWorkspace(confirmState.workspace),
+        },
+        delete: {
+          title: `Delete ${confirmState.workspace.name}?`,
+          description: `This permanently removes ${confirmState.workspace.code} and related setup data.`,
+          confirmLabel: "Yes, Delete",
+          variant: "destructive" as const,
+          loading: deletingId === confirmState.workspace.id,
+          onConfirm: () => deleteWorkspace(confirmState.workspace),
+        },
+      }[confirmState.action]
+    : null;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -226,12 +262,12 @@ export default function AdminWorkspacesPage() {
                               {workspace.status === "draft" ? "Continue" : "View"}
                             </Button>
                             {workspace.status !== "draft" && workspace.status !== "archived" && (
-                              <Button variant="outline" size="sm" disabled={archivingId === workspace.id} onClick={() => archiveWorkspace(workspace)}>
+                              <Button variant="outline" size="sm" disabled={archivingId === workspace.id} onClick={() => setConfirmState({ workspace, action: "archive" })}>
                                 <Archive className="h-4 w-4" />
                               </Button>
                             )}
                             {workspace.status === "published" && (
-                              <Button variant="outline" size="sm" disabled={startingId === workspace.id} onClick={() => startWorkspace(workspace)}>
+                              <Button variant="outline" size="sm" disabled={startingId === workspace.id} onClick={() => setConfirmState({ workspace, action: "start" })}>
                                 <Play className="h-4 w-4" />
                               </Button>
                             )}
@@ -240,7 +276,7 @@ export default function AdminWorkspacesPage() {
                                 variant="destructive"
                                 size="sm"
                                 disabled={deletingId === workspace.id}
-                                onClick={() => deleteWorkspace(workspace)}
+                                onClick={() => setConfirmState({ workspace, action: "delete" })}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -270,6 +306,21 @@ export default function AdminWorkspacesPage() {
           </CardContent>
         </Card>
       </main>
+      {confirmCopy ? (
+        <WorkspaceConfirmDialog
+          open={Boolean(confirmState)}
+          title={confirmCopy.title}
+          description={confirmCopy.description}
+          confirmLabel={confirmCopy.confirmLabel}
+          cancelLabel="No"
+          loading={confirmCopy.loading}
+          variant={confirmCopy.variant}
+          onOpenChange={(open) => {
+            if (!open) setConfirmState(null);
+          }}
+          onConfirm={confirmCopy.onConfirm}
+        />
+      ) : null}
     </div>
   );
 }

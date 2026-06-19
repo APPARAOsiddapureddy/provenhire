@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import SEO from "@/components/SEO";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, MapPin, Briefcase, DollarSign, Bookmark, BookmarkCheck, Eye, Scale, X, Shield, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, MapPin, Briefcase, DollarSign, Bookmark, BookmarkCheck, Eye, Scale, X, Shield, Filter, ChevronLeft, ChevronRight, Lock } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +28,9 @@ import JobComparisonDialog from "@/components/JobComparisonDialog";
 import SkillGapAnalysis from "@/components/SkillGapAnalysis";
 import JobAlertSettings from "@/components/JobAlertSettings";
 import VerifiedBenefitsBanner from "@/components/VerifiedBenefitsBanner";
+import DashboardShell from "@/components/DashboardShell";
+import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
+import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
 
 interface Job {
   id: string;
@@ -93,6 +96,22 @@ const Jobs = () => {
     verificationProgress, 
     currentStage,
   } = useVerificationGate();
+  const isJobSeekerDashboardView = Boolean(user && userRole === "jobseeker");
+  const { shellUser: jobSeekerShellUser } = useJobSeekerShellIdentity({
+    enabled: isJobSeekerDashboardView,
+    isVerified,
+  });
+  const jobSeekerSidebarSections = useMemo(
+    () =>
+      buildJobSeekerSidebarSections({
+        activeItem: "jobs",
+        isVerified,
+        onDashboardSection: (section: JobSeekerDashboardSection) => {
+          navigate("/dashboard/jobseeker", { state: { section } });
+        },
+      }),
+    [isVerified, navigate]
+  );
 
   const deriveCertificationFromStages = (
     role: "technical" | "non_technical",
@@ -669,7 +688,7 @@ const Jobs = () => {
     return (
       <div className="min-h-screen flex flex-col bg-secondary">
         <SEO title="Jobs | ProvenHire" description="Browse jobs" path="/jobs" />
-        <Navbar />
+      {!isJobSeekerDashboardView && <Navbar />}
         <div className="flex-1 pt-24 flex items-center justify-center px-4">
           <div className="max-w-md w-full rounded-xl border border-border bg-card p-6 text-center">
             <p className="font-semibold text-foreground mb-2">Service unavailable</p>
@@ -677,7 +696,7 @@ const Jobs = () => {
             <Button onClick={() => { setLoading(true); loadJobs(); }}>Retry</Button>
           </div>
         </div>
-        <Footer />
+        {!isJobSeekerDashboardView && <Footer />}
       </div>
     );
   }
@@ -685,37 +704,37 @@ const Jobs = () => {
   if (loading && jobs.length === 0) {
     return (
       <div className="min-h-screen flex flex-col bg-secondary">
-        <Navbar />
+        {!isJobSeekerDashboardView && <Navbar />}
         <div className="flex-1 pt-24 flex items-center justify-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
         </div>
-        <Footer />
+        {!isJobSeekerDashboardView && <Footer />}
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen flex flex-col bg-secondary">
+  const pageContent = (
+    <>
       <SEO
         title="Jobs | ProvenHire – Verified Talent Hiring"
         description="Browse verified job listings on ProvenHire. Apply to roles from companies that trust skill-verified hiring and coding verification."
         path="/jobs"
       />
-      <Navbar />
+      {!isJobSeekerDashboardView && <Navbar />}
       
-      <div className="flex-1 pt-20 sm:pt-24 pb-8 sm:pb-12">
-        <div className="container mx-auto px-4 sm:px-6">
+      <div className={isJobSeekerDashboardView ? "jobs-dashboard-page" : "flex-1 pt-20 sm:pt-24 pb-8 sm:pb-12"}>
+        <div className={isJobSeekerDashboardView ? "jobs-dashboard-inner" : "container mx-auto px-4 sm:px-6"}>
           {/* Page Title */}
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-2 bg-gradient-hero bg-clip-text text-transparent">
+          <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold mb-2 bg-gradient-hero bg-clip-text text-transparent ${isJobSeekerDashboardView ? "text-left" : "text-center"}`}>
             Find Your Dream Job
           </h1>
-          <p className="text-center text-muted-foreground text-sm sm:text-base mb-6 sm:mb-8 max-w-xl mx-auto">
+          <p className={`text-muted-foreground text-sm sm:text-base mb-6 sm:mb-8 max-w-xl ${isJobSeekerDashboardView ? "" : "text-center mx-auto"}`}>
             Real roles from real companies. Listings appear here as recruiters post—get verified to stand out.
           </p>
 
           {/* Premium unlock banner */}
           {!isVerified && lockedJobsCount > 0 && (
-            <div className="max-w-5xl mx-auto mb-6">
+            <div className={`${isJobSeekerDashboardView ? "" : "max-w-5xl mx-auto"} mb-6`}>
               <div className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -737,7 +756,7 @@ const Jobs = () => {
 
           {/* Verified Benefits Banner - Show for unverified job seekers */}
           {user && userRole === 'jobseeker' && (
-            <div className="max-w-7xl mx-auto mb-6">
+            <div className={`${isJobSeekerDashboardView ? "" : "max-w-7xl mx-auto"} mb-6`}>
               <VerifiedBenefitsBanner
                 isVerified={isVerified}
                 verificationProgress={verificationProgress}
@@ -747,7 +766,7 @@ const Jobs = () => {
           )}
 
           {/* Advanced Search Bar */}
-          <div className="jobs-search-bar max-w-5xl mx-auto mb-8">
+          <div className={`jobs-search-bar mb-8 ${isJobSeekerDashboardView ? "" : "max-w-5xl mx-auto"}`}>
             <div className="flex flex-col md:flex-row gap-3 p-4 bg-card rounded-xl shadow-md border border-border">
               <div className="flex-1 flex items-center gap-2">
                 <Search className="h-5 w-5 text-muted-foreground" />
@@ -783,7 +802,7 @@ const Jobs = () => {
           </div>
 
           {/* Main Layout */}
-          <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 max-w-7xl mx-auto">
+          <div className={`flex flex-col lg:flex-row gap-6 lg:gap-8 ${isJobSeekerDashboardView ? "" : "max-w-7xl mx-auto"}`}>
             {/* Sidebar Filters - Desktop: sticky sidebar; Mobile: Sheet */}
             {(() => {
               const filtersContent = (
@@ -1272,7 +1291,17 @@ const Jobs = () => {
         userSkills={userSkills}
       />
 
-      <Footer />
+      {!isJobSeekerDashboardView && <Footer />}
+    </>
+  );
+
+  return isJobSeekerDashboardView ? (
+    <DashboardShell sidebarSections={jobSeekerSidebarSections} user={jobSeekerShellUser}>
+      {pageContent}
+    </DashboardShell>
+  ) : (
+    <div className="min-h-screen flex flex-col bg-secondary">
+      {pageContent}
     </div>
   );
 };

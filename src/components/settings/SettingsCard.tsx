@@ -13,16 +13,16 @@ interface SettingsCardProps {
 
 export function SettingsCard({ title, description, children, onSave, saving }: SettingsCardProps) {
   return (
-    <Card className="border-[var(--dash-navy-border)] bg-white/5">
-      <CardHeader>
+    <Card className="settings-card">
+      <CardHeader className="settings-card-header">
         <CardTitle className="text-lg text-white">{title}</CardTitle>
         {description && <CardDescription className="text-white/70">{description}</CardDescription>}
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="settings-card-content">
         {children}
         {onSave && (
           <Button
-            className="dashboard-btn-gold mt-4"
+            className="dashboard-btn-gold mt-4 settings-card-save"
             onClick={onSave}
             disabled={saving}
           >

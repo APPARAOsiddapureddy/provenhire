@@ -496,7 +496,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
   const isFlagEnabled = (name: string) => getFlagMode(name) === "MONITOR" || getFlagMode(name) === "STRICT";
   const tabSwitchMode = getFlagMode("tab_switch_detection");
   const tabSwitchDetectionEnabled = isFlagEnabled("tab_switch_detection");
-  const fullscreenRequired = isFlagEnabled("fullscreen_required");
+  const fullscreenRequired = true;
   const effectivelyFullScreen = !fullscreenRequired || isFullScreen;
   const strikeTerminationMode = getFlagMode("proctoring_strike_termination") as StrikeTerminationMode;
   const MAX_TAB_SWITCHES = tabSwitchMode === "STRICT" ? 3 : 999;
@@ -2072,7 +2072,7 @@ const DSARoundStage = ({ stageStatus, stageScore, onComplete, onRetry, isRetry =
         </div>
         )}
 
-        {selectedQuestion && !isFailed && (
+        {selectedQuestion && !isFailed && effectivelyFullScreen && (
           <>
             <div className="hidden h-[calc(100vh-220px)] min-h-[680px] overflow-hidden rounded-lg border border-border bg-background lg:block">
               <ResizablePanelGroup direction="horizontal">

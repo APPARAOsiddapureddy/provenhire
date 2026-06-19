@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase, CheckCircle, Clock, Settings, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert, LayoutGrid, FileCheck, ListChecks, BrainCircuit, ClipboardList } from "lucide-react";
+import { Briefcase, CheckCircle, Clock, TrendingUp, Award, Eye, FileText, BookmarkCheck, Trash2, ExternalLink, User, Lock, ShieldAlert } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { api, BACKEND_DOWN_MSG, hasAuthToken } from "@/lib/api";
@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { preloadVerificationFlow } from "@/preloads";
 import DashboardShell from "@/components/DashboardShell";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
+import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection, type JobSeekerSidebarActiveItem } from "@/utils/jobSeekerSidebar";
 
 const TECHNICAL_STAGE_ORDER = ['profile_setup', 'dsa_round', 'expert_interview'] as const;
 
@@ -125,7 +126,7 @@ const JobSeekerDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [showVerificationDialog, setShowVerificationDialog] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [dashboardSection, setDashboardSection] = useState<'candidate' | 'passport' | 'resume' | 'applications'>('candidate');
+  const [dashboardSection, setDashboardSection] = useState<JobSeekerDashboardSection>('candidate');
   const appliedAndRefetchedRef = useRef(false);
   /** Invalidate in-flight dashboard fetches on unmount or user change — prevents 401 cascades + Sonner/DOM errors */
   const dashboardFetchGenRef = useRef(0);
@@ -142,6 +143,13 @@ const JobSeekerDashboard = () => {
   /** v2: true until verification `profile_setup` is completed — server shows fresher stage order until then. */
   const [pipelinePendingProfileSetup, setPipelinePendingProfileSetup] = useState(false);
   const [resumeProfileLoading, setResumeProfileLoading] = useState(false);
+
+  useEffect(() => {
+    const requestedSection = (location.state as { section?: JobSeekerDashboardSection } | null)?.section;
+    if (!requestedSection || !["candidate", "passport", "resume", "applications"].includes(requestedSection)) return;
+    setDashboardSection(requestedSection);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
   // Role-title modal is hidden for now; all jobseekers default to Full Stack Developer on the backend.
   const showJobTitleModal = false;
   const roleType = (profile?.roleType ?? profile?.role_type ?? "technical") as "technical" | "non_technical" | "data";
@@ -640,21 +648,19 @@ const JobSeekerDashboard = () => {
     { label: "Profile Views", value: stats.profileViews.toString(), icon: Eye, color: "text-secondary-foreground" },
   ];
 
-  const sidebarSections: import("@/components/DashboardShell").DashboardSidebarSection[] = [
-    {
-      sectionLabel: "Candidate",
-      items: [
-        { label: "Verification Pipeline", onClick: () => setDashboardSection('candidate'), active: dashboardSection === 'candidate', icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
-        { label: "Skill Passport", onClick: () => setDashboardSection('passport'), active: dashboardSection === 'passport', badge: isVerified ? "Active" : undefined, icon: <FileCheck className="w-[18px] h-[18px]" /> },
-        { label: "My Resume", onClick: () => setDashboardSection('resume'), active: dashboardSection === 'resume', icon: <FileText className="w-[18px] h-[18px]" /> },
-        { label: "Antigravity Lab", to: "/dashboard/jobseeker/antigravity", icon: <BrainCircuit className="w-[18px] h-[18px]" /> },
-        { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Applications", onClick: () => setDashboardSection('applications'), active: dashboardSection === 'applications', icon: <ListChecks className="w-[18px] h-[18px]" /> },
-        { label: "Workspaces", to: "/dashboard/jobseeker/workspaces", icon: <ClipboardList className="w-[18px] h-[18px]" /> },
-        { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
-      ],
-    },
-  ];
+  const activeSidebarItem: JobSeekerSidebarActiveItem =
+    dashboardSection === "candidate"
+      ? "verification"
+      : dashboardSection === "passport"
+        ? "passport"
+        : dashboardSection === "resume"
+          ? "resume"
+          : "applications";
+  const sidebarSections = buildJobSeekerSidebarSections({
+    activeItem: activeSidebarItem,
+    isVerified,
+    onDashboardSection: setDashboardSection,
+  });
 
   const hasCompletedProfileSetup = Boolean((profile?.fullName ?? profile?.full_name)?.trim());
   const userName = (profile?.fullName ?? profile?.full_name) || user?.email?.split('@')[0] || 'Candidate';

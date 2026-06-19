@@ -12,6 +12,7 @@ import { prisma } from "../config/prisma.js";
 const BATCH_SIZE = 2;
 const BATCH_DELAY_MS = 600;
 const PENDING_RETRY_MS = 10 * 60 * 1000;
+const EMAIL_DELIVERY_TIMEOUT_MS = Math.max(3000, Number(process.env.EMAIL_DELIVERY_TIMEOUT_MS || 10000));
 
 const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
@@ -24,6 +25,9 @@ try {
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     gmailTransporter = nodemailer.createTransport({
       service: "gmail",
+      connectionTimeout: EMAIL_DELIVERY_TIMEOUT_MS,
+      greetingTimeout: EMAIL_DELIVERY_TIMEOUT_MS,
+      socketTimeout: EMAIL_DELIVERY_TIMEOUT_MS,
       auth: {
         user: process.env.GMAIL_USER,
         pass: process.env.GMAIL_APP_PASSWORD.replace(/\s/g, ""),
@@ -66,6 +70,22 @@ function appLink(path: string): string {
   const root = baseUrl().replace(/\/+$/, "");
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${root}${cleanPath}`;
+}
+
+async function withTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${EMAIL_DELIVERY_TIMEOUT_MS}ms`));
+        }, EMAIL_DELIVERY_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function paragraph(text: string): string {
@@ -119,12 +139,15 @@ async function sendEmailRaw(to: string, subject: string, html: string): Promise<
 
   if (resend) {
     try {
-      const { error } = await resend.emails.send({
-        from: FROM_EMAIL,
-        to,
-        subject,
-        html,
-      });
+      const { error } = await withTimeout(
+        "Resend email delivery",
+        resend.emails.send({
+          from: FROM_EMAIL,
+          to,
+          subject,
+          html,
+        }),
+      );
       if (!error) return true;
       console.warn("[Email] Resend failed:", error?.message ?? error);
     } catch (e) {
@@ -134,12 +157,15 @@ async function sendEmailRaw(to: string, subject: string, html: string): Promise<
 
   if (gmailTransporter && process.env.GMAIL_USER) {
     try {
-      await gmailTransporter.sendMail({
-        from: `ProvenHire <${process.env.GMAIL_USER}>`,
-        to,
-        subject,
-        html,
-      });
+      await withTimeout(
+        "Gmail email delivery",
+        gmailTransporter.sendMail({
+          from: `ProvenHire <${process.env.GMAIL_USER}>`,
+          to,
+          subject,
+          html,
+        }),
+      );
       return true;
     } catch (err) {
       console.error("[Email] Gmail failed:", err instanceof Error ? err.message : err);

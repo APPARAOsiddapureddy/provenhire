@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import RoundAttemptShell from "./RoundAttemptShell";
 
 type McqQuestion = {
@@ -42,6 +43,7 @@ export default function McqRoundRunner({ workspaceCode, sessionId }: { workspace
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
 
   const load = async () => {
     const res = await api.get<McqSnapshot>(`/api/session/mcq/${encodeURIComponent(sessionId)}`);
@@ -82,13 +84,13 @@ export default function McqRoundRunner({ workspaceCode, sessionId }: { workspace
   };
 
   const submit = async (auto = false) => {
-    if (!auto && !window.confirm("Submit this MCQ round? You cannot edit answers after submission.")) return;
     setSubmitting(true);
     try {
       const answer = current && selected[current.id] ? { questionId: current.id, selectedOption: selected[current.id] } : undefined;
       const res = await api.post<McqSnapshot>(`/api/session/mcq/${encodeURIComponent(sessionId)}/submit`, { answer });
       setSnapshot(res);
       setSelected(res.answers ?? {});
+      setSubmitConfirmOpen(false);
       toast.success(auto ? "MCQ time expired. Round submitted." : "MCQ round submitted.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to submit MCQ round");
@@ -175,7 +177,7 @@ export default function McqRoundRunner({ workspaceCode, sessionId }: { workspace
                     Save & Next
                   </Button>
                 ) : (
-                  <Button disabled={submitting || isFinalized} onClick={() => submit(false)}>
+                  <Button disabled={submitting || isFinalized} onClick={() => setSubmitConfirmOpen(true)}>
                     {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
                     Submit Round
                   </Button>
@@ -215,6 +217,16 @@ export default function McqRoundRunner({ workspaceCode, sessionId }: { workspace
           </CardContent>
         </Card>
       </div>
+      <WorkspaceConfirmDialog
+        open={submitConfirmOpen}
+        title="Submit this MCQ round?"
+        description="You cannot edit answers after submission."
+        confirmLabel="Yes, Submit"
+        cancelLabel="No"
+        loading={submitting}
+        onOpenChange={setSubmitConfirmOpen}
+        onConfirm={() => void submit(false)}
+      />
     </RoundAttemptShell>
   );
 }
