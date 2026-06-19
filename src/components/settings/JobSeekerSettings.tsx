@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, Link2, FileText, LogOut, UserPen } from "lucide-react";
+import { Mail, Link2, LogOut, UserPen } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PhoneInput } from "@/components/PhoneInput";
@@ -44,7 +44,6 @@ export function JobSeekerSettings() {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
-  const [resumeUrl, setResumeUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
   const [linkedInUrl, setLinkedInUrl] = useState("");
   const [portfolioUrl, setPortfolioUrl] = useState("");
@@ -84,7 +83,6 @@ export function JobSeekerSettings() {
         setFullName(profile?.fullName ?? profile?.full_name ?? u?.name ?? "");
         setPhone(profile?.phone ?? "");
         setLocation(profile?.location ?? "");
-        setResumeUrl(profile?.resumeUrl ?? "");
         setGithubUrl(profile?.githubUrl ?? "");
         setLinkedInUrl(profile?.linkedInUrl ?? "");
         setPortfolioUrl(profile?.portfolioUrl ?? "");
@@ -132,15 +130,6 @@ export function JobSeekerSettings() {
     loadSettings();
   }, []);
 
-  // Refetch when user returns to this tab so name/profile stays in sync (e.g. after resume upload or verification)
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") loadSettings();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, []);
-
   const addSkill = () => {
     const next = skillInput.trim();
     if (!next || skills.includes(next)) return;
@@ -159,7 +148,6 @@ export function JobSeekerSettings() {
         fullName: fullName.trim() || undefined,
         phone: phone.trim() || undefined,
         location: location.trim() || undefined,
-        resumeUrl: resumeUrl.trim() || undefined,
         githubUrl: githubUrl.trim() || undefined,
         linkedInUrl: linkedInUrl.trim() || undefined,
         portfolioUrl: portfolioUrl.trim() || undefined,
@@ -190,7 +178,19 @@ export function JobSeekerSettings() {
     }
   };
 
-  if (loading && !serverUnavailable && !sessionExpired) return <div className="text-white/70">Loading settings...</div>;
+  if (loading && !serverUnavailable && !sessionExpired) {
+    return (
+      <div className="settings-loading-state" role="status" aria-live="polite">
+        <div className="settings-loading-orbit" aria-hidden="true">
+          <span />
+        </div>
+        <div>
+          <p className="settings-loading-title">Loading settings</p>
+          <p className="settings-loading-copy">Preparing your profile controls...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (sessionExpired) {
     return (
@@ -223,16 +223,17 @@ export function JobSeekerSettings() {
   };
 
   return (
-    <div className="space-y-6">
-      <div id="jobseeker-settings-profile">
+    <div className="jobseeker-settings-grid">
+      <div className="settings-main-column">
+      <div id="jobseeker-settings-profile" className="settings-grid-main settings-card-profile">
       <SettingsCard
         title="Profile Information"
         description="Visible to recruiters. Keep your profile up to date."
         onSave={saveProfile}
         saving={saving}
       >
-        <div className="grid gap-4">
-          <div className="flex items-center gap-4">
+        <div className="settings-form-grid">
+          <div className="settings-avatar-row">
             <Avatar className="h-16 w-16">
               <AvatarImage src={userInfo?.profileImage} />
               <AvatarFallback className="bg-white/10 text-white">
@@ -241,16 +242,16 @@ export function JobSeekerSettings() {
             </Avatar>
             <div className="text-sm text-white/70">Profile photo from account</div>
           </div>
-          <div>
+          <div className="settings-field">
             <Label>Full name</Label>
             <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Your full name" />
           </div>
-          <div>
+          <div className="settings-field">
             <Label className="flex items-center gap-2"><Mail className="h-4 w-4" /> Email</Label>
             <Input value={userInfo?.email ?? user?.email} disabled className="mt-1 bg-white/5 opacity-70" />
             <p className="text-xs text-white/50 mt-1">Email cannot be changed</p>
           </div>
-          <div>
+          <div className="settings-field">
             <Label>Phone</Label>
             <PhoneInput
               value={phone}
@@ -259,15 +260,11 @@ export function JobSeekerSettings() {
               className="mt-1 bg-white/5 border-[var(--dash-navy-border)]"
             />
           </div>
-          <div>
+          <div className="settings-field">
             <Label>Location</Label>
             <Input value={location} onChange={(e) => setLocation(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="City, Country" />
           </div>
-          <div>
-            <Label className="flex items-center gap-2"><FileText className="h-4 w-4" /> Resume URL</Label>
-            <Input value={resumeUrl} onChange={(e) => setResumeUrl(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="https://..." />
-          </div>
-          <div>
+          <div className="settings-field settings-field-full">
             <Label className="flex items-center gap-2"><Link2 className="h-4 w-4" /> Portfolio links</Label>
             <div className="grid grid-cols-1 gap-2 mt-2">
               <Input value={githubUrl} onChange={(e) => setGithubUrl(e.target.value)} placeholder="GitHub URL" className="bg-white/5 border-[var(--dash-navy-border)]" />
@@ -279,14 +276,15 @@ export function JobSeekerSettings() {
       </SettingsCard>
       </div>
 
+      <div className="settings-grid-main settings-card-professional">
       <SettingsCard
         title="Professional profile"
         description="Bio, employment, and skills — used across verification and your recruiter-facing resume."
         onSave={saveProfile}
         saving={saving}
       >
-        <div className="grid gap-4">
-          <div>
+        <div className="settings-form-grid">
+          <div className="settings-field settings-field-full">
             <Label>Bio</Label>
             <Textarea
               value={bio}
@@ -296,7 +294,7 @@ export function JobSeekerSettings() {
               className="mt-1 resize-none bg-white/5 border-[var(--dash-navy-border)]"
             />
           </div>
-          <div>
+          <div className="settings-field settings-field-full">
             <Label>Employment status</Label>
             <div className="flex flex-wrap gap-3 mt-2">
               {(["employed", "unemployed", "student"] as const).map((status) => (
@@ -319,7 +317,7 @@ export function JobSeekerSettings() {
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="settings-field settings-field-full grid grid-cols-1 sm:grid-cols-2 gap-4">
             {employmentStatus === "employed" && (
               <>
                 <div>
@@ -352,7 +350,7 @@ export function JobSeekerSettings() {
               />
             </div>
           </div>
-          <div>
+          <div className="settings-field settings-field-full">
             <Label>Skills</Label>
             <div className="flex gap-2 mt-1">
               <Input
@@ -391,7 +389,11 @@ export function JobSeekerSettings() {
           </div>
         </div>
       </SettingsCard>
+      </div>
+      </div>
 
+      <div className="settings-side-column">
+      <div className="settings-grid-side settings-card-career">
       <SettingsCard
         title="Career Preferences"
         description="Helps recommend relevant jobs."
@@ -399,15 +401,15 @@ export function JobSeekerSettings() {
         saving={saving}
       >
         <div className="grid gap-4">
-          <div>
+          <div className="settings-field">
             <Label>Target job role</Label>
             <Input value={targetJobTitle} onChange={(e) => setTargetJobTitle(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="e.g. Senior Frontend Engineer" />
           </div>
-          <div>
+          <div className="settings-field">
             <Label>Preferred tech stack</Label>
             <Input value={preferredTechStack} onChange={(e) => setPreferredTechStack(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="React, TypeScript, Node (comma-separated)" />
           </div>
-          <div>
+          <div className="settings-field">
             <Label>Experience level</Label>
             <Select value={experienceLevel} onValueChange={setExperienceLevel}>
               <SelectTrigger className="mt-1 bg-white/5 border-[var(--dash-navy-border)]">
@@ -420,11 +422,11 @@ export function JobSeekerSettings() {
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="settings-field">
             <Label>Preferred locations</Label>
             <Input value={preferredLocations} onChange={(e) => setPreferredLocations(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Bangalore, Remote, Hyderabad (comma-separated)" />
           </div>
-          <div>
+          <div className="settings-field">
             <Label>Work mode preference</Label>
             <Select value={workModePreference} onValueChange={setWorkModePreference}>
               <SelectTrigger className="mt-1 bg-white/5 border-[var(--dash-navy-border)]">
@@ -439,7 +441,9 @@ export function JobSeekerSettings() {
           </div>
         </div>
       </SettingsCard>
+      </div>
 
+      <div className="settings-grid-side settings-card-security">
       <SettingsCard
         title="Account & Security"
         description="Notification preferences."
@@ -454,7 +458,9 @@ export function JobSeekerSettings() {
           <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
         </div>
       </SettingsCard>
+      </div>
 
+      <div className="settings-grid-side settings-card-account">
       <SettingsCard
         title="Your account"
         description="Profile edits, password, and sign-out — kept here so your dashboard stays focused on verification."
@@ -479,6 +485,8 @@ export function JobSeekerSettings() {
         </div>
         <p className="text-xs text-white/60 mt-3">Use Edit profile to jump to your details above, then Save Changes on each section.</p>
       </SettingsCard>
+      </div>
+      </div>
 
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
         <DialogContent className="border-[var(--dash-navy-border)] bg-[var(--dash-navy)]">

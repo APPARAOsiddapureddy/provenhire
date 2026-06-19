@@ -59,6 +59,25 @@ const refreshSchema = z.object({
 
 const googleAuthSchema = z.object({
   idToken: z.string().min(1, "Firebase ID token is required"),
+  role: z.enum(["jobseeker", "recruiter"]).optional(),
+  companyName: z.string().trim().min(2).max(120).optional(),
+  companySize: z.string().trim().max(50).optional(),
+  roleType: z.enum(["technical", "non_technical", "data"]).optional(),
+}).superRefine((value, ctx) => {
+  if (value.role === "recruiter" && !value.companyName) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["companyName"],
+      message: "Company name is required for recruiter Google signup.",
+    });
+  }
+  if (value.role === "recruiter" && !value.companySize) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["companySize"],
+      message: "Company size is required for recruiter Google signup.",
+    });
+  }
 });
 
 const googleSelectRoleSchema = z.object({
@@ -547,6 +566,7 @@ export async function googleAuth(req: Request, res: Response) {
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid payload" });
     }
+    const intendedRole = parsed.data.role ?? "jobseeker";
     const firebaseUser = await verifyFirebaseIdToken(parsed.data.idToken);
     const email = firebaseUser.email?.trim().toLowerCase();
     if (!email) {
@@ -576,25 +596,46 @@ export async function googleAuth(req: Request, res: Response) {
           email,
           name: firebaseUser.name ?? null,
           passwordHash: placeholderHash,
-          role: "jobseeker",
+          role: intendedRole,
           emailVerified: true,
           authProvider: "GOOGLE",
           googleUid: firebaseUser.uid,
           profileImage: firebaseUser.picture ?? null,
         } as Prisma.UserCreateInput,
       });
-      await prisma.jobSeekerProfile.upsert({
-        where: { userId: user.id },
-        create: {
-          userId: user.id,
-          fullName: firebaseUser.name ?? null,
-          email,
-          roleType: "technical",
-          targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
-        },
-        update: { fullName: firebaseUser.name ?? user.name },
-      });
+      if (intendedRole === "recruiter") {
+        await prisma.recruiterProfile.upsert({
+          where: { userId: user.id },
+          create: {
+            userId: user.id,
+            companyName: parsed.data.companyName ?? null,
+            companySize: parsed.data.companySize ?? null,
+          },
+          update: {
+            companyName: parsed.data.companyName ?? undefined,
+            companySize: parsed.data.companySize ?? undefined,
+          },
+        });
+      } else {
+        await prisma.jobSeekerProfile.upsert({
+          where: { userId: user.id },
+          create: {
+            userId: user.id,
+            fullName: firebaseUser.name ?? null,
+            email,
+            roleType: parsed.data.roleType ?? "technical",
+            targetJobTitle: DEFAULT_TARGET_JOB_TITLE,
+          },
+          update: { fullName: firebaseUser.name ?? user.name },
+        });
+      }
     } else if (!(user as { googleUid?: string | null }).googleUid) {
+      if (parsed.data.role && user.role !== parsed.data.role) {
+        return res.status(409).json({
+          error: `This Google email is already registered as ${user.role}. Please sign in with that role or use a different Google account.`,
+          code: "ROLE_MISMATCH",
+        });
+      }
       const shouldConvertPendingEmailAccount =
         !user.emailVerified && (user as { authProvider?: string | null }).authProvider !== "GOOGLE";
       user = await prisma.user.update({
@@ -612,11 +653,19 @@ export async function googleAuth(req: Request, res: Response) {
             : {}),
         } as Prisma.UserUpdateInput,
       });
-    } else if (!user.emailVerified) {
+    } else {
+      if (parsed.data.role && user.role !== parsed.data.role) {
+        return res.status(409).json({
+          error: `This Google account is already registered as ${user.role}. Please sign in with that role or use a different Google account.`,
+          code: "ROLE_MISMATCH",
+        });
+      }
+      if (!user.emailVerified) {
       user = await prisma.user.update({
         where: { id: user.id },
         data: { emailVerified: true },
       });
+      }
     }
 
     // Testing mode: ensure existing Google jobseekers default to technical (no chooser popup).

@@ -5,7 +5,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { COUNTRY_CODES } from "@/data/countryCodes";
 import { cn } from "@/lib/utils";
@@ -50,6 +49,10 @@ export const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
     const parsed = parsePhone(value);
     const [code, setCode] = React.useState(parsed.code);
     const [number, setNumber] = React.useState(parsed.number);
+    const selectedCountry = React.useMemo(
+      () => COUNTRY_CODES.find((c) => c.code === code) ?? COUNTRY_CODES[0],
+      [code]
+    );
 
     React.useEffect(() => {
       const p = parsePhone(value);
@@ -80,13 +83,22 @@ export const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
     return (
       <div className={cn("flex gap-2", className)}>
         <Select value={code} onValueChange={handleCodeChange}>
-          <SelectTrigger className="w-[120px] shrink-0">
-            <SelectValue placeholder="Code" />
+          <SelectTrigger
+            className="w-[64px] shrink-0 px-3"
+            aria-label={`Country calling code: ${selectedCountry.country} ${selectedCountry.code}`}
+          >
+            <span className="text-lg leading-none" aria-hidden="true">
+              {selectedCountry.flag}
+            </span>
           </SelectTrigger>
           <SelectContent>
             {COUNTRY_CODES.map((c) => (
               <SelectItem key={c.code} value={c.code}>
-                {c.code} {c.country}
+                <span className="inline-flex items-center gap-2">
+                  <span aria-hidden="true">{c.flag}</span>
+                  <span>{c.country}</span>
+                  <span className="text-muted-foreground">({c.code})</span>
+                </span>
               </SelectItem>
             ))}
           </SelectContent>

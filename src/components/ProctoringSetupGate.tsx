@@ -30,6 +30,8 @@ interface ProctoringSetupGateProps {
   isRetry?: boolean;
   /** When true, skip proctoring setup entirely (e.g. all proctoring flags OFF for testing). Shows "Start Test" only. */
   skipSetup?: boolean;
+  /** Require successful browser fullscreen before the assessment can begin. */
+  requireFullscreen?: boolean;
 }
 
 const ProctoringSetupGate = ({
@@ -39,6 +41,7 @@ const ProctoringSetupGate = ({
   screenShareOptional = false,
   isRetry = false,
   skipSetup = false,
+  requireFullscreen = true,
 }: ProctoringSetupGateProps) => {
   const [state, setState] = useState<ProctoringState>({
     screenShare: "pending",
@@ -215,6 +218,17 @@ const ProctoringSetupGate = ({
     }
   };
 
+  const enterFullscreenOrBlock = async () => {
+    if (!requireFullscreen || typeof document === "undefined" || document.fullscreenElement) return true;
+    try {
+      await document.documentElement.requestFullscreen();
+      return !!document.fullscreenElement;
+    } catch {
+      toast.error("Fullscreen is required before starting this assessment. Please allow fullscreen and try again.");
+      return false;
+    }
+  };
+
   const StatusIcon = ({ status }: { status: PermissionStatus }) => {
     if (status === "granted") return <CheckCircle2 className="h-5 w-5 text-green-600" />;
     if (status === "denied" || status === "unsupported") return <XCircle className="h-5 w-5 text-red-500" />;
@@ -231,15 +245,15 @@ const ProctoringSetupGate = ({
       microphoneStream: null,
     };
     return (
-      <Card className="border-2 border-primary/30">
+      <Card className="workspace-proctor-card">
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Shield className="h-6 w-6 text-primary" />
+            <div className="rounded-lg bg-[var(--dash-gold-dim)] p-3">
+              <Shield className="h-6 w-6 text-[var(--dash-gold)]" />
             </div>
             <div>
-              <CardTitle>Start {testName}</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-[var(--dash-text-primary)]">Start {testName}</CardTitle>
+              <CardDescription className="text-[var(--dash-text-secondary)]">
                 Proctoring is disabled for testing. Click below to begin the assessment.
               </CardDescription>
             </div>
@@ -248,7 +262,11 @@ const ProctoringSetupGate = ({
         <CardContent className="space-y-4">
           <ProctoringNotice />
           <Button
-            onClick={() => onReady(bypassState)}
+            onClick={async () => {
+              const fullscreenReady = await enterFullscreenOrBlock();
+              if (!fullscreenReady) return;
+              onReady(bypassState);
+            }}
             className="bg-primary text-primary-foreground hover:bg-primary/90 w-full"
           >
             <CheckCircle2 className="h-4 w-4 mr-2" />
@@ -260,15 +278,15 @@ const ProctoringSetupGate = ({
   }
 
   return (
-    <Card className="border-2 border-primary/30">
+    <Card className="workspace-proctor-card">
       <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Shield className="h-6 w-6 text-primary" />
+        <div className="flex items-start gap-4">
+          <div className="rounded-lg bg-[var(--dash-gold-dim)] p-3">
+            <Shield className="h-6 w-6 text-[var(--dash-gold)]" />
           </div>
-          <div>
-            <CardTitle>{isRetry ? "Re-enable proctoring" : "Proctoring setup required"}</CardTitle>
-            <CardDescription>
+          <div className="min-w-0">
+            <CardTitle className="text-[var(--dash-text-primary)]">{isRetry ? "Re-enable proctoring" : "Proctoring setup required"}</CardTitle>
+            <CardDescription className="text-[var(--dash-text-secondary)]">
               {isRetry
                 ? `You're retrying the ${testName}. Click "Re-enable & Start" below — camera and mic may not prompt again if you recently granted access.`
                 : `To ensure a fair assessment, please grant the following permissions before starting the ${testName}. Your session will be monitored throughout the test.`}
@@ -279,17 +297,17 @@ const ProctoringSetupGate = ({
       <CardContent className="space-y-6">
         <div className="grid gap-4">
           {enableScreenShare && (
-            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
-              <div className="flex items-center gap-3">
-                <Monitor className="h-5 w-5 text-primary" />
-                <div>
-                  <p className="font-medium">Screen sharing</p>
-                  <p className="text-sm text-muted-foreground">
+            <div className="workspace-proctor-row">
+              <div className="workspace-proctor-copy">
+                <Monitor className="mt-0.5 h-5 w-5 shrink-0 text-[var(--dash-gold)]" />
+                <div className="min-w-0">
+                  <p className="font-medium text-[var(--dash-text-primary)]">Screen sharing</p>
+                  <p className="text-sm text-[var(--dash-text-muted)]">
                     Share your screen so we can monitor your activity during the test
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="workspace-proctor-actions">
                 <StatusIcon status={state.screenShare} />
                 {state.screenShare === "pending" && supportsScreenShare && (
                   <Button
@@ -320,12 +338,12 @@ const ProctoringSetupGate = ({
           )}
 
           {/* Camera */}
-          <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-3">
-              <Video className="h-5 w-5 text-primary" />
-              <div>
-                <p className="font-medium">Camera</p>
-                <p className="text-sm text-muted-foreground">
+          <div className="workspace-proctor-row">
+            <div className="workspace-proctor-copy">
+              <Video className="mt-0.5 h-5 w-5 shrink-0 text-[var(--dash-gold)]" />
+              <div className="min-w-0">
+                <p className="font-medium text-[var(--dash-text-primary)]">Camera</p>
+                <p className="text-sm text-[var(--dash-text-muted)]">
                   Enable your webcam for face verification and proctoring
                 </p>
                 {state.camera === "granted" && !cameraHealthy && (
@@ -336,7 +354,7 @@ const ProctoringSetupGate = ({
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="workspace-proctor-actions">
               <StatusIcon status={state.camera} />
               {state.camera === "pending" && (
                 <Button
@@ -356,12 +374,12 @@ const ProctoringSetupGate = ({
           </div>
 
           {/* Microphone */}
-          <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-3">
-              <Mic className="h-5 w-5 text-primary" />
-              <div>
-                <p className="font-medium">Microphone</p>
-                <p className="text-sm text-muted-foreground">
+          <div className="workspace-proctor-row">
+            <div className="workspace-proctor-copy">
+              <Mic className="mt-0.5 h-5 w-5 shrink-0 text-[var(--dash-gold)]" />
+              <div className="min-w-0">
+                <p className="font-medium text-[var(--dash-text-primary)]">Microphone</p>
+                <p className="text-sm text-[var(--dash-text-muted)]">
                   Enable your microphone for audio monitoring during the test
                 </p>
                 {state.microphone === "granted" && !micHealthy && (
@@ -372,7 +390,7 @@ const ProctoringSetupGate = ({
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="workspace-proctor-actions">
               <StatusIcon status={state.microphone} />
               {state.microphone === "pending" && (
                 <Button
@@ -394,16 +412,16 @@ const ProctoringSetupGate = ({
 
         <ProctoringNotice />
 
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
-          <p className="text-sm font-semibold text-foreground">Before starting, confirm the checklist</p>
-          <div className="grid gap-2 text-sm text-muted-foreground">
+        <div className="workspace-proctor-checklist space-y-3">
+          <p className="text-sm font-semibold text-[var(--dash-text-primary)]">Before starting, confirm the checklist</p>
+          <div className="grid gap-2 text-sm text-[var(--dash-text-muted)]">
             <p>✓ Camera access required</p>
             <p>✓ Microphone access required</p>
             <p>✓ Fullscreen required</p>
             <p>✓ No tab switching allowed</p>
             {enableScreenShare && <p>✓ Screen sharing required</p>}
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-[var(--dash-text-muted)]">
             Your camera and microphone activity will be monitored during this assessment to ensure fairness.
           </p>
           <div className="flex items-start gap-2 pt-1">
@@ -412,7 +430,7 @@ const ProctoringSetupGate = ({
               checked={consentAccepted}
               onCheckedChange={(checked) => setConsentAccepted(!!checked)}
             />
-            <label htmlFor="proctoring-consent" className="text-sm leading-relaxed cursor-pointer">
+            <label htmlFor="proctoring-consent" className="cursor-pointer text-sm leading-relaxed text-[var(--dash-text-secondary)]">
               I agree and consent to proctoring for this assessment.
             </label>
           </div>
@@ -420,8 +438,8 @@ const ProctoringSetupGate = ({
 
         {/* Camera preview when granted */}
         {state.camera === "granted" && (
-          <div className="rounded-lg border-2 border-primary/20 overflow-hidden bg-muted">
-            <p className="text-xs font-medium px-3 py-2 bg-primary/5">Camera preview (you are being monitored)</p>
+          <div className="overflow-hidden rounded-lg border border-[var(--dash-navy-border)] bg-black/30">
+            <p className="bg-white/[0.04] px-3 py-2 text-xs font-medium text-[var(--dash-text-secondary)]">Camera preview (you are being monitored)</p>
             <div className="aspect-video">
               <video
                 ref={videoRef}
@@ -463,11 +481,8 @@ const ProctoringSetupGate = ({
                       await requestCameraAndMic();
                     }
                   }
-                  try {
-                    await document.documentElement.requestFullscreen();
-                  } catch {
-                    // Fullscreen requires user gesture; if it fails, proceed anyway
-                  }
+                  const fullscreenReady = await enterFullscreenOrBlock();
+                  if (!fullscreenReady) return;
                   handedOffRef.current = true;
                   onReady(latestStateRef.current);
                 } catch (e) {

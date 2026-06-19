@@ -83,7 +83,7 @@ const Auth = () => {
   const [googleJobSeekerTrack, setGoogleJobSeekerTrack] = useState<"technical" | "non_technical">("technical");
   const [googleCompanyName, setGoogleCompanyName] = useState("");
   const [googleCompanySize, setGoogleCompanySize] = useState("");
-  const [googleRoleErrors, setGoogleRoleErrors] = useState<{ companyName?: string; form?: string }>({});
+  const [googleRoleErrors, setGoogleRoleErrors] = useState<{ companyName?: string; companySize?: string; form?: string }>({});
   const [googleRoleSubmitting, setGoogleRoleSubmitting] = useState(false);
   const [signInErrors, setSignInErrors] = useState<{ email?: string; password?: string; form?: string }>({});
   const [signUpErrors, setSignUpErrors] = useState<{
@@ -353,9 +353,12 @@ const Auth = () => {
 
   const handleGoogleRoleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const errs: { companyName?: string; form?: string } = {};
+    const errs: { companyName?: string; companySize?: string; form?: string } = {};
     if (googleRole === "recruiter" && !googleCompanyName?.trim()) {
       errs.companyName = "Company name is required for recruiters.";
+    }
+    if (googleRole === "recruiter" && !googleCompanySize) {
+      errs.companySize = "Team size is required for recruiters.";
     }
     if (Object.keys(errs).length > 0) {
       setGoogleRoleErrors(errs);
@@ -375,6 +378,31 @@ const Auth = () => {
     } finally {
       setGoogleRoleSubmitting(false);
     }
+  };
+
+  const handleSignupGoogle = async () => {
+    const nextErrors: { companyName?: string; companySize?: string; form?: string } = {};
+    const normalizedCompanyName = companyName.trim();
+    if (role === "recruiter" && !normalizedCompanyName) {
+      nextErrors.companyName = "Please enter company name before continuing with Google.";
+    }
+    if (role === "recruiter" && normalizedCompanyName.length > 0 && normalizedCompanyName.length < 2) {
+      nextErrors.companyName = "Company name must be at least 2 characters.";
+    }
+    if (role === "recruiter" && !companySize) {
+      nextErrors.companySize = "Please select your team size before continuing with Google.";
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setSignUpErrors((prev) => ({ ...prev, ...nextErrors }));
+      return;
+    }
+    setSignUpErrors({});
+    await signInWithGoogle({
+      role,
+      companyName: role === "recruiter" ? normalizedCompanyName : undefined,
+      companySize: role === "recruiter" ? companySize : undefined,
+      roleType: role === "jobseeker" ? "technical" : undefined,
+    });
   };
 
   // Forgot Password
@@ -633,8 +661,11 @@ const Auth = () => {
                     <label className="auth-label">Team Size</label>
                     <select
                       value={googleCompanySize}
-                      onChange={(e) => setGoogleCompanySize(e.target.value)}
-                      className="w-full py-3 px-4 rounded-md bg-white/5 border text-foreground text-sm focus:outline-none focus:border-primary/50 border-border"
+                      onChange={(e) => {
+                        setGoogleCompanySize(e.target.value);
+                        setGoogleRoleErrors((p) => ({ ...p, companySize: undefined }));
+                      }}
+                      className={`w-full py-3 px-4 rounded-md bg-white/5 border text-foreground text-sm focus:outline-none focus:border-primary/50 ${googleRoleErrors.companySize ? "border-red-500/80 bg-red-500/5" : "border-border"}`}
                     >
                       <option value="">Select</option>
                       <option value="1-10">1-10</option>
@@ -643,6 +674,7 @@ const Auth = () => {
                       <option value="201-500">201-500</option>
                       <option value="501+">501+</option>
                     </select>
+                    {googleRoleErrors.companySize && <p className="mt-1 text-xs text-red-400/95 tracking-wide">• {googleRoleErrors.companySize}</p>}
                   </div>
                 </>
               )}
@@ -658,7 +690,8 @@ const Auth = () => {
   }
 
   const TICKER_SIGNIN = ["Skill-Certified Hiring", "Evidence Over Claims", "Progressive Verification", "ProvenHire Resume", "Skill Passport", "India's First"];
-  const TICKER_SIGNUP = ["Start Free", "Level 1 Early Access", "Live Coding", "AI-Verified Skills", "Elite Path", "One Trusted Profile"];
+  const TICKER_SIGNUP_JOBSEEKER = ["Start Free", "Level 1 Early Access", "Live Coding", "AI-Verified Skills", "Elite Path", "One Trusted Profile"];
+  const TICKER_SIGNUP_RECRUITER = ["Verified Talent", "Less Screening", "Skill Signals", "Hiring Pipeline", "AI Summaries", "Faster Shortlists"];
 
   const SignInBenefits = () => (
     <div className="auth-panel-benefits">
@@ -700,7 +733,11 @@ const Auth = () => {
     </div>
   );
 
-  const SignUpBenefits = () => (
+  const SignUpBenefits = () => {
+    const recruiter = role === "recruiter";
+    const ticker = recruiter ? TICKER_SIGNUP_RECRUITER : TICKER_SIGNUP_JOBSEEKER;
+    const TICKER_SIGNUP = ticker;
+    return (
     <div className="auth-panel-benefits">
       <div className="auth-orb auth-orb-1" aria-hidden />
       <div className="auth-orb auth-orb-2" aria-hidden />
@@ -713,33 +750,49 @@ const Auth = () => {
       <div className="auth-benefits-content">
         <div className="auth-benefits-eyebrow">
           <div className="auth-benefits-dot" />
-          The Verification Journey Starts Here
+          {recruiter ? "Hire From Verified Signal" : "The Verification Journey Starts Here"}
         </div>
         <h2 className="auth-benefits-headline">
-          <span className="block gg">Your college name</span>
-          <span className="block">won't get you hired.</span>
-          <span className="block dd">Your skills will.</span>
+          {recruiter ? (
+            <>
+              <span className="block gg">Stop screening claims.</span>
+              <span className="block">Meet proven talent.</span>
+              <span className="block dd">Hire with proof.</span>
+            </>
+          ) : (
+            <>
+              <span className="block gg">Your college name</span>
+              <span className="block">won't get you hired.</span>
+              <span className="block dd">Your skills will.</span>
+            </>
+          )}
         </h2>
-        <p className="auth-benefits-desc">
+        <p className={`auth-benefits-desc ${recruiter ? "hidden" : ""}`}>
           One account, progressive verification: profile and fundamentals first, then live coding and AI-led interviews that match your experience. First attempts on core stages are free — you earn trust step by step.
         </p>
+        {recruiter && (
+          <p className="auth-benefits-desc">
+            Post roles, discover pre-assessed candidates, and review verified skills before you spend time on interviews. ProvenHire helps your team shortlist faster with evidence, not guesswork.
+          </p>
+        )}
         <div className="auth-stat-row">
           <div className="auth-stat-cell">
-            <div className="auth-stat-num">3</div>
-            <div className="auth-stat-label">Cert levels</div>
+            <div className="auth-stat-num">{recruiter ? "AI" : "3"}</div>
+            <div className="auth-stat-label">{recruiter ? "Summaries" : "Cert levels"}</div>
           </div>
           <div className="auth-stat-cell">
             <div className="auth-stat-num">Live</div>
-            <div className="auth-stat-label">Proctored</div>
+            <div className="auth-stat-label">{recruiter ? "Verified" : "Proctored"}</div>
           </div>
           <div className="auth-stat-cell">
             <div className="auth-stat-num">₹0</div>
-            <div className="auth-stat-label">Start</div>
+            <div className="auth-stat-label">{recruiter ? "Shortlist" : "Start"}</div>
           </div>
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   const authSeoTitle = isReset ? "Reset Password" : isForgot ? "Forgot Password" : isLogin ? "Log In" : "Sign Up";
   const authSeoDesc = isLogin
@@ -836,7 +889,7 @@ const Auth = () => {
               <p className="auth-form-sub">Create your account free. Build proof employers can rely on—not another inbox-only résumé.</p>
 
               <form onSubmit={handleSignUp} className="space-y-6" noValidate>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
+                <GoogleSignInButton onClick={handleSignupGoogle} disabled={googleDisabled} />
                 <div className="auth-divider">
                   <span className="text-xs text-muted-foreground uppercase tracking-wider shrink-0">or sign up with email</span>
                 </div>
@@ -1082,7 +1135,7 @@ const Auth = () => {
             <>
               <h2 className="text-lg font-semibold mb-4">Create Account</h2>
               <form onSubmit={handleSignUp} className="space-y-6" noValidate>
-                <GoogleSignInButton onClick={signInWithGoogle} disabled={googleDisabled} />
+                <GoogleSignInButton onClick={handleSignupGoogle} disabled={googleDisabled} />
                 <div className="auth-divider">
                   <span className="text-xs text-muted-foreground shrink-0">or sign up with email</span>
                 </div>

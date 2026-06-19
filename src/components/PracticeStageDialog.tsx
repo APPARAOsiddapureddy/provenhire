@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import CodeEditor from "@/components/CodeEditor";
-import { ChevronLeft, ChevronRight, GraduationCap, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, GraduationCap, Loader2, Lock, Play, Send } from "lucide-react";
 import { supportedLanguages, type ProgrammingLanguage } from "@/data/dsaRoundConfig";
 import {
   Select,
@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface AptitudeQuestion {
   id: string;
@@ -31,7 +32,9 @@ type ApiPracticeDsaQuestion = {
   id: string;
   title: string;
   description: string;
-  starterCode: Record<string, string>;
+  examples?: unknown;
+  constraints?: string[];
+  starterCode: Partial<Record<ProgrammingLanguage, string>>;
 };
 
 interface PracticeStageDialogProps {
@@ -64,6 +67,115 @@ const FALLBACK_APTITUDE_QUESTIONS: AptitudeQuestion[] = [
   },
 ];
 
+const PRACTICE_STARTERS: Record<ProgrammingLanguage, string> = {
+  javascript: `// Practice only - write your solution here
+function solve(input) {
+  const data = input.trim();
+  // TODO: parse input and return the answer
+  return "";
+}
+
+const fs = require("fs");
+const input = fs.readFileSync(0, "utf8");
+console.log(solve(input));
+`,
+  python: `# Practice only - write your solution here
+import sys
+
+def solve(data: str):
+    # TODO: parse input and return the answer
+    return ""
+
+if __name__ == "__main__":
+    data = sys.stdin.read()
+    print(solve(data))
+`,
+  java: `// Practice only - write your solution here
+import java.io.*;
+import java.util.*;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        StringBuilder input = new StringBuilder();
+        String line;
+        while ((line = br.readLine()) != null) {
+            input.append(line).append('\\n');
+        }
+        // TODO: parse input and print the answer
+        System.out.println("");
+    }
+}
+`,
+  cpp: `// Practice only - write your solution here
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    // TODO: parse input and print the answer
+    return 0;
+}
+`,
+  c: `// Practice only - write your solution here
+#include <stdio.h>
+
+int main(void) {
+    // TODO: parse input and print the answer
+    return 0;
+}
+`,
+};
+
+function starterFor(question: ApiPracticeDsaQuestion, language: ProgrammingLanguage) {
+  return (
+    question.starterCode?.[language] ??
+    PRACTICE_STARTERS[language] ??
+    supportedLanguages.find((item) => item.language === language)?.template ??
+    ""
+  );
+}
+
+function examplesToText(examples: unknown) {
+  if (!Array.isArray(examples)) return "";
+  return examples
+    .map((example, index) => {
+      const row = example as { input?: unknown; output?: unknown };
+      return `Example ${index + 1}\nInput: ${String(row.input ?? "")}\nOutput: ${String(row.output ?? "")}`;
+    })
+    .join("\n\n");
+}
+
+function PracticeActionButton({
+  children,
+  icon,
+  tooltip,
+  onClick,
+  variant = "outline",
+}: {
+  children: ReactNode;
+  icon: ReactNode;
+  tooltip: string;
+  onClick: () => void;
+  variant?: "default" | "outline";
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" variant={variant} onClick={onClick}>
+          {icon}
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center" sideOffset={8} className="practice-dsa-tooltip">
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export default function PracticeStageDialog({
   open,
   onOpenChange,
@@ -76,8 +188,9 @@ export default function PracticeStageDialog({
   const [aptitudeIndex, setAptitudeIndex] = useState(0);
   const [practiceDsaQuestions, setPracticeDsaQuestions] = useState<ApiPracticeDsaQuestion[]>([]);
   const [dsaIndex, setDsaIndex] = useState(0);
-  const [dsaCode, setDsaCode] = useState<Record<string, string>>({});
+  const [dsaCode, setDsaCode] = useState<Record<string, Partial<Record<ProgrammingLanguage, string>>>>({});
   const [dsaLanguage, setDsaLanguage] = useState<ProgrammingLanguage>("python");
+  const [consoleMessage, setConsoleMessage] = useState("Practice only: tests are not executed here.");
   const [interviewIndex, setInterviewIndex] = useState(0);
   const [interviewAnswers, setInterviewAnswers] = useState<Record<number, string>>({});
 
@@ -111,18 +224,140 @@ export default function PracticeStageDialog({
   }, [open, type, practiceDsaQuestions.length]);
 
   useEffect(() => {
-    if (open && type === "dsa" && practiceDsaQuestions.length > 0) {
-      const initial: Record<string, string> = {};
-      practiceDsaQuestions.forEach((q) => {
-        initial[q.id] = q.starterCode?.[dsaLanguage] ?? q.starterCode?.python ?? "";
+    if (!open || type !== "dsa" || practiceDsaQuestions.length === 0) return;
+    setDsaCode((prev) => {
+      const next = { ...prev };
+      practiceDsaQuestions.forEach((question) => {
+        const existing = next[question.id] ?? {};
+        const seeded: Partial<Record<ProgrammingLanguage, string>> = { ...existing };
+        supportedLanguages.forEach((item) => {
+          if (seeded[item.language] == null) seeded[item.language] = starterFor(question, item.language);
+        });
+        next[question.id] = seeded;
       });
-      setDsaCode(initial);
-    }
-  }, [open, type, practiceDsaQuestions, dsaLanguage]);
+      return next;
+    });
+  }, [open, type, practiceDsaQuestions]);
 
   const currentAptitude = aptitudeQuestions[aptitudeIndex];
   const currentDsa = practiceDsaQuestions[dsaIndex];
   const currentInterviewQ = SAMPLE_INTERVIEW_QUESTIONS[interviewIndex];
+  const currentDsaCode = currentDsa ? dsaCode[currentDsa.id]?.[dsaLanguage] ?? starterFor(currentDsa, dsaLanguage) : "";
+  const examplesText = useMemo(() => examplesToText(currentDsa?.examples), [currentDsa?.examples]);
+
+  const setCurrentDsaCode = (code: string) => {
+    if (!currentDsa) return;
+    setDsaCode((prev) => ({
+      ...prev,
+      [currentDsa.id]: {
+        ...(prev[currentDsa.id] ?? {}),
+        [dsaLanguage]: code,
+      },
+    }));
+  };
+
+  const renderDsaPractice = () => {
+    if (loading) {
+      return (
+        <div className="py-16 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      );
+    }
+    if (practiceDsaQuestions.length === 0 || !currentDsa) {
+      return <p className="text-muted-foreground py-4">No practice questions available.</p>;
+    }
+
+    const fakeAction = (message: string) => {
+      setConsoleMessage(message);
+    };
+
+    return (
+      <div className="practice-dsa-shell">
+        <section className="practice-dsa-question">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--dash-text-muted)]">
+                Question {dsaIndex + 1} of {practiceDsaQuestions.length}
+              </p>
+              <h3 className="mt-2 text-xl font-semibold text-[var(--dash-text-primary)]">{currentDsa.title}</h3>
+            </div>
+            <span className="rounded-full border border-[var(--dash-navy-border)] bg-white/[0.04] px-3 py-1 text-xs text-[var(--dash-text-secondary)]">
+              Practice only
+            </span>
+          </div>
+          <div className="practice-dsa-description">
+            {currentDsa.description}
+          </div>
+          {examplesText ? (
+            <pre className="practice-dsa-pre">{examplesText}</pre>
+          ) : null}
+          {currentDsa.constraints?.length ? (
+            <div>
+              <p className="mb-2 text-sm font-semibold text-[var(--dash-text-primary)]">Constraints</p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--dash-text-muted)]">
+                {currentDsa.constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="practice-dsa-workbench">
+          <div className="practice-dsa-toolbar">
+            <Select value={dsaLanguage} onValueChange={(v) => setDsaLanguage(v as ProgrammingLanguage)}>
+              <SelectTrigger className="w-[160px] border-[var(--dash-navy-border)] bg-white/[0.04]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="practice-dsa-select-content">
+                {supportedLanguages.map((l) => (
+                  <SelectItem key={l.language} value={l.language} className="practice-dsa-select-item">
+                    {l.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <PracticeActionButton
+              icon={<Play className="mr-2 h-4 w-4" />}
+              tooltip="In the real DSA round, this runs visible sample tests. Disabled here because this is UI practice."
+              onClick={() => fakeAction("Practice only: Run Tests is disabled in this UI preview.")}
+            >
+              Run tests
+            </PracticeActionButton>
+            <PracticeActionButton
+              icon={<Lock className="mr-2 h-4 w-4" />}
+              tooltip="In the real DSA round, this locks your answer for the current question. Disabled here because this is UI practice."
+              onClick={() => fakeAction("Practice only: Submit Question is disabled. Nothing is saved or scored.")}
+            >
+              Submit Question
+            </PracticeActionButton>
+            <PracticeActionButton
+              icon={<Send className="mr-2 h-4 w-4" />}
+              tooltip="In the real DSA round, this submits the full round after all questions. Disabled here because this is UI practice."
+              onClick={() => fakeAction("Practice only: Submit Round is disabled. Nothing is saved or scored.")}
+              variant="default"
+            >
+              Submit Round
+            </PracticeActionButton>
+          </div>
+
+          <CodeEditor
+            value={currentDsaCode}
+            onChange={setCurrentDsaCode}
+            language={dsaLanguage}
+            height="420px"
+          />
+
+          <div className="practice-dsa-console">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-[var(--dash-text-primary)]">Console</span>
+              <span className="text-xs text-[var(--dash-text-muted)]">Not scored</span>
+            </div>
+            <pre>{consoleMessage}</pre>
+          </div>
+        </section>
+      </div>
+    );
+  };
 
   const renderContent = () => {
     if (type === "aptitude") {
@@ -155,46 +390,7 @@ export default function PracticeStageDialog({
       );
     }
 
-    if (type === "dsa") {
-      if (loading) {
-        return (
-          <div className="py-12 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        );
-      }
-      if (practiceDsaQuestions.length === 0) {
-        return <p className="text-muted-foreground py-4">No practice questions available.</p>;
-      }
-      const q = currentDsa;
-      return (
-        <div className="space-y-4">
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <h4 className="font-semibold flex gap-2">{q.title}</h4>
-            <p className="text-sm mt-2 whitespace-pre-wrap">{q.description}</p>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-sm">Language:</span>
-            <Select value={dsaLanguage} onValueChange={(v) => setDsaLanguage(v as ProgrammingLanguage)}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {supportedLanguages.map((l) => (
-                  <SelectItem key={l.language} value={l.language}>{l.displayName}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <CodeEditor
-            value={dsaCode[q.id] ?? q.starterCode?.python ?? ""}
-            onChange={(v) => setDsaCode((p) => ({ ...p, [q.id]: v }))}
-            language={dsaLanguage}
-            height="280px"
-          />
-        </div>
-      );
-    }
+    if (type === "dsa") return renderDsaPractice();
 
     if (type === "interview") {
       return (
@@ -235,21 +431,24 @@ export default function PracticeStageDialog({
   };
   const total = getTotal();
   const index = getIndex();
+  const isDsa = type === "dsa";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className={isDsa ? "practice-dsa-dialog" : "max-w-2xl max-h-[90vh] overflow-y-auto"}>
         <DialogHeader>
           <div className="flex items-center gap-2">
             <GraduationCap className="h-5 w-5 text-primary" />
-            <DialogTitle>Practice {testName}</DialogTitle>
+            <DialogTitle>{isDsa ? "Get Familiar with the DSA UI" : `Practice ${testName}`}</DialogTitle>
           </div>
           <DialogDescription>
-            Try a few sample questions to get familiar. Your answers are not saved or scored.
+            {isDsa
+              ? "Explore the coding interface. Your code is local to this modal and nothing is saved, run, submitted, or scored."
+              : "Try a few sample questions to get familiar. Your answers are not saved or scored."}
           </DialogDescription>
         </DialogHeader>
         {renderContent()}
-        <div className="flex items-center justify-between pt-4 border-t">
+        <div className={isDsa ? "practice-dsa-footer" : "flex items-center justify-between pt-4 border-t"}>
           <Button
             variant="outline"
             size="sm"
@@ -260,7 +459,7 @@ export default function PracticeStageDialog({
             Previous
           </Button>
           <span className="text-sm text-muted-foreground">
-            {index + 1} / {total}
+            {total > 0 ? `${index + 1} / ${total}` : "0 / 0"}
           </span>
           {index < total - 1 ? (
             <Button size="sm" onClick={() => setIndex(Math.min(total - 1, index + 1))}>

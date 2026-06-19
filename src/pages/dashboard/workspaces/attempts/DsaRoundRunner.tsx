@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, PanelLeftClose
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import CodeEditor from "@/components/CodeEditor";
+import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -155,6 +156,7 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
   const [followUpAnswers, setFollowUpAnswers] = useState<Record<string, string>>({});
   const [followUpIndex, setFollowUpIndex] = useState(0);
   const [problemsOpen, setProblemsOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
+  const [submitConfirm, setSubmitConfirm] = useState<"question" | "final" | null>(null);
 
   const load = async () => {
     const res = await api.get<DsaSnapshot>(`/api/session/dsa/${encodeURIComponent(sessionId)}`);
@@ -248,7 +250,6 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
 
   const submitQuestion = async () => {
     if (!current) return;
-    if (!window.confirm("Submit this coding solution? You cannot resubmit this question.")) return;
     setBusy("question");
     try {
       const res = await api.post<{ passed: number; total: number }>(
@@ -264,6 +265,7 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
       setSnapshot((prev) => prev ? { ...prev, activeFollowUp: follow } : prev);
       setFollowUpAnswers(follow?.answers ?? {});
       setFollowUpIndex(0);
+      setSubmitConfirm(null);
       toast.info("Answer follow-up questions to complete this problem.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not submit question");
@@ -293,11 +295,11 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
   };
 
   const finalSubmit = async (auto = false) => {
-    if (!auto && !window.confirm("Submit the full DSA round?")) return;
     setBusy("final");
     try {
       const res = await api.post<DsaSnapshot>(`/api/session/dsa/${encodeURIComponent(sessionId)}/submit`, {});
       setSnapshot(res);
+      setSubmitConfirm(null);
       toast.success(auto ? "DSA time expired. Round finalized." : "DSA round submitted.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not submit DSA round");
@@ -472,7 +474,7 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
                 </button>
               );
             })}
-            <Button className="w-full" onClick={() => finalSubmit(false)} disabled={busy === "final" || completedQuestions < snapshot.questions.length || isFinalized}>
+            <Button className="w-full" onClick={() => setSubmitConfirm("final")} disabled={busy === "final" || completedQuestions < snapshot.questions.length || isFinalized}>
               {busy === "final" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               Submit DSA Round
             </Button>
@@ -528,7 +530,7 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
                   {busy === "run" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
                   Run Tests
                 </Button>
-                <Button onClick={submitQuestion} disabled={Boolean(busy) || isFinalized || snapshot.officialSubmissions[current.id]?.finalScore != null}>
+                <Button onClick={() => setSubmitConfirm("question")} disabled={Boolean(busy) || isFinalized || snapshot.officialSubmissions[current.id]?.finalScore != null}>
                   {busy === "question" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                   Submit Question
                 </Button>
@@ -546,6 +548,28 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
           </Card>
         </div>
       </div>
+      <WorkspaceConfirmDialog
+        open={Boolean(submitConfirm)}
+        title={submitConfirm === "question" ? "Submit this coding solution?" : "Submit the full DSA round?"}
+        description={
+          submitConfirm === "question"
+            ? "You cannot resubmit this question after submission."
+            : "You cannot edit completed answers after submitting the round."
+        }
+        confirmLabel="Yes, Submit"
+        cancelLabel="No"
+        loading={busy === "question" || busy === "final"}
+        onOpenChange={(open) => {
+          if (!open) setSubmitConfirm(null);
+        }}
+        onConfirm={() => {
+          if (submitConfirm === "question") {
+            void submitQuestion();
+          } else if (submitConfirm === "final") {
+            void finalSubmit(false);
+          }
+        }}
+      />
     </RoundAttemptShell>
   );
 }

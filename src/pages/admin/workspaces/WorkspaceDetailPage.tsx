@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { ArrowLeft, Edit, Loader2 } from "lucide-react";
+import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import type { Workspace } from "./types";
 import { WorkspaceActionBar, WorkspaceTabs } from "./WorkspaceAdminComponents";
 import { canEditDraft, statusBadgeClass, statusLabel } from "./workspaceUtils";
+
+type WorkspaceConfirmAction = "archive" | "start" | "delete";
 
 export default function WorkspaceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +21,7 @@ export default function WorkspaceDetailPage() {
   const [archiving, setArchiving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<WorkspaceConfirmAction | null>(null);
 
   const fetchWorkspace = async () => {
     if (!id) return;
@@ -39,12 +43,12 @@ export default function WorkspaceDetailPage() {
 
   const archiveWorkspace = async () => {
     if (!workspace) return;
-    if (!window.confirm(`Archive ${workspace.name}? Active MCQ sessions will be auto-evaluated.`)) return;
     setArchiving(true);
     try {
       const res = await api.patch<{ workspace: Workspace }>(`/api/workspaces/${workspace.id}/status`, { status: "archived" });
       setWorkspace((prev) => (prev ? { ...prev, status: res.workspace.status } : prev));
       toast.success("Workspace archived.");
+      setConfirmAction(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Archive failed");
     } finally {
@@ -54,12 +58,12 @@ export default function WorkspaceDetailPage() {
 
   const startWorkspace = async () => {
     if (!workspace) return;
-    if (!window.confirm(`Start ${workspace.name}? Registered users will be able to attempt rounds.`)) return;
     setStarting(true);
     try {
       const res = await api.post<{ workspace: Workspace }>(`/api/workspaces/${workspace.id}/start`, {});
       setWorkspace((prev) => (prev ? { ...prev, status: res.workspace.status } : prev));
       toast.success("Workspace started.");
+      setConfirmAction(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Start failed");
     } finally {
@@ -75,11 +79,11 @@ export default function WorkspaceDetailPage() {
 
   const deleteWorkspace = async () => {
     if (!workspace) return;
-    if (!window.confirm(`Delete ${workspace.name} (${workspace.code})? This permanently removes the workspace and related setup data.`)) return;
     setDeleting(true);
     try {
       await api.del(`/api/workspaces/${workspace.id}`);
       toast.success("Workspace deleted.");
+      setConfirmAction(null);
       navigate("/admin/workspaces");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Delete failed");
@@ -95,6 +99,35 @@ export default function WorkspaceDetailPage() {
       </div>
     );
   }
+
+  const confirmCopy = confirmAction
+    ? {
+        archive: {
+          title: `Archive ${workspace.name}?`,
+          description: "Active MCQ sessions will be auto-evaluated.",
+          confirmLabel: "Yes, Archive",
+          variant: "default" as const,
+          loading: archiving,
+          onConfirm: archiveWorkspace,
+        },
+        start: {
+          title: `Start ${workspace.name}?`,
+          description: "Registered users will be able to attempt rounds.",
+          confirmLabel: "Yes, Start",
+          variant: "default" as const,
+          loading: starting,
+          onConfirm: startWorkspace,
+        },
+        delete: {
+          title: `Delete ${workspace.name}?`,
+          description: `This permanently removes ${workspace.code} and related setup data.`,
+          confirmLabel: "Yes, Delete",
+          variant: "destructive" as const,
+          loading: deleting,
+          onConfirm: deleteWorkspace,
+        },
+      }[confirmAction]
+    : null;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -127,11 +160,11 @@ export default function WorkspaceDetailPage() {
               )}
               <WorkspaceActionBar
                 workspace={workspace}
-                onStart={startWorkspace}
+                onStart={() => setConfirmAction("start")}
                 starting={starting}
-                onArchive={archiveWorkspace}
+                onArchive={() => setConfirmAction("archive")}
                 archiving={archiving}
-                onDelete={deleteWorkspace}
+                onDelete={() => setConfirmAction("delete")}
                 deleting={deleting}
                 onCopyCode={copyCode}
               />
@@ -150,6 +183,21 @@ export default function WorkspaceDetailPage() {
         )}
         <WorkspaceTabs workspace={workspace} onRefresh={fetchWorkspace} />
       </main>
+      {confirmCopy ? (
+        <WorkspaceConfirmDialog
+          open={Boolean(confirmAction)}
+          title={confirmCopy.title}
+          description={confirmCopy.description}
+          confirmLabel={confirmCopy.confirmLabel}
+          cancelLabel="No"
+          loading={confirmCopy.loading}
+          variant={confirmCopy.variant}
+          onOpenChange={(open) => {
+            if (!open) setConfirmAction(null);
+          }}
+          onConfirm={confirmCopy.onConfirm}
+        />
+      ) : null}
     </div>
   );
 }

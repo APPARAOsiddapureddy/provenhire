@@ -88,7 +88,7 @@ export default function UserWorkspacesPage() {
 
   return (
     <UserWorkspaceShell>
-      <div className="space-y-6">
+      <div className="workspace-dashboard-page space-y-6">
         <div className="dashboard-hero-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -104,7 +104,7 @@ export default function UserWorkspacesPage() {
           </div>
         </div>
 
-        <Card className="border-[var(--dash-navy-border)] bg-white/[0.03]">
+        <Card className="workspace-dashboard-panel">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2 text-[var(--dash-text-primary)]">
               <Search className="h-4 w-4 text-[var(--dash-gold)]" />
@@ -113,7 +113,7 @@ export default function UserWorkspacesPage() {
             <CardDescription>Preview the workspace before joining.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <form onSubmit={previewWorkspace} className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+            <form onSubmit={previewWorkspace} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
               <Input
                 value={code}
                 onChange={(event) => setCode(event.target.value.toUpperCase())}
@@ -133,7 +133,7 @@ export default function UserWorkspacesPage() {
         </Card>
 
         <section className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-[var(--dash-text-primary)]">My workspaces</h2>
               <p className="text-sm text-[var(--dash-text-muted)]">Registered events and progress.</p>
@@ -146,7 +146,7 @@ export default function UserWorkspacesPage() {
           {loading ? (
             <div className="py-12 text-center text-[var(--dash-text-muted)]">Loading workspaces...</div>
           ) : registrations.length === 0 ? (
-            <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.03] p-10 text-center">
+            <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.03] p-8 text-center sm:p-10">
               <ClipboardList className="h-10 w-10 mx-auto mb-3 text-[var(--dash-text-muted)]" />
               <div className="font-semibold text-[var(--dash-text-primary)]">No joined workspaces yet</div>
               <div className="text-sm text-[var(--dash-text-muted)] mt-1">Use the code box above to join your first workspace.</div>

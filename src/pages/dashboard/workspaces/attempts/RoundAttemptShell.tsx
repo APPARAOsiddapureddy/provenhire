@@ -1,6 +1,6 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Clock, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Clock, Maximize2, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import ProctoringSetupGate, { type ProctoringState } from "@/components/ProctoringSetupGate";
@@ -32,6 +32,7 @@ export default function RoundAttemptShell({
 }) {
   const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
   const [remaining, setRemaining] = useState(secondsRemaining);
+  const [isFullScreen, setIsFullScreen] = useState(() => typeof document !== "undefined" && !!document.fullscreenElement);
   const proctoringRef = useRef<ProctoringState | null>(null);
   const cleanedUpRef = useRef(false);
 
@@ -67,6 +68,13 @@ export default function RoundAttemptShell({
   }, [stopProctoring]);
 
   useEffect(() => {
+    const syncFullscreen = () => setIsFullScreen(!!document.fullscreenElement);
+    syncFullscreen();
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  useEffect(() => {
     if (isFinalized) stopProctoring();
   }, [isFinalized, stopProctoring]);
 
@@ -93,10 +101,19 @@ export default function RoundAttemptShell({
     return "text-[var(--dash-gold)]";
   }, [remaining]);
 
+  const enterFullscreen = async () => {
+    try {
+      await document.documentElement.requestFullscreen();
+      setIsFullScreen(!!document.fullscreenElement);
+    } catch {
+      // The setup gate already explains the requirement; this button is a focused retry.
+    }
+  };
+
   if (!proctoringState) {
     return (
       <UserWorkspaceShell>
-        <div className="space-y-4">
+        <div className="workspace-dashboard-page workspace-dashboard-page--attempt space-y-5">
           <Button variant="outline" size="sm" asChild>
             <Link to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspaceCode)}`}>
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -139,7 +156,24 @@ export default function RoundAttemptShell({
           </div>
         </div>
       </div>
-      <main className="mx-auto w-full max-w-[1720px] px-4 py-4">
+      <main className="workspace-dashboard-page workspace-dashboard-page--attempt">
+        {!isFinalized && !isFullScreen ? (
+          <div className="workspace-fullscreen-lock">
+            <div className="workspace-fullscreen-lock__panel">
+              <div className="workspace-fullscreen-lock__icon">
+                <ShieldAlert className="h-6 w-6" />
+              </div>
+              <div>
+                <h2>Fullscreen required</h2>
+                <p>This proctored round must stay in fullscreen mode. Re-enter fullscreen to continue the attempt.</p>
+              </div>
+              <Button onClick={enterFullscreen}>
+                <Maximize2 className="mr-2 h-4 w-4" />
+                Enter fullscreen
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {children}
       </main>
     </div>

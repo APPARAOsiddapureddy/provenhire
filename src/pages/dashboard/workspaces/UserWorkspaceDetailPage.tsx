@@ -70,7 +70,7 @@ export default function UserWorkspaceDetailPage() {
   if (loading || !workspace) {
     return (
       <UserWorkspaceShell>
-        <div className="min-h-[420px] flex items-center justify-center">
+        <div className="workspace-dashboard-page flex min-h-[420px] items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
       </UserWorkspaceShell>
@@ -82,7 +82,7 @@ export default function UserWorkspaceDetailPage() {
 
   return (
     <UserWorkspaceShell>
-      <div className="space-y-6">
+      <div className="workspace-dashboard-page space-y-6">
         <Button variant="outline" size="sm" asChild>
           <Link to="/dashboard/jobseeker/workspaces">
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -128,8 +128,8 @@ export default function UserWorkspaceDetailPage() {
           </Card>
         )}
 
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="bg-white/[0.04] border border-[var(--dash-navy-border)]">
+        <Tabs defaultValue="overview" className="min-w-0 space-y-4">
+          <TabsList className="workspace-dashboard-tabs border border-[var(--dash-navy-border)] bg-white/[0.04]">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="rounds">Rounds</TabsTrigger>
             <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
@@ -154,7 +154,7 @@ export default function UserWorkspaceDetailPage() {
 
 function WorkspaceOverview({ workspace, registration }: { workspace: UserWorkspace; registration: UserWorkspaceRegistration | null }) {
   return (
-    <Card className="border-[var(--dash-navy-border)] bg-white/[0.03]">
+    <Card className="workspace-dashboard-panel">
       <CardHeader>
         <CardTitle className="text-base text-[var(--dash-text-primary)] flex items-center gap-2">
           <ClipboardList className="h-4 w-4 text-[var(--dash-gold)]" />
@@ -175,7 +175,7 @@ function WorkspaceOverview({ workspace, registration }: { workspace: UserWorkspa
 function WorkspaceRounds({ workspace, registration }: { workspace: UserWorkspace; registration: UserWorkspaceRegistration | null }) {
   const attempts = new Map((registration?.roundAttempts ?? []).map((attempt) => [attempt.workspaceRoundId, attempt]));
   return (
-    <Card className="border-[var(--dash-navy-border)] bg-white/[0.03]">
+    <Card className="workspace-dashboard-panel">
       <CardHeader>
         <CardTitle className="text-base text-[var(--dash-text-primary)]">Rounds</CardTitle>
         <CardDescription>Read-only round configuration for now.</CardDescription>
@@ -306,7 +306,7 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
   }, [workspaceCode]);
 
   return (
-    <Card className="border-[var(--dash-navy-border)] bg-white/[0.03]">
+    <Card className="workspace-dashboard-panel">
       <CardHeader>
         <CardTitle className="text-base text-[var(--dash-text-primary)] flex items-center gap-2">
           <Trophy className="h-4 w-4 text-[var(--dash-gold)]" />

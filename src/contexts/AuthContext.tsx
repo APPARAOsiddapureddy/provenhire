@@ -39,6 +39,13 @@ type AuthSessionResponse = {
   refreshToken?: string;
 };
 
+type GoogleSignInIntent = {
+  role?: "jobseeker" | "recruiter";
+  companyName?: string;
+  companySize?: string;
+  roleType?: "technical" | "non_technical";
+};
+
 type EmailVerificationResponse = {
   ok: boolean;
   requiresEmailVerification?: boolean;
@@ -62,7 +69,7 @@ interface AuthContextType {
     companySize?: string,
     roleType?: "technical" | "non_technical"
   ) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: (intent?: GoogleSignInIntent) => Promise<void>;
   signUp: (
     email: string,
     password: string,
@@ -90,13 +97,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [needsGoogleRoleSelection, setNeedsGoogleRoleSelection] = useState(false);
   const navigate = useNavigate();
   const skipNextMeRef = useRef(false);
+  const googleIntentStorageKey = "ph:googleSignInIntent";
+
+  const saveGoogleIntent = (intent?: GoogleSignInIntent) => {
+    if (typeof window === "undefined") return;
+    if (!intent?.role) {
+      window.sessionStorage.removeItem(googleIntentStorageKey);
+      return;
+    }
+    window.sessionStorage.setItem(googleIntentStorageKey, JSON.stringify(intent));
+  };
+
+  const readGoogleIntent = (): GoogleSignInIntent | undefined => {
+    if (typeof window === "undefined") return undefined;
+    const raw = window.sessionStorage.getItem(googleIntentStorageKey);
+    window.sessionStorage.removeItem(googleIntentStorageKey);
+    if (!raw) return undefined;
+    try {
+      return JSON.parse(raw) as GoogleSignInIntent;
+    } catch {
+      return undefined;
+    }
+  };
 
   /** Exchange Firebase id token for app session. Returns false on API failure (toast already shown). */
-  const applyGoogleSignInSession = useCallback(async (idToken: string): Promise<boolean> => {
+  const applyGoogleSignInSession = useCallback(async (idToken: string, intent?: GoogleSignInIntent): Promise<boolean> => {
     try {
       const data = await api.post<{ user: User; token: string; refreshToken?: string; isNewUser?: boolean }>(
         "/api/auth/google",
-        { idToken }
+        {
+          idToken,
+          role: intent?.role,
+          companyName: intent?.role === "recruiter" ? intent.companyName : undefined,
+          companySize: intent?.role === "recruiter" ? intent.companySize : undefined,
+          roleType: intent?.role === "jobseeker" ? intent.roleType : undefined,
+        }
       );
       setAuthToken(data.token);
       if (data.refreshToken) setRefreshToken(data.refreshToken);
@@ -125,6 +160,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const msg = err instanceof Error ? err.message : "";
       if (status === 403 && apiData?.code === "EMAIL_BLOCKED") {
         toast.error(apiData.error || "This email cannot be used to sign in.");
+      } else if (status === 409 && apiData?.code === "ROLE_MISMATCH") {
+        toast.error(apiData.error || "This Google account is already registered with a different role.");
       } else if (status === 403) {
         toast.error(apiData?.error || "Sign-in was denied for this account.");
       } else if (status === 401) {
@@ -158,7 +195,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setIsInitializing(false);
             return;
           }
-          const googleOk = await applyGoogleSignInSession(idToken);
+          const googleOk = await applyGoogleSignInSession(idToken, readGoogleIntent());
           setIsInitializing(false);
           if (!googleOk) {
             navigate("/auth", { replace: true });
@@ -360,7 +397,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUserRole(data.user.role);
   }, []);
 
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithGoogle = useCallback(async (intent?: GoogleSignInIntent) => {
     if (!isFirebaseConfigured()) {
       toast.error("Google sign-in is not configured. Please use email and password.");
       return;
@@ -373,6 +410,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (preferGoogleRedirectSignIn()) {
         try {
           toast.info("Redirecting to Google…");
+          saveGoogleIntent(intent);
           await signInWithGoogleRedirect();
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : "Google sign-in failed";
@@ -383,7 +421,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       try {
         const idToken = await signInWithGooglePopup();
-        await applyGoogleSignInSession(idToken);
+        await applyGoogleSignInSession(idToken, intent);
       } catch (err: unknown) {
         const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
         const message = err instanceof Error ? err.message : "";
@@ -396,6 +434,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         ) {
           toast.info("Continuing Google sign-in in this window…");
           try {
+            saveGoogleIntent(intent);
             await signInWithGoogleRedirect();
           } catch (redirErr: unknown) {
             const rmsg = redirErr instanceof Error ? redirErr.message : "Redirect sign-in failed";

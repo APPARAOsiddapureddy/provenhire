@@ -2,14 +2,15 @@
  * Full list of job applications for job seekers. Linked from dashboard "See All" in Applications section.
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Briefcase, Eye } from "lucide-react";
 import { api } from "@/lib/api";
 import DashboardShell from "@/components/DashboardShell";
 import { useAuth } from "@/contexts/AuthContext";
-import { ListChecks, Settings, FileText, FileCheck, LayoutGrid } from "lucide-react";
+import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
+import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
 
 function getStatusBadge(status: string) {
   const statusColors: Record<string, string> = {
@@ -24,8 +25,10 @@ function getStatusBadge(status: string) {
 
 export default function JobSeekerApplicationsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const { shellUser } = useJobSeekerShellIdentity();
 
   useEffect(() => {
     if (!user) return;
@@ -36,27 +39,18 @@ export default function JobSeekerApplicationsPage() {
       .finally(() => setLoading(false));
   }, [user]);
 
-  const sidebarSections = [
-    {
-      sectionLabel: "Candidate",
-      items: [
-        { label: "Dashboard", to: "/dashboard/jobseeker", icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
-        { label: "Applications", to: "/dashboard/jobseeker/applications", active: true, icon: <ListChecks className="w-[18px] h-[18px]" /> },
-        { label: "Saved Jobs", to: "/dashboard/jobseeker/saved", icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
-      ],
+  const sidebarSections = buildJobSeekerSidebarSections({
+    activeItem: "applications",
+    onDashboardSection: (section: JobSeekerDashboardSection) => {
+      navigate("/dashboard/jobseeker", { state: { section } });
     },
-  ];
-
-  const userName = user?.email?.split("@")[0] || "Candidate";
-  const initials = (userName || "U").slice(0, 2).toUpperCase();
+  });
 
   return (
     <div className="min-h-screen">
       <DashboardShell
         sidebarSections={sidebarSections}
-        user={{ name: userName, role: "Job Seeker", initials }}
+        user={shellUser}
       >
         <div className="dashboard-section-content">
           <div className="dashboard-section-header flex flex-wrap items-start justify-between gap-4">

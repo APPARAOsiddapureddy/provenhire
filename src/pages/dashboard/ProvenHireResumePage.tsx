@@ -21,14 +21,10 @@ import {
   Lock,
   Sparkles,
   ArrowLeft,
-  LayoutGrid,
-  ListChecks,
-  Briefcase,
-  Settings,
-  FileText,
 } from "lucide-react";
 import DashboardShell from "@/components/DashboardShell";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
+import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 
 interface VerifiedSkill {
   skill: string;
@@ -191,24 +187,14 @@ export default function ProvenHireResumePage() {
     ? jobSeekerShellUser(profileLike, user)
     : { name: "Candidate", initials: "U" };
 
-  const sidebarSections = [
-    {
-      sectionLabel: "Candidate",
-      items: [
-        { label: "Dashboard", to: "/dashboard/jobseeker", icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
-        {
-          label: "ProvenHire Resume",
-          to: "/dashboard/jobseeker/resume",
-          active: true,
-          icon: <FileText className="w-[18px] h-[18px]" />,
-        },
-        { label: "Applications", to: "/dashboard/jobseeker/applications", icon: <ListChecks className="w-[18px] h-[18px]" /> },
-        { label: "Saved Jobs", to: "/dashboard/jobseeker/saved", icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Job Listings", to: "/jobs", icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
-      ],
-    },
-  ];
+  const openDashboardSection = (section: JobSeekerDashboardSection) => {
+    navigate("/dashboard/jobseeker", { state: { section } });
+  };
+  const sidebarSections = buildJobSeekerSidebarSections({
+    activeItem: "resume",
+    isVerified: resume ? resume.certificationLevel !== "L0" : false,
+    onDashboardSection: openDashboardSection,
+  });
 
   const shellUser = { name: shellDisplayName, role: "Job Seeker", initials };
 
@@ -231,9 +217,9 @@ export default function ProvenHireResumePage() {
           <p className="text-muted-foreground">
             Complete your verification pipeline to generate your ProvenHire Resume.
           </p>
-          <Button variant="outline" onClick={() => navigate("/dashboard/jobseeker")}>
+          <Button variant="outline" onClick={() => openDashboardSection("resume")}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to dashboard
+            My Resume
           </Button>
         </div>
       </DashboardShell>
@@ -262,9 +248,9 @@ export default function ProvenHireResumePage() {
   return (
     <DashboardShell sidebarSections={sidebarSections} user={shellUser}>
       <div className="max-w-3xl mx-auto py-6 space-y-8">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard/jobseeker")}>
+        <Button variant="ghost" size="sm" onClick={() => openDashboardSection("resume")}>
           <ArrowLeft className="h-4 w-4 mr-1" />
-          Dashboard
+          My Resume
         </Button>
 
         {/* Header */}
