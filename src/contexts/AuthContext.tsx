@@ -33,6 +33,25 @@ type User = {
   authProvider?: string | null;
 };
 
+const DEV_PREVIEW_TOKEN_KEY = "ph_preview_token";
+const DEV_PREVIEW_TOKEN_FALLBACK = "preview-dev-token";
+const DEV_PREVIEW_FLAG = "preview";
+
+const DEV_PREVIEW_USER: User = {
+  id: "preview-jobseeker-uid",
+  name: "Demo Candidate",
+  email: "demo.candidate@provenhire.local",
+  role: "jobseeker",
+  authProvider: "DEMO",
+};
+
+const isDevDashboardPreviewMode = (): boolean => {
+  if (!import.meta.env.DEV) return false;
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get(DEV_PREVIEW_FLAG) === "1";
+};
+
 type AuthSessionResponse = {
   user: User;
   token: string;
@@ -177,6 +196,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const bootstrap = async () => {
       if (skipNextMeRef.current) {
         skipNextMeRef.current = false;
+        setIsInitializing(false);
+        return;
+      }
+
+      if (isDevDashboardPreviewMode()) {
+        setUser(DEV_PREVIEW_USER);
+        setUserRole("jobseeker");
+        setAuthToken(localStorage.getItem(DEV_PREVIEW_TOKEN_KEY) || DEV_PREVIEW_TOKEN_FALLBACK);
+        setRefreshToken(null);
         setIsInitializing(false);
         return;
       }

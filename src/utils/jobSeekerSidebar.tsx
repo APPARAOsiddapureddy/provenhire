@@ -1,4 +1,4 @@
-import { Briefcase, BrainCircuit, ClipboardList, FileCheck, FileText, LayoutGrid, ListChecks, Settings } from "lucide-react";
+import { Briefcase, ClipboardList, FileCheck, FileText, LayoutGrid, ListChecks, Settings } from "lucide-react";
 import type { DashboardSidebarSection } from "@/components/DashboardShell";
 
 export type JobSeekerSidebarActiveItem =
@@ -56,12 +56,6 @@ export function buildJobSeekerSidebarSections({
           ...dashboardTarget("resume", onDashboardSection),
           active: activeItem === "resume",
           icon: <FileText className="w-[18px] h-[18px]" />,
-        },
-        {
-          label: "Antigravity Lab",
-          to: "/dashboard/jobseeker/antigravity",
-          active: activeItem === "antigravity",
-          icon: <BrainCircuit className="w-[18px] h-[18px]" />,
         },
         {
           label: "Job Listings",
