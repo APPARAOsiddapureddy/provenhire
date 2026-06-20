@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { ArrowRight, ClipboardList, Loader2, Search, Users } from "lucide-react";
 import UserWorkspaceShell from "./UserWorkspaceShell";
@@ -18,6 +19,28 @@ import {
   workspaceStatusClass,
   workspaceStatusLabel,
 } from "./workspaceUserUtils";
+
+function WorkspaceListSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2, 3].map((item) => (
+        <div key={item} className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.03] p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <Skeleton className="mb-3 h-5 w-64 max-w-full" />
+              <Skeleton className="mb-3 h-4 w-44" />
+              <Skeleton className="h-3 w-full max-w-md" />
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Skeleton className="h-8 w-24 rounded-full" />
+              <Skeleton className="h-9 w-28 rounded-md" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function UserWorkspacesPage() {
   const navigate = useNavigate();
@@ -144,7 +167,7 @@ export default function UserWorkspacesPage() {
           </div>
 
           {loading ? (
-            <div className="py-12 text-center text-[var(--dash-text-muted)]">Loading workspaces...</div>
+            <WorkspaceListSkeleton />
           ) : registrations.length === 0 ? (
             <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.03] p-8 text-center sm:p-10">
               <ClipboardList className="h-10 w-10 mx-auto mb-3 text-[var(--dash-text-muted)]" />

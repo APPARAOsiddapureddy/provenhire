@@ -12,6 +12,26 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { Skeleton } from "@/components/ui/skeleton";
+
+function SavedJobRowsSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[1, 2, 3, 4, 5].map((item) => (
+        <div key={item} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--dash-navy-border)] p-4">
+          <div className="min-w-0 flex-1">
+            <Skeleton className="mb-3 h-5 w-2/3 max-w-sm" />
+            <Skeleton className="h-4 w-1/2 max-w-xs" />
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Skeleton className="h-9 w-9 rounded-md" />
+            <Skeleton className="h-9 w-9 rounded-md" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function JobSeekerSavedJobsPage() {
   const { user } = useAuth();
@@ -76,9 +96,7 @@ export default function JobSeekerSavedJobsPage() {
             </CardHeader>
             <CardContent>
               {loading ? (
-                <div className="flex justify-center py-12">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
-                </div>
+                <SavedJobRowsSkeleton />
               ) : savedJobs.length === 0 ? (
                 <div className="text-center py-12">
                   <Briefcase className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />

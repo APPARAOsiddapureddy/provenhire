@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PhoneInput } from "@/components/PhoneInput";
 import { Label } from "@/components/ui/label";
-import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, LayoutGrid, ChevronRight, CheckCircle2, Search, Settings, ExternalLink, Award, CreditCard, Send, Loader2, GraduationCap } from "lucide-react";
+import { Briefcase, Users, Calendar, UserCheck, Plus, Trash2, MapPin, Building2, Mail, Phone, Edit, ChevronRight, CheckCircle2, Search, ExternalLink, Award, Send, Loader2, GraduationCap } from "lucide-react";
 import ResumeViewButton from "@/components/ResumeViewButton";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
@@ -41,6 +41,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import DashboardShell from "@/components/DashboardShell";
 import PhoneCollectGate from "@/components/PhoneCollectGate";
+import { buildRecruiterSidebarSections } from "@/utils/recruiterSidebar";
 
 interface Job {
   id: string;
@@ -495,19 +496,10 @@ const RecruiterDashboard = () => {
     return Math.round((stats.hiredCount / stats.totalApplicants) * 100);
   };
 
-  const sidebarSections = [
-    {
-      sectionLabel: "Recruiter",
-      items: [
-        { label: "Talent Pool", active: activeTab === 'discover', onClick: () => setActiveTab('discover'), icon: <Users className="w-[18px] h-[18px]" /> },
-        { label: "Search Candidates", to: "/candidate-search", icon: <Search className="w-[18px] h-[18px]" /> },
-        { label: "My Jobs", active: activeTab === 'jobs', onClick: () => setActiveTab('jobs'), icon: <Briefcase className="w-[18px] h-[18px]" /> },
-        { label: "Pipeline & Tracking", active: activeTab === 'pipeline', onClick: () => setActiveTab('pipeline'), icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
-        { label: "Plans & Upgrade", to: "/dashboard/recruiter/plans", icon: <CreditCard className="w-[18px] h-[18px]" /> },
-        { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
-      ],
-    },
-  ];
+  const sidebarSections = buildRecruiterSidebarSections({
+    activeItem: activeTab === "jobs" ? "jobs" : activeTab === "pipeline" ? "pipeline" : "talent",
+    onDashboardTab: setActiveTab,
+  });
   const userName = profile?.full_name || user?.email || 'Recruiter';
   const userInitials = (profile?.full_name || user?.email || 'R').toString().split(/\s|@/).map((s: string) => s[0]).join('').slice(0, 2).toUpperCase();
 
@@ -548,9 +540,9 @@ const RecruiterDashboard = () => {
           </div>
         )}
         {!loading && !backendUnavailable && (
-          <>
+          <div className="recruiter-dashboard-page">
             {profile && (
-              <div className="mb-6 p-4 rounded-xl border bg-card flex flex-wrap items-center gap-4">
+              <div className="recruiter-profile-strip">
                 <div className="flex items-center gap-4 min-w-0 flex-1">
                   <div className="w-14 h-14 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
                     {(profile.company_logo ?? profile.companyLogo) ? (
@@ -584,7 +576,7 @@ const RecruiterDashboard = () => {
                 </div>
               </div>
             )}
-            <div className="dashboard-section-header flex-wrap gap-4">
+              <div className="dashboard-section-header recruiter-dashboard-header flex-wrap gap-4">
               <div>
                 <h1>Talent Discovery</h1>
                 <p>Discover and hire verified talent</p>
@@ -850,7 +842,7 @@ const RecruiterDashboard = () => {
                 )}
               </div>
             )}
-          </>
+          </div>
         )}
       </DashboardShell>
 

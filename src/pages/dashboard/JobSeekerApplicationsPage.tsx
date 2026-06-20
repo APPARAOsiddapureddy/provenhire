@@ -11,6 +11,7 @@ import DashboardShell from "@/components/DashboardShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function getStatusBadge(status: string) {
   const statusColors: Record<string, string> = {
@@ -21,6 +22,26 @@ function getStatusBadge(status: string) {
     hired: "bg-emerald-500/25 text-emerald-300 border-emerald-500/40",
   };
   return statusColors[status] || "bg-white/10 text-gray-300 border-white/10";
+}
+
+function ApplicationRowsSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[1, 2, 3, 4, 5].map((item) => (
+        <div key={item} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--dash-navy-border)] p-4">
+          <div className="min-w-0 flex-1">
+            <Skeleton className="mb-3 h-5 w-2/3 max-w-sm" />
+            <Skeleton className="mb-2 h-4 w-1/2 max-w-xs" />
+            <Skeleton className="h-4 w-40" />
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Skeleton className="h-7 w-24 rounded-md" />
+            <Skeleton className="h-9 w-9 rounded-md" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function JobSeekerApplicationsPage() {
@@ -72,9 +93,7 @@ export default function JobSeekerApplicationsPage() {
             </CardHeader>
             <CardContent>
               {loading ? (
-                <div className="flex justify-center py-12">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
-                </div>
+                <ApplicationRowsSkeleton />
               ) : applications.length === 0 ? (
                 <div className="text-center py-12">
                   <Briefcase className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />

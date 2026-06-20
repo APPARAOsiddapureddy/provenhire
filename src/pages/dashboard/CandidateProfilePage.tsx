@@ -8,11 +8,50 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import CandidateProfileView, { type CandidateProfileViewProfile } from "@/components/CandidateProfileView";
 import { RecruiterProvenhireResumePanel, type ProvenhireResumeRecruiterShape } from "@/components/recruiter/RecruiterProvenhireResumePanel";
 import { useToast } from "@/hooks/use-toast";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
+function CandidateProfileSkeleton() {
+  return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      <div className="sticky top-0 z-50 border-b bg-background/95 px-4 py-3 backdrop-blur">
+        <div className="container flex items-center justify-between gap-3">
+          <Skeleton className="h-5 w-56" />
+          <Skeleton className="h-7 w-36 rounded-full" />
+        </div>
+      </div>
+      <div className="container max-w-3xl space-y-6 py-6">
+        <Skeleton className="h-72 w-full rounded-xl" />
+        <Skeleton className="h-44 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+function CandidateResumePanelSkeleton() {
+  return (
+    <div className="mb-6 space-y-4 rounded-xl border border-border bg-card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-64 max-w-full" />
+        </div>
+        <Skeleton className="h-8 w-24 rounded-full" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Skeleton className="h-20 rounded-lg" />
+        <Skeleton className="h-20 rounded-lg" />
+        <Skeleton className="h-20 rounded-lg" />
+      </div>
+    </div>
+  );
+}
 
 const CandidateProfilePage = () => {
   const { profileId } = useParams<{ profileId: string }>();
@@ -97,11 +136,7 @@ const CandidateProfilePage = () => {
   const backHref = jobId ? `/dashboard/recruiter/jobs/${jobId}/matches` : "/candidate-search";
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <CandidateProfileSkeleton />;
   }
 
   if (!profile) {
@@ -146,10 +181,7 @@ const CandidateProfilePage = () => {
 
       <div className="container py-6 max-w-3xl">
         {loadingResume && (
-          <div className="flex items-center gap-2 text-muted-foreground mb-6">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Loading verified resume…
-          </div>
+          <CandidateResumePanelSkeleton />
         )}
 
         {resumeBlocked && !loadingResume && (

@@ -11,6 +11,7 @@ import { RecruiterSettings } from "@/components/settings/RecruiterSettings";
 import { InterviewerSettings } from "@/components/settings/InterviewerSettings";
 import DashboardShell from "@/components/DashboardShell";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
+import { buildRecruiterSidebarSections } from "@/utils/recruiterSidebar";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
 
@@ -39,15 +40,17 @@ export default function SettingsPage() {
             navigate("/dashboard/jobseeker", { state: { section } });
           },
         })
-      : [
-          {
-            sectionLabel: "Settings",
-            items: [
-              { label: "Settings", to: "/dashboard/settings", active: true, icon: <Settings className="w-[18px] h-[18px]" /> },
-              { label: "Back to Dashboard", to: dashboardPath, icon: <ArrowLeft className="w-[18px] h-[18px]" /> },
-            ],
-          },
-        ];
+      : userRole === "recruiter"
+        ? buildRecruiterSidebarSections({ activeItem: "settings" })
+        : [
+           {
+             sectionLabel: "Settings",
+             items: [
+               { label: "Settings", to: "/dashboard/settings", active: true, icon: <Settings className="w-[18px] h-[18px]" /> },
+               { label: "Back to Dashboard", to: dashboardPath, icon: <ArrowLeft className="w-[18px] h-[18px]" /> },
+             ],
+           },
+          ];
 
   const shellUser = useMemo(() => {
     if (userRole === "jobseeker") return candidateShellUser;
@@ -72,7 +75,7 @@ export default function SettingsPage() {
       <DashboardShell sidebarSections={sidebarSections} user={shellUser} onSignOut={undefined}>
         <div className="settings-page">
           <div className="settings-page-header">
-            {userRole !== "jobseeker" && (
+            {userRole === "expert_interviewer" && (
               <Button variant="ghost" size="sm" onClick={() => navigate(dashboardPath)} className="text-white/80 hover:text-white mb-4">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Dashboard

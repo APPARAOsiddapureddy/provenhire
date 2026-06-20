@@ -123,11 +123,21 @@ export function RecruiterSettings() {
     }
   };
 
-  if (loading) return <div className="text-white/70">Loading settings...</div>;
+  if (loading) {
+    return (
+      <div className="settings-loading-state">
+        <div className="settings-loading-orbit"><span /></div>
+        <div>
+          <p className="settings-loading-title">Loading recruiter settings</p>
+          <p className="settings-loading-copy">Preparing your company profile and hiring preferences.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (sessionExpired) {
     return (
-      <div className="rounded-lg border border-white/20 bg-white/5 p-4 text-center text-white">
+      <div className="settings-state-panel">
         <p className="font-medium">Session expired</p>
         <p className="mt-1 text-sm text-white/70">Please sign in again to continue.</p>
         <button type="button" onClick={() => signOut()} className="mt-3 rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium hover:bg-white/20">
@@ -139,7 +149,7 @@ export function RecruiterSettings() {
 
   if (serverUnavailable) {
     return (
-      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-amber-200">
+      <div className="settings-state-panel settings-state-panel--warning">
         <p className="font-medium">Could not load settings</p>
         <p className="mt-1 text-sm text-amber-200/80">
           Click Retry to try again, or run <code className="rounded bg-black/20 px-1">npm run dev</code> from the project root if the backend is not running.
@@ -152,112 +162,116 @@ export function RecruiterSettings() {
   }
 
   return (
-    <div className="space-y-6">
-      <SettingsCard title="Company Profile" description="Visible on job postings." onSave={save} saving={saving}>
-        <div className="grid gap-4">
-          <div>
-            <Label>Company name</Label>
-            <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Acme Inc." />
+    <div className="recruiter-settings-grid">
+      <div className="recruiter-settings-main-column">
+        <SettingsCard title="Company Profile" description="Visible on job postings and recruiter outreach." onSave={save} saving={saving}>
+          <div className="settings-form-grid">
+            <div>
+              <Label>Company name</Label>
+              <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Acme Inc." />
+            </div>
+            <div>
+              <Label>Industry</Label>
+              <Input value={industry} onChange={(e) => setIndustry(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Technology" />
+            </div>
+            <div>
+              <Label>Company website</Label>
+              <Input value={companyWebsite} onChange={(e) => setCompanyWebsite(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="https://..." />
+            </div>
+            <div>
+              <Label>Company size</Label>
+              <Input value={companySize} onChange={(e) => setCompanySize(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="1-50, 51-200, etc." />
+            </div>
+            <div>
+              <Label>Headquarters location</Label>
+              <Input value={headquarters} onChange={(e) => setHeadquarters(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Bangalore, India" />
+            </div>
+            <div>
+              <Label>Company logo URL</Label>
+              <Input value={companyLogo} onChange={(e) => setCompanyLogo(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="https://..." />
+            </div>
+            <div className="settings-field-full">
+              <Label>Company description</Label>
+              <Textarea value={companyDescription} onChange={(e) => setCompanyDescription(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" rows={5} placeholder="Brief description of your company" />
+            </div>
           </div>
-          <div>
-            <Label>Company logo URL</Label>
-            <Input value={companyLogo} onChange={(e) => setCompanyLogo(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="https://..." />
-          </div>
-          <div>
-            <Label>Company website</Label>
-            <Input value={companyWebsite} onChange={(e) => setCompanyWebsite(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="https://..." />
-          </div>
-          <div>
-            <Label>Industry</Label>
-            <Input value={industry} onChange={(e) => setIndustry(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Technology" />
-          </div>
-          <div>
-            <Label>Company size</Label>
-            <Input value={companySize} onChange={(e) => setCompanySize(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="1-50, 51-200, etc." />
-          </div>
-          <div>
-            <Label>Headquarters location</Label>
-            <Input value={headquarters} onChange={(e) => setHeadquarters(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Bangalore, India" />
-          </div>
-          <div>
-            <Label>Company description</Label>
-            <Textarea value={companyDescription} onChange={(e) => setCompanyDescription(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" rows={4} placeholder="Brief description of your company" />
-          </div>
-        </div>
-      </SettingsCard>
+        </SettingsCard>
+      </div>
 
-      <SettingsCard title="Hiring Preferences" description="Filter candidates by certification and skills." onSave={save} saving={saving}>
-        <div className="grid gap-4">
-          <div>
-            <Label>Preferred roles</Label>
-            <Input value={preferredRoles} onChange={(e) => setPreferredRoles(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Frontend Engineer, Backend (comma-separated)" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
+      <div className="recruiter-settings-side-column">
+        <SettingsCard title="Hiring Preferences" description="Filter candidates by certification and skills." onSave={save} saving={saving}>
+          <div className="grid gap-4">
             <div>
-              <Label>Experience range (min years)</Label>
-              <Input type="number" value={preferredExperienceMin} onChange={(e) => setPreferredExperienceMin(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="0" min={0} />
+              <Label>Preferred roles</Label>
+              <Input value={preferredRoles} onChange={(e) => setPreferredRoles(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="Frontend Engineer, Backend (comma-separated)" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Min experience</Label>
+                <Input type="number" value={preferredExperienceMin} onChange={(e) => setPreferredExperienceMin(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="0" min={0} />
+              </div>
+              <div>
+                <Label>Max experience</Label>
+                <Input type="number" value={preferredExperienceMax} onChange={(e) => setPreferredExperienceMax(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="10" min={0} />
+              </div>
             </div>
             <div>
-              <Label>Experience range (max years)</Label>
-              <Input type="number" value={preferredExperienceMax} onChange={(e) => setPreferredExperienceMax(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="10" min={0} />
+              <Label>Preferred skills</Label>
+              <Input value={preferredSkills} onChange={(e) => setPreferredSkills(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="React, Node, Python (comma-separated)" />
+            </div>
+            <div>
+              <Label>Minimum certification level</Label>
+              <Select value={String(minimumCertificationLevel)} onValueChange={(v) => setMinimumCertificationLevel(parseInt(v, 10))}>
+                <SelectTrigger className="mt-1 bg-white/5 border-[var(--dash-navy-border)]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CERT_LEVELS.map((c) => (
+                    <SelectItem key={c.value} value={String(c.value)}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <div>
-            <Label>Preferred skills</Label>
-            <Input value={preferredSkills} onChange={(e) => setPreferredSkills(e.target.value)} className="mt-1 bg-white/5 border-[var(--dash-navy-border)]" placeholder="React, Node, Python (comma-separated)" />
-          </div>
-          <div>
-            <Label>Minimum certification level</Label>
-            <Select value={String(minimumCertificationLevel)} onValueChange={(v) => setMinimumCertificationLevel(parseInt(v, 10))}>
-              <SelectTrigger className="mt-1 bg-white/5 border-[var(--dash-navy-border)]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CERT_LEVELS.map((c) => (
-                  <SelectItem key={c.value} value={String(c.value)}>{c.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </SettingsCard>
+        </SettingsCard>
 
-      <SettingsCard title="Team & Notifications" description="Application alerts and reports." onSave={save} saving={saving}>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Email notifications</Label>
-              <p className="text-xs text-white/60">General platform emails</p>
+        <SettingsCard title="Team & Notifications" description="Application alerts and reports." onSave={save} saving={saving}>
+          <div className="space-y-4">
+            <div className="settings-toggle-row">
+              <div>
+                <Label>Email notifications</Label>
+                <p className="text-xs text-white/60">General platform emails</p>
+              </div>
+              <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
             </div>
-            <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Candidate application alerts</Label>
-              <p className="text-xs text-white/60">Notify when new applications arrive</p>
+            <div className="settings-toggle-row">
+              <div>
+                <Label>Candidate application alerts</Label>
+                <p className="text-xs text-white/60">Notify when new applications arrive</p>
+              </div>
+              <Switch checked={applicationAlerts} onCheckedChange={setApplicationAlerts} />
             </div>
-            <Switch checked={applicationAlerts} onCheckedChange={setApplicationAlerts} />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Weekly hiring reports</Label>
-              <p className="text-xs text-white/60">Summary of applications and interviews</p>
+            <div className="settings-toggle-row">
+              <div>
+                <Label>Weekly hiring reports</Label>
+                <p className="text-xs text-white/60">Summary of applications and interviews</p>
+              </div>
+              <Switch checked={weeklyReports} onCheckedChange={setWeeklyReports} />
             </div>
-            <Switch checked={weeklyReports} onCheckedChange={setWeeklyReports} />
           </div>
-        </div>
-      </SettingsCard>
+        </SettingsCard>
 
-      <SettingsCard title="Account" description="Sign out ends your session on this device.">
-        <Button
-          type="button"
-          variant="outline"
-          className="border-[var(--dash-navy-border)] text-white hover:bg-white/10"
-          onClick={() => signOut()}
-        >
-          Sign out
-        </Button>
-      </SettingsCard>
+        <SettingsCard title="Account" description="Sign out ends your session on this device.">
+          <Button
+            type="button"
+            variant="outline"
+            className="border-[var(--dash-navy-border)] text-white hover:bg-white/10"
+            onClick={() => signOut()}
+          >
+            Sign out
+          </Button>
+        </SettingsCard>
+      </div>
     </div>
   );
 }

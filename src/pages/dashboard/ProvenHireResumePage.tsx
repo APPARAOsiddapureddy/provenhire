@@ -25,6 +25,7 @@ import {
 import DashboardShell from "@/components/DashboardShell";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface VerifiedSkill {
   skill: string;
@@ -97,6 +98,43 @@ const CERT_BADGE: Record<
     label: "Elite Verified",
   },
 };
+
+function ProvenHireResumeSkeleton() {
+  return (
+    <div className="mx-auto max-w-5xl space-y-6 py-8">
+      <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.03] p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-3">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-4 w-80 max-w-full" />
+          </div>
+          <Skeleton className="h-11 w-40 rounded-lg" />
+        </div>
+      </div>
+      <Skeleton className="h-12 w-full rounded-lg" />
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr_.9fr]">
+        <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.03] p-6">
+          <Skeleton className="mx-auto mb-5 h-24 w-24 rounded-full" />
+          <Skeleton className="mx-auto mb-3 h-6 w-40" />
+          <Skeleton className="mx-auto mb-8 h-4 w-28" />
+          <Skeleton className="mb-4 h-20 w-full rounded-lg" />
+          <Skeleton className="mb-3 h-4 w-3/4" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+        <div className="space-y-5">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-32 w-full rounded-xl" />
+        </div>
+        <div className="space-y-5">
+          <Skeleton className="h-36 w-full rounded-xl" />
+          <Skeleton className="h-32 w-full rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function confidenceBarColor(c: number): string {
   if (c >= 80) return "#22c55e";
@@ -201,9 +239,7 @@ export default function ProvenHireResumePage() {
   if (loading) {
     return (
       <DashboardShell sidebarSections={sidebarSections} user={shellUser}>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
-        </div>
+        <ProvenHireResumeSkeleton />
       </DashboardShell>
     );
   }

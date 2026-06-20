@@ -20,6 +20,49 @@ import { User, Phone, Globe, Building2, Briefcase, CheckCircle, ArrowRight, Link
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+
+function RecruiterOnboardingSkeleton() {
+  return (
+    <div className="min-h-screen bg-gradient-subtle">
+      <Navbar />
+      <main className="container mx-auto px-4 py-12">
+        <div className="mx-auto max-w-2xl space-y-8">
+          <div className="text-center">
+            <Skeleton className="mx-auto mb-4 h-16 w-16 rounded-full" />
+            <Skeleton className="mx-auto mb-3 h-9 w-72 max-w-full" />
+            <Skeleton className="mx-auto h-4 w-full max-w-lg" />
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-4 w-10" />
+            </div>
+            <Skeleton className="h-2 w-full rounded-full" />
+          </div>
+          <div className="space-y-6">
+            {[1, 2, 3].map((item) => (
+              <Card key={item}>
+                <CardHeader>
+                  <Skeleton className="h-6 w-48" />
+                  <Skeleton className="h-4 w-72 max-w-full" />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Skeleton className="h-11 rounded-md" />
+                    <Skeleton className="h-11 rounded-md" />
+                  </div>
+                  <Skeleton className="h-24 rounded-md" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </main>
+      <Footer />
+    </div>
+  );
+}
 
 const COMPANY_SIZES = [
   { value: "1-10", label: "1–10" },
@@ -234,14 +277,7 @@ const RecruiterOnboarding = () => {
   );
 
   if (checkingStatus) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-subtle">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
+    return <RecruiterOnboardingSkeleton />;
   }
 
   return (

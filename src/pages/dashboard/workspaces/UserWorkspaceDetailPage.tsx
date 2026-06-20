@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -22,6 +23,47 @@ import {
   workspaceStatusClass,
   workspaceStatusLabel,
 } from "./workspaceUserUtils";
+
+function WorkspaceDetailSkeleton() {
+  return (
+    <div className="workspace-dashboard-page space-y-6">
+      <Skeleton className="h-10 w-40 rounded-md" />
+      <div className="dashboard-hero-card">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-3">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-5 w-72 max-w-full" />
+          </div>
+          <Skeleton className="h-8 w-28 rounded-full" />
+        </div>
+      </div>
+      <div className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.03] p-6">
+        <Skeleton className="mb-5 h-10 w-72 max-w-full" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => (
+            <Skeleton key={item} className="h-20 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardSkeleton() {
+  return (
+    <div className="space-y-3 py-2">
+      {[1, 2, 3, 4].map((item) => (
+        <div key={item} className="grid grid-cols-[64px_1fr_90px_120px] gap-4 rounded-lg border border-[var(--dash-navy-border)] p-3">
+          <Skeleton className="h-5 w-8" />
+          <Skeleton className="h-5 w-full max-w-48" />
+          <Skeleton className="h-5 w-16" />
+          <Skeleton className="h-5 w-24" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function UserWorkspaceDetailPage() {
   const { code = "" } = useParams<{ code: string }>();
@@ -70,9 +112,7 @@ export default function UserWorkspaceDetailPage() {
   if (loading || !workspace) {
     return (
       <UserWorkspaceShell>
-        <div className="workspace-dashboard-page flex min-h-[420px] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
-        </div>
+        <WorkspaceDetailSkeleton />
       </UserWorkspaceShell>
     );
   }
@@ -316,7 +356,7 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
       </CardHeader>
       <CardContent>
         {loading && rows.length === 0 ? (
-          <div className="py-10 text-center text-[var(--dash-text-muted)]">Loading leaderboard...</div>
+          <LeaderboardSkeleton />
         ) : rows.length === 0 ? (
           <div className="py-10 text-center text-[var(--dash-text-muted)]">No scores yet.</div>
         ) : (
