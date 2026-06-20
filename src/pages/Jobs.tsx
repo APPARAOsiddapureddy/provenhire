@@ -31,6 +31,7 @@ import VerifiedBenefitsBanner from "@/components/VerifiedBenefitsBanner";
 import DashboardShell from "@/components/DashboardShell";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Job {
   id: string;
@@ -59,6 +60,44 @@ interface Job {
   /** Recruiter verification: logo and verified badge */
   companyLogo?: string | null;
   recruiterVerified?: boolean;
+}
+
+function JobsLoadingSkeleton({ dashboardView }: { dashboardView: boolean }) {
+  return (
+    <div className={dashboardView ? "jobs-dashboard-page" : "flex-1 pt-20 sm:pt-24 pb-8 sm:pb-12"}>
+      <div className={dashboardView ? "jobs-dashboard-inner" : "container mx-auto px-4 sm:px-6"}>
+        <div className={dashboardView ? "" : "max-w-5xl mx-auto text-center"}>
+          <Skeleton className={`h-10 w-72 mb-3 ${dashboardView ? "" : "mx-auto"}`} />
+          <Skeleton className={`h-5 w-full max-w-xl mb-8 ${dashboardView ? "" : "mx-auto"}`} />
+        </div>
+        <div className={`jobs-search-bar mb-8 ${dashboardView ? "" : "max-w-5xl mx-auto"}`}>
+          <div className="grid gap-3 rounded-xl border border-border bg-card p-4 shadow-md md:grid-cols-[1fr_1fr_1fr_auto]">
+            <Skeleton className="h-11 rounded-lg" />
+            <Skeleton className="h-11 rounded-lg" />
+            <Skeleton className="h-11 rounded-lg" />
+            <Skeleton className="h-11 w-full rounded-lg md:w-24" />
+          </div>
+        </div>
+        <div className={`flex flex-col gap-6 lg:flex-row lg:gap-8 ${dashboardView ? "" : "max-w-7xl mx-auto"}`}>
+          <Skeleton className="hidden h-[420px] w-full rounded-xl lg:block lg:w-64" />
+          <div className="grid min-w-0 flex-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((item) => (
+              <div key={item} className="rounded-xl border border-border bg-card p-5">
+                <Skeleton className="mb-4 h-6 w-3/4" />
+                <Skeleton className="mb-3 h-4 w-1/2" />
+                <Skeleton className="mb-6 h-4 w-2/3" />
+                <div className="mb-6 flex gap-2">
+                  <Skeleton className="h-7 w-20 rounded-full" />
+                  <Skeleton className="h-7 w-24 rounded-full" />
+                </div>
+                <Skeleton className="h-11 w-full rounded-lg" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const Jobs = () => {
@@ -702,14 +741,20 @@ const Jobs = () => {
   }
 
   if (loading && jobs.length === 0) {
-    return (
-      <div className="min-h-screen flex flex-col bg-secondary">
+    const loadingContent = (
+      <>
         {!isJobSeekerDashboardView && <Navbar />}
-        <div className="flex-1 pt-24 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-        </div>
+        <JobsLoadingSkeleton dashboardView={isJobSeekerDashboardView} />
         {!isJobSeekerDashboardView && <Footer />}
-      </div>
+      </>
+    );
+
+    return isJobSeekerDashboardView ? (
+      <DashboardShell sidebarSections={jobSeekerSidebarSections} user={jobSeekerShellUser}>
+        {loadingContent}
+      </DashboardShell>
+    ) : (
+      <div className="min-h-screen flex flex-col bg-secondary">{loadingContent}</div>
     );
   }
 

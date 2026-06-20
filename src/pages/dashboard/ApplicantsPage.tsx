@@ -10,8 +10,9 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, Loader2, Star, Calendar } from "lucide-react";
+import { ChevronLeft, Star, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Applicant {
   application_id: string;
@@ -45,6 +46,40 @@ interface Applicant {
     live_coding?: { status: string; last_verified_days_ago: number | null } | null;
     interview?: { status: string; last_verified_days_ago: number | null } | null;
   };
+}
+
+function ApplicantsPageSkeleton() {
+  return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      <div className="container space-y-6 py-6">
+        <Skeleton className="h-5 w-72" />
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-80 max-w-full" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <Skeleton className="h-10 w-40 rounded-md" />
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => (
+            <Skeleton key={item} className="h-24 rounded-xl" />
+          ))}
+        </div>
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <Skeleton className="h-9 w-64" />
+            <Skeleton className="h-9 w-44" />
+          </div>
+          <div className="space-y-3">
+            {[1, 2, 3, 4, 5].map((item) => (
+              <Skeleton key={item} className="h-24 rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const CERT_STRIP_CLASS: Record<number, string> = {
@@ -264,11 +299,7 @@ const ApplicantsPage = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <ApplicantsPageSkeleton />;
   }
 
   if (!job) {

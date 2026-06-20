@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { type ReactNode, useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Search, MapPin, Briefcase, GraduationCap, CheckCircle2, Clock, Mail, Phone, User, Award, Trophy, Shield, Send, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,6 +15,8 @@ import ResumeViewButton from "@/components/ResumeViewButton";
 import SkillPassport from "@/components/SkillPassport";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import DashboardShell from "@/components/DashboardShell";
+import { buildRecruiterSidebarSections } from "@/utils/recruiterSidebar";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +55,43 @@ interface JobSeekerProfile {
   notice_period?: string | null;
   current_salary?: string | null;
   expected_salary?: string | null;
+}
+
+function CandidateSearchSkeletonGrid({ recruiterView }: { recruiterView: boolean }) {
+  return (
+    <div className={recruiterView ? "candidate-search-grid" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"}>
+      {[1, 2, 3, 4, 5, 6].map((item) => (
+        <Card key={item} className={recruiterView ? "candidate-search-card" : ""}>
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <Skeleton className="mb-3 h-6 w-3/4" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-7 w-32 rounded-full" />
+                <Skeleton className="ml-auto h-7 w-20 rounded-full" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="mb-3 h-4 w-full" />
+            <Skeleton className="mb-5 h-4 w-5/6" />
+            <div className="mb-4 flex flex-wrap gap-2">
+              <Skeleton className="h-7 w-20 rounded-full" />
+              <Skeleton className="h-7 w-24 rounded-full" />
+              <Skeleton className="h-7 w-16 rounded-full" />
+            </div>
+            <div className={recruiterView ? "candidate-search-actions mt-4" : "flex gap-2 mt-4"}>
+              <Skeleton className="h-11 flex-1 rounded-md" />
+              <Skeleton className="h-11 flex-1 rounded-md" />
+              <Skeleton className="h-11 w-12 rounded-md" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
 }
 
 const CandidateSearch = () => {
@@ -268,11 +308,28 @@ const CandidateSearch = () => {
     setShowContactDialog(true);
   };
 
+  const isRecruiterView = user?.role === "recruiter";
+  const sidebarSections = useMemo(() => buildRecruiterSidebarSections({ activeItem: "search" }), []);
+  const shellName = user?.name || user?.email || "Recruiter";
+  const shellUser = {
+    name: shellName,
+    role: "Recruiter",
+    initials: shellName.toString().split(/\s|@/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(),
+  };
+  const CandidateSearchFrame = ({ children }: { children: ReactNode }) =>
+    isRecruiterView ? (
+      <DashboardShell sidebarSections={sidebarSections} user={shellUser}>
+        {children}
+      </DashboardShell>
+    ) : (
+      <div className="min-h-screen bg-background">{children}</div>
+    );
+
   return (
-    <div className="min-h-screen bg-background">
-      <Navbar />
-      <div className="container mx-auto px-4 pt-16 sm:pt-20 pb-8">
-        <div className="mb-8">
+    <CandidateSearchFrame>
+      {!isRecruiterView && <Navbar />}
+      <div className={isRecruiterView ? "candidate-search-page" : "container mx-auto px-4 pt-16 sm:pt-20 pb-8"}>
+        <div className={isRecruiterView ? "candidate-search-header" : "mb-8"}>
           <h1 className="text-3xl font-bold text-foreground mb-2">Elite Verified Candidates</h1>
           <p className="text-muted-foreground">
             Browse Level 2 verified job seekers - current verification complete, ready for hire
@@ -280,9 +337,9 @@ const CandidateSearch = () => {
         </div>
 
         {/* Filters */}
-        <Card className="mb-8">
+        <Card className={isRecruiterView ? "candidate-search-filter-card" : "mb-8"}>
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+            <div className={isRecruiterView ? "candidate-search-filters" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4"}>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -369,19 +426,9 @@ const CandidateSearch = () => {
 
         {/* Candidates Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <Card key={i} className="animate-pulse">
-                <CardContent className="pt-6">
-                  <div className="h-4 bg-muted rounded w-3/4 mb-4"></div>
-                  <div className="h-3 bg-muted rounded w-1/2 mb-2"></div>
-                  <div className="h-3 bg-muted rounded w-2/3"></div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <CandidateSearchSkeletonGrid recruiterView={isRecruiterView} />
         ) : filteredCandidates.length === 0 ? (
-          <Card>
+          <Card className={isRecruiterView ? "candidate-search-empty" : ""}>
             <CardContent className="py-12 text-center">
               <User className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">No candidates found</h3>
@@ -389,12 +436,12 @@ const CandidateSearch = () => {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className={isRecruiterView ? "candidate-search-grid" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"}>
             {filteredCandidates.map(candidate => (
-              <Card key={candidate.id} className="hover:shadow-lg transition-shadow">
+              <Card key={candidate.id} className={isRecruiterView ? "candidate-search-card" : "hover:shadow-lg transition-shadow"}>
                 <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
                       <CardTitle className="text-lg">
                         {candidate.full_name || candidate.actively_looking_roles?.[0] || "Job Seeker"}
                       </CardTitle>
@@ -407,7 +454,7 @@ const CandidateSearch = () => {
                         )}
                       </CardDescription>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className={isRecruiterView ? "candidate-search-card-badges" : "flex flex-col items-end gap-1"}>
                       {getCertificationBadge(candidate)}
                       {getVerificationBadge(candidate.verification_status)}
                     </div>
@@ -465,7 +512,7 @@ const CandidateSearch = () => {
                       </div>
                     )}
 
-                    <div className="flex gap-2 mt-4">
+                    <div className={isRecruiterView ? "candidate-search-actions mt-4" : "flex gap-2 mt-4"}>
                       <Button 
                         className="flex-1" 
                         variant="outline"
@@ -482,7 +529,7 @@ const CandidateSearch = () => {
                             Quick Preview
                           </Button>
                         </DialogTrigger>
-                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogContent className={isRecruiterView ? "candidate-search-dialog max-w-2xl max-h-[90vh] overflow-y-auto" : "max-w-2xl max-h-[90vh] overflow-y-auto"}>
                         <DialogHeader>
                           <DialogTitle className="flex items-center justify-between">
                             <span>{candidate.full_name || candidate.actively_looking_roles?.[0] || "Job Seeker"}</span>
@@ -523,8 +570,8 @@ const CandidateSearch = () => {
                                 {candidate.college || "Not specified"}
                                 {candidate.graduation_year && ` (${candidate.graduation_year})`}
                               </p>
-                            </div>
-                          </div>
+        </div>
+      </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <div>
@@ -625,7 +672,7 @@ const CandidateSearch = () => {
 
       {/* Contact Candidate Dialog */}
       <Dialog open={showContactDialog} onOpenChange={setShowContactDialog}>
-        <DialogContent>
+        <DialogContent className={isRecruiterView ? "candidate-search-dialog" : ""}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Send className="h-5 w-5 text-primary" />
@@ -679,8 +726,8 @@ const CandidateSearch = () => {
         </DialogContent>
       </Dialog>
 
-      <Footer />
-    </div>
+      {!isRecruiterView && <Footer />}
+    </CandidateSearchFrame>
   );
 };
 

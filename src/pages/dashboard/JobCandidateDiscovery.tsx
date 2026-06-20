@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Lock, Sparkles, Award } from "lucide-react";
+import { ArrowLeft, Lock, Sparkles, Award } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type TopSkill = { skill: string; confidence: number };
 
@@ -35,6 +36,37 @@ type DiscoveryResponse = {
   subscriptionTier?: string;
   limits?: { profileViewsUsed: number; profileViewsMonthly: number | null };
 };
+
+function CandidateDiscoverySkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <Skeleton className="h-7 w-32 rounded-full" />
+        <Skeleton className="h-4 w-72 max-w-full" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[1, 2, 3, 4, 5, 6].map((item) => (
+          <Card key={item} className="overflow-hidden">
+            <CardContent className="space-y-4 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <Skeleton className="h-7 w-20 rounded-full" />
+                <Skeleton className="h-6 w-24 rounded-full" />
+              </div>
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+              <div className="flex flex-wrap gap-2">
+                <Skeleton className="h-6 w-20 rounded-full" />
+                <Skeleton className="h-6 w-24 rounded-full" />
+                <Skeleton className="h-6 w-16 rounded-full" />
+              </div>
+              <Skeleton className="h-10 w-full rounded-md" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function certPillClass(code: string | null, level: number): string {
   const c = code || "";
@@ -99,10 +131,7 @@ export default function JobCandidateDiscovery() {
       }
     >
       {loading && (
-        <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted-foreground">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          Finding best matches…
-        </div>
+        <CandidateDiscoverySkeleton />
       )}
 
       {!loading && data && (

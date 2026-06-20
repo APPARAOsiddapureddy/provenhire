@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Briefcase, CheckCircle2, CreditCard, LayoutGrid, Loader2, Search, Settings, Sparkles, Users } from "lucide-react";
+import { CheckCircle2, CreditCard, Loader2, Sparkles } from "lucide-react";
 import DashboardShell from "@/components/DashboardShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { buildRecruiterSidebarSections } from "@/utils/recruiterSidebar";
 
 type SubscriptionTier = "free" | "starter" | "growth";
 
@@ -139,6 +141,43 @@ const PLAN_CARDS: Array<{
   },
 ];
 
+function RecruiterPlansSkeleton() {
+  return (
+    <div className="dashboard-section-content space-y-6">
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-44" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => (
+            <Skeleton key={item} className="h-24 rounded-lg" />
+          ))}
+        </CardContent>
+      </Card>
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {[1, 2, 3].map((item) => (
+          <Card key={item}>
+            <CardHeader>
+              <Skeleton className="mb-2 h-7 w-36" />
+              <Skeleton className="h-4 w-48" />
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Skeleton className="h-9 w-32" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+              <Skeleton className="h-11 w-full rounded-lg" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function formatLimit(value: number): string {
   return value >= Number.MAX_SAFE_INTEGER ? "Unlimited" : String(value);
 }
@@ -205,22 +244,7 @@ export default function RecruiterPlansPage() {
     };
   }, []);
 
-  const sidebarSections = useMemo(
-    () => [
-      {
-        sectionLabel: "Recruiter",
-        items: [
-          { label: "Talent Pool", to: "/dashboard/recruiter", active: false, icon: <Users className="w-[18px] h-[18px]" /> },
-          { label: "Search Candidates", to: "/candidate-search", icon: <Search className="w-[18px] h-[18px]" /> },
-          { label: "My Jobs", to: "/dashboard/recruiter", active: false, icon: <Briefcase className="w-[18px] h-[18px]" /> },
-          { label: "Pipeline & Tracking", to: "/dashboard/recruiter", active: false, icon: <LayoutGrid className="w-[18px] h-[18px]" /> },
-          { label: "Plans & Upgrade", to: "/dashboard/recruiter/plans", active: true, icon: <CreditCard className="w-[18px] h-[18px]" /> },
-          { label: "Settings", to: "/dashboard/settings", icon: <Settings className="w-[18px] h-[18px]" /> },
-        ],
-      },
-    ],
-    []
-  );
+  const sidebarSections = useMemo(() => buildRecruiterSidebarSections({ activeItem: "plans" }), []);
 
   const userName = profile?.full_name || profile?.fullName || user?.email || "Recruiter";
   const userRole = profile?.company_name || profile?.companyName || "Recruiter";
@@ -321,10 +345,7 @@ export default function RecruiterPlansPage() {
         </div>
 
         {loading ? (
-          <div className="dashboard-section-content flex items-center gap-3 text-[var(--dash-text-muted)]">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Loading plan details...
-          </div>
+          <RecruiterPlansSkeleton />
         ) : (
           <div className="dashboard-section-content space-y-6">
             {subscription && (
