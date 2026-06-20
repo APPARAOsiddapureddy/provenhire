@@ -1,3 +1,5 @@
+import { isDevDashboardPreviewMode, isDevPreviewToken } from "@/lib/devPreview";
+
 // Always use relative URLs: dev = Vite proxy, prod = Vercel rewrites /api to backend. Avoids CORS.
 const API_BASE = "";
 const isDev = import.meta.env.DEV;
@@ -219,8 +221,21 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   // `/api/auth/login` are expected to return 401 for invalid credentials and
   // should NOT trigger the "session expired" UX (that toast is meant for protected calls).
   if (res.status === 401 && !retried && tokenOverride === undefined && !isPublicAuthEndpoint) {
+    const token = tokenOverride !== undefined ? tokenOverride : getAuthToken();
+    const isPreviewAuthFailure = isDevDashboardPreviewMode() && isDevPreviewToken(token);
+
     const refreshed = await refreshAccessToken();
     if (refreshed) return request<T>(path, options, true);
+
+    if (isPreviewAuthFailure) {
+      const errorBody401 = await res.json().catch(() => ({}));
+      const msg401 = (errorBody401?.message ?? errorBody401?.error ?? "Unauthorized") as string;
+      const err401 = new Error(msg401) as Error & { response?: { data?: unknown }; status?: number };
+      err401.response = { data: errorBody401 };
+      err401.status = 401;
+      throw err401;
+    }
+
     // Don't clear session for select-role 401 so user can retry (e.g. after Google SSO)
     if (path.includes("google/select-role")) {
       const errorBody = await res.json().catch(() => ({}));

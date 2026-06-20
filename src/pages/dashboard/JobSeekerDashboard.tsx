@@ -6,6 +6,7 @@ import { Briefcase, CheckCircle, Clock, TrendingUp, Award, Eye, FileText, Bookma
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { api, BACKEND_DOWN_MSG, hasAuthToken } from "@/lib/api";
+import { isDevDashboardPreviewMode } from "@/lib/devPreview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import SkillPassport from "@/components/SkillPassport";
@@ -330,6 +331,11 @@ const JobSeekerDashboard = () => {
   };
 
   useEffect(() => {
+    if (isDevDashboardPreviewMode() && user) {
+      setLoading(false);
+      setLoadError(false);
+      return;
+    }
     if (isInitializing || !user) {
       if (!user) {
         setLoading(false);
@@ -358,7 +364,7 @@ const JobSeekerDashboard = () => {
 
   // Load candidate-profile (same shape as recruiters see) when user opens My Resume tab
   useEffect(() => {
-    if (!user || dashboardSection !== "resume") return;
+    if (!user || dashboardSection !== "resume" || isDevDashboardPreviewMode()) return;
     setResumeProfileLoading(true);
     api
       .get<{ profile: CandidateProfileViewProfile }>("/api/users/me/candidate-profile")
@@ -370,7 +376,7 @@ const JobSeekerDashboard = () => {
   // Open Applications tab when navigating from Jobs page after apply; refetch so new application appears
   useEffect(() => {
     const section = (location.state as { section?: string } | null)?.section;
-    if (section === 'applications' && user) {
+    if (section === 'applications' && user && !isDevDashboardPreviewMode()) {
       setDashboardSection('applications');
       appliedAndRefetchedRef.current = true;
       (async () => {
@@ -403,6 +409,10 @@ const JobSeekerDashboard = () => {
   }, []);
 
   const loadDashboardData = async (stale: () => boolean) => {
+    if (isDevDashboardPreviewMode()) {
+      setLoading(false);
+      return;
+    }
     if (stale()) return;
     if (!hasAuthToken()) {
       setLoading(false);

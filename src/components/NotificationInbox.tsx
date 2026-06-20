@@ -17,6 +17,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api, isBackendDownCooldown, hasAuthToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { isDevDashboardPreviewMode } from "@/lib/devPreview";
 import { formatDistanceToNow } from "date-fns";
 
 interface Message {
@@ -41,7 +42,14 @@ const NotificationInbox = () => {
   const latestUnread = unreadMessages[0];
 
   const fetchMessages = async () => {
-    if (!user || needsGoogleRoleSelection || isInitializing || !hasAuthToken() || isBackendDownCooldown()) return;
+    if (
+      !user ||
+      needsGoogleRoleSelection ||
+      isInitializing ||
+      !hasAuthToken() ||
+      isBackendDownCooldown() ||
+      isDevDashboardPreviewMode()
+    ) return;
     try {
       const { notifications } = await api.get<{ notifications: Message[] }>("/api/notifications");
       if (notifications) {
@@ -53,12 +61,25 @@ const NotificationInbox = () => {
   };
 
   useEffect(() => {
-    if (!user || needsGoogleRoleSelection || isInitializing || !hasAuthToken()) return;
+    if (
+      !user ||
+      needsGoogleRoleSelection ||
+      isInitializing ||
+      !hasAuthToken() ||
+      isDevDashboardPreviewMode()
+    ) return;
     fetchMessages();
   }, [user, needsGoogleRoleSelection, isInitializing]);
 
   useEffect(() => {
-    if (latestUnread && !popupShown && user && !isInitializing && hasAuthToken()) {
+    if (
+      latestUnread &&
+      !popupShown &&
+      user &&
+      !isInitializing &&
+      hasAuthToken() &&
+      !isDevDashboardPreviewMode()
+    ) {
       setPopupOpen(true);
       setPopupShown(true);
     }
@@ -84,7 +105,13 @@ const NotificationInbox = () => {
     setPopupOpen(false);
   };
 
-  if (!user || isInitializing || !hasAuthToken()) return null;
+  if (
+    !user ||
+    isInitializing ||
+    !hasAuthToken() ||
+    isDevDashboardPreviewMode()
+  )
+    return null;
 
   return (
     <>

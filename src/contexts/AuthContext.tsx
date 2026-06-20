@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, hasAuthToken, getAuthToken, setAuthToken, setRefreshToken, isBackendDownCooldown, BACKEND_DOWN_MSG } from "@/lib/api";
 import { savePendingEmailVerification } from "@/lib/emailVerification";
+import { DEV_PREVIEW_TOKEN_KEY, DEV_PREVIEW_TOKEN_FALLBACK, isDevDashboardPreviewMode } from "@/lib/devPreview";
 import {
   signInWithGooglePopup,
   signInWithGoogleRedirect,
@@ -33,23 +34,12 @@ type User = {
   authProvider?: string | null;
 };
 
-const DEV_PREVIEW_TOKEN_KEY = "ph_preview_token";
-const DEV_PREVIEW_TOKEN_FALLBACK = "preview-dev-token";
-const DEV_PREVIEW_FLAG = "preview";
-
 const DEV_PREVIEW_USER: User = {
   id: "preview-jobseeker-uid",
   name: "Demo Candidate",
   email: "demo.candidate@provenhire.local",
   role: "jobseeker",
   authProvider: "DEMO",
-};
-
-const isDevDashboardPreviewMode = (): boolean => {
-  if (!import.meta.env.DEV) return false;
-  if (typeof window === "undefined") return false;
-  const params = new URLSearchParams(window.location.search);
-  return params.get(DEV_PREVIEW_FLAG) === "1";
 };
 
 type AuthSessionResponse = {
@@ -139,6 +129,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const clearDevPreviewToken = () => {
+    try {
+      localStorage.removeItem(DEV_PREVIEW_TOKEN_KEY);
+    } catch {}
+  };
+
   /** Exchange Firebase id token for app session. Returns false on API failure (toast already shown). */
   const applyGoogleSignInSession = useCallback(async (idToken: string, intent?: GoogleSignInIntent): Promise<boolean> => {
     try {
@@ -152,6 +148,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           roleType: intent?.role === "jobseeker" ? intent.roleType : undefined,
         }
       );
+      clearDevPreviewToken();
       setAuthToken(data.token);
       if (data.refreshToken) setRefreshToken(data.refreshToken);
       setUser(data.user);
@@ -208,6 +205,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setIsInitializing(false);
         return;
       }
+
+      clearDevPreviewToken();
 
       const path =
         typeof window !== "undefined"
@@ -319,6 +318,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const onSessionExpired = () => {
+      if (isDevDashboardPreviewMode()) return;
       setUser(null);
       setUserRole(null);
       setAuthToken(null);
@@ -371,6 +371,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!("token" in data) || !data?.token) {
         throw new Error("Invalid response from server. Please try again.");
       }
+      clearDevPreviewToken();
       setAuthToken(data.token);
       if (data.refreshToken) setRefreshToken(data.refreshToken);
       setUser(data.user);
@@ -382,8 +383,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const verifyEmailCode = useCallback(async (email: string, code: string): Promise<User> => {
-    const data = await api.post<AuthSessionResponse & { ok: boolean; message?: string }>(
-      "/api/auth/email-verification/verify",
+      const data = await api.post<AuthSessionResponse & { ok: boolean; message?: string }>(
+        "/api/auth/email-verification/verify",
       {
         email: email.trim().toLowerCase(),
         code,
@@ -392,6 +393,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!data?.token || !data?.user) {
       throw new Error("Invalid verification response. Please try again.");
     }
+    clearDevPreviewToken();
     setAuthToken(data.token);
     if (data.refreshToken) setRefreshToken(data.refreshToken);
     setUser(data.user);
@@ -419,6 +421,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       email: email.trim().toLowerCase(),
       password,
     });
+    clearDevPreviewToken();
     setAuthToken(data.token);
     if (data.refreshToken) setRefreshToken(data.refreshToken);
     setUser(data.user);
@@ -502,11 +505,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           },
           { token }
         );
-        if (data.token) setAuthToken(data.token);
-        if (data.refreshToken) setRefreshToken(data.refreshToken);
-        if (data.user) {
-          setUser(data.user);
-          setUserRole(data.user.role);
+      if (data.token) setAuthToken(data.token);
+      if (data.refreshToken) setRefreshToken(data.refreshToken);
+      if (data.user) {
+        clearDevPreviewToken();
+        setUser(data.user);
+        setUserRole(data.user.role);
         }
         setNeedsGoogleRoleSelection(false);
         toast.success("Welcome! Redirecting to your dashboard.");
@@ -523,6 +527,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const signOut = useCallback(async () => {
+    clearDevPreviewToken();
     setAuthToken(null);
     setRefreshToken(null);
     setUser(null);
