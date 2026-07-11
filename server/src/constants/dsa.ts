@@ -54,7 +54,7 @@ export const DSA_QUESTIONS_COUNT = parseInt(process.env.DSA_QUESTIONS_COUNT ?? "
 export const DSA_PASS_THRESHOLD = 60;
 export const DSA_PRACTICE_COUNT = 2;
 
-export type ExpectedType = "exact" | "numeric" | "array" | "set";
+export type ExpectedType = "exact" | "numeric" | "array" | "set" | "csv_match";
 
 export type TestResultStatus =
   | "CORRECT_ANSWER"

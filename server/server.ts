@@ -12,6 +12,7 @@ import { logInterviewTtsStartup, warmInterviewFillerCache } from "./src/services
 import { startDsaDraftBufferFlusher } from "./src/services/dsaDraftBuffer.service.js";
 import { startDsaSessionWorker } from "./src/services/dsaSessionQueue.service.js";
 import { startMcqSessionWorker } from "./src/services/mcqSessionQueue.service.js";
+import { startSqlSessionWorker } from "./src/services/workspaceSqlSessionQueue.service.js";
 
 logInterviewTtsStartup();
 
@@ -32,6 +33,7 @@ warmInterviewFillerCache().catch((e) => {
 startDsaDraftBufferFlusher();
 startDsaSessionWorker();
 startMcqSessionWorker();
+startSqlSessionWorker();
 
 // Render sets PORT (default 10000). Fallback if missing/invalid to avoid ERR_SOCKET_BAD_PORT.
 const raw = process.env.PORT;

@@ -1,23 +1,26 @@
 import { Component, useCallback, useRef, type ReactNode } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { ProgrammingLanguage } from "@/data/dsaRoundConfig";
+import type { ProgrammingLanguage } from "@/data/dsaRoundConfig";
 import { Loader2 } from "lucide-react";
+
+type EditorLanguage = ProgrammingLanguage | "sql";
 
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
-  language: ProgrammingLanguage;
+  language: EditorLanguage;
   readOnly?: boolean;
   height?: string;
 }
 
 // Map our language types to Monaco language IDs
-const languageMap: Record<ProgrammingLanguage, string> = {
+const languageMap: Record<EditorLanguage, string> = {
   javascript: "javascript",
   python: "python",
   java: "java",
   cpp: "cpp",
   c: "c",
+  sql: "sql",
 };
 
 const CodeEditor = ({

@@ -6,12 +6,20 @@
     "difficulty": "Easy",
     "subtrack": null,
     "sqlSchema": "CREATE TABLE employees (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  department TEXT NOT NULL,\n  salary REAL NOT NULL,\n  hire_date TEXT NOT NULL\n);\n\nINSERT INTO employees VALUES\n(1, 'Alice', 'Engineering', 95000, '2022-01-15'),\n(2, 'Bob', 'Engineering', 105000, '2021-06-01'),\n(3, 'Charlie', 'Marketing', 72000, '2023-03-10'),\n(4, 'Diana', 'Marketing', 68000, '2022-11-20'),\n(5, 'Eve', 'Engineering', 115000, '2020-08-05'),\n(6, 'Frank', 'Sales', 78000, '2023-01-25'),\n(7, 'Grace', 'Sales', 82000, '2021-09-14'),\n(8, 'Hank', 'Marketing', 75000, '2022-07-01');",
-    "starterCode": {"sql": "-- Write your SQL query below\nSELECT "},
+    "starterCode": {
+      "sql": "-- Write your SQL query below\nSELECT "
+    },
     "testCases": [
       {
         "input": "",
-        "expected": "Engineering|3|105000.0|Eve\nSales|2|80000.0|Grace\nMarketing|3|71666.67|Charlie",
+        "expected": "Engineering|3|105000.0|Eve\nSales|2|80000.0|Grace\nMarketing|3|71666.67|Hank",
         "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO employees VALUES\n(9, 'Ivy', 'Engineering', 99000, '2024-01-02'),\n(10, 'Jon', 'Support', 62000, '2024-02-02'),\n(11, 'Kara', 'Support', 64000, '2023-09-15'),\n(12, 'Liam', 'Sales', 91000, '2020-05-01');",
+        "expected": "Engineering|4|103500.0|Eve\nSales|3|83666.67|Liam\nMarketing|3|71666.67|Hank\nSupport|2|63000.0|Kara",
+        "isHidden": true,
         "expectedType": "csv_match"
       }
     ]
@@ -23,12 +31,20 @@
     "difficulty": "Medium",
     "subtrack": null,
     "sqlSchema": "CREATE TABLE orders (\n  order_id INTEGER PRIMARY KEY,\n  customer_id INTEGER NOT NULL,\n  product TEXT NOT NULL,\n  quantity INTEGER NOT NULL,\n  price REAL NOT NULL,\n  order_date TEXT NOT NULL\n);\n\nINSERT INTO orders VALUES\n(1, 101, 'Laptop', 1, 999.99, '2024-01-15'),\n(2, 102, 'Mouse', 2, 29.99, '2024-01-16'),\n(3, 101, 'Monitor', 2, 399.99, '2024-01-20'),\n(4, 103, 'Keyboard', 3, 79.99, '2024-02-01'),\n(5, 102, 'Laptop', 1, 999.99, '2024-02-05'),\n(6, 104, 'Mouse', 5, 29.99, '2024-02-10'),\n(7, 101, 'Keyboard', 1, 79.99, '2024-02-15'),\n(8, 103, 'Monitor', 1, 399.99, '2024-02-20'),\n(9, 105, 'Laptop', 2, 999.99, '2024-03-01'),\n(10, 102, 'Monitor', 1, 399.99, '2024-03-05');",
-    "starterCode": {"sql": "-- Write your SQL query below\n"},
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n"
+    },
     "testCases": [
       {
         "input": "",
         "expected": "105|1999.98|1\n101|1879.96|3\n102|1459.96|3",
         "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO orders VALUES\n(11, 106, 'Desk', 3, 250.00, '2024-03-08'),\n(12, 104, 'Laptop', 1, 999.99, '2024-03-10'),\n(13, 105, 'Mouse', 4, 29.99, '2024-03-12');",
+        "expected": "105|2119.94|2\n101|1879.96|3\n102|1459.96|3",
+        "isHidden": true,
         "expectedType": "csv_match"
       }
     ]
@@ -40,7 +56,9 @@
     "difficulty": "Easy",
     "subtrack": null,
     "sqlSchema": null,
-    "starterCode": {"python": "def process_sales(csv_data: str) -> str:\n    # csv_data has header: date,product,quantity,revenue\n    lines = csv_data.strip().split('\\n')\n    # Your code here\n    pass\n"},
+    "starterCode": {
+      "python": "def process_sales(csv_data: str) -> str:\n    # csv_data has header: date,product,quantity,revenue\n    lines = csv_data.strip().split('\\n')\n    # Your code here\n    pass\n"
+    },
     "testCases": [
       {
         "input": "date,product,quantity,revenue\n2024-01-01,Widget,10,99.90\n2024-01-01,Gadget,5,149.95\n2024-01-02,Widget,0,0.00\n2024-01-02,Gadget,3,89.97\n2024-01-03,Widget,7,69.93\n2024-01-03,Doohickey,-2,-19.98",
@@ -63,12 +81,20 @@
     "difficulty": "Medium",
     "subtrack": null,
     "sqlSchema": "CREATE TABLE transactions (\n  id INTEGER PRIMARY KEY,\n  account_id INTEGER NOT NULL,\n  amount REAL NOT NULL,\n  txn_date TEXT NOT NULL\n);\n\nINSERT INTO transactions VALUES\n(1, 1, 100.00, '2024-01-01'),\n(2, 1, 250.00, '2024-01-05'),\n(3, 1, -50.00, '2024-01-10'),\n(4, 2, 500.00, '2024-01-02'),\n(5, 2, 200.00, '2024-01-08'),\n(6, 2, -100.00, '2024-01-15');",
-    "starterCode": {"sql": "-- Write your SQL query below\n"},
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n"
+    },
     "testCases": [
       {
         "input": "",
         "expected": "1|2024-01-01|100.0|100.0|2\n1|2024-01-05|250.0|350.0|1\n1|2024-01-10|-50.0|300.0|3\n2|2024-01-02|500.0|500.0|1\n2|2024-01-08|200.0|700.0|2\n2|2024-01-15|-100.0|600.0|3",
         "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO transactions VALUES\n(7, 1, 400.00, '2024-01-20'),\n(8, 2, 50.00, '2024-01-20'),\n(9, 3, 75.00, '2024-01-03'),\n(10, 3, 125.00, '2024-01-06');",
+        "expected": "1|2024-01-01|100.0|100.0|3\n1|2024-01-05|250.0|350.0|2\n1|2024-01-10|-50.0|300.0|4\n1|2024-01-20|400.0|700.0|1\n2|2024-01-02|500.0|500.0|1\n2|2024-01-08|200.0|700.0|2\n2|2024-01-15|-100.0|600.0|4\n2|2024-01-20|50.0|650.0|3\n3|2024-01-03|75.0|75.0|2\n3|2024-01-06|125.0|200.0|1",
+        "isHidden": true,
         "expectedType": "csv_match"
       }
     ]
@@ -80,7 +106,9 @@
     "difficulty": "Medium",
     "subtrack": "engineering",
     "sqlSchema": null,
-    "starterCode": {"python": "def merge_datasets(users_csv: str, orders_csv: str) -> str:\n    # Parse, merge, aggregate\n    pass\n"},
+    "starterCode": {
+      "python": "def merge_datasets(users_csv: str, orders_csv: str) -> str:\n    # Parse, merge, aggregate\n    pass\n"
+    },
     "testCases": [
       {
         "input": "user_id,name,city\n1,Alice,Mumbai\n2,Bob,Delhi\n3,Charlie,Mumbai\n4,Diana,Bangalore\n---\norder_id,user_id,amount,date\n101,1,500,2024-01-01\n102,2,300,2024-01-02\n103,1,200,2024-01-03\n104,3,400,2024-01-04\n105,2,150,2024-01-05\n106,4,600,2024-01-06",
@@ -97,12 +125,145 @@
     "difficulty": "Hard",
     "subtrack": "analysis",
     "sqlSchema": "CREATE TABLE user_signups (\n  user_id INTEGER PRIMARY KEY,\n  signup_date TEXT NOT NULL\n);\n\nCREATE TABLE user_activity (\n  user_id INTEGER NOT NULL,\n  activity_date TEXT NOT NULL\n);\n\nINSERT INTO user_signups VALUES\n(1, '2024-01-05'), (2, '2024-01-15'), (3, '2024-01-20'),\n(4, '2024-02-01'), (5, '2024-02-10'),\n(6, '2024-03-01');\n\nINSERT INTO user_activity VALUES\n(1, '2024-01-06'), (1, '2024-02-10'), (1, '2024-03-15'),\n(2, '2024-01-16'), (2, '2024-02-20'),\n(3, '2024-01-21'),\n(4, '2024-02-02'), (4, '2024-03-05'), (4, '2024-04-01'),\n(5, '2024-02-11'), (5, '2024-03-12'),\n(6, '2024-03-02'), (6, '2024-04-10');",
-    "starterCode": {"sql": "-- Write your SQL query below\n-- cohort_month = first 7 chars of signup_date (YYYY-MM)\n"},
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n-- cohort_month = first 7 chars of signup_date (YYYY-MM)\n"
+    },
     "testCases": [
       {
         "input": "",
         "expected": "2024-01|3|2|1\n2024-02|2|2|1\n2024-03|1|1|0",
         "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO user_signups VALUES\n(7, '2024-01-25'),\n(8, '2024-02-18'),\n(9, '2024-04-02');\n\nINSERT INTO user_activity VALUES\n(7, '2024-02-01'), (7, '2024-03-03'),\n(8, '2024-02-20'), (8, '2024-04-01'),\n(9, '2024-04-02'), (9, '2024-05-07');",
+        "expected": "2024-01|3|3|2\n2024-02|3|2|2\n2024-03|1|1|0\n2024-04|1|1|0",
+        "isHidden": true,
+        "expectedType": "csv_match"
+      }
+    ]
+  },
+  {
+    "title": "Customer Order Coverage",
+    "description": "Given `customers` and `orders`, return each city with the number of distinct customers in that city and the number of orders placed by those customers. Include cities with zero orders. Order by order_count descending, then city ascending.",
+    "taskType": "sql",
+    "difficulty": "Easy",
+    "subtrack": "analytics",
+    "sqlSchema": "CREATE TABLE customers (\n  customer_id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  city TEXT NOT NULL\n);\n\nCREATE TABLE orders (\n  order_id INTEGER PRIMARY KEY,\n  customer_id INTEGER NOT NULL,\n  amount REAL NOT NULL\n);\n\nINSERT INTO customers VALUES\n(1, 'Asha', 'Mumbai'),\n(2, 'Ben', 'Delhi'),\n(3, 'Cara', 'Mumbai'),\n(4, 'Dev', 'Pune'),\n(5, 'Elena', 'Delhi');\n\nINSERT INTO orders VALUES\n(101, 1, 120.00),\n(102, 1, 80.00),\n(103, 2, 200.00),\n(104, 3, 90.00),\n(105, 3, 110.00),\n(106, 3, 50.00),\n(107, 5, 70.00);",
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n"
+    },
+    "testCases": [
+      {
+        "input": "",
+        "expected": "Mumbai|2|5\nDelhi|2|2\nPune|1|0",
+        "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO customers VALUES\n(6, 'Farah', 'Jaipur'),\n(7, 'Gagan', 'Mumbai');\n\nINSERT INTO orders VALUES\n(108, 6, 40.00),\n(109, 7, 15.00),\n(110, 7, 25.00),\n(111, 2, 10.00);",
+        "expected": "Mumbai|3|7\nDelhi|2|3\nJaipur|1|1\nPune|1|0",
+        "isHidden": true,
+        "expectedType": "csv_match"
+      }
+    ]
+  },
+  {
+    "title": "Product Inventory Value",
+    "description": "Given the `products` table, return each category with product_count and total_inventory_value = unit_price * stock_qty rounded to 2 decimals. Include only categories whose total inventory value is greater than 500. Order by total_inventory_value descending.",
+    "taskType": "sql",
+    "difficulty": "Easy",
+    "subtrack": "analytics",
+    "sqlSchema": "CREATE TABLE products (\n  product_id INTEGER PRIMARY KEY,\n  product_name TEXT NOT NULL,\n  category TEXT NOT NULL,\n  unit_price REAL NOT NULL,\n  stock_qty INTEGER NOT NULL\n);\n\nINSERT INTO products VALUES\n(1, 'Laptop', 'Electronics', 999.99, 2),\n(2, 'Mouse', 'Electronics', 29.99, 20),\n(3, 'Desk', 'Office', 250.00, 3),\n(4, 'Chair', 'Office', 120.00, 4),\n(5, 'Mug', 'Kitchen', 8.00, 50),\n(6, 'Plate', 'Kitchen', 12.00, 20);",
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n"
+    },
+    "testCases": [
+      {
+        "input": "",
+        "expected": "Electronics|2|2599.78\nOffice|2|1230.0\nKitchen|2|640.0",
+        "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO products VALUES\n(7, 'Monitor', 'Electronics', 399.99, 4),\n(8, 'Notebook', 'Office', 3.50, 100),\n(9, 'Spoon', 'Kitchen', 2.00, 100),\n(10, 'Plant', 'Garden', 15.00, 20);",
+        "expected": "Electronics|3|4199.74\nOffice|3|1580.0\nKitchen|3|840.0",
+        "isHidden": true,
+        "expectedType": "csv_match"
+      }
+    ]
+  },
+  {
+    "title": "Support Ticket SLA Summary",
+    "description": "Given the `tickets` table, return agent_id, closed_count, and avg_hours_to_close rounded to 2 decimals for agents with at least 2 closed tickets. Ignore open tickets where closed_at is NULL. Order by avg_hours_to_close ascending, then agent_id.",
+    "taskType": "sql",
+    "difficulty": "Medium",
+    "subtrack": "operations",
+    "sqlSchema": "CREATE TABLE tickets (\n  ticket_id INTEGER PRIMARY KEY,\n  agent_id INTEGER NOT NULL,\n  priority TEXT NOT NULL,\n  opened_at TEXT NOT NULL,\n  closed_at TEXT\n);\n\nINSERT INTO tickets VALUES\n(1, 10, 'high', '2024-01-01 09:00:00', '2024-01-01 13:00:00'),\n(2, 10, 'low', '2024-01-01 10:00:00', '2024-01-02 10:00:00'),\n(3, 11, 'medium', '2024-01-01 09:00:00', '2024-01-03 09:00:00'),\n(4, 11, 'high', '2024-01-02 12:00:00', '2024-01-02 18:00:00'),\n(5, 12, 'low', '2024-01-01 08:00:00', NULL),\n(6, 12, 'medium', '2024-01-01 08:00:00', '2024-01-01 10:00:00');",
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n"
+    },
+    "testCases": [
+      {
+        "input": "",
+        "expected": "10|2|14.0\n11|2|27.0",
+        "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO tickets VALUES\n(7, 12, 'high', '2024-01-02 08:00:00', '2024-01-02 11:00:00'),\n(8, 10, 'medium', '2024-01-03 09:00:00', '2024-01-03 12:00:00'),\n(9, 11, 'low', '2024-01-04 09:00:00', '2024-01-04 21:00:00');",
+        "expected": "12|2|2.5\n10|3|10.33\n11|3|22.0",
+        "isHidden": true,
+        "expectedType": "csv_match"
+      }
+    ]
+  },
+  {
+    "title": "Subscription Revenue Retention",
+    "description": "Given `accounts` and monthly `invoices`, return invoice_month, total_revenue, retained_revenue, and new_revenue. Retained revenue is current-month revenue from accounts that were also billed in the previous month. New revenue is current-month revenue from accounts that were not billed in the previous month. Order by invoice_month.",
+    "taskType": "sql",
+    "difficulty": "Hard",
+    "subtrack": "analytics",
+    "sqlSchema": "CREATE TABLE accounts (\n  account_id INTEGER PRIMARY KEY,\n  plan TEXT NOT NULL\n);\n\nCREATE TABLE invoices (\n  account_id INTEGER NOT NULL,\n  invoice_month TEXT NOT NULL,\n  amount REAL NOT NULL\n);\n\nINSERT INTO accounts VALUES\n(1, 'pro'),\n(2, 'enterprise'),\n(3, 'pro'),\n(4, 'starter');\n\nINSERT INTO invoices VALUES\n(1, '2024-01', 100.00),\n(2, '2024-01', 200.00),\n(1, '2024-02', 100.00),\n(2, '2024-02', 200.00),\n(3, '2024-02', 150.00),\n(1, '2024-03', 120.00),\n(3, '2024-03', 150.00),\n(4, '2024-03', 80.00);",
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n"
+    },
+    "testCases": [
+      {
+        "input": "",
+        "expected": "2024-01|300.0|0.0|300.0\n2024-02|450.0|300.0|150.0\n2024-03|350.0|270.0|80.0",
+        "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO accounts VALUES (5, 'starter');\n\nINSERT INTO invoices VALUES\n(1, '2024-04', 120.00),\n(3, '2024-04', 180.00),\n(4, '2024-04', 80.00),\n(5, '2024-04', 60.00);",
+        "expected": "2024-01|300.0|0.0|300.0\n2024-02|450.0|300.0|150.0\n2024-03|350.0|270.0|80.0\n2024-04|440.0|380.0|60.0",
+        "isHidden": true,
+        "expectedType": "csv_match"
+      }
+    ]
+  },
+  {
+    "title": "Consecutive Login Streaks",
+    "description": "Given the `logins` table with one row per user login date, return each user_id and their longest consecutive daily login streak. Duplicate same-day logins should count once. Order by longest_streak descending, then user_id ascending.",
+    "taskType": "sql",
+    "difficulty": "Hard",
+    "subtrack": "analytics",
+    "sqlSchema": "CREATE TABLE logins (\n  user_id INTEGER NOT NULL,\n  login_date TEXT NOT NULL\n);\n\nINSERT INTO logins VALUES\n(1, '2024-01-01'),\n(1, '2024-01-02'),\n(1, '2024-01-03'),\n(1, '2024-01-05'),\n(2, '2024-01-02'),\n(2, '2024-01-04'),\n(2, '2024-01-05'),\n(2, '2024-01-06'),\n(2, '2024-01-07'),\n(3, '2024-01-10');",
+    "starterCode": {
+      "sql": "-- Write your SQL query below\n"
+    },
+    "testCases": [
+      {
+        "input": "",
+        "expected": "2|4\n1|3\n3|1",
+        "isHidden": false,
+        "expectedType": "csv_match"
+      },
+      {
+        "input": "INSERT INTO logins VALUES\n(1, '2024-01-06'),\n(1, '2024-01-07'),\n(1, '2024-01-08'),\n(3, '2024-01-11'),\n(3, '2024-01-12'),\n(4, '2024-01-01'),\n(4, '2024-01-02'),\n(4, '2024-01-03'),\n(4, '2024-01-04'),\n(4, '2024-01-05');",
+        "expected": "4|5\n1|4\n2|4\n3|3",
+        "isHidden": true,
         "expectedType": "csv_match"
       }
     ]

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { discardActiveWorkspaceRegistrationMcqAttempts } from "./mcqAutoFinalize.service.js";
 import { discardActiveWorkspaceRegistrationDsaAttempts } from "./workspaceDsaFinalize.service.js";
+import { discardActiveWorkspaceRegistrationSqlAttempts } from "./workspaceSqlFinalize.service.js";
 import { WorkspaceServiceError, syncWorkspaceLifecycle } from "./workspace.service.js";
 import {
   sendWorkspaceInvitationEmail,
@@ -285,6 +286,16 @@ function registrationWithAttemptsSelect() {
             expTime: true,
           },
         },
+        sqlSession: {
+          select: {
+            id: true,
+            status: true,
+            startTime: true,
+            endTime: true,
+            submittedAt: true,
+            finalizedAt: true,
+          },
+        },
       },
     },
   };
@@ -549,6 +560,7 @@ export async function removeWorkspaceRegistration(actor: WorkspaceActor, workspa
   });
   await discardActiveWorkspaceRegistrationMcqAttempts(workspaceId, userId);
   await discardActiveWorkspaceRegistrationDsaAttempts(workspaceId, userId);
+  await discardActiveWorkspaceRegistrationSqlAttempts(workspaceId, userId);
   if (registration.removedAt) {
     const details = await prisma.workspaceRegistration.findUnique({
       where: { id: registration.id },

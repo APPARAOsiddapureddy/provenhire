@@ -42,38 +42,44 @@ async function main() {
   console.log(`Seeding ${tasks.length} data round tasks...`);
 
   for (const task of tasks) {
-    const existing = await prisma.dataRoundTask.findFirst({
-      where: { title: task.title },
+    const existing = await prisma.dataRoundTask.findFirst({ where: { title: task.title } });
+    const payload = {
+      title: task.title,
+      description: task.description,
+      taskType: task.taskType,
+      difficulty: task.difficulty,
+      subtrack: task.subtrack,
+      sqlSchema: task.sqlSchema,
+      starterCode: task.starterCode ?? undefined,
+      options: task.options ?? undefined,
+    };
+    const testCases = task.testCases.map((tc) => ({
+      input: tc.input,
+      expected: tc.expected,
+      isHidden: tc.isHidden,
+      expectedType: tc.expectedType ?? "exact",
+      timeoutMs: tc.timeoutMs ?? null,
+    }));
+
+    const saved = await prisma.$transaction(async (tx) => {
+      const row = existing
+        ? await tx.dataRoundTask.update({
+            where: { id: existing.id },
+            data: payload,
+          })
+        : await tx.dataRoundTask.create({
+            data: payload,
+          });
+      await tx.dataRoundTestCase.deleteMany({ where: { taskId: row.id } });
+      if (testCases.length) {
+        await tx.dataRoundTestCase.createMany({
+          data: testCases.map((tc) => ({ ...tc, taskId: row.id })),
+        });
+      }
+      return row;
     });
 
-    if (existing) {
-      console.log(`  ⏭  "${task.title}" already exists — skipping`);
-      continue;
-    }
-
-    const created = await prisma.dataRoundTask.create({
-      data: {
-        title: task.title,
-        description: task.description,
-        taskType: task.taskType,
-        difficulty: task.difficulty,
-        subtrack: task.subtrack,
-        sqlSchema: task.sqlSchema,
-        starterCode: task.starterCode ?? undefined,
-        options: task.options ?? undefined,
-        testCases: {
-          create: task.testCases.map((tc) => ({
-            input: tc.input,
-            expected: tc.expected,
-            isHidden: tc.isHidden,
-            expectedType: tc.expectedType ?? "exact",
-            timeoutMs: tc.timeoutMs ?? null,
-          })),
-        },
-      },
-    });
-
-    console.log(`  ✅ "${task.title}" (${created.id}) — ${task.testCases.length} test cases`);
+    console.log(`  ${existing ? "updated" : "created"} "${task.title}" (${saved.id}) - ${task.testCases.length} test cases`);
   }
 
   console.log("Done.");

@@ -82,6 +82,27 @@ function tokenize(raw: string): string[] {
     .filter(Boolean);
 }
 
+function parseDelimitedRows(raw: string): string[][] {
+  const normalized = normalizeExact(raw);
+  if (!normalized) return [];
+  return normalized.split("\n").map((line) => {
+    const delimiter = line.includes("|") ? "|" : ",";
+    return line.split(delimiter).map((cell) => normalizeExact(cell));
+  });
+}
+
+function compareDelimitedRows(actual: string, expected: string): boolean {
+  if (compareExactRelaxed(actual, expected)) return true;
+  const aRows = parseDelimitedRows(actual);
+  const eRows = parseDelimitedRows(expected);
+  if (aRows.length !== eRows.length) return false;
+  return aRows.every((row, rowIndex) => {
+    const expectedRow = eRows[rowIndex] ?? [];
+    if (row.length !== expectedRow.length) return false;
+    return row.every((cell, cellIndex) => tokenEquals(cell, expectedRow[cellIndex] ?? ""));
+  });
+}
+
 export function compareOutput(actual: string, expected: string, type: ExpectedType): boolean {
   switch (type) {
     case "exact":
@@ -98,6 +119,8 @@ export function compareOutput(actual: string, expected: string, type: ExpectedTy
       if (aTokens.length !== eTokens.length) return false;
       return aTokens.every((t, i) => tokenEquals(t, eTokens[i]!));
     }
+    case "csv_match":
+      return compareDelimitedRows(actual, expected);
     case "set": {
       const normalizeSetToken = (x: string) => {
         const nx = normalizeExact(x);

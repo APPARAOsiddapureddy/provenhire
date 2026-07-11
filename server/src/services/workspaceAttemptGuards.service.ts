@@ -75,6 +75,7 @@ export async function assertWorkspaceSessionWritable(
     actor: WorkspaceAttemptActor;
     dsaRoundSessionId?: string | null;
     mcqSessionId?: string | null;
+    sqlSessionId?: string | null;
   },
 ) {
   const attempt = await tx.workspaceRoundAttempt.findFirst({
@@ -82,6 +83,7 @@ export async function assertWorkspaceSessionWritable(
       userId: params.actor.id,
       ...(params.dsaRoundSessionId ? { dsaRoundSessionId: params.dsaRoundSessionId } : {}),
       ...(params.mcqSessionId ? { mcqSessionId: params.mcqSessionId } : {}),
+      ...(params.sqlSessionId ? { sqlSessionId: params.sqlSessionId } : {}),
     },
     include: {
       workspace: true,

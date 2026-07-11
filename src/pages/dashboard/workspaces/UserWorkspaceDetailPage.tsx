@@ -294,7 +294,7 @@ function RoundAction({
     registered &&
     workspace.status === "started" &&
     previousComplete &&
-    (round.type === "mcq" || round.type === "coding")
+    (round.type === "mcq" || round.type === "coding" || round.type === "sql")
   ) {
     return (
       <Button size="sm" asChild>

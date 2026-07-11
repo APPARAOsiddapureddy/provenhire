@@ -1,6 +1,6 @@
 export type UserWorkspaceStatus = "draft" | "published" | "started" | "ended" | "archived";
 export type UserWorkspaceAccessMode = "public" | "invite_only";
-export type UserWorkspaceRoundType = "mcq" | "coding" | "interview";
+export type UserWorkspaceRoundType = "mcq" | "coding" | "interview" | "sql";
 
 export type UserWorkspaceRound = {
   id: string;
@@ -53,6 +53,14 @@ export type UserWorkspaceRoundAttempt = {
     id: string;
     startTime: string;
     expTime: string;
+  } | null;
+  sqlSession?: {
+    id: string;
+    status: string;
+    startTime: string;
+    endTime: string;
+    submittedAt?: string | null;
+    finalizedAt?: string | null;
   } | null;
 };
 

@@ -5,6 +5,7 @@ import {
   createWorkspaceController,
   deleteWorkspaceController,
   getWorkspaceController,
+  getWorkspaceSqlTaskAvailabilityController,
   listWorkspacesController,
   publishWorkspaceController,
   replaceWorkspaceRoundsController,
@@ -55,6 +56,7 @@ workspacesRouter.use(allowWorkspaceCreator(WORKSPACE_CREATOR_ROLES));
 
 workspacesRouter.post("/", createWorkspaceController);
 workspacesRouter.get("/", listWorkspacesController);
+workspacesRouter.get("/question-bank/sql", getWorkspaceSqlTaskAvailabilityController);
 workspacesRouter.get("/:id", getWorkspaceController);
 workspacesRouter.patch("/:id", updateWorkspaceController);
 workspacesRouter.put("/:id/rounds", replaceWorkspaceRoundsController);

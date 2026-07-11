@@ -7,6 +7,7 @@ import {
   archiveWorkspace,
   createWorkspace,
   deleteWorkspace,
+  getSqlTaskAvailability,
   getWorkspace,
   listWorkspaces,
   publishWorkspace,
@@ -17,7 +18,7 @@ import {
 
 const workspaceStatusSchema = z.enum(["draft", "published", "started", "ended", "archived"]);
 const workspaceAccessModeSchema = z.enum(["public", "invite_only"]);
-const workspaceRoundTypeSchema = z.enum(["mcq", "coding", "interview"]);
+const workspaceRoundTypeSchema = z.enum(["mcq", "coding", "interview", "sql"]);
 const workspaceQuestionTypeSchema = z.enum(["random", "fixed"]);
 const dateSchema = z.coerce.date().refine((date) => !Number.isNaN(date.getTime()), "Invalid date");
 
@@ -99,6 +100,15 @@ export async function listWorkspacesController(req: AuthedRequest, res: Response
   try {
     const result = await listWorkspaces(creatorFromRequest(req), parsed.data);
     return res.json(result);
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function getWorkspaceSqlTaskAvailabilityController(req: AuthedRequest, res: Response) {
+  try {
+    const availability = await getSqlTaskAvailability(creatorFromRequest(req));
+    return res.json({ availability });
   } catch (error) {
     return sendError(res, error);
   }

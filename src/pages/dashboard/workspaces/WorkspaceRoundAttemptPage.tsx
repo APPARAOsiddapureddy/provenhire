@@ -6,9 +6,10 @@ import { api } from "@/lib/api";
 import UserWorkspaceShell from "./UserWorkspaceShell";
 import McqRoundRunner from "./attempts/McqRoundRunner";
 import DsaRoundRunner from "./attempts/DsaRoundRunner";
+import SqlRoundRunner from "./attempts/SqlRoundRunner";
 
 type StartAttemptResponse = {
-  roundType: "mcq" | "coding" | "interview";
+  roundType: "mcq" | "coding" | "interview" | "sql";
   attemptId: string;
   sessionId: string;
   sessionStatus: string;
@@ -51,6 +52,9 @@ export default function WorkspaceRoundAttemptPage() {
   }
   if (attempt.roundType === "coding") {
     return <DsaRoundRunner workspaceCode={workspaceCode} sessionId={attempt.sessionId} />;
+  }
+  if (attempt.roundType === "sql") {
+    return <SqlRoundRunner workspaceCode={workspaceCode} sessionId={attempt.sessionId} />;
   }
 
   return (

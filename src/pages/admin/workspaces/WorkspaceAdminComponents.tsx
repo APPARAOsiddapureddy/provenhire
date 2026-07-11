@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import type {
   AllowlistImportSummary,
+  SqlTaskAvailability,
   Workspace,
   WorkspaceDetailsDraft,
   WorkspaceLeaderboardResponse,
@@ -177,13 +178,41 @@ type RoundConfigStepProps = {
 
 export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving, locked }: RoundConfigStepProps) {
   const [activeOrder, setActiveOrder] = useState(1);
+  const [sqlAvailability, setSqlAvailability] = useState<SqlTaskAvailability | null>(null);
+  const [sqlAvailabilityError, setSqlAvailabilityError] = useState(false);
   const active = rounds.find((round) => round.order === activeOrder) ?? rounds[0];
   const validation = validateRounds(rounds, totalRounds);
   const weightTotal = rounds.reduce((sum, round) => sum + (parseIntegerDraft(round.scoreWeightage, 0, 100) ?? 0), 0);
 
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ availability: SqlTaskAvailability }>("/api/workspaces/question-bank/sql")
+      .then((res) => {
+        if (!cancelled) setSqlAvailability(res.availability);
+      })
+      .catch(() => {
+        if (!cancelled) setSqlAvailabilityError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const updateRound = (patch: Partial<WorkspaceRoundDraft>) => {
+    if (!active) return;
     onChange(rounds.map((round) => (round.order === active.order ? { ...round, ...patch } : round)));
   };
+
+  const activeSqlShortage = active && active.type === "sql" && sqlAvailability
+    ? {
+        Easy: Math.max(0, (parseIntegerDraft(active.easyCount, 0, 200) ?? 0) - sqlAvailability.byDifficulty.Easy),
+        Medium: Math.max(0, (parseIntegerDraft(active.mediumCount, 0, 200) ?? 0) - sqlAvailability.byDifficulty.Medium),
+        Hard: Math.max(0, (parseIntegerDraft(active.hardCount, 0, 200) ?? 0) - sqlAvailability.byDifficulty.Hard),
+      }
+    : null;
+  const hasActiveSqlShortage = !!activeSqlShortage && Object.values(activeSqlShortage).some((count) => count > 0);
+  const saveDisabled = saving || !!validation || locked || hasActiveSqlShortage;
 
   return (
     <Card>
@@ -214,9 +243,7 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
                   key={round.order}
                   type="button"
                   onClick={() => setActiveOrder(round.order)}
-                  className={`w-full rounded-md border px-3 py-3 text-left text-sm transition ${
-                    activeOrder === round.order ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted"
-                  }`}
+                  className={"w-full rounded-md border px-3 py-3 text-left text-sm transition " + (activeOrder === round.order ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted")}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">Round {round.order}</span>
@@ -244,6 +271,7 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
                     <SelectContent>
                       <SelectItem value="mcq">MCQ</SelectItem>
                       <SelectItem value="coding">Coding</SelectItem>
+                      <SelectItem value="sql">SQL</SelectItem>
                       <SelectItem value="interview">Interview</SelectItem>
                     </SelectContent>
                   </Select>
@@ -288,11 +316,30 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
                 </p>
               </div>
 
+              {active.type === "sql" && (
+                <div className="rounded-md border border-[var(--dash-navy-border)] bg-white/[0.03] px-3 py-2 text-sm">
+                  <div className="font-medium text-[var(--dash-text-primary)]">
+                    SQL bank: E {sqlAvailability?.byDifficulty.Easy ?? "-"} / M {sqlAvailability?.byDifficulty.Medium ?? "-"} / H {sqlAvailability?.byDifficulty.Hard ?? "-"} eligible
+                  </div>
+                  {hasActiveSqlShortage && activeSqlShortage ? (
+                    <div className="mt-1 text-destructive">
+                      Not enough eligible SQL tasks: E {activeSqlShortage.Easy}, M {activeSqlShortage.Medium}, H {activeSqlShortage.Hard} short.
+                    </div>
+                  ) : null}
+                  {sqlAvailability?.missingHiddenTests ? (
+                    <div className="mt-1 text-amber-500">
+                      {sqlAvailability.missingHiddenTests} visible SQL task{sqlAvailability.missingHiddenTests === 1 ? " is" : "s are"} excluded until hidden tests are added.
+                    </div>
+                  ) : null}
+                  {sqlAvailabilityError ? <div className="mt-1 text-muted-foreground">Could not load SQL bank counts.</div> : null}
+                </div>
+              )}
+
               {validation && <p className="text-sm text-destructive">{validation}</p>}
               {locked && <p className="text-sm text-muted-foreground">Published workspace rounds cannot be edited.</p>}
 
               <div className="flex justify-end">
-                <Button onClick={onSave} disabled={saving || !!validation || locked}>
+                <Button onClick={onSave} disabled={saveDisabled}>
                   {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                   Save Round Config
                 </Button>

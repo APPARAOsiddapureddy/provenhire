@@ -4,6 +4,7 @@ import { prisma } from "../config/prisma.js";
 import { createWorkspaceMcqQuestionSet } from "../data/aptitude-loader.js";
 import { finalizeActiveWorkspaceMcqAttempts } from "./mcqAutoFinalize.service.js";
 import { finalizeActiveWorkspaceDsaAttempts } from "./workspaceDsaFinalize.service.js";
+import { finalizeActiveWorkspaceSqlAttempts } from "./workspaceSqlFinalize.service.js";
 
 export const MAX_WORKSPACE_ROUNDS = 5;
 
@@ -26,7 +27,7 @@ export type UpdateWorkspaceInput = Partial<CreateWorkspaceInput>;
 export type WorkspaceRoundInput = {
   order: number;
   name: string;
-  type: "mcq" | "coding" | "interview";
+  type: "mcq" | "coding" | "interview" | "sql";
   questionType?: "random" | "fixed";
   questionCount: number;
   timeLimitMins: number;
@@ -44,6 +45,24 @@ export type WorkspaceListFilters = {
   page: number;
   limit: number;
 };
+
+export type SqlTaskAvailability = {
+  total: number;
+  byDifficulty: Record<"Easy" | "Medium" | "Hard", number>;
+  missingHiddenTests: number;
+};
+
+const SQL_ELIGIBLE_TASK_WHERE: Prisma.DataRoundTaskWhereInput = {
+  taskType: "sql",
+  AND: [
+    { testCases: { some: { isHidden: false } } },
+    { testCases: { some: { isHidden: true } } },
+  ],
+};
+
+function emptySqlDifficultyCounts(): SqlTaskAvailability["byDifficulty"] {
+  return { Easy: 0, Medium: 0, Hard: 0 };
+}
 
 export class WorkspaceServiceError extends Error {
   constructor(
@@ -221,6 +240,35 @@ export async function listWorkspaces(creator: WorkspaceCreator, filters: Workspa
   };
 }
 
+export async function getSqlTaskAvailability(creator: WorkspaceCreator): Promise<SqlTaskAvailability> {
+  if (creator.role !== "admin") throw new WorkspaceServiceError("Workspace creator access required.", 403);
+  const [eligibleRows, missingHiddenTests] = await Promise.all([
+    prisma.dataRoundTask.groupBy({
+      by: ["difficulty"],
+      where: SQL_ELIGIBLE_TASK_WHERE,
+      _count: { _all: true },
+    }),
+    prisma.dataRoundTask.count({
+      where: {
+        taskType: "sql",
+        testCases: { some: { isHidden: false } },
+        NOT: { testCases: { some: { isHidden: true } } },
+      },
+    }),
+  ]);
+  const byDifficulty = emptySqlDifficultyCounts();
+  for (const row of eligibleRows) {
+    if (row.difficulty === "Easy" || row.difficulty === "Medium" || row.difficulty === "Hard") {
+      byDifficulty[row.difficulty] = row._count._all;
+    }
+  }
+  return {
+    byDifficulty,
+    missingHiddenTests,
+    total: byDifficulty.Easy + byDifficulty.Medium + byDifficulty.Hard,
+  };
+}
+
 export async function getWorkspace(creator: WorkspaceCreator, workspaceId: string) {
   await syncWorkspaceLifecycle(workspaceId);
   const workspace = await prisma.workspace.findFirst({
@@ -268,6 +316,9 @@ export async function replaceWorkspaceRounds(
   validateRounds(rounds, workspace.totalRounds);
 
   return prisma.$transaction(async (tx) => {
+    for (const round of rounds) {
+      if (round.type === "sql") await validateSqlRoundAvailability(tx, round, true);
+    }
     await tx.workspaceRound.deleteMany({ where: { workspaceId: workspace.id } });
     await tx.workspaceRound.createMany({
       data: rounds.map((round) => ({
@@ -288,6 +339,34 @@ export async function replaceWorkspaceRounds(
   });
 }
 
+async function validateSqlRoundAvailability(
+  tx: Prisma.TransactionClient,
+  round: { id?: string; order: number; easyCount: number; mediumCount: number; hardCount: number; questionCount: number },
+  strict: boolean,
+): Promise<void> {
+  const rows = await tx.dataRoundTask.groupBy({
+    by: ["difficulty"],
+    where: SQL_ELIGIBLE_TASK_WHERE,
+    _count: { _all: true },
+  });
+  const counts = new Map(rows.map((row) => [row.difficulty, row._count._all]));
+  const shortage = {
+    easy: Math.max(0, round.easyCount - (counts.get("Easy") ?? 0)),
+    medium: Math.max(0, round.mediumCount - (counts.get("Medium") ?? 0)),
+    hard: Math.max(0, round.hardCount - (counts.get("Hard") ?? 0)),
+  };
+  const totalShortage = shortage.easy + shortage.medium + shortage.hard;
+  if (totalShortage === 0) return;
+  if (strict) {
+    throw new WorkspaceServiceError(`Not enough SQL tasks for round ${round.order}.`, 400);
+  }
+  console.warn("[workspace/publish] SQL task shortage allowed in development", {
+    roundId: round.id,
+    order: round.order,
+    shortage,
+  });
+}
+
 export async function publishWorkspace(creator: WorkspaceCreator, workspaceId: string) {
   const workspace = await getWorkspace(creator, workspaceId);
   if (workspace.status === "published") return workspace;
@@ -301,6 +380,10 @@ export async function publishWorkspace(creator: WorkspaceCreator, workspaceId: s
 
   return prisma.$transaction(async (tx) => {
     for (const round of workspace.rounds) {
+      if (round.type === "sql") {
+        await validateSqlRoundAvailability(tx, round, strictQuestionAvailability);
+        continue;
+      }
       if (round.type !== "mcq") continue;
       const set = createWorkspaceMcqQuestionSet({
         easyCount: round.easyCount,
@@ -382,6 +465,7 @@ export async function archiveWorkspace(creator: WorkspaceCreator, workspaceId: s
   });
   await finalizeActiveWorkspaceMcqAttempts(workspace.id);
   await finalizeActiveWorkspaceDsaAttempts(workspace.id);
+  await finalizeActiveWorkspaceSqlAttempts(workspace.id);
   return archived;
 }
 

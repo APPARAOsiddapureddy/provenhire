@@ -2,6 +2,7 @@ import { prisma } from "../config/prisma.js";
 import { WorkspaceServiceError, syncWorkspaceLifecycle } from "./workspace.service.js";
 import { startWorkspaceMcqSession } from "./mcqSession.service.js";
 import { getWorkspaceDsaSessionSnapshot, startWorkspaceDsaSession } from "./workspaceDsaSession.service.js";
+import { getWorkspaceSqlSessionSnapshot, startWorkspaceSqlSession } from "./workspaceSqlSession.service.js";
 import {
   assertWorkspaceRoundStartAllowed,
   normalizeWorkspaceCode,
@@ -41,13 +42,23 @@ export async function startWorkspaceRoundAttempt(actor: WorkspaceAttemptActor, c
     };
   }
 
+  if (roundType === "sql") {
+    const snapshot = await startWorkspaceSqlSession(actor, { workspaceCode: code, workspaceRoundId: roundId });
+    return {
+      roundType,
+      attemptId: snapshot.workspaceAttempt.id,
+      sessionId: snapshot.session.id,
+      sessionStatus: snapshot.workspaceAttempt.status,
+    };
+  }
+
   throw new WorkspaceServiceError("Unsupported workspace round type.", 409);
 }
 
 export async function getWorkspaceRoundAttemptSession(actor: WorkspaceAttemptActor, attemptId: string) {
   const attempt = await prisma.workspaceRoundAttempt.findFirst({
     where: { id: attemptId, userId: actor.id },
-    select: { roundType: true, mcqSessionId: true, dsaRoundSessionId: true },
+    select: { roundType: true, mcqSessionId: true, dsaRoundSessionId: true, sqlSessionId: true },
   });
   if (!attempt) throw new WorkspaceServiceError("Workspace attempt not found.", 404);
   if (attempt.roundType === "mcq" && attempt.mcqSessionId) {
@@ -56,6 +67,10 @@ export async function getWorkspaceRoundAttemptSession(actor: WorkspaceAttemptAct
   if (attempt.roundType === "coding" && attempt.dsaRoundSessionId) {
     await getWorkspaceDsaSessionSnapshot(actor, attempt.dsaRoundSessionId);
     return { roundType: attempt.roundType, sessionId: attempt.dsaRoundSessionId };
+  }
+  if (attempt.roundType === "sql" && attempt.sqlSessionId) {
+    await getWorkspaceSqlSessionSnapshot(actor, attempt.sqlSessionId);
+    return { roundType: attempt.roundType, sessionId: attempt.sqlSessionId };
   }
   throw new WorkspaceServiceError("Workspace attempt session not found.", 404);
 }

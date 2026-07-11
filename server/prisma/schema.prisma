@@ -67,6 +67,8 @@ model User {
   removedWorkspaceRegistrations WorkspaceRegistration[] @relation("WorkspaceRegistrationRemovedBy")
   restoredWorkspaceRegistrations WorkspaceRegistration[] @relation("WorkspaceRegistrationRestoredBy")
   mcqSessions                McqSession[]
+  workspaceSqlSessions       WorkspaceSqlSession[]
+  workspaceSqlSubmissions    WorkspaceSqlSubmission[]
   workspaceRoundAttempts     WorkspaceRoundAttempt[]
 }
 
@@ -182,6 +184,7 @@ enum WorkspaceQuestionType {
 enum WorkspaceRoundType {
   mcq
   coding
+  sql
   interview
 }
 
@@ -191,6 +194,13 @@ enum WorkspaceRegistrationStatus {
 }
 
 enum McqSessionStatus {
+  active
+  submitted
+  auto_submitted
+  discarded
+}
+
+enum WorkspaceSqlSessionStatus {
   active
   submitted
   auto_submitted
@@ -463,6 +473,52 @@ model McqSession {
   @@index([endTime, status])
 }
 
+model WorkspaceSqlSession {
+  id                String                    @id @default(uuid())
+  userId            String
+  taskIds           String[]
+  tasks             Json                      @default(dbgenerated("'[]'::jsonb"))
+  currentTaskId     String?
+  drafts            Json                      @default(dbgenerated("'{}'::jsonb"))
+  startTime         DateTime                  @default(now())
+  endTime           DateTime
+  status            WorkspaceSqlSessionStatus @default(active)
+  submittedAt       DateTime?
+  finalizedAt       DateTime?
+  score             Int?
+  passedCount       Int?
+  totalCount        Int?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  user                  User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submissions           WorkspaceSqlSubmission[]
+  workspaceRoundAttempt WorkspaceRoundAttempt?
+
+  @@index([userId, status])
+  @@index([endTime, status])
+}
+
+model WorkspaceSqlSubmission {
+  id          String   @id @default(uuid())
+  sessionId   String
+  userId      String
+  taskId      String
+  query       String   @db.Text
+  passedCount Int
+  totalCount  Int
+  score       Int
+  isOfficial  Boolean  @default(false)
+  results     Json
+  submittedAt DateTime @default(now())
+
+  session WorkspaceSqlSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, taskId, isOfficial])
+  @@index([userId, isOfficial])
+}
+
 model WorkspaceRoundAttempt {
   id                      String                      @id @default(uuid())
   workspaceId             String
@@ -472,6 +528,7 @@ model WorkspaceRoundAttempt {
   roundType               WorkspaceRoundType
   mcqSessionId            String?                     @unique
   dsaRoundSessionId       String?                     @unique
+  sqlSessionId            String?                     @unique
   status                  WorkspaceRoundAttemptStatus @default(active)
   score                   Int?
   percentageScore         Int?
@@ -487,6 +544,7 @@ model WorkspaceRoundAttempt {
   user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   mcqSession            McqSession?           @relation(fields: [mcqSessionId], references: [id], onDelete: SetNull)
   dsaRoundSession       DsaRoundSession?      @relation(fields: [dsaRoundSessionId], references: [id], onDelete: SetNull)
+  sqlSession            WorkspaceSqlSession?  @relation(fields: [sqlSessionId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceRegistrationId, workspaceRoundId])
   @@index([workspaceId, status])

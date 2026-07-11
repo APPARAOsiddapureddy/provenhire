@@ -1,6 +1,6 @@
 export type WorkspaceStatus = "draft" | "published" | "started" | "ended" | "archived";
 export type WorkspaceAccessMode = "public" | "invite_only";
-export type WorkspaceRoundType = "mcq" | "coding" | "interview";
+export type WorkspaceRoundType = "mcq" | "coding" | "interview" | "sql";
 export type WorkspaceQuestionType = "random" | "fixed";
 
 export type WorkspaceRound = {
@@ -85,6 +85,16 @@ export type WorkspaceLeaderboardResponse = {
   workspace: Pick<Workspace, "id" | "code" | "name" | "organization" | "status">;
   leaderboard: WorkspaceLeaderboardRow[];
   nextCursor: string | null;
+};
+
+export type SqlTaskAvailability = {
+  total: number;
+  byDifficulty: {
+    Easy: number;
+    Medium: number;
+    Hard: number;
+  };
+  missingHiddenTests: number;
 };
 
 export type AllowlistImportSummary = {
