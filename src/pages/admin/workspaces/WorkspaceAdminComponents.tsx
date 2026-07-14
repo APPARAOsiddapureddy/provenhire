@@ -557,14 +557,32 @@ function SummaryMini({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspaceId: string; readonly?: boolean }) {
-  const [registrations, setRegistrations] = useState<WorkspaceRegistration[]>([]);
-  const [loading, setLoading] = useState(true);
+type WorkspaceRegistrationsPreview = {
+  registrations: WorkspaceRegistration[];
+  dossiers: Record<string, WorkspaceCandidateDossier>;
+};
+
+export function WorkspaceRegistrationsTable({
+  workspaceId,
+  readonly,
+  preview,
+}: {
+  workspaceId: string;
+  readonly?: boolean;
+  preview?: WorkspaceRegistrationsPreview;
+}) {
+  const [registrations, setRegistrations] = useState<WorkspaceRegistration[]>(preview?.registrations ?? []);
+  const [loading, setLoading] = useState(!preview);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [dossier, setDossier] = useState<WorkspaceCandidateDossier | null>(null);
   const [dossierLoadingUserId, setDossierLoadingUserId] = useState<string | null>(null);
 
   const fetchRegistrations = async () => {
+    if (preview) {
+      setRegistrations(preview.registrations);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await api.get<{ registrations: WorkspaceRegistration[] }>(`/api/workspaces/${workspaceId}/registrations`);
@@ -577,6 +595,10 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
   };
 
   const openDossier = async (userId: string) => {
+    if (preview) {
+      setDossier(preview.dossiers[userId] ?? null);
+      return;
+    }
     setDossierLoadingUserId(userId);
     try {
       const res = await api.get<{ dossier: WorkspaceCandidateDossier }>(
@@ -592,7 +614,7 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
 
   useEffect(() => {
     void fetchRegistrations();
-  }, [workspaceId]);
+  }, [workspaceId, preview]);
 
   const updateStatus = async (userId: string, action: "remove" | "restore") => {
     setBusyUserId(userId);
@@ -620,7 +642,7 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
             <CardTitle className="text-base sm:text-lg">Registrations</CardTitle>
             <CardDescription>Registered and removed users for this workspace.</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchRegistrations} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={fetchRegistrations} disabled={loading || Boolean(preview)}>
             <RefreshCw className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">Refresh</span>
           </Button>

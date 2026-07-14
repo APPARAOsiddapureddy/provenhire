@@ -54,6 +54,7 @@ const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const AdminWorkspacesPage = lazy(() => import("./pages/admin/workspaces/AdminWorkspacesPage"));
 const WorkspaceBuilderPage = lazy(() => import("./pages/admin/workspaces/WorkspaceBuilderPage"));
 const WorkspaceDetailPage = lazy(() => import("./pages/admin/workspaces/WorkspaceDetailPage"));
+const WorkspaceLocalPreviewPage = lazy(() => import("./pages/admin/workspaces/WorkspaceLocalPreviewPage"));
 const UserWorkspacesPage = lazy(() => import("./pages/dashboard/workspaces/UserWorkspacesPage"));
 const UserWorkspaceDetailPage = lazy(() => import("./pages/dashboard/workspaces/UserWorkspaceDetailPage"));
 const WorkspaceRoundAttemptPage = lazy(() => import("./pages/dashboard/workspaces/WorkspaceRoundAttemptPage"));
@@ -173,6 +174,10 @@ const App = () => (
               <Route path="/verified/:handle" element={<VerifiedPublicPage />} />
               <Route path="/careers/interviewer" element={<InterviewerCareers />} />
               <Route path="/admin" element={<AdminLogin />} />
+              <Route
+                path="/local-preview/workspace"
+                element={import.meta.env.DEV ? <WorkspaceLocalPreviewPage /> : <Navigate to="/" replace />}
+              />
               <Route
                 path="/admin/dashboard"
                 element={
