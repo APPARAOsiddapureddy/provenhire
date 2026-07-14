@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -678,9 +679,15 @@ export function WorkspaceRegistrationsTable({
                       <TableCell>{formatDateTime(registration.registeredAt)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          <Button asChild variant="default" size="sm">
+                            <Link to={workspaceId === "local-preview-workspace" ? `/local-preview/workspace/candidates/${registration.userId}/reports` : `/admin/workspaces/${workspaceId}/candidates/${registration.userId}/reports`}>
+                              <FileText className="h-4 w-4 mr-2" />
+                              Full reports
+                            </Link>
+                          </Button>
                           <Button variant="outline" size="sm" disabled={dossierLoadingUserId === registration.userId} onClick={() => openDossier(registration.userId)}>
                             {dossierLoadingUserId === registration.userId ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
-                            Reports
+                            Quick view
                           </Button>
                         {registration.status === "registered" ? (
                           <Button variant="outline" size="sm" disabled={readonly || busyUserId === registration.userId} onClick={() => updateStatus(registration.userId, "remove")}>

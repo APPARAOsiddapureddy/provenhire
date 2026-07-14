@@ -55,6 +55,7 @@ const AdminWorkspacesPage = lazy(() => import("./pages/admin/workspaces/AdminWor
 const WorkspaceBuilderPage = lazy(() => import("./pages/admin/workspaces/WorkspaceBuilderPage"));
 const WorkspaceDetailPage = lazy(() => import("./pages/admin/workspaces/WorkspaceDetailPage"));
 const WorkspaceLocalPreviewPage = lazy(() => import("./pages/admin/workspaces/WorkspaceLocalPreviewPage"));
+const WorkspaceCandidateReportsPage = lazy(() => import("./pages/admin/workspaces/WorkspaceCandidateReportsPage"));
 const UserWorkspacesPage = lazy(() => import("./pages/dashboard/workspaces/UserWorkspacesPage"));
 const UserWorkspaceDetailPage = lazy(() => import("./pages/dashboard/workspaces/UserWorkspaceDetailPage"));
 const WorkspaceRoundAttemptPage = lazy(() => import("./pages/dashboard/workspaces/WorkspaceRoundAttemptPage"));
@@ -179,6 +180,10 @@ const App = () => (
                 element={import.meta.env.DEV ? <WorkspaceLocalPreviewPage /> : <Navigate to="/" replace />}
               />
               <Route
+                path="/local-preview/workspace/candidates/:userId/reports"
+                element={import.meta.env.DEV ? <WorkspaceCandidateReportsPage /> : <Navigate to="/" replace />}
+              />
+              <Route
                 path="/admin/dashboard"
                 element={
                   <ProtectedRoute allowedRole="admin">
@@ -207,6 +212,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="admin">
                     <WorkspaceDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/workspaces/:id/candidates/:userId/reports"
+                element={
+                  <ProtectedRoute allowedRole="admin">
+                    <WorkspaceCandidateReportsPage />
                   </ProtectedRoute>
                 }
               />

@@ -90,6 +90,26 @@ export type WorkspaceCandidateDossier = {
       workspaceRound: { id: string; order: number; name: string; type: WorkspaceRoundType; scoreWeightage: number };
     }>;
   };
+  synthesis?: {
+    schemaVersion: string;
+    recommendation: string;
+    compositeScore: number | null;
+    confidence: number;
+    completedModules: number;
+    overallRead: string;
+    crossModuleSignals: string[];
+    contradictions: string[];
+    verifiedStrengths: string[];
+    scopedRisks: string[];
+    nextActions: string[];
+    evidenceBasis: {
+      aptitudeScore: number | null;
+      dsaScore: number | null;
+      antigravityScore: number | null;
+      antigravityVerdict: string | null;
+      scoreSpread: number;
+    };
+  };
   modules: {
     aptitude: { latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null; history: unknown[] };
     dsa: { latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null; history: unknown[] };

@@ -26,6 +26,88 @@ export type AllowedEmailImportSummary = {
   invalidSamples: string[];
 };
 
+function scorePercent(value: unknown, scale: "percent" | "ten"): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.min(100, scale === "ten" ? parsed * 10 : parsed));
+}
+
+export function buildCandidateAssessmentSynthesis(input: {
+  aptitude: { score?: number | null } | null;
+  dsa: { score?: number | null } | null;
+  antigravity: { overallScore?: number | null; hireRecommendation?: string | null; report?: unknown } | null;
+}) {
+  const aptitude = scorePercent(input.aptitude?.score, "percent");
+  const dsa = scorePercent(input.dsa?.score, "percent");
+  const antigravity = scorePercent(input.antigravity?.overallScore, "ten");
+  const measured = [aptitude, dsa, antigravity].filter((value): value is number => value !== null);
+  const compositeScore = measured.length ? Math.round((measured.reduce((sum, value) => sum + value, 0) / measured.length) * 10) / 10 : null;
+  const spread = measured.length > 1 ? Math.max(...measured) - Math.min(...measured) : 0;
+  const report = input.antigravity?.report && typeof input.antigravity.report === "object" ? input.antigravity.report as Record<string, unknown> : {};
+  const strengths = Array.isArray(report.strengths) ? report.strengths.map(String) : [];
+  const risks = Array.isArray(report.risk_flags) ? report.risk_flags.map(String) : [];
+
+  const crossModuleSignals: string[] = [];
+  const contradictions: string[] = [];
+  if (aptitude !== null && aptitude >= 80) crossModuleSignals.push("Strong aptitude evidence supports fast comprehension and structured problem solving.");
+  if (dsa !== null && dsa >= 80) crossModuleSignals.push("DSA performance verifies implementation fluency under objective test constraints.");
+  if (antigravity !== null && antigravity >= 80) crossModuleSignals.push("Antigravity evidence supports role-level reasoning, communication, and ownership under pressure.");
+  if (measured.length === 3 && spread <= 12) crossModuleSignals.push("All three modules agree closely; the candidate signal is consistent rather than driven by one assessment.");
+  if (aptitude !== null && dsa !== null && Math.abs(aptitude - dsa) >= 15) {
+    contradictions.push(aptitude > dsa
+      ? "Conceptual aptitude materially exceeds coding execution; validate implementation speed and debugging discipline."
+      : "Coding execution materially exceeds aptitude performance; validate breadth, comprehension speed, and unfamiliar problem framing.");
+  }
+  if (dsa !== null && antigravity !== null && Math.abs(dsa - antigravity) >= 15) {
+    contradictions.push(dsa > antigravity
+      ? "Objective coding is stronger than interview reasoning; verify communication, production judgment, and ownership boundaries."
+      : "Interview reasoning is stronger than objective coding; verify independent implementation through a scoped work sample.");
+  }
+  if (!contradictions.length) contradictions.push("No material cross-module contradiction was detected at the current evidence threshold.");
+
+  const recommendation = compositeScore === null
+    ? "INSUFFICIENT EVIDENCE"
+    : compositeScore >= 85 && spread <= 18
+      ? "ADVANCE"
+      : compositeScore >= 70
+        ? "ADVANCE WITH TARGETED FOLLOW-UP"
+        : "HOLD FOR ADDITIONAL EVIDENCE";
+  const completedModules = measured.length;
+  const confidence = Math.round(Math.min(0.96, 0.42 + completedModules * 0.16 + (spread <= 12 && completedModules > 1 ? 0.06 : 0)) * 100) / 100;
+  const moduleSummary = [
+    aptitude === null ? "Aptitude not completed" : `Aptitude ${aptitude.toFixed(0)}`,
+    dsa === null ? "DSA not completed" : `DSA ${dsa.toFixed(0)}`,
+    antigravity === null ? "Antigravity not completed" : `Antigravity ${antigravity.toFixed(0)}`,
+  ].join(", ");
+
+  return {
+    schemaVersion: "candidate_assessment_synthesis_v1",
+    recommendation,
+    compositeScore,
+    confidence,
+    completedModules,
+    overallRead: compositeScore === null
+      ? "There is not enough completed assessment evidence to make a cross-module candidate judgment."
+      : `${recommendation}. The evidence-weighted composite is ${compositeScore.toFixed(1)}/100 across ${completedModules} completed modules (${moduleSummary}). ${spread <= 12 && completedModules > 1 ? "The modules reinforce one another." : "The module spread requires targeted interpretation rather than a score-only decision."}`,
+    crossModuleSignals: crossModuleSignals.length ? crossModuleSignals : ["The current evidence is too sparse to claim a cross-module strength."],
+    contradictions,
+    verifiedStrengths: strengths.slice(0, 6),
+    scopedRisks: risks.slice(0, 6),
+    nextActions: [
+      ...contradictions.filter((item) => !item.startsWith("No material")).slice(0, 2),
+      ...(risks.length ? [`Probe the highest Antigravity risk directly: ${risks[0]}`] : []),
+      ...(completedModules < 3 ? ["Complete every missing module before treating the composite as a final hiring decision."] : []),
+    ].slice(0, 4),
+    evidenceBasis: {
+      aptitudeScore: aptitude,
+      dsaScore: dsa,
+      antigravityScore: antigravity,
+      antigravityVerdict: input.antigravity?.hireRecommendation ?? null,
+      scoreSpread: Math.round(spread * 10) / 10,
+    },
+  };
+}
+
 type LeaderboardCursor = {
   totalScore: number;
   completedRounds: number;
@@ -608,6 +690,11 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
       },
     }),
   ]);
+  const synthesis = buildCandidateAssessmentSynthesis({
+    aptitude: aptitudeResults[0] ?? null,
+    dsa: dsaResults[0] ?? null,
+    antigravity: antigravityReports[0] ?? null,
+  });
 
   return {
     schemaVersion: "workspace_candidate_dossier_v1",
@@ -619,6 +706,7 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
       registeredAt: registration.registeredAt,
       roundAttempts: registration.roundAttempts,
     },
+    synthesis,
     modules: {
       aptitude: { latest: aptitudeResults[0] ?? null, history: aptitudeResults },
       dsa: { latest: dsaResults[0] ?? null, history: dsaResults },
