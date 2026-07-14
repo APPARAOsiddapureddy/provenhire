@@ -71,6 +71,56 @@ export type WorkspaceRegistration = {
   };
 };
 
+export type WorkspaceCandidateDossier = {
+  schemaVersion: "workspace_candidate_dossier_v1";
+  workspaceId: string;
+  candidate: NonNullable<WorkspaceRegistration["user"]>;
+  registration: {
+    id: string;
+    status: string;
+    registeredAt: string;
+    roundAttempts: Array<{
+      id: string;
+      roundType: WorkspaceRoundType;
+      status: string;
+      score?: number | null;
+      percentageScore?: number | null;
+      weightedScore?: number | null;
+      completedAt?: string | null;
+      workspaceRound: { id: string; order: number; name: string; type: WorkspaceRoundType; scoreWeightage: number };
+    }>;
+  };
+  modules: {
+    aptitude: { latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null; history: unknown[] };
+    dsa: { latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null; history: unknown[] };
+    antigravity: {
+      latest: {
+        id: string;
+        antigravitySessionId: string;
+        schemaVersion: string;
+        overallScore?: number | null;
+        hireRecommendation?: string | null;
+        confidenceScore?: number | null;
+        report: Record<string, unknown>;
+        evidencePacket?: Record<string, unknown> | null;
+        telemetrySummary?: Record<string, unknown> | null;
+        transcript?: unknown[] | null;
+        receivedAt: string;
+        interview: {
+          id: string;
+          jobRole?: string | null;
+          totalScore?: number | null;
+          badgeLevel?: string | null;
+          finalVerdict?: string | null;
+          completedAt?: string | null;
+        };
+        _count: { telemetryEvents: number };
+      } | null;
+      history: unknown[];
+    };
+  };
+};
+
 export type WorkspaceLeaderboardRow = {
   rank: number;
   userId: string;

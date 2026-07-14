@@ -540,6 +540,93 @@ export async function listWorkspaceRegistrations(actor: WorkspaceActor, workspac
   });
 }
 
+export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, workspaceId: string, userId: string) {
+  await assertCanManageWorkspace(actor, workspaceId);
+  const registration = await prisma.workspaceRegistration.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          profileImage: true,
+          jobSeekerProfile: {
+            select: {
+              fullName: true,
+              phone: true,
+              college: true,
+              graduationYear: true,
+              targetJobTitle: true,
+              roleType: true,
+            },
+          },
+        },
+      },
+      roundAttempts: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          workspaceRound: {
+            select: { id: true, order: true, name: true, type: true, scoreWeightage: true },
+          },
+        },
+      },
+    },
+  });
+  if (!registration) throw new WorkspaceServiceError("Workspace registration not found.", 404);
+
+  const [aptitudeResults, dsaResults, antigravityReports] = await Promise.all([
+    prisma.aptitudeTestResult.findMany({
+      where: { userId, invalidated: false },
+      orderBy: { completedAt: "desc" },
+      take: 5,
+      select: { id: true, score: true, answers: true, completedAt: true },
+    }),
+    prisma.dsaRoundResult.findMany({
+      where: { userId, invalidated: false },
+      orderBy: { completedAt: "desc" },
+      take: 5,
+      select: { id: true, roundSessionId: true, score: true, answers: true, completedAt: true },
+    }),
+    prisma.antigravityReport.findMany({
+      where: { userId },
+      orderBy: { receivedAt: "desc" },
+      take: 5,
+      include: {
+        interview: {
+          select: {
+            id: true,
+            jobRole: true,
+            experienceLevel: true,
+            totalScore: true,
+            badgeLevel: true,
+            finalVerdict: true,
+            completedAt: true,
+          },
+        },
+        _count: { select: { telemetryEvents: true } },
+      },
+    }),
+  ]);
+
+  return {
+    schemaVersion: "workspace_candidate_dossier_v1",
+    workspaceId,
+    candidate: registration.user,
+    registration: {
+      id: registration.id,
+      status: registration.status,
+      registeredAt: registration.registeredAt,
+      roundAttempts: registration.roundAttempts,
+    },
+    modules: {
+      aptitude: { latest: aptitudeResults[0] ?? null, history: aptitudeResults },
+      dsa: { latest: dsaResults[0] ?? null, history: dsaResults },
+      antigravity: { latest: antigravityReports[0] ?? null, history: antigravityReports },
+    },
+  };
+}
+
 export async function removeWorkspaceRegistration(actor: WorkspaceActor, workspaceId: string, userId: string) {
   await assertCanManageWorkspace(actor, workspaceId);
   const registration = await prisma.$transaction(async (tx) => {

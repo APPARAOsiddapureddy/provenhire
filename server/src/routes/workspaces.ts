@@ -15,6 +15,7 @@ import {
 } from "../controllers/workspace.controller.js";
 import {
   importAllowedWorkspaceEmailsController,
+  getWorkspaceCandidateDossierController,
   listWorkspaceRegistrationsController,
   removeWorkspaceRegistrationController,
   restoreWorkspaceRegistrationController,
@@ -48,6 +49,7 @@ function uploadWorkspaceAllowedEmailsCsv(req: Request, res: Response, next: Next
 workspacesRouter.use(requireAuth);
 
 workspacesRouter.get("/:id/registrations", listWorkspaceRegistrationsController);
+workspacesRouter.get("/:id/registrations/:userId/dossier", getWorkspaceCandidateDossierController);
 workspacesRouter.delete("/:id/registrations/:userId", removeWorkspaceRegistrationController);
 workspacesRouter.post("/:id/registrations/:userId/restore", restoreWorkspaceRegistrationController);
 workspacesRouter.post("/allowed-emails/import", uploadWorkspaceAllowedEmailsCsv, importAllowedWorkspaceEmailsController);

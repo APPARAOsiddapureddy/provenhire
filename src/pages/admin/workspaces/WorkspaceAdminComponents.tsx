@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Archive,
@@ -18,6 +19,7 @@ import {
   ClipboardList,
   Copy,
   FileSpreadsheet,
+  FileText,
   Loader2,
   Play,
   RefreshCw,
@@ -31,6 +33,7 @@ import type {
   AllowlistImportSummary,
   SqlTaskAvailability,
   Workspace,
+  WorkspaceCandidateDossier,
   WorkspaceDetailsDraft,
   WorkspaceLeaderboardResponse,
   WorkspaceRegistration,
@@ -558,6 +561,8 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
   const [registrations, setRegistrations] = useState<WorkspaceRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [dossier, setDossier] = useState<WorkspaceCandidateDossier | null>(null);
+  const [dossierLoadingUserId, setDossierLoadingUserId] = useState<string | null>(null);
 
   const fetchRegistrations = async () => {
     setLoading(true);
@@ -568,6 +573,20 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
       toast.error(error instanceof Error ? error.message : "Failed to load registrations");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openDossier = async (userId: string) => {
+    setDossierLoadingUserId(userId);
+    try {
+      const res = await api.get<{ dossier: WorkspaceCandidateDossier }>(
+        `/api/workspaces/${workspaceId}/registrations/${userId}/dossier`,
+      );
+      setDossier(res.dossier);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load candidate dossier");
+    } finally {
+      setDossierLoadingUserId(null);
     }
   };
 
@@ -636,6 +655,11 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
                       </TableCell>
                       <TableCell>{formatDateTime(registration.registeredAt)}</TableCell>
                       <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" disabled={dossierLoadingUserId === registration.userId} onClick={() => openDossier(registration.userId)}>
+                            {dossierLoadingUserId === registration.userId ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+                            Reports
+                          </Button>
                         {registration.status === "registered" ? (
                           <Button variant="outline" size="sm" disabled={readonly || busyUserId === registration.userId} onClick={() => updateStatus(registration.userId, "remove")}>
                             <Trash2 className="h-4 w-4 mr-2" />
@@ -647,6 +671,7 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
                             Restore
                           </Button>
                         )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -656,7 +681,90 @@ export function WorkspaceRegistrationsTable({ workspaceId, readonly }: { workspa
           </div>
         )}
       </CardContent>
+      <CandidateDossierDialog dossier={dossier} onOpenChange={(open) => { if (!open) setDossier(null); }} />
     </Card>
+  );
+}
+
+function CandidateDossierDialog({ dossier, onOpenChange }: { dossier: WorkspaceCandidateDossier | null; onOpenChange: (open: boolean) => void }) {
+  const report = dossier?.modules.antigravity.latest?.report ?? {};
+  const summary = String(report.recruiter_summary || report.summary || "No Antigravity report has been received yet.");
+  const strengths = Array.isArray(report.strengths) ? report.strengths.map(String) : [];
+  const risks = Array.isArray(report.risk_flags) ? report.risk_flags.map(String) : [];
+  const latestAg = dossier?.modules.antigravity.latest;
+  return (
+    <Dialog open={Boolean(dossier)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{dossier?.candidate.jobSeekerProfile?.fullName || dossier?.candidate.name || "Candidate"} · assessment dossier</DialogTitle>
+          <DialogDescription>Aptitude, DSA, and Antigravity evidence from the ProvenHire Postgres record.</DialogDescription>
+        </DialogHeader>
+        {dossier ? (
+          <div className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-3">
+              <ReportMetric label="Aptitude" value={dossier.modules.aptitude.latest?.score ?? "Not completed"} detail={dossier.modules.aptitude.latest ? formatDateTime(dossier.modules.aptitude.latest.completedAt) : "No persisted result"} />
+              <ReportMetric label="DSA" value={dossier.modules.dsa.latest?.score ?? "Not completed"} detail={dossier.modules.dsa.latest ? formatDateTime(dossier.modules.dsa.latest.completedAt) : "No persisted result"} />
+              <ReportMetric label="Antigravity" value={latestAg?.overallScore ?? "Not completed"} detail={latestAg ? `${latestAg.hireRecommendation || "No verdict"} · ${latestAg._count.telemetryEvents} telemetry facts` : "No persisted report"} />
+            </div>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Workspace round record</CardTitle>
+                <CardDescription>Scores persisted by the workspace attempt pipeline.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {dossier.registration.roundAttempts.length ? dossier.registration.roundAttempts.map((attempt) => (
+                  <div key={attempt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+                    <span className="font-medium">{attempt.workspaceRound.order}. {attempt.workspaceRound.name}</span>
+                    <span>{attempt.percentageScore ?? attempt.score ?? "Pending"} · {attempt.status}</span>
+                  </div>
+                )) : <p className="text-sm text-muted-foreground">No workspace attempts yet.</p>}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Antigravity recruiter report</CardTitle>
+                <CardDescription>{latestAg ? `${latestAg.schemaVersion} · session ${latestAg.antigravitySessionId}` : "Awaiting report delivery"}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6">{summary}</p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <EvidenceList title="Verified strengths" items={strengths} empty="No verified strengths recorded." />
+                  <EvidenceList title="Scoped risks" items={risks} empty="No scoped risks recorded." />
+                </div>
+                {latestAg ? (
+                  <div className="grid gap-3 sm:grid-cols-3 text-sm">
+                    <ReportMetric label="Confidence" value={latestAg.confidenceScore ?? "—"} detail="Evaluator confidence" />
+                    <ReportMetric label="Evidence turns" value={Array.isArray(latestAg.transcript) ? latestAg.transcript.length : 0} detail="Question/answer interactions" />
+                    <ReportMetric label="Received" value={formatDateTime(latestAg.receivedAt)} detail="Durable ingestion time" />
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReportMetric({ label, value, detail }: { label: string; value: string | number; detail: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg font-semibold">{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
+
+function EvidenceList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <h4 className="font-medium">{title}</h4>
+      {items.length ? <ul className="mt-2 space-y-2 text-sm text-muted-foreground">{items.slice(0, 8).map((item, index) => <li key={`${index}-${item}`} className="leading-5">• {item}</li>)}</ul> : <p className="mt-2 text-sm text-muted-foreground">{empty}</p>}
+    </div>
   );
 }
 

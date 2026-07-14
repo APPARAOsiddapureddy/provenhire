@@ -24,6 +24,7 @@ import {
 import { gateExpertInterviewStart, hasCompletedDsaPrerequisite } from "../services/candidateRetake.service.js";
 import { getCandidateModuleContext } from "../services/performancePipeline.js";
 import { roleTypeToTrack } from "../constants/verificationPipeline.js";
+import { persistAntigravityReportArtifact } from "../services/antigravityReport.service.js";
 
 export const aiInterviewAdapterRouter = Router();
 
@@ -125,6 +126,12 @@ type AgReport = {
   failure_surface?: Record<string, number>;
   weakness_summary?: Record<string, number>;
   raw_weaknesses?: Array<{ weakness: string; type: string; severity: string; attack_strategy?: string }>;
+  schema_version?: string;
+  final_evidence_packet?: Record<string, unknown>;
+  telemetry_summary?: Record<string, unknown>;
+  telemetry_events?: Array<Record<string, unknown>>;
+  history?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
 };
 
 type AntigravityLaunchPayload = AntigravityStartPayload & {
@@ -225,7 +232,8 @@ async function finalizeInterview(
   interviewId: string,
   userId: string,
   agReport: AgReport,
-  sessionId?: string
+  sessionId?: string,
+  handoffId?: string,
 ) {
   const existingInterview = await prisma.interview.findUnique({
     where: { id: interviewId },
@@ -249,6 +257,8 @@ async function finalizeInterview(
         ? existingBreakdown.antigravity_session_id
         : null),
     antigravity_report: {
+      schema_version: agReport.schema_version ?? "legacy_report",
+      artifact_session_id: sessionId ?? null,
       summary: agReport.summary ?? null,
       strengths: agReport.strengths ?? [],
       risk_flags: agReport.risk_flags ?? [],
@@ -263,6 +273,16 @@ async function finalizeInterview(
       hire_recommendation: agReport.hire_recommendation ?? null,
     },
   };
+
+  if (sessionId) {
+    await persistAntigravityReportArtifact({
+      userId,
+      interviewId,
+      handoffId,
+      antigravitySessionId: sessionId,
+      report: agReport as Record<string, unknown>,
+    });
+  }
 
   await prisma.$transaction([
     prisma.interview.update({
@@ -1095,6 +1115,7 @@ aiInterviewAdapterRouter.post(
 const handoffCompleteSchema = z.object({
   handoff_id: z.string().trim().min(1),
   antigravity_session_id: z.string().trim().min(1),
+  delivery_id: z.string().trim().min(1).optional(),
   report: z.any().optional(),
 });
 
@@ -1113,20 +1134,6 @@ aiInterviewAdapterRouter.post("/handoff-complete", async (req: AuthedRequest, re
     });
     if (!handoff) return res.status(404).json({ error: "Handoff not found." });
 
-    const interview = await prisma.interview.findUnique({
-      where: { id: handoff.interviewId },
-      select: { status: true, totalScore: true, badgeLevel: true, finalVerdict: true },
-    });
-    if (interview?.status === "completed" && handoff.status === "completed") {
-      return res.json({
-        ok: true,
-        complete: true,
-        score: interview.totalScore,
-        badge: interview.badgeLevel,
-        verdict: interview.finalVerdict,
-      });
-    }
-
     let agReport = parsed.data.report as AgReport | undefined;
     if (!agReport?.complete) {
       const agRes = await fetch(`${antigravityApiUrl()}/report/${antigravity_session_id}`, {
@@ -1141,7 +1148,8 @@ aiInterviewAdapterRouter.post("/handoff-complete", async (req: AuthedRequest, re
       handoff.interviewId,
       handoff.userId,
       agReport,
-      antigravity_session_id
+      antigravity_session_id,
+      handoff.id,
     );
 
     await prisma.antigravityHandoff.update({

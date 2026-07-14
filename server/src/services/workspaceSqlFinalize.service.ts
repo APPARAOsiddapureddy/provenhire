@@ -108,7 +108,7 @@ export async function finalizeWorkspaceSqlSession(
   if (attempt.status === "completed" || attempt.status === "auto_completed") {
     return {
       finalized: true,
-      sessionId,
+      sessionId: session.id,
       status: attempt.status,
       score: attempt.score ?? 0,
       percentageScore: attempt.percentageScore ?? 0,
@@ -127,11 +127,11 @@ export async function finalizeWorkspaceSqlSession(
         data: { status: "discarded", completedAt: new Date() },
       });
     });
-    return { finalized: false, sessionId, reason: "discarded" };
+    return { finalized: false, sessionId: session.id, reason: "discarded" };
   }
 
   if (mode === "auto" && !options.force && session.endTime.getTime() > Date.now()) {
-    return { finalized: false, sessionId, reason: "not_expired", requeueAt: session.endTime };
+    return { finalized: false, sessionId: session.id, reason: "not_expired", requeueAt: session.endTime };
   }
 
   const taskIds = session.taskIds;
@@ -215,10 +215,11 @@ export async function discardActiveWorkspaceRegistrationSqlAttempts(workspaceId:
   });
   for (const attempt of attempts) {
     if (!attempt.sqlSessionId) continue;
+    const attemptSqlSessionId = attempt.sqlSessionId;
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sql_session:${attempt.sqlSessionId}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sql_session:${attemptSqlSessionId}`}))`;
       await tx.workspaceSqlSession.updateMany({
-        where: { id: attempt.sqlSessionId, status: "active" },
+        where: { id: attemptSqlSessionId, status: "active" },
         data: { status: "discarded", finalizedAt: new Date() },
       });
       await tx.workspaceRoundAttempt.updateMany({

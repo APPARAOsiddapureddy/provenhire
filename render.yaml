@@ -41,6 +41,8 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: ANTIGRAVITY_REQUIRE_POSTGRES
+        value: "1"
       - key: ANTIGRAVITY_CORS_ORIGINS
         sync: false
       - key: CARTESIA_API_KEY

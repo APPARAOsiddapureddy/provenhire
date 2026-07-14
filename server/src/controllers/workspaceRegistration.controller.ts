@@ -6,6 +6,7 @@ import {
 } from "../services/workspace.service.js";
 import {
   importAllowedWorkspaceEmailsFromCsv,
+  getWorkspaceCandidateDossier,
   listWorkspaceRegistrations,
   removeWorkspaceRegistration,
   restoreWorkspaceRegistration,
@@ -21,6 +22,15 @@ type MulterRequest = AuthedRequest & { file?: UploadedCsvFile };
 
 function actorFromRequest(req: AuthedRequest) {
   return { id: req.user!.id, role: req.user!.role };
+}
+
+export async function getWorkspaceCandidateDossierController(req: AuthedRequest, res: Response) {
+  try {
+    const dossier = await getWorkspaceCandidateDossier(actorFromRequest(req), req.params.id, req.params.userId);
+    return res.json({ dossier });
+  } catch (error) {
+    return sendError(res, error);
+  }
 }
 
 function sendError(res: Response, error: unknown) {
