@@ -18,6 +18,7 @@ import {
   getWorkspaceCandidateDossierController,
   generateWorkspaceCandidateReportController,
   listWorkspaceRegistrationsController,
+  recordWorkspaceCandidateDecisionController,
   removeWorkspaceRegistrationController,
   restoreWorkspaceRegistrationController,
 } from "../controllers/workspaceRegistration.controller.js";
@@ -32,14 +33,21 @@ const csvUpload = multer({
   limits: { fileSize: 1024 * 1024 },
 });
 
-function uploadWorkspaceAllowedEmailsCsv(req: Request, res: Response, next: NextFunction) {
+function uploadWorkspaceAllowedEmailsCsv(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   csvUpload.single("file")(req, res, (error: unknown) => {
     if (!error) {
       next();
       return;
     }
     if (error instanceof multer.MulterError) {
-      const message = error.code === "LIMIT_FILE_SIZE" ? "CSV file must be 1MB or smaller" : "CSV upload failed";
+      const message =
+        error.code === "LIMIT_FILE_SIZE"
+          ? "CSV file must be 1MB or smaller"
+          : "CSV upload failed";
       res.status(400).json({ error: message });
       return;
     }
@@ -49,18 +57,44 @@ function uploadWorkspaceAllowedEmailsCsv(req: Request, res: Response, next: Next
 
 workspacesRouter.use(requireAuth);
 
-workspacesRouter.get("/:id/registrations", listWorkspaceRegistrationsController);
-workspacesRouter.get("/:id/registrations/:userId/dossier", getWorkspaceCandidateDossierController);
-workspacesRouter.post("/:id/registrations/:userId/reports/generate", generateWorkspaceCandidateReportController);
-workspacesRouter.delete("/:id/registrations/:userId", removeWorkspaceRegistrationController);
-workspacesRouter.post("/:id/registrations/:userId/restore", restoreWorkspaceRegistrationController);
-workspacesRouter.post("/allowed-emails/import", uploadWorkspaceAllowedEmailsCsv, importAllowedWorkspaceEmailsController);
+workspacesRouter.get(
+  "/:id/registrations",
+  listWorkspaceRegistrationsController,
+);
+workspacesRouter.get(
+  "/:id/registrations/:userId/dossier",
+  getWorkspaceCandidateDossierController,
+);
+workspacesRouter.post(
+  "/:id/registrations/:userId/reports/generate",
+  generateWorkspaceCandidateReportController,
+);
+workspacesRouter.put(
+  "/:id/registrations/:userId/decision",
+  recordWorkspaceCandidateDecisionController,
+);
+workspacesRouter.delete(
+  "/:id/registrations/:userId",
+  removeWorkspaceRegistrationController,
+);
+workspacesRouter.post(
+  "/:id/registrations/:userId/restore",
+  restoreWorkspaceRegistrationController,
+);
+workspacesRouter.post(
+  "/allowed-emails/import",
+  uploadWorkspaceAllowedEmailsCsv,
+  importAllowedWorkspaceEmailsController,
+);
 
 workspacesRouter.use(allowWorkspaceCreator(WORKSPACE_CREATOR_ROLES));
 
 workspacesRouter.post("/", createWorkspaceController);
 workspacesRouter.get("/", listWorkspacesController);
-workspacesRouter.get("/question-bank/sql", getWorkspaceSqlTaskAvailabilityController);
+workspacesRouter.get(
+  "/question-bank/sql",
+  getWorkspaceSqlTaskAvailabilityController,
+);
 workspacesRouter.get("/:id", getWorkspaceController);
 workspacesRouter.patch("/:id", updateWorkspaceController);
 workspacesRouter.put("/:id/rounds", replaceWorkspaceRoundsController);

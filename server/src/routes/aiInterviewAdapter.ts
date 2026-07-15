@@ -15,13 +15,20 @@ import { Prisma } from "@prisma/client";
 import crypto from "crypto";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireJobSeeker, AuthedRequest } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireJobSeeker,
+  AuthedRequest,
+} from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import {
   getAntigravityApiBaseUrl,
   getAntigravityFrontendUrl,
 } from "../config/antigravity.js";
-import { gateExpertInterviewStart, hasCompletedDsaPrerequisite } from "../services/candidateRetake.service.js";
+import {
+  gateExpertInterviewStart,
+  hasCompletedDsaPrerequisite,
+} from "../services/candidateRetake.service.js";
 import { getCandidateModuleContext } from "../services/performancePipeline.js";
 import { roleTypeToTrack } from "../constants/verificationPipeline.js";
 import { persistAntigravityReportArtifact } from "../services/antigravityReport.service.js";
@@ -47,11 +54,18 @@ function hashLaunchToken(token: string): string {
 
 function webhookSecret(): string {
   const secret = process.env.ANTIGRAVITY_WEBHOOK_SECRET;
-  if (!secret) throw new Error("ANTIGRAVITY_WEBHOOK_SECRET is required for Antigravity callbacks.");
+  if (!secret)
+    throw new Error(
+      "ANTIGRAVITY_WEBHOOK_SECRET is required for Antigravity callbacks.",
+    );
   return secret;
 }
 
-function signWebhookMessage(event: string, handoffId: string, sessionId: string): string {
+function signWebhookMessage(
+  event: string,
+  handoffId: string,
+  sessionId: string,
+): string {
   return crypto
     .createHmac("sha256", webhookSecret())
     .update(`${event}|${handoffId}|${sessionId}`)
@@ -66,20 +80,34 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   return crypto.timingSafeEqual(left, right);
 }
 
-function verifyWebhookSignature(req: AuthedRequest, event: string, handoffId: string, sessionId: string): boolean {
+function verifyWebhookSignature(
+  req: AuthedRequest,
+  event: string,
+  handoffId: string,
+  sessionId: string,
+): boolean {
   const signature = req.headers["x-antigravity-signature"];
   const value = Array.isArray(signature) ? signature[0] : signature;
   if (!value) return false;
-  return timingSafeEqualHex(value, signWebhookMessage(event, handoffId, sessionId));
+  return timingSafeEqualHex(
+    value,
+    signWebhookMessage(event, handoffId, sessionId),
+  );
 }
 
 function toPrismaJsonValue(value: unknown): Prisma.InputJsonValue {
   if (value === null) return null as unknown as Prisma.InputJsonValue;
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => (item === null ? null : toPrismaJsonValue(item))) as Prisma.InputJsonArray;
+    return value.map((item) =>
+      item === null ? null : toPrismaJsonValue(item),
+    ) as Prisma.InputJsonArray;
   }
   if (value instanceof Date) {
     return value.toISOString();
@@ -87,7 +115,10 @@ function toPrismaJsonValue(value: unknown): Prisma.InputJsonValue {
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, item]) => item !== undefined)
-      .map(([key, item]) => [key, item === null ? null : toPrismaJsonValue(item)] as const);
+      .map(
+        ([key, item]) =>
+          [key, item === null ? null : toPrismaJsonValue(item)] as const,
+      );
     return Object.fromEntries(entries) as Prisma.InputJsonObject;
   }
   return String(value);
@@ -125,7 +156,12 @@ type AgReport = {
   scores?: Record<string, unknown>;
   failure_surface?: Record<string, number>;
   weakness_summary?: Record<string, number>;
-  raw_weaknesses?: Array<{ weakness: string; type: string; severity: string; attack_strategy?: string }>;
+  raw_weaknesses?: Array<{
+    weakness: string;
+    type: string;
+    severity: string;
+    attack_strategy?: string;
+  }>;
   schema_version?: string;
   final_evidence_packet?: Record<string, unknown>;
   telemetry_summary?: Record<string, unknown>;
@@ -187,27 +223,37 @@ type StartInterviewResponse = {
 };
 
 async function _readErrorText(res: Response): Promise<string> {
-  return res.text().then((text) => text.slice(0, 300)).catch(() => "");
+  return res
+    .text()
+    .then((text) => text.slice(0, 300))
+    .catch(() => "");
 }
 
-async function prepareAndStartAntigravity(payload: AntigravityStartPayload): Promise<StartInterviewResponse> {
-  const prepareRes = await fetch(`${antigravityApiUrl()}/prepare_interview_map`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(ANTIGRAVITY_PREP_TIMEOUT_MS),
-  });
+async function prepareAndStartAntigravity(
+  payload: AntigravityStartPayload,
+): Promise<StartInterviewResponse> {
+  const prepareRes = await fetch(
+    `${antigravityApiUrl()}/prepare_interview_map`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(ANTIGRAVITY_PREP_TIMEOUT_MS),
+    },
+  );
 
   if (!prepareRes.ok) {
     const text = await _readErrorText(prepareRes);
-    console.error(`[ai-interview-adapter/start] Antigravity prepare ${prepareRes.status}: ${text}`);
+    console.error(
+      `[ai-interview-adapter/start] Antigravity prepare ${prepareRes.status}: ${text}`,
+    );
     throw new Error("AI interview map preparation failed");
   }
 
   const prepared = (await prepareRes.json()) as PreparedMapResponse;
   if (!prepared.session_id || prepared.map_status !== "ready") {
     console.error(
-      `[ai-interview-adapter/start] Antigravity prepare incomplete: session=${prepared.session_id ?? "none"} status=${prepared.map_status ?? "unknown"}`
+      `[ai-interview-adapter/start] Antigravity prepare incomplete: session=${prepared.session_id ?? "none"} status=${prepared.map_status ?? "unknown"}`,
     );
     throw new Error("AI interview map was not ready");
   }
@@ -221,7 +267,9 @@ async function prepareAndStartAntigravity(payload: AntigravityStartPayload): Pro
 
   if (!startRes.ok) {
     const text = await _readErrorText(startRes);
-    console.error(`[ai-interview-adapter/start] Antigravity start ${startRes.status}: ${text}`);
+    console.error(
+      `[ai-interview-adapter/start] Antigravity start ${startRes.status}: ${text}`,
+    );
     throw new Error("AI interview engine failed to start");
   }
 
@@ -300,42 +348,74 @@ async function finalizeInterview(
     prisma.verificationStage.upsert({
       where: { userId_stageName: { userId, stageName: "expert_interview" } },
       update: { status: "pending_review", score: totalScore ?? undefined },
-      create: { userId, stageName: "expert_interview", status: "pending_review", score: totalScore ?? undefined },
+      create: {
+        userId,
+        stageName: "expert_interview",
+        status: "pending_review",
+        score: totalScore ?? undefined,
+      },
     }),
     prisma.adminReviewQueue.upsert({
       where: { aiInterviewId: interviewId },
       update: {},
-      create: { candidateId: userId, aiInterviewId: interviewId, status: "pending" },
+      create: {
+        candidateId: userId,
+        aiInterviewId: interviewId,
+        status: "pending",
+      },
+    }),
+    prisma.workspaceRoundAttempt.updateMany({
+      where: {
+        interviewId,
+        userId,
+        roundType: "interview",
+        status: "active",
+      },
+      data: {
+        status: "completed",
+        score: totalScore,
+        percentageScore: totalScore,
+        completedAt: new Date(),
+      },
     }),
   ]);
 
   // Fire-and-forget: publish rich analytics to unified performance pipeline
   if (totalScore != null) {
     const pass = totalScore >= 60;
-    import("../services/performancePipeline.js").then(({ publishRunResult }) =>
-      publishRunResult(userId, {
-        module: "antigravity",
-        status: "completed",
-        score: totalScore,
-        pass,
-        targetRole: existingInterview?.jobRole ?? undefined,
-        meta: {
-          badge: badgeLevel,
-          hireRecommendation: agReport.hire_recommendation,
-          confidenceScore: agReport.confidence_score ?? null,
-          summary: agReport.summary ?? null,
-          breakdown: (agReport.scores as Record<string, number | string>) ?? {},
-          failureSurface: agReport.failure_surface ?? {},
-          strengths: agReport.strengths ?? [],
-          riskFlags: agReport.risk_flags ?? [],
-          claimCredibilityRisk: agReport.claim_credibility_risk ?? null,
-          untestedDimensions: agReport.untested_dimensions ?? [],
-          weaknessSummary: agReport.weakness_summary ?? {},
-          rawWeaknesses: agReport.raw_weaknesses ?? [],
-        },
-        signals: [{ competency: "EXPERT_INTERVIEW" as const, score: totalScore, pass }],
-      })
-    ).catch((e) => console.warn("[pipeline/antigravity]", e));
+    import("../services/performancePipeline.js")
+      .then(({ publishRunResult }) =>
+        publishRunResult(userId, {
+          module: "antigravity",
+          status: "completed",
+          score: totalScore,
+          pass,
+          targetRole: existingInterview?.jobRole ?? undefined,
+          meta: {
+            badge: badgeLevel,
+            hireRecommendation: agReport.hire_recommendation,
+            confidenceScore: agReport.confidence_score ?? null,
+            summary: agReport.summary ?? null,
+            breakdown:
+              (agReport.scores as Record<string, number | string>) ?? {},
+            failureSurface: agReport.failure_surface ?? {},
+            strengths: agReport.strengths ?? [],
+            riskFlags: agReport.risk_flags ?? [],
+            claimCredibilityRisk: agReport.claim_credibility_risk ?? null,
+            untestedDimensions: agReport.untested_dimensions ?? [],
+            weaknessSummary: agReport.weakness_summary ?? {},
+            rawWeaknesses: agReport.raw_weaknesses ?? [],
+          },
+          signals: [
+            {
+              competency: "EXPERT_INTERVIEW" as const,
+              score: totalScore,
+              pass,
+            },
+          ],
+        }),
+      )
+      .catch((e) => console.warn("[pipeline/antigravity]", e));
   }
 
   return { totalScore, badgeLevel, verdict };
@@ -347,7 +427,9 @@ async function finalizeInterview(
 // Phase 2: browser polls GET /prepare-status/:interviewId every 5 s until ready.
 
 const startSchema = z.object({
-  resume: z.string().min(50, "Resume text is too short — paste at least 50 characters"),
+  resume: z
+    .string()
+    .min(50, "Resume text is too short — paste at least 50 characters"),
   github_links: z.array(z.string()).optional().default([]),
   target_role: z.string().optional().default(""),
   years_experience: z.string().optional().default(""),
@@ -355,6 +437,7 @@ const startSchema = z.object({
 
 const handoffLaunchSchema = startSchema.extend({
   return_url: z.string().trim().optional().default(""),
+  workspace_attempt_id: z.string().trim().uuid().optional(),
 });
 
 aiInterviewAdapterRouter.post(
@@ -366,29 +449,83 @@ aiInterviewAdapterRouter.post(
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.errors[0].message });
     }
-    const { resume, github_links, target_role, years_experience } = parsed.data;
+    const {
+      resume,
+      github_links,
+      target_role,
+      years_experience,
+      workspace_attempt_id,
+    } = parsed.data;
     const userId = req.user!.id;
+
+    const workspaceAttempt = workspace_attempt_id
+      ? await prisma.workspaceRoundAttempt.findFirst({
+          where: {
+            id: workspace_attempt_id,
+            userId,
+            roundType: "interview",
+            status: "active",
+          },
+          include: {
+            workspace: {
+              select: { status: true, endAt: true, targetRole: true },
+            },
+            workspaceRegistration: { select: { status: true } },
+          },
+        })
+      : null;
+    if (workspace_attempt_id && !workspaceAttempt) {
+      return res.status(409).json({
+        error:
+          "This workspace interview attempt is missing, closed, or belongs to another candidate.",
+      });
+    }
+    if (
+      workspaceAttempt &&
+      (workspaceAttempt.workspace.status !== "started" ||
+        workspaceAttempt.workspace.endAt.getTime() <= Date.now() ||
+        workspaceAttempt.workspaceRegistration.status !== "registered")
+    ) {
+      return res
+        .status(409)
+        .json({ error: "This workspace interview is no longer available." });
+    }
+    const boundTargetRole =
+      workspaceAttempt?.workspace.targetRole ?? target_role;
 
     const gate = await gateExpertInterviewStart(userId);
     if (!gate.ok) {
       if (gate.body?.code === "DSA_REQUIRED") {
         return res.status(gate.status).json(gate.body);
       }
-      const active = await prisma.antigravityHandoff.findFirst({
-        where: {
-          userId,
-          status: { in: ["created", "launched", "started"] },
-          expiresAt: { gt: new Date() },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, status: true, interviewId: true, antigravitySessionId: true },
-      }).catch(() => null);
+      const active = await prisma.antigravityHandoff
+        .findFirst({
+          where: {
+            userId,
+            status: { in: ["created", "launched", "started"] },
+            expiresAt: { gt: new Date() },
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            interviewId: true,
+            antigravitySessionId: true,
+          },
+        })
+        .catch(() => null);
       if (!active) return res.status(gate.status).json(gate.body);
     }
 
-    let priorModuleContext: { relevantState: Record<string, unknown>; promptContext: string };
+    let priorModuleContext: {
+      relevantState: Record<string, unknown>;
+      promptContext: string;
+    };
     try {
-      priorModuleContext = await getCandidateModuleContext(userId, "antigravity");
+      priorModuleContext = await getCandidateModuleContext(
+        userId,
+        "antigravity",
+      );
     } catch {
       priorModuleContext = { relevantState: {}, promptContext: "" };
     }
@@ -401,7 +538,7 @@ aiInterviewAdapterRouter.post(
     const launchPayload: AntigravityLaunchPayload = {
       resume,
       github_links,
-      target_role,
+      target_role: boundTargetRole,
       years_experience,
       prior_assessment_context: priorModuleContext.relevantState,
       prior_assessment_prompt: priorModuleContext.promptContext,
@@ -413,6 +550,13 @@ aiInterviewAdapterRouter.post(
         const existing = await tx.antigravityHandoff.findFirst({
           where: {
             userId,
+            ...(workspace_attempt_id
+              ? {
+                  interview: {
+                    workspaceRoundAttempt: { id: workspace_attempt_id },
+                  },
+                }
+              : { interview: { workspaceRoundAttempt: null } }),
             status: { in: ["created", "launched", "started"] },
             expiresAt: { gt: new Date() },
           },
@@ -433,7 +577,12 @@ aiInterviewAdapterRouter.post(
                 prior_assessment_prompt: priorModuleContext.promptContext,
               }),
             },
-            select: { id: true, interviewId: true, status: true, antigravitySessionId: true },
+            select: {
+              id: true,
+              interviewId: true,
+              status: true,
+              antigravitySessionId: true,
+            },
           });
           return updated;
         }
@@ -441,7 +590,7 @@ aiInterviewAdapterRouter.post(
         const interview = await tx.interview.create({
           data: {
             userId,
-            jobRole: target_role || "General",
+            jobRole: boundTargetRole || "General",
             interviewType: "ai_expert",
             experienceLevel: years_experience || "mid",
             status: "in_progress",
@@ -455,6 +604,21 @@ aiInterviewAdapterRouter.post(
           select: { id: true },
         });
 
+        if (workspace_attempt_id) {
+          const bound = await tx.workspaceRoundAttempt.updateMany({
+            where: {
+              id: workspace_attempt_id,
+              userId,
+              status: "active",
+              interviewId: null,
+            },
+            data: { interviewId: interview.id },
+          });
+          if (bound.count !== 1) {
+            throw new Error("Workspace interview attempt was already bound.");
+          }
+        }
+
         launchPayload.provenhire_interview_id = interview.id;
         return tx.antigravityHandoff.create({
           data: {
@@ -466,17 +630,27 @@ aiInterviewAdapterRouter.post(
             launchPayload: toPrismaJsonValue(launchPayload),
             expiresAt,
           },
-          select: { id: true, interviewId: true, status: true, antigravitySessionId: true },
+          select: {
+            id: true,
+            interviewId: true,
+            status: true,
+            antigravitySessionId: true,
+          },
         });
       });
 
       const finalReturnUrl = new URL(returnUrl);
       finalReturnUrl.searchParams.set("handoff_id", result.id);
-      finalReturnUrl.searchParams.set("provenhire_interview_id", result.interviewId);
-      await prisma.antigravityHandoff.update({
-        where: { id: result.id },
-        data: { returnUrl: finalReturnUrl.toString() },
-      }).catch(() => {});
+      finalReturnUrl.searchParams.set(
+        "provenhire_interview_id",
+        result.interviewId,
+      );
+      await prisma.antigravityHandoff
+        .update({
+          where: { id: result.id },
+          data: { returnUrl: finalReturnUrl.toString() },
+        })
+        .catch(() => {});
 
       const launchUrl = new URL("/launch", getAntigravityFrontendUrl());
       launchUrl.searchParams.set("token", token);
@@ -491,9 +665,11 @@ aiInterviewAdapterRouter.post(
       });
     } catch (e) {
       console.error("[ai-interview-adapter/handoff-launch]", e);
-      return res.status(500).json({ error: "Failed to create Antigravity handoff." });
+      return res
+        .status(500)
+        .json({ error: "Failed to create Antigravity handoff." });
     }
-  }
+  },
 );
 
 aiInterviewAdapterRouter.get(
@@ -516,7 +692,8 @@ aiInterviewAdapterRouter.get(
           lastError: true,
         },
       });
-      if (!handoff) return res.status(404).json({ error: "Handoff not found." });
+      if (!handoff)
+        return res.status(404).json({ error: "Handoff not found." });
       return res.json({
         handoff_id: handoff.id,
         provenhire_interview_id: handoff.interviewId,
@@ -530,13 +707,14 @@ aiInterviewAdapterRouter.get(
       console.error("[ai-interview-adapter/handoff-open]", e);
       return res.status(500).json({ error: "Failed to open handoff." });
     }
-  }
+  },
 );
 
 aiInterviewAdapterRouter.post("/handoff-consume", async (req, res) => {
   const schema = z.object({ token: z.string().trim().min(20) });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff token." });
+  if (!parsed.success)
+    return res.status(400).json({ error: "Invalid handoff token." });
 
   try {
     const tokenHash = hashLaunchToken(parsed.data.token);
@@ -544,16 +722,22 @@ aiInterviewAdapterRouter.post("/handoff-consume", async (req, res) => {
       where: { launchTokenHash: tokenHash },
       include: { interview: { select: { id: true, status: true } } },
     });
-    if (!handoff) return res.status(404).json({ error: "Handoff token not found." });
+    if (!handoff)
+      return res.status(404).json({ error: "Handoff token not found." });
     if (handoff.expiresAt.getTime() < Date.now()) {
-      await prisma.antigravityHandoff.update({
-        where: { id: handoff.id },
-        data: { status: "expired", lastError: "Launch token expired." },
-      }).catch(() => {});
+      await prisma.antigravityHandoff
+        .update({
+          where: { id: handoff.id },
+          data: { status: "expired", lastError: "Launch token expired." },
+        })
+        .catch(() => {});
       return res.status(410).json({ error: "Handoff token expired." });
     }
     if (handoff.status === "completed") {
-      return res.status(409).json({ error: "Handoff already completed.", return_url: handoff.returnUrl });
+      return res.status(409).json({
+        error: "Handoff already completed.",
+        return_url: handoff.returnUrl,
+      });
     }
     if (handoff.status === "failed" || handoff.status === "expired") {
       return res.status(409).json({ error: `Handoff is ${handoff.status}.` });
@@ -575,15 +759,20 @@ aiInterviewAdapterRouter.post("/handoff-consume", async (req, res) => {
       status: updated.status,
       return_url: updated.returnUrl,
       resume: payload.resume ?? "",
-      github_links: Array.isArray(payload.github_links) ? payload.github_links : [],
+      github_links: Array.isArray(payload.github_links)
+        ? payload.github_links
+        : [],
       target_role: payload.target_role ?? "",
       years_experience: payload.years_experience ?? "",
       prior_assessment_context:
-        typeof payload.prior_assessment_context === "object" && payload.prior_assessment_context
+        typeof payload.prior_assessment_context === "object" &&
+        payload.prior_assessment_context
           ? payload.prior_assessment_context
           : {},
       prior_assessment_prompt:
-        typeof payload.prior_assessment_prompt === "string" ? payload.prior_assessment_prompt : "",
+        typeof payload.prior_assessment_prompt === "string"
+          ? payload.prior_assessment_prompt
+          : "",
     });
   } catch (e) {
     console.error("[ai-interview-adapter/handoff-consume]", e);
@@ -596,40 +785,55 @@ const handoffStartedSchema = z.object({
   antigravity_session_id: z.string().trim().min(1),
 });
 
-aiInterviewAdapterRouter.post("/handoff-started", async (req: AuthedRequest, res) => {
-  const parsed = handoffStartedSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff-started payload." });
-  const { handoff_id, antigravity_session_id } = parsed.data;
-  if (!verifyWebhookSignature(req, "started", handoff_id, antigravity_session_id)) {
-    return res.status(401).json({ error: "Invalid Antigravity callback signature." });
-  }
+aiInterviewAdapterRouter.post(
+  "/handoff-started",
+  async (req: AuthedRequest, res) => {
+    const parsed = handoffStartedSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res
+        .status(400)
+        .json({ error: "Invalid handoff-started payload." });
+    const { handoff_id, antigravity_session_id } = parsed.data;
+    if (
+      !verifyWebhookSignature(
+        req,
+        "started",
+        handoff_id,
+        antigravity_session_id,
+      )
+    ) {
+      return res
+        .status(401)
+        .json({ error: "Invalid Antigravity callback signature." });
+    }
 
-  try {
-    const handoff = await prisma.antigravityHandoff.update({
-      where: { id: handoff_id },
-      data: {
-        status: "started",
-        startedAt: new Date(),
-        antigravitySessionId: antigravity_session_id,
-      },
-      select: { interviewId: true },
-    });
-    await prisma.interview.update({
-      where: { id: handoff.interviewId },
-      data: {
-        scoreBreakdown: toPrismaJsonValue({
-          handoff_status: "started",
-          antigravity_session_id,
-          prepare_status: "ready",
-        }),
-      },
-    });
-    return res.json({ ok: true });
-  } catch (e) {
-    console.error("[ai-interview-adapter/handoff-started]", e);
-    return res.status(500).json({ error: "Failed to mark handoff started." });
-  }
-});
+    try {
+      const handoff = await prisma.antigravityHandoff.update({
+        where: { id: handoff_id },
+        data: {
+          status: "started",
+          startedAt: new Date(),
+          antigravitySessionId: antigravity_session_id,
+        },
+        select: { interviewId: true },
+      });
+      await prisma.interview.update({
+        where: { id: handoff.interviewId },
+        data: {
+          scoreBreakdown: toPrismaJsonValue({
+            handoff_status: "started",
+            antigravity_session_id,
+            prepare_status: "ready",
+          }),
+        },
+      });
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[ai-interview-adapter/handoff-started]", e);
+      return res.status(500).json({ error: "Failed to mark handoff started." });
+    }
+  },
+);
 
 aiInterviewAdapterRouter.post(
   "/prepare",
@@ -648,9 +852,15 @@ aiInterviewAdapterRouter.post(
       return res.status(gate.status).json(gate.body);
     }
 
-    let priorModuleContext: { relevantState: Record<string, unknown>; promptContext: string };
+    let priorModuleContext: {
+      relevantState: Record<string, unknown>;
+      promptContext: string;
+    };
     try {
-      priorModuleContext = await getCandidateModuleContext(userId, "antigravity");
+      priorModuleContext = await getCandidateModuleContext(
+        userId,
+        "antigravity",
+      );
     } catch {
       priorModuleContext = { relevantState: {}, promptContext: "" };
     }
@@ -706,20 +916,26 @@ aiInterviewAdapterRouter.post(
           },
         });
       } catch (err) {
-        console.error("[ai-interview-adapter/prepare] background task failed:", err);
-        await prisma.interview.updateMany({
-          where: { id: interview.id, status: "in_progress" },
-          data: {
-            status: "abandoned",
-            scoreBreakdown: toPrismaJsonValue({
-              prepare_status: "failed",
-              prepare_error: err instanceof Error ? err.message : "Preparation failed",
-            }),
-          },
-        }).catch(() => {});
+        console.error(
+          "[ai-interview-adapter/prepare] background task failed:",
+          err,
+        );
+        await prisma.interview
+          .updateMany({
+            where: { id: interview.id, status: "in_progress" },
+            data: {
+              status: "abandoned",
+              scoreBreakdown: toPrismaJsonValue({
+                prepare_status: "failed",
+                prepare_error:
+                  err instanceof Error ? err.message : "Preparation failed",
+              }),
+            },
+          })
+          .catch(() => {});
       }
     })();
-  }
+  },
 );
 
 // ─── GET /prepare-status/:interviewId ──────────────────────────────────────────
@@ -740,12 +956,19 @@ aiInterviewAdapterRouter.get(
         where: { id: interviewId, userId, interviewType: "ai_expert" },
         select: { id: true, status: true, scoreBreakdown: true },
       });
-      if (!interview) return res.status(404).json({ error: "Interview not found." });
+      if (!interview)
+        return res.status(404).json({ error: "Interview not found." });
 
-      const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
+      const breakdown = interview.scoreBreakdown as Record<
+        string,
+        unknown
+      > | null;
       const prepStatus = breakdown?.prepare_status;
 
-      if (prepStatus === "ready" && typeof breakdown?.antigravity_session_id === "string") {
+      if (
+        prepStatus === "ready" &&
+        typeof breakdown?.antigravity_session_id === "string"
+      ) {
         return res.json({
           ready: true,
           session_id: breakdown.antigravity_session_id,
@@ -761,8 +984,13 @@ aiInterviewAdapterRouter.get(
           ready: false,
           prepare_status: prepStatus ?? null,
           interview_status: interview.status,
-          started_at: typeof breakdown?.prepare_started_at === "string" ? breakdown.prepare_started_at : null,
-          error: (breakdown?.prepare_error as string | undefined) ?? "Interview preparation failed. Please try again.",
+          started_at:
+            typeof breakdown?.prepare_started_at === "string"
+              ? breakdown.prepare_started_at
+              : null,
+          error:
+            (breakdown?.prepare_error as string | undefined) ??
+            "Interview preparation failed. Please try again.",
         });
       }
 
@@ -770,13 +998,16 @@ aiInterviewAdapterRouter.get(
         ready: false,
         prepare_status: prepStatus ?? "preparing",
         interview_status: interview.status,
-        started_at: typeof breakdown?.prepare_started_at === "string" ? breakdown.prepare_started_at : null,
+        started_at:
+          typeof breakdown?.prepare_started_at === "string"
+            ? breakdown.prepare_started_at
+            : null,
       });
     } catch (e) {
       console.error("[ai-interview-adapter/prepare-status]", e);
       return res.status(500).json({ error: "Failed to check prepare status." });
     }
-  }
+  },
 );
 
 // ─── GET /open ─────────────────────────────────────────────────────────────────
@@ -795,14 +1026,18 @@ aiInterviewAdapterRouter.get(
         where: { userId },
         select: { roleType: true },
       });
-      if (roleTypeToTrack(profile?.roleType) === "software" && !(await hasCompletedDsaPrerequisite(userId))) {
+      if (
+        roleTypeToTrack(profile?.roleType) === "software" &&
+        !(await hasCompletedDsaPrerequisite(userId))
+      ) {
         await prisma.interview.updateMany({
           where: { userId, interviewType: "ai_expert", status: "in_progress" },
           data: { status: "abandoned" },
         });
         return res.status(403).json({
           code: "DSA_REQUIRED",
-          error: "Complete and pass the DSA Round before starting the AI Expert Interview.",
+          error:
+            "Complete and pass the DSA Round before starting the AI Expert Interview.",
         });
       }
 
@@ -825,12 +1060,17 @@ aiInterviewAdapterRouter.get(
 
       // Map still building — tell the UI to resume polling prepare-status
       if (prepStatus === "preparing") {
-        return res.json({ open: false, preparing: true, provenhire_interview_id: open.id });
+        return res.json({
+          open: false,
+          preparing: true,
+          provenhire_interview_id: open.id,
+        });
       }
 
-      const agSessionId = typeof breakdown?.antigravity_session_id === "string"
-        ? breakdown.antigravity_session_id
-        : null;
+      const agSessionId =
+        typeof breakdown?.antigravity_session_id === "string"
+          ? breakdown.antigravity_session_id
+          : null;
 
       if (!agSessionId) {
         // Corrupt row (ready but no session id) — abandon so the gate unblocks
@@ -844,9 +1084,12 @@ aiInterviewAdapterRouter.get(
       // Opportunistically check if Antigravity already finished — reconcile without
       // requiring the user to keep the tab open.
       try {
-        const agRes = await fetch(`${antigravityApiUrl()}/report/${agSessionId}`, {
-          signal: AbortSignal.timeout(5_000),
-        });
+        const agRes = await fetch(
+          `${antigravityApiUrl()}/report/${agSessionId}`,
+          {
+            signal: AbortSignal.timeout(5_000),
+          },
+        );
         if (agRes.ok) {
           const agReport = (await agRes.json()) as AgReport;
           if (agReport.complete) {
@@ -854,7 +1097,7 @@ aiInterviewAdapterRouter.get(
               open.id,
               userId,
               agReport,
-              agSessionId
+              agSessionId,
             );
             return res.json({
               open: false,
@@ -880,7 +1123,7 @@ aiInterviewAdapterRouter.get(
       console.error("[ai-interview-adapter/open]", e);
       return res.status(500).json({ error: "Failed to check open interview" });
     }
-  }
+  },
 );
 
 // ─── GET /status/:sessionId ─────────────────────────────────────────────────────
@@ -895,7 +1138,9 @@ aiInterviewAdapterRouter.get(
     const userId = req.user!.id;
 
     if (!interviewId) {
-      return res.status(400).json({ error: "interviewId query parameter is required" });
+      return res
+        .status(400)
+        .json({ error: "interviewId query parameter is required" });
     }
 
     try {
@@ -916,13 +1161,19 @@ aiInterviewAdapterRouter.get(
       }
 
       // Fail-closed: absent metadata is as suspicious as a mismatch.
-      const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
-      const storedSessionId = typeof breakdown?.antigravity_session_id === "string"
-        ? breakdown.antigravity_session_id
-        : null;
+      const breakdown = interview.scoreBreakdown as Record<
+        string,
+        unknown
+      > | null;
+      const storedSessionId =
+        typeof breakdown?.antigravity_session_id === "string"
+          ? breakdown.antigravity_session_id
+          : null;
 
       if (!storedSessionId || storedSessionId !== sessionId) {
-        return res.status(403).json({ error: "Session id does not match this interview." });
+        return res
+          .status(403)
+          .json({ error: "Session id does not match this interview." });
       }
 
       // Already processed — return cached result
@@ -943,7 +1194,9 @@ aiInterviewAdapterRouter.get(
 
       if (!agRes.ok) {
         if (agRes.status === 404) return res.json({ complete: false });
-        return res.status(502).json({ error: "Failed to fetch interview status" });
+        return res
+          .status(502)
+          .json({ error: "Failed to fetch interview status" });
       }
 
       const agReport = (await agRes.json()) as AgReport;
@@ -957,7 +1210,7 @@ aiInterviewAdapterRouter.get(
         interview.id,
         userId,
         agReport,
-        sessionId
+        sessionId,
       );
 
       return res.json({
@@ -972,9 +1225,11 @@ aiInterviewAdapterRouter.get(
         return res.json({ complete: false });
       }
       console.error("[ai-interview-adapter/status]", e);
-      return res.status(500).json({ error: "Failed to check interview status" });
+      return res
+        .status(500)
+        .json({ error: "Failed to check interview status" });
     }
-  }
+  },
 );
 
 // ─── POST /cancel ──────────────────────────────────────────────────────────────
@@ -993,34 +1248,48 @@ aiInterviewAdapterRouter.post(
   requireJobSeeker,
   async (req: AuthedRequest, res) => {
     const parsed = cancelSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid payload." });
+    if (!parsed.success)
+      return res.status(400).json({ error: "Invalid payload." });
 
     const { session_id, provenhire_interview_id } = parsed.data;
     const userId = req.user!.id;
 
     try {
       const interview = await prisma.interview.findFirst({
-        where: { id: provenhire_interview_id, userId, interviewType: "ai_expert" },
+        where: {
+          id: provenhire_interview_id,
+          userId,
+          interviewType: "ai_expert",
+        },
         select: { id: true, status: true, scoreBreakdown: true },
       });
-      if (!interview) return res.status(404).json({ error: "Interview not found." });
+      if (!interview)
+        return res.status(404).json({ error: "Interview not found." });
       if (interview.status !== "in_progress") {
         return res.json({ ok: true }); // already settled, nothing to do
       }
 
       // Use the session id stored at creation — never trust the caller-supplied value
       // for the actual Antigravity end_interview call.
-      const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
-      const storedSessionId = typeof breakdown?.antigravity_session_id === "string"
-        ? breakdown.antigravity_session_id : null;
+      const breakdown = interview.scoreBreakdown as Record<
+        string,
+        unknown
+      > | null;
+      const storedSessionId =
+        typeof breakdown?.antigravity_session_id === "string"
+          ? breakdown.antigravity_session_id
+          : null;
 
       void session_id; // acknowledged but not used for the Antigravity call
 
       if (storedSessionId) {
-        fetch(`${antigravityApiUrl()}/end_interview/${encodeURIComponent(storedSessionId)}`, {
-          method: "POST",
-          signal: AbortSignal.timeout(8_000),
-        }).catch(() => {});
+        fetch(
+          `${antigravityApiUrl()}/end_interview/${encodeURIComponent(storedSessionId)}`,
+          {
+            method: "POST",
+            signal: AbortSignal.timeout(8_000),
+          },
+        ).catch(() => {});
       }
 
       await prisma.interview.update({
@@ -1033,7 +1302,7 @@ aiInterviewAdapterRouter.post(
       console.error("[ai-interview-adapter/cancel]", e);
       return res.status(500).json({ error: "Failed to cancel interview." });
     }
-  }
+  },
 );
 
 // ─── POST /finalize ─────────────────────────────────────────────────────────────
@@ -1059,21 +1328,37 @@ aiInterviewAdapterRouter.post(
 
     try {
       const interview = await prisma.interview.findFirst({
-        where: { id: provenhire_interview_id, userId, interviewType: "ai_expert" },
+        where: {
+          id: provenhire_interview_id,
+          userId,
+          interviewType: "ai_expert",
+        },
         select: {
-          id: true, status: true, totalScore: true, badgeLevel: true, finalVerdict: true,
+          id: true,
+          status: true,
+          totalScore: true,
+          badgeLevel: true,
+          finalVerdict: true,
           scoreBreakdown: true,
         },
       });
-      if (!interview) return res.status(404).json({ error: "Interview not found." });
+      if (!interview)
+        return res.status(404).json({ error: "Interview not found." });
 
       // Fail-closed — if the stored session id is absent or mismatched, reject.
       // Missing metadata is as suspicious as a wrong id; don't silently bypass binding.
-      const breakdown = interview.scoreBreakdown as Record<string, unknown> | null;
-      const storedSessionId = typeof breakdown?.antigravity_session_id === "string"
-        ? breakdown.antigravity_session_id : null;
+      const breakdown = interview.scoreBreakdown as Record<
+        string,
+        unknown
+      > | null;
+      const storedSessionId =
+        typeof breakdown?.antigravity_session_id === "string"
+          ? breakdown.antigravity_session_id
+          : null;
       if (!storedSessionId || storedSessionId !== session_id) {
-        return res.status(403).json({ error: "Session id does not match this interview." });
+        return res
+          .status(403)
+          .json({ error: "Session id does not match this interview." });
       }
 
       // Already finalized — return cached result immediately
@@ -1098,10 +1383,18 @@ aiInterviewAdapterRouter.post(
       if (!agReport.complete) return res.status(202).json({ complete: false });
 
       const { totalScore, badgeLevel, verdict } = await finalizeInterview(
-        interview.id, userId, agReport, session_id
+        interview.id,
+        userId,
+        agReport,
+        session_id,
       );
 
-      return res.json({ complete: true, score: totalScore, badge: badgeLevel, verdict });
+      return res.json({
+        complete: true,
+        score: totalScore,
+        badge: badgeLevel,
+        verdict,
+      });
     } catch (e) {
       if (e instanceof Error && e.name === "TimeoutError") {
         return res.status(504).json({ error: "Report fetch timed out." });
@@ -1109,7 +1402,7 @@ aiInterviewAdapterRouter.post(
       console.error("[ai-interview-adapter/finalize]", e);
       return res.status(500).json({ error: "Finalization failed." });
     }
-  }
+  },
 );
 
 const handoffCompleteSchema = z.object({
@@ -1119,57 +1412,86 @@ const handoffCompleteSchema = z.object({
   report: z.any().optional(),
 });
 
-aiInterviewAdapterRouter.post("/handoff-complete", async (req: AuthedRequest, res) => {
-  const parsed = handoffCompleteSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff-complete payload." });
-  const { handoff_id, antigravity_session_id } = parsed.data;
-  if (!verifyWebhookSignature(req, "complete", handoff_id, antigravity_session_id)) {
-    return res.status(401).json({ error: "Invalid Antigravity callback signature." });
-  }
+aiInterviewAdapterRouter.post(
+  "/handoff-complete",
+  async (req: AuthedRequest, res) => {
+    const parsed = handoffCompleteSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res
+        .status(400)
+        .json({ error: "Invalid handoff-complete payload." });
+    const { handoff_id, antigravity_session_id } = parsed.data;
+    if (
+      !verifyWebhookSignature(
+        req,
+        "complete",
+        handoff_id,
+        antigravity_session_id,
+      )
+    ) {
+      return res
+        .status(401)
+        .json({ error: "Invalid Antigravity callback signature." });
+    }
 
-  try {
-    const handoff = await prisma.antigravityHandoff.findFirst({
-      where: { id: handoff_id, antigravitySessionId: antigravity_session_id },
-      select: { id: true, userId: true, interviewId: true, status: true },
-    });
-    if (!handoff) return res.status(404).json({ error: "Handoff not found." });
-
-    let agReport = parsed.data.report as AgReport | undefined;
-    if (!agReport?.complete) {
-      const agRes = await fetch(`${antigravityApiUrl()}/report/${antigravity_session_id}`, {
-        signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
+    try {
+      const handoff = await prisma.antigravityHandoff.findFirst({
+        where: { id: handoff_id, antigravitySessionId: antigravity_session_id },
+        select: { id: true, userId: true, interviewId: true, status: true },
       });
-      if (!agRes.ok) return res.status(202).json({ ok: false, complete: false });
-      agReport = (await agRes.json()) as AgReport;
+      if (!handoff)
+        return res.status(404).json({ error: "Handoff not found." });
+
+      let agReport = parsed.data.report as AgReport | undefined;
+      if (!agReport?.complete) {
+        const agRes = await fetch(
+          `${antigravityApiUrl()}/report/${antigravity_session_id}`,
+          {
+            signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
+          },
+        );
+        if (!agRes.ok)
+          return res.status(202).json({ ok: false, complete: false });
+        agReport = (await agRes.json()) as AgReport;
+      }
+      if (!agReport.complete)
+        return res.status(202).json({ ok: false, complete: false });
+
+      const { totalScore, badgeLevel, verdict } = await finalizeInterview(
+        handoff.interviewId,
+        handoff.userId,
+        agReport,
+        antigravity_session_id,
+        handoff.id,
+      );
+
+      await prisma.antigravityHandoff.update({
+        where: { id: handoff.id },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+          lastError: null,
+        },
+      });
+
+      return res.json({
+        ok: true,
+        complete: true,
+        score: totalScore,
+        badge: badgeLevel,
+        verdict,
+      });
+    } catch (e) {
+      if (e instanceof Error && e.name === "TimeoutError") {
+        return res.status(202).json({ ok: false, complete: false });
+      }
+      console.error("[ai-interview-adapter/handoff-complete]", e);
+      return res
+        .status(500)
+        .json({ error: "Failed to complete Antigravity handoff." });
     }
-    if (!agReport.complete) return res.status(202).json({ ok: false, complete: false });
-
-    const { totalScore, badgeLevel, verdict } = await finalizeInterview(
-      handoff.interviewId,
-      handoff.userId,
-      agReport,
-      antigravity_session_id,
-      handoff.id,
-    );
-
-    await prisma.antigravityHandoff.update({
-      where: { id: handoff.id },
-      data: {
-        status: "completed",
-        completedAt: new Date(),
-        lastError: null,
-      },
-    });
-
-    return res.json({ ok: true, complete: true, score: totalScore, badge: badgeLevel, verdict });
-  } catch (e) {
-    if (e instanceof Error && e.name === "TimeoutError") {
-      return res.status(202).json({ ok: false, complete: false });
-    }
-    console.error("[ai-interview-adapter/handoff-complete]", e);
-    return res.status(500).json({ error: "Failed to complete Antigravity handoff." });
-  }
-});
+  },
+);
 
 const handoffFailedSchema = z.object({
   handoff_id: z.string().trim().min(1),
@@ -1177,36 +1499,44 @@ const handoffFailedSchema = z.object({
   error: z.string().trim().optional().default("Antigravity handoff failed."),
 });
 
-aiInterviewAdapterRouter.post("/handoff-failed", async (req: AuthedRequest, res) => {
-  const parsed = handoffFailedSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid handoff-failed payload." });
-  const { handoff_id, antigravity_session_id, error } = parsed.data;
-  const signatureSession = antigravity_session_id || "none";
-  if (!verifyWebhookSignature(req, "failed", handoff_id, signatureSession)) {
-    return res.status(401).json({ error: "Invalid Antigravity callback signature." });
-  }
+aiInterviewAdapterRouter.post(
+  "/handoff-failed",
+  async (req: AuthedRequest, res) => {
+    const parsed = handoffFailedSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: "Invalid handoff-failed payload." });
+    const { handoff_id, antigravity_session_id, error } = parsed.data;
+    const signatureSession = antigravity_session_id || "none";
+    if (!verifyWebhookSignature(req, "failed", handoff_id, signatureSession)) {
+      return res
+        .status(401)
+        .json({ error: "Invalid Antigravity callback signature." });
+    }
 
-  try {
-    const handoff = await prisma.antigravityHandoff.update({
-      where: { id: handoff_id },
-      data: {
-        status: "failed",
-        failedAt: new Date(),
-        lastError: error.slice(0, 1000),
-        ...(antigravity_session_id ? { antigravitySessionId: antigravity_session_id } : {}),
-      },
-      select: { interviewId: true },
-    });
-    await prisma.interview.updateMany({
-      where: { id: handoff.interviewId, status: "in_progress" },
-      data: { status: "abandoned" },
-    });
-    return res.json({ ok: true });
-  } catch (e) {
-    console.error("[ai-interview-adapter/handoff-failed]", e);
-    return res.status(500).json({ error: "Failed to mark handoff failed." });
-  }
-});
+    try {
+      const handoff = await prisma.antigravityHandoff.update({
+        where: { id: handoff_id },
+        data: {
+          status: "failed",
+          failedAt: new Date(),
+          lastError: error.slice(0, 1000),
+          ...(antigravity_session_id
+            ? { antigravitySessionId: antigravity_session_id }
+            : {}),
+        },
+        select: { interviewId: true },
+      });
+      await prisma.interview.updateMany({
+        where: { id: handoff.interviewId, status: "in_progress" },
+        data: { status: "abandoned" },
+      });
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[ai-interview-adapter/handoff-failed]", e);
+      return res.status(500).json({ error: "Failed to mark handoff failed." });
+    }
+  },
+);
 
 aiInterviewAdapterRouter.post(
   "/handoff-sync/:handoffId",
@@ -1226,23 +1556,33 @@ aiInterviewAdapterRouter.post(
           lastError: true,
         },
       });
-      if (!handoff) return res.status(404).json({ error: "Handoff not found." });
+      if (!handoff)
+        return res.status(404).json({ error: "Handoff not found." });
       if (!handoff.antigravitySessionId) {
-        return res.json({ complete: false, status: handoff.status, error: handoff.lastError });
+        return res.json({
+          complete: false,
+          status: handoff.status,
+          error: handoff.lastError,
+        });
       }
 
-      const agRes = await fetch(`${antigravityApiUrl()}/report/${handoff.antigravitySessionId}`, {
-        signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
-      });
-      if (!agRes.ok) return res.json({ complete: false, status: handoff.status });
+      const agRes = await fetch(
+        `${antigravityApiUrl()}/report/${handoff.antigravitySessionId}`,
+        {
+          signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
+        },
+      );
+      if (!agRes.ok)
+        return res.json({ complete: false, status: handoff.status });
       const agReport = (await agRes.json()) as AgReport;
-      if (!agReport.complete) return res.json({ complete: false, status: handoff.status });
+      if (!agReport.complete)
+        return res.json({ complete: false, status: handoff.status });
 
       const result = await finalizeInterview(
         handoff.interviewId,
         userId,
         agReport,
-        handoff.antigravitySessionId
+        handoff.antigravitySessionId,
       );
       await prisma.antigravityHandoff.update({
         where: { id: handoff.id },
@@ -1256,5 +1596,5 @@ aiInterviewAdapterRouter.post(
       console.error("[ai-interview-adapter/handoff-sync]", e);
       return res.status(500).json({ error: "Failed to sync handoff." });
     }
-  }
+  },
 );

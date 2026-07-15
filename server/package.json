@@ -29,6 +29,7 @@
     "dsa:judge0-smoke": "tsx scripts/dsa-starter-judge0-smoke.ts",
     "audit:create-users": "tsx scripts/createTestUsers.ts",
     "audit:flow": "tsx scripts/auditFlow.ts",
+    "test:candidate-synthesis": "tsx scripts/candidate-synthesis-contract.ts",
     "seed:interview-bank": "tsx prisma/seeds/interviewQuestionBank.seed.ts",
     "clear-test-users": "tsx prisma/clear-test-users.ts"
   },

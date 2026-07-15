@@ -1,10 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { api, getAuthToken } from "@/lib/api";
@@ -89,7 +101,12 @@ type ReportData = {
   untested_dimensions: string[];
   scores: Record<string, number | string>;
   failure_surface: Record<string, number>;
-  raw_weaknesses: { type: string; severity: string; weakness: string; attack_strategy: string }[];
+  raw_weaknesses: {
+    type: string;
+    severity: string;
+    weakness: string;
+    attack_strategy: string;
+  }[];
   claim_credibility_risk: { level: string; detail: string } | null;
 };
 
@@ -131,7 +148,11 @@ type PreparePollSnapshot = {
   started_at?: string | null;
 };
 
-type PrepareReadyResult = { session_id: string; opening_question: string; sprint: number };
+type PrepareReadyResult = {
+  session_id: string;
+  opening_question: string;
+  sprint: number;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -141,9 +162,18 @@ function buildMessagesFromHistory(history: HistoryEntry[]): Message[] {
   history.forEach((turn, i) => {
     const s = turn.sprint ?? lastSprint;
     if (i > 0 && s !== lastSprint) {
-      out.push({ role: "ai", text: `Sprint ${s} — ${SPRINT_LABELS[s]}`, isSprintMarker: true, sprint: s });
+      out.push({
+        role: "ai",
+        text: `Sprint ${s} — ${SPRINT_LABELS[s]}`,
+        isSprintMarker: true,
+        sprint: s,
+      });
     }
-    out.push({ role: "ai", text: turn.question, severity: turn.weakness?.severity });
+    out.push({
+      role: "ai",
+      text: turn.question,
+      severity: turn.weakness?.severity,
+    });
     out.push({ role: "candidate", text: turn.answer });
     lastSprint = s;
   });
@@ -160,7 +190,8 @@ function formatPrepareTimeout(snapshot: PreparePollSnapshot | null): string {
   let age = "";
   if (snapshot.started_at) {
     const ms = Date.now() - new Date(snapshot.started_at).getTime();
-    if (Number.isFinite(ms)) age = ` after ${Math.max(0, Math.round(ms / 1000))}s`;
+    if (Number.isFinite(ms))
+      age = ` after ${Math.max(0, Math.round(ms / 1000))}s`;
   }
   return pieces.length > 0
     ? `Interview preparation timed out${age}. Last state: ${pieces.join(", ")}.`
@@ -176,13 +207,20 @@ async function pollPrepareStatus(
   let lastSnapshot: PreparePollSnapshot | null = null;
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     if (cancelled) throw new Error("Cancelled");
-    const status = await api.get<PreparePollSnapshot>(`/api/ai-interview-adapter/prepare-status/${interviewId}`);
+    const status = await api.get<PreparePollSnapshot>(
+      `/api/ai-interview-adapter/prepare-status/${interviewId}`,
+    );
     lastSnapshot = status;
     if (status.ready && status.session_id) {
-      return { session_id: status.session_id, opening_question: status.opening_question ?? "", sprint: status.sprint ?? 1 };
+      return {
+        session_id: status.session_id,
+        opening_question: status.opening_question ?? "",
+        sprint: status.sprint ?? 1,
+      };
     }
     if (status.error) throw new Error(status.error);
-    if (i < MAX_ATTEMPTS - 1) await new Promise<void>((r) => setTimeout(r, 5_000));
+    if (i < MAX_ATTEMPTS - 1)
+      await new Promise<void>((r) => setTimeout(r, 5_000));
   }
   throw new Error(formatPrepareTimeout(lastSnapshot));
 }
@@ -194,7 +232,14 @@ interface Props {
   experienceYears?: number;
 }
 
-export default function AntigravityLabPage({ targetJobTitle, experienceYears }: Props = {}) {
+export default function AntigravityLabPage({
+  targetJobTitle,
+  experienceYears,
+}: Props = {}) {
+  const searchParams = new URLSearchParams(window.location.search);
+  const workspaceAttemptId = searchParams.get("workspace_attempt_id");
+  const workspaceCode = searchParams.get("workspace_code");
+  const workspaceTargetRole = searchParams.get("target_role");
   // Phase & lifecycle
   const [phase, setPhase] = useState<Phase>("checking");
   const [engine, setEngine] = useState<EngineStart | null>(null);
@@ -204,13 +249,17 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   // Setup form
   const [resume, setResume] = useState("");
   const [githubLinks, setGithubLinks] = useState("");
-  const [targetRole, setTargetRole] = useState(targetJobTitle ?? "");
+  const [targetRole, setTargetRole] = useState(
+    workspaceTargetRole ?? targetJobTitle ?? "",
+  );
   const [expLevel, setExpLevel] = useState(yearsToLevel(experienceYears));
   const [starting, setStarting] = useState(false);
   const [launchStatusIndex, setLaunchStatusIndex] = useState(0);
 
   // Interview UI
-  const [interviewPhase, setInterviewPhase] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
+  const [interviewPhase, setInterviewPhase] = useState<
+    "idle" | "listening" | "thinking" | "speaking"
+  >("idle");
   const [messages, setMessages] = useState<Message[]>([]);
   const [partial, setPartial] = useState("");
   const [sprint, setSprint] = useState(1);
@@ -243,7 +292,9 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
   const stopCameraStream = useCallback(() => {
     if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+      (videoRef.current.srcObject as MediaStream)
+        .getTracks()
+        .forEach((t) => t.stop());
       videoRef.current.srcObject = null;
     }
   }, []);
@@ -254,7 +305,9 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     let cancelled = false;
     void (async () => {
       try {
-        const handoffId = new URLSearchParams(window.location.search).get("handoff_id")?.trim();
+        const handoffId = new URLSearchParams(window.location.search)
+          .get("handoff_id")
+          ?.trim();
         if (handoffId) {
           const sync = await api.post<{
             complete: boolean;
@@ -290,7 +343,11 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
         if (cancelled) return;
 
         if (data.reconciled) {
-          setCompletion({ score: data.score ?? null, badge: data.badge ?? null, verdict: data.verdict ?? null });
+          setCompletion({
+            score: data.score ?? null,
+            badge: data.badge ?? null,
+            verdict: data.verdict ?? null,
+          });
           setPhase("done");
           return;
         }
@@ -298,13 +355,25 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
         if (data.preparing && data.provenhire_interview_id) {
           setStarting(true);
           try {
-            const result = await pollPrepareStatus(data.provenhire_interview_id, cancelled);
+            const result = await pollPrepareStatus(
+              data.provenhire_interview_id,
+              cancelled,
+            );
             if (cancelled) return;
-            setEngine({ sessionId: result.session_id, openingQuestion: result.opening_question, sprint: result.sprint, interviewId: data.provenhire_interview_id });
+            setEngine({
+              sessionId: result.session_id,
+              openingQuestion: result.opening_question,
+              sprint: result.sprint,
+              interviewId: data.provenhire_interview_id,
+            });
             setPhase("interview");
           } catch (e) {
             if (cancelled) return;
-            toast.error(e instanceof Error ? e.message : "Preparation failed. Please try again.");
+            toast.error(
+              e instanceof Error
+                ? e.message
+                : "Preparation failed. Please try again.",
+            );
             setStarting(false);
             setPhase("setup");
           }
@@ -314,23 +383,31 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
         if (data.open && data.session_id && data.provenhire_interview_id) {
           try {
             const token = getAuthToken();
-            const stateRes = await fetch(`/api/antigravity/state/${data.session_id}`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
+            const stateRes = await fetch(
+              `/api/antigravity/state/${data.session_id}`,
+              {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+              },
+            );
             if (cancelled) return;
 
             if (stateRes.status === 404) {
-              api.post("/api/ai-interview-adapter/cancel", {
-                session_id: data.session_id,
-                provenhire_interview_id: data.provenhire_interview_id,
-              }).catch(() => {});
+              api
+                .post("/api/ai-interview-adapter/cancel", {
+                  session_id: data.session_id,
+                  provenhire_interview_id: data.provenhire_interview_id,
+                })
+                .catch(() => {});
               if (!cancelled) setPhase("setup");
               return;
             }
 
-            if (!stateRes.ok) { if (!cancelled) setPhase("setup"); return; }
+            if (!stateRes.ok) {
+              if (!cancelled) setPhase("setup");
+              return;
+            }
 
-            const state = await stateRes.json() as {
+            const state = (await stateRes.json()) as {
               last_question?: string;
               current_sprint?: number;
               current_persona?: string;
@@ -347,7 +424,9 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             } else {
               const restoredMessages = state.history?.length
                 ? buildMessagesFromHistory(state.history)
-                : state.last_question ? [{ role: "ai" as const, text: state.last_question }] : [];
+                : state.last_question
+                  ? [{ role: "ai" as const, text: state.last_question }]
+                  : [];
               setEngine({
                 sessionId: data.session_id,
                 openingQuestion: state.last_question ?? "",
@@ -370,14 +449,25 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
         if (!cancelled) setPhase("setup");
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ── Launch status cycle ─────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!starting) { setLaunchStatusIndex(0); return; }
-    const t = setInterval(() => setLaunchStatusIndex((i) => Math.min(i + 1, LAUNCH_STATUSES.length - 1)), 12_000);
+    if (!starting) {
+      setLaunchStatusIndex(0);
+      return;
+    }
+    const t = setInterval(
+      () =>
+        setLaunchStatusIndex((i) =>
+          Math.min(i + 1, LAUNCH_STATUSES.length - 1),
+        ),
+      12_000,
+    );
     return () => clearInterval(t);
   }, [starting]);
 
@@ -406,7 +496,11 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
         if (cancelled) return;
 
         if (data.complete) {
-          setCompletion({ score: data.score ?? null, badge: data.badge ?? null, verdict: data.verdict ?? null });
+          setCompletion({
+            score: data.score ?? null,
+            badge: data.badge ?? null,
+            verdict: data.verdict ?? null,
+          });
           // Fetch full report from Antigravity (fire-and-forget, best-effort)
           if (sessionIdRef.current) {
             const sid = sessionIdRef.current;
@@ -414,11 +508,15 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             fetch(`/api/antigravity/report/${sid}`, {
               headers: token ? { Authorization: `Bearer ${token}` } : {},
             })
-              .then((r) => r.ok ? r.json() : null)
-              .then((report) => { if (!cancelled && report) setReportData(report as ReportData); })
+              .then((r) => (r.ok ? r.json() : null))
+              .then((report) => {
+                if (!cancelled && report) setReportData(report as ReportData);
+              })
               .catch(() => {});
           }
-          setTimeout(() => { if (!cancelled) setPhase("done"); }, 3_000);
+          setTimeout(() => {
+            if (!cancelled) setPhase("done");
+          }, 3_000);
           return;
         }
       } catch {
@@ -428,22 +526,32 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
       if (attempt < FINALIZE_MAX_ATTEMPTS && !cancelled) {
         timer = setTimeout(tryFinalize, FINALIZE_RETRY_INTERVAL_MS);
       } else if (!cancelled) {
-        api.post("/api/ai-interview-adapter/cancel", {
-          session_id: sessionIdRef.current,
-          provenhire_interview_id: interviewIdRef.current,
-        }).catch(() => {});
-        setTimeout(() => { if (!cancelled) setPhase("done"); }, 3_000);
+        api
+          .post("/api/ai-interview-adapter/cancel", {
+            session_id: sessionIdRef.current,
+            provenhire_interview_id: interviewIdRef.current,
+          })
+          .catch(() => {});
+        setTimeout(() => {
+          if (!cancelled) setPhase("done");
+        }, 3_000);
       }
     };
 
     void tryFinalize();
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [interviewComplete]);
 
   // ── Auto-scroll ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
+    transcriptRef.current?.scrollTo({
+      top: transcriptRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, partial]);
 
   // ── Core audio callbacks ────────────────────────────────────────────────────
@@ -464,280 +572,411 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
     stopCameraStream();
   }, [clearAnswerDraft, stopCameraStream]);
 
-  useEffect(() => () => { teardown(); }, [teardown]);
+  useEffect(
+    () => () => {
+      teardown();
+    },
+    [teardown],
+  );
 
-  const beginUserTurn = useCallback((session: InterviewSession | null) => {
-    if (!session) return;
-    clearAnswerDraft();
-    silenceConfirmedRef.current = false;
-    commitTimeRef.current = 0;
-    const id = crypto.randomUUID();
-    currentTurnIdRef.current = id;
-    session.setActiveTurnId(id);
-    session.transition(FloorState.USER_SPEAKING);
-  }, [clearAnswerDraft]);
+  const beginUserTurn = useCallback(
+    (session: InterviewSession | null) => {
+      if (!session) return;
+      clearAnswerDraft();
+      silenceConfirmedRef.current = false;
+      commitTimeRef.current = 0;
+      const id = crypto.randomUUID();
+      currentTurnIdRef.current = id;
+      session.setActiveTurnId(id);
+      session.transition(FloorState.USER_SPEAKING);
+    },
+    [clearAnswerDraft],
+  );
 
-  const handleFollowup = useCallback(async (
-    result: Record<string, unknown>,
-    preloadedAudioUrl: string | null,
-    expectedTurnId: string,
-  ) => {
-    if (expectedTurnId !== currentTurnIdRef.current || sessionRef.current?.floor === FloorState.USER_SPEAKING) {
-      if (preloadedAudioUrl) URL.revokeObjectURL(preloadedAudioUrl);
-      return;
-    }
-
-    const text = result.response as string;
-    const newSprint = result.sprint as number;
-    const newPersona = result.persona as string;
-    const isComplete = result.complete as boolean;
-    const weakness = result.weakness as { severity?: string } | null;
-    const pivoting = result.pivoting as boolean;
-    const backendQuestionCount = typeof result.question_count === "number" ? result.question_count : null;
-
-    if (backendQuestionCount !== null && backendQuestionCount >= 13 && !isComplete) {
-      setNearEnd(true);
-    }
-
-    // Defensive TTS hold for safety-timeout flushes
-    if (!silenceConfirmedRef.current) {
-      const remaining = Math.max(0, TTS_HOLD_CAP_MS - (performance.now() - commitTimeRef.current));
-      if (remaining > 0) {
-        await new Promise<void>((resolve) => {
-          const iv = setInterval(() => {
-            if (silenceConfirmedRef.current || sessionRef.current?.floor === FloorState.USER_SPEAKING || performance.now() - commitTimeRef.current >= TTS_HOLD_CAP_MS) {
-              clearInterval(iv); resolve();
-            }
-          }, 40);
-          setTimeout(() => { clearInterval(iv); resolve(); }, remaining);
-        });
-      }
-    }
-
-    if (sessionRef.current?.floor === FloorState.USER_SPEAKING || expectedTurnId !== currentTurnIdRef.current) {
-      if (preloadedAudioUrl) URL.revokeObjectURL(preloadedAudioUrl);
-      return;
-    }
-
-    if (pivoting) {
-      setMessages((prev) => [...prev, { role: "ai", text: "Moving to a different area.", isPivotMarker: true }]);
-    }
-    if (newSprint !== prevSprintRef.current) {
-      prevSprintRef.current = newSprint;
-      setSprint(newSprint);
-      setPersona(newPersona);
-      setMessages((prev) => [...prev, { role: "ai", text: `Sprint ${newSprint} — ${SPRINT_LABELS[newSprint]}`, isSprintMarker: true, sprint: newSprint }]);
-    }
-
-    setMessages((prev) => [...prev, { role: "ai", text, severity: weakness?.severity }]);
-    setQuestionCount((c) => c + 1);
-
-    const ac = new AbortController();
-    sessionRef.current?.setAbortController(ac);
-    sessionRef.current?.setActivePlaybackText(text);
-    sessionRef.current?.transition(FloorState.AI_SPEAKING);
-    try { await playAudioUrl(preloadedAudioUrl, text, ac.signal); } catch { /* interrupted */ }
-
-    if (expectedTurnId !== currentTurnIdRef.current) return;
-    await new Promise<void>((r) => setTimeout(r, 300));
-    if (expectedTurnId !== currentTurnIdRef.current) return;
-
-    if (isComplete) {
-      setNearEnd(false);
-      sessionRef.current?.transition(FloorState.IDLE);
-      sessionRef.current?.stop();
-      setInterviewComplete(true);
-    } else {
-      beginUserTurn(sessionRef.current);
-    }
-  }, [beginUserTurn]);
-
-  const commitAnswerDraft = useCallback(async (session: InterviewSession, turnId: string) => {
-    const draft = answerDraftRef.current;
-    if (!draft || draft.turnId !== turnId) return;
-    if (draft.commitTimer) { clearTimeout(draft.commitTimer); draft.commitTimer = null; }
-    if (processingRef.current) { draft.pendingRevision = true; return; }
-
-    const mergedText = draft.textParts.join(" ").replace(/\s+/g, " ").trim();
-    if (!mergedText) return;
-
-    processingRef.current = true;
-    draft.pendingRevision = false;
-    draft.submittedText = mergedText;
-    draft.requestVersion += 1;
-    commitTimeRef.current = performance.now();
-    const reqVersion = draft.requestVersion;
-    const entities = [...draft.entitySet];
-
-    let nextIdx = draft.messageIndex;
-    setMessages((prev) => {
-      if (draft.messageIndex !== null && prev[draft.messageIndex]?.role === "candidate") {
-        const updated = [...prev];
-        updated[draft.messageIndex] = { role: "candidate", text: mergedText };
-        return updated;
-      }
-      nextIdx = prev.length;
-      return [...prev, { role: "candidate", text: mergedText }];
-    });
-    draft.messageIndex = nextIdx ?? draft.messageIndex;
-    setPartial("");
-    session.transition(FloorState.AI_THINKING);
-
-    const isStale = () => {
-      const live = answerDraftRef.current;
-      return Boolean(live && live.turnId === turnId && live.requestVersion === reqVersion && live.pendingRevision && live.submittedText !== live.textParts.join(" ").replace(/\s+/g, " ").trim());
-    };
-
-    try {
-      const result = await processTurn(sessionIdRef.current, mergedText, entities, turnId);
-      if (isStale()) return;
-      const responseTurnId = typeof result.turn_id === "string" ? result.turn_id : turnId;
-      if (responseTurnId !== currentTurnIdRef.current) return;
-
-      const audioUrl = await prefetchAudio(result.response as string, sessionIdRef.current);
-      if (isStale() || responseTurnId !== currentTurnIdRef.current) {
-        if (audioUrl) URL.revokeObjectURL(audioUrl);
+  const handleFollowup = useCallback(
+    async (
+      result: Record<string, unknown>,
+      preloadedAudioUrl: string | null,
+      expectedTurnId: string,
+    ) => {
+      if (
+        expectedTurnId !== currentTurnIdRef.current ||
+        sessionRef.current?.floor === FloorState.USER_SPEAKING
+      ) {
+        if (preloadedAudioUrl) URL.revokeObjectURL(preloadedAudioUrl);
         return;
       }
 
-      clearAnswerDraft();
-      await handleFollowup(result, audioUrl, responseTurnId);
-    } catch {
-      setInterviewError("Agent pipeline error. Please try again.");
-      beginUserTurn(session);
-    } finally {
-      processingRef.current = false;
-      const pending = answerDraftRef.current;
-      if (pending && pending.turnId === turnId && pending.pendingRevision) {
-        pending.pendingRevision = false;
-        pending.commitTimer = setTimeout(() => { void commitAnswerDraft(session, turnId); }, 150);
-      }
-    }
-  }, [beginUserTurn, clearAnswerDraft, handleFollowup]);
+      const text = result.response as string;
+      const newSprint = result.sprint as number;
+      const newPersona = result.persona as string;
+      const isComplete = result.complete as boolean;
+      const weakness = result.weakness as { severity?: string } | null;
+      const pivoting = result.pivoting as boolean;
+      const backendQuestionCount =
+        typeof result.question_count === "number"
+          ? result.question_count
+          : null;
 
-  const queueAnswerChunk = useCallback((session: InterviewSession, text: string, entities: string[]) => {
-    const cleaned = text.trim();
-    if (!cleaned) return;
-    const turnId = session.getActiveTurnId() || crypto.randomUUID();
-    session.setActiveTurnId(turnId);
-    currentTurnIdRef.current = turnId;
-    let draft = answerDraftRef.current;
-    if (!draft || draft.turnId !== turnId) {
-      clearAnswerDraft();
-      draft = { turnId, textParts: [], entitySet: new Set<string>(), submittedText: null, pendingRevision: false, requestVersion: 0, messageIndex: null, commitTimer: null };
-      answerDraftRef.current = draft;
-    }
-    if (draft.textParts[draft.textParts.length - 1] !== cleaned) draft.textParts.push(cleaned);
-    entities.forEach((e) => draft!.entitySet.add(e));
-    setPartial(draft.textParts.join(" "));
-    if (draft.submittedText !== null && silenceConfirmedRef.current) {
-      silenceConfirmedRef.current = false;
+      if (
+        backendQuestionCount !== null &&
+        backendQuestionCount >= 13 &&
+        !isComplete
+      ) {
+        setNearEnd(true);
+      }
+
+      // Defensive TTS hold for safety-timeout flushes
+      if (!silenceConfirmedRef.current) {
+        const remaining = Math.max(
+          0,
+          TTS_HOLD_CAP_MS - (performance.now() - commitTimeRef.current),
+        );
+        if (remaining > 0) {
+          await new Promise<void>((resolve) => {
+            const iv = setInterval(() => {
+              if (
+                silenceConfirmedRef.current ||
+                sessionRef.current?.floor === FloorState.USER_SPEAKING ||
+                performance.now() - commitTimeRef.current >= TTS_HOLD_CAP_MS
+              ) {
+                clearInterval(iv);
+                resolve();
+              }
+            }, 40);
+            setTimeout(() => {
+              clearInterval(iv);
+              resolve();
+            }, remaining);
+          });
+        }
+      }
+
+      if (
+        sessionRef.current?.floor === FloorState.USER_SPEAKING ||
+        expectedTurnId !== currentTurnIdRef.current
+      ) {
+        if (preloadedAudioUrl) URL.revokeObjectURL(preloadedAudioUrl);
+        return;
+      }
+
+      if (pivoting) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: "Moving to a different area.",
+            isPivotMarker: true,
+          },
+        ]);
+      }
+      if (newSprint !== prevSprintRef.current) {
+        prevSprintRef.current = newSprint;
+        setSprint(newSprint);
+        setPersona(newPersona);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: `Sprint ${newSprint} — ${SPRINT_LABELS[newSprint]}`,
+            isSprintMarker: true,
+            sprint: newSprint,
+          },
+        ]);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", text, severity: weakness?.severity },
+      ]);
+      setQuestionCount((c) => c + 1);
+
+      const ac = new AbortController();
+      sessionRef.current?.setAbortController(ac);
+      sessionRef.current?.setActivePlaybackText(text);
+      sessionRef.current?.transition(FloorState.AI_SPEAKING);
+      try {
+        await playAudioUrl(preloadedAudioUrl, text, ac.signal);
+      } catch {
+        /* interrupted */
+      }
+
+      if (expectedTurnId !== currentTurnIdRef.current) return;
+      await new Promise<void>((r) => setTimeout(r, 300));
+      if (expectedTurnId !== currentTurnIdRef.current) return;
+
+      if (isComplete) {
+        setNearEnd(false);
+        sessionRef.current?.transition(FloorState.IDLE);
+        sessionRef.current?.stop();
+        setInterviewComplete(true);
+      } else {
+        beginUserTurn(sessionRef.current);
+      }
+    },
+    [beginUserTurn],
+  );
+
+  const commitAnswerDraft = useCallback(
+    async (session: InterviewSession, turnId: string) => {
+      const draft = answerDraftRef.current;
+      if (!draft || draft.turnId !== turnId) return;
+      if (draft.commitTimer) {
+        clearTimeout(draft.commitTimer);
+        draft.commitTimer = null;
+      }
+      if (processingRef.current) {
+        draft.pendingRevision = true;
+        return;
+      }
+
+      const mergedText = draft.textParts.join(" ").replace(/\s+/g, " ").trim();
+      if (!mergedText) return;
+
+      processingRef.current = true;
+      draft.pendingRevision = false;
+      draft.submittedText = mergedText;
+      draft.requestVersion += 1;
       commitTimeRef.current = performance.now();
-    }
-    if (draft.commitTimer) clearTimeout(draft.commitTimer);
-    draft.commitTimer = setTimeout(() => { void commitAnswerDraft(session, turnId); }, ANSWER_SETTLE_MS);
-  }, [clearAnswerDraft, commitAnswerDraft]);
+      const reqVersion = draft.requestVersion;
+      const entities = [...draft.entitySet];
+
+      let nextIdx = draft.messageIndex;
+      setMessages((prev) => {
+        if (
+          draft.messageIndex !== null &&
+          prev[draft.messageIndex]?.role === "candidate"
+        ) {
+          const updated = [...prev];
+          updated[draft.messageIndex] = { role: "candidate", text: mergedText };
+          return updated;
+        }
+        nextIdx = prev.length;
+        return [...prev, { role: "candidate", text: mergedText }];
+      });
+      draft.messageIndex = nextIdx ?? draft.messageIndex;
+      setPartial("");
+      session.transition(FloorState.AI_THINKING);
+
+      const isStale = () => {
+        const live = answerDraftRef.current;
+        return Boolean(
+          live &&
+            live.turnId === turnId &&
+            live.requestVersion === reqVersion &&
+            live.pendingRevision &&
+            live.submittedText !==
+              live.textParts.join(" ").replace(/\s+/g, " ").trim(),
+        );
+      };
+
+      try {
+        const result = await processTurn(
+          sessionIdRef.current,
+          mergedText,
+          entities,
+          turnId,
+        );
+        if (isStale()) return;
+        const responseTurnId =
+          typeof result.turn_id === "string" ? result.turn_id : turnId;
+        if (responseTurnId !== currentTurnIdRef.current) return;
+
+        const audioUrl = await prefetchAudio(
+          result.response as string,
+          sessionIdRef.current,
+        );
+        if (isStale() || responseTurnId !== currentTurnIdRef.current) {
+          if (audioUrl) URL.revokeObjectURL(audioUrl);
+          return;
+        }
+
+        clearAnswerDraft();
+        await handleFollowup(result, audioUrl, responseTurnId);
+      } catch {
+        setInterviewError("Agent pipeline error. Please try again.");
+        beginUserTurn(session);
+      } finally {
+        processingRef.current = false;
+        const pending = answerDraftRef.current;
+        if (pending && pending.turnId === turnId && pending.pendingRevision) {
+          pending.pendingRevision = false;
+          pending.commitTimer = setTimeout(() => {
+            void commitAnswerDraft(session, turnId);
+          }, 150);
+        }
+      }
+    },
+    [beginUserTurn, clearAnswerDraft, handleFollowup],
+  );
+
+  const queueAnswerChunk = useCallback(
+    (session: InterviewSession, text: string, entities: string[]) => {
+      const cleaned = text.trim();
+      if (!cleaned) return;
+      const turnId = session.getActiveTurnId() || crypto.randomUUID();
+      session.setActiveTurnId(turnId);
+      currentTurnIdRef.current = turnId;
+      let draft = answerDraftRef.current;
+      if (!draft || draft.turnId !== turnId) {
+        clearAnswerDraft();
+        draft = {
+          turnId,
+          textParts: [],
+          entitySet: new Set<string>(),
+          submittedText: null,
+          pendingRevision: false,
+          requestVersion: 0,
+          messageIndex: null,
+          commitTimer: null,
+        };
+        answerDraftRef.current = draft;
+      }
+      if (draft.textParts[draft.textParts.length - 1] !== cleaned)
+        draft.textParts.push(cleaned);
+      entities.forEach((e) => draft!.entitySet.add(e));
+      setPartial(draft.textParts.join(" "));
+      if (draft.submittedText !== null && silenceConfirmedRef.current) {
+        silenceConfirmedRef.current = false;
+        commitTimeRef.current = performance.now();
+      }
+      if (draft.commitTimer) clearTimeout(draft.commitTimer);
+      draft.commitTimer = setTimeout(() => {
+        void commitAnswerDraft(session, turnId);
+      }, ANSWER_SETTLE_MS);
+    },
+    [clearAnswerDraft, commitAnswerDraft],
+  );
 
   // ── Boot interview engine ──────────────────────────────────────────────────
 
-  const bootEngine = useCallback(async (eng: EngineStart) => {
-    setInterviewError("");
-    sessionIdRef.current = eng.sessionId;
-    interviewIdRef.current = eng.interviewId;
-    setSprint(eng.sprint);
-    setPersona("curious_lead");
-    prevSprintRef.current = eng.sprint;
-    setQuestionCount(eng.restoredQuestionCount ?? 0);
+  const bootEngine = useCallback(
+    async (eng: EngineStart) => {
+      setInterviewError("");
+      sessionIdRef.current = eng.sessionId;
+      interviewIdRef.current = eng.interviewId;
+      setSprint(eng.sprint);
+      setPersona("curious_lead");
+      prevSprintRef.current = eng.sprint;
+      setQuestionCount(eng.restoredQuestionCount ?? 0);
 
-    // Use restored history if available (resume case), otherwise just opening question
-    if (eng.restoredMessages?.length) {
-      setMessages(eng.restoredMessages);
-    } else {
-      setMessages(eng.openingQuestion ? [{ role: "ai", text: eng.openingQuestion }] : []);
-    }
+      // Use restored history if available (resume case), otherwise just opening question
+      if (eng.restoredMessages?.length) {
+        setMessages(eng.restoredMessages);
+      } else {
+        setMessages(
+          eng.openingQuestion
+            ? [{ role: "ai", text: eng.openingQuestion }]
+            : [],
+        );
+      }
 
-    // Prefetch opening audio only if we're starting fresh (not resuming)
-    const openingAudioUrl = (!eng.restoredMessages?.length && eng.openingQuestion)
-      ? await prefetchAudio(eng.openingQuestion, eng.sessionId)
-      : null;
+      // Prefetch opening audio only if we're starting fresh (not resuming)
+      const openingAudioUrl =
+        !eng.restoredMessages?.length && eng.openingQuestion
+          ? await prefetchAudio(eng.openingQuestion, eng.sessionId)
+          : null;
 
-    const session = new InterviewSession(eng.sessionId);
-    sessionRef.current = session;
+      const session = new InterviewSession(eng.sessionId);
+      sessionRef.current = session;
 
-    session.onFloorChange = (floor) => {
-      if (floor === FloorState.USER_SPEAKING) setInterviewPhase("listening");
-      else if (floor === FloorState.AI_THINKING) setInterviewPhase("thinking");
-      else if (floor === FloorState.AI_SPEAKING) setInterviewPhase("speaking");
-      else setInterviewPhase("idle");
-    };
+      session.onFloorChange = (floor) => {
+        if (floor === FloorState.USER_SPEAKING) setInterviewPhase("listening");
+        else if (floor === FloorState.AI_THINKING)
+          setInterviewPhase("thinking");
+        else if (floor === FloorState.AI_SPEAKING)
+          setInterviewPhase("speaking");
+        else setInterviewPhase("idle");
+      };
 
-    session.onBargeIn = () => {
-      clearAnswerDraft();
-      currentTurnIdRef.current = crypto.randomUUID();
-      session.setActiveTurnId(currentTurnIdRef.current);
-      setPartial("");
-    };
+      session.onBargeIn = () => {
+        clearAnswerDraft();
+        currentTurnIdRef.current = crypto.randomUUID();
+        session.setActiveTurnId(currentTurnIdRef.current);
+        setPartial("");
+      };
 
-    session.onSilence = async () => {
-      if (session.floor === FloorState.AI_THINKING) { silenceConfirmedRef.current = true; return; }
-      if (processingRef.current || session.floor !== FloorState.USER_SPEAKING) return;
-      const ac = new AbortController();
-      const { url: nudgeUrl, text: nudgeText } = await prefetchFillerAudio();
-      session.setAbortController(ac);
-      session.setActivePlaybackText(nudgeText);
-      session.transition(FloorState.AI_SPEAKING);
-      try { await playAudioUrl(nudgeUrl, nudgeText, ac.signal); } catch { /* interrupted */ }
+      session.onSilence = async () => {
+        if (session.floor === FloorState.AI_THINKING) {
+          silenceConfirmedRef.current = true;
+          return;
+        }
+        if (processingRef.current || session.floor !== FloorState.USER_SPEAKING)
+          return;
+        const ac = new AbortController();
+        const { url: nudgeUrl, text: nudgeText } = await prefetchFillerAudio();
+        session.setAbortController(ac);
+        session.setActivePlaybackText(nudgeText);
+        session.transition(FloorState.AI_SPEAKING);
+        try {
+          await playAudioUrl(nudgeUrl, nudgeText, ac.signal);
+        } catch {
+          /* interrupted */
+        }
+        beginUserTurn(session);
+      };
+
+      session.onPartial = (text) => setPartial(text);
+      session.onFinal = (text, entities, metadata) => {
+        silenceConfirmedRef.current = metadata?.reason === "utterance_end";
+        queueAnswerChunk(session, text, entities);
+      };
+      session.onError = (err) => setInterviewError(`Voice error: ${err}`);
+
+      try {
+        await session.start();
+      } catch (e) {
+        setInterviewError(`Microphone error: ${String(e)}`);
+        api
+          .post("/api/ai-interview-adapter/cancel", {
+            session_id: eng.sessionId,
+            provenhire_interview_id: eng.interviewId,
+          })
+          .catch(() => {});
+        return;
+      }
+
+      stopVisualizerRef.current = session.connectVisualizer((level) =>
+        setMicLevel(level),
+      );
+
+      // Camera + vision (optional — silently fails if denied)
+      if (showCamera && videoRef.current) {
+        navigator.mediaDevices
+          .getUserMedia({ video: true })
+          .then((stream) => {
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              session.startVision(videoRef.current).catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
+
+      setEngineBooted(true);
+
+      // Play opening question on fresh start (not resume)
+      if (!eng.restoredMessages?.length && eng.openingQuestion) {
+        const ac = new AbortController();
+        session.setAbortController(ac);
+        session.setActivePlaybackText(eng.openingQuestion);
+        session.transition(FloorState.AI_SPEAKING);
+        await playAudioUrl(openingAudioUrl, eng.openingQuestion, ac.signal);
+      }
       beginUserTurn(session);
-    };
-
-    session.onPartial = (text) => setPartial(text);
-    session.onFinal = (text, entities, metadata) => {
-      silenceConfirmedRef.current = metadata?.reason === "utterance_end";
-      queueAnswerChunk(session, text, entities);
-    };
-    session.onError = (err) => setInterviewError(`Voice error: ${err}`);
-
-    try {
-      await session.start();
-    } catch (e) {
-      setInterviewError(`Microphone error: ${String(e)}`);
-      api.post("/api/ai-interview-adapter/cancel", {
-        session_id: eng.sessionId,
-        provenhire_interview_id: eng.interviewId,
-      }).catch(() => {});
-      return;
-    }
-
-    stopVisualizerRef.current = session.connectVisualizer((level) => setMicLevel(level));
-
-    // Camera + vision (optional — silently fails if denied)
-    if (showCamera && videoRef.current) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then((stream) => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            session.startVision(videoRef.current).catch(() => {});
-          }
-        })
-        .catch(() => {});
-    }
-
-    setEngineBooted(true);
-
-    // Play opening question on fresh start (not resume)
-    if (!eng.restoredMessages?.length && eng.openingQuestion) {
-      const ac = new AbortController();
-      session.setAbortController(ac);
-      session.setActivePlaybackText(eng.openingQuestion);
-      session.transition(FloorState.AI_SPEAKING);
-      await playAudioUrl(openingAudioUrl, eng.openingQuestion, ac.signal);
-    }
-    beginUserTurn(session);
-  }, [beginUserTurn, clearAnswerDraft, queueAnswerChunk, showCamera]);
+    },
+    [beginUserTurn, clearAnswerDraft, queueAnswerChunk, showCamera],
+  );
 
   // Boot when engine data is ready
   useEffect(() => {
-    if (phase !== "interview" || !engine || engineBootedRef.current || interviewComplete) return;
+    if (
+      phase !== "interview" ||
+      !engine ||
+      engineBootedRef.current ||
+      interviewComplete
+    )
+      return;
     engineBootedRef.current = true;
     void bootEngine(engine);
   }, [phase, engine, bootEngine, interviewComplete]);
@@ -758,39 +997,62 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   // ── Setup form submit ──────────────────────────────────────────────────────
 
   async function handleStart() {
-    if (!resume.trim()) { toast.error("Paste your resume to begin."); return; }
-    if (!targetRole.trim()) { toast.error("Enter the target role."); return; }
+    if (!resume.trim()) {
+      toast.error("Paste your resume to begin.");
+      return;
+    }
+    if (!targetRole.trim()) {
+      toast.error("Enter the target role.");
+      return;
+    }
     setStarting(true);
     try {
       const data = await api.post<{
         handoff_id: string;
         launch_url: string;
         expires_at: string;
-      }>(
-        "/api/ai-interview-adapter/handoff-launch",
-        {
-          resume: resume.trim(),
-          github_links: githubLinks.split("\n").map((l) => l.trim()).filter(Boolean),
-          target_role: targetRole.trim(),
-          years_experience: expLevel,
-          return_url: `${window.location.origin}/dashboard/jobseeker/antigravity/return`,
-        }
-      );
+      }>("/api/ai-interview-adapter/handoff-launch", {
+        resume: resume.trim(),
+        github_links: githubLinks
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean),
+        target_role: targetRole.trim(),
+        years_experience: expLevel,
+        return_url: workspaceCode
+          ? `${window.location.origin}/dashboard/jobseeker/antigravity/return?workspace_code=${encodeURIComponent(workspaceCode)}`
+          : `${window.location.origin}/dashboard/jobseeker/antigravity/return`,
+        ...(workspaceAttemptId
+          ? { workspace_attempt_id: workspaceAttemptId }
+          : {}),
+      });
       window.location.assign(data.launch_url);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to launch Antigravity. Please try again.");
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : "Failed to launch Antigravity. Please try again.",
+      );
       setStarting(false);
     }
   }
 
   async function handleEmbeddedStart() {
-    if (!resume.trim()) { toast.error("Paste your resume to begin."); return; }
-    if (!targetRole.trim()) { toast.error("Enter the target role."); return; }
+    if (!resume.trim()) {
+      toast.error("Paste your resume to begin.");
+      return;
+    }
+    if (!targetRole.trim()) {
+      toast.error("Enter the target role.");
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
     } catch {
-      toast.error("Microphone access is required. Please allow it and try again.");
+      toast.error(
+        "Microphone access is required. Please allow it and try again.",
+      );
       return;
     }
     setStarting(true);
@@ -799,16 +1061,26 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
         "/api/ai-interview-adapter/prepare",
         {
           resume: resume.trim(),
-          github_links: githubLinks.split("\n").map((l) => l.trim()).filter(Boolean),
+          github_links: githubLinks
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean),
           target_role: targetRole.trim(),
           years_experience: expLevel,
-        }
+        },
       );
       const result = await pollPrepareStatus(prepData.provenhire_interview_id);
-      setEngine({ sessionId: result.session_id, openingQuestion: result.opening_question, sprint: result.sprint, interviewId: prepData.provenhire_interview_id });
+      setEngine({
+        sessionId: result.session_id,
+        openingQuestion: result.opening_question,
+        sprint: result.sprint,
+        interviewId: prepData.provenhire_interview_id,
+      });
       setPhase("interview");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to start. Please try again.");
+      toast.error(
+        e instanceof Error ? e.message : "Failed to start. Please try again.",
+      );
       setStarting(false);
     }
   }
@@ -823,7 +1095,9 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
           provenhire_interview_id: interviewIdRef.current,
         });
       } catch {
-        toast.error("Could not cancel cleanly. Contact support if you can't start a new interview.");
+        toast.error(
+          "Could not cancel cleanly. Contact support if you can't start a new interview.",
+        );
       } finally {
         setCancelling(false);
       }
@@ -855,13 +1129,16 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             <CardHeader>
               <CardTitle>AI Expert Interview</CardTitle>
               <CardDescription>
-                A 30-minute adversarial interview across three sprints — Project Defense, Foundations, and System Design.
-                Voice-first. Ensure your microphone is available before starting.
+                A 30-minute adversarial interview across three sprints — Project
+                Defense, Foundations, and System Design. Voice-first. Ensure
+                your microphone is available before starting.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="ag-resume">Resume <span className="text-destructive">*</span></Label>
+                <Label htmlFor="ag-resume">
+                  Resume <span className="text-destructive">*</span>
+                </Label>
                 <Textarea
                   id="ag-resume"
                   placeholder="Paste your full resume text here…"
@@ -873,16 +1150,30 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="ag-role">Target Role <span className="text-destructive">*</span></Label>
-                  <Input id="ag-role" placeholder="e.g. Senior Backend Engineer" value={targetRole} onChange={(e) => setTargetRole(e.target.value)} />
+                  <Label htmlFor="ag-role">
+                    Target Role <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="ag-role"
+                    placeholder="e.g. Senior Backend Engineer"
+                    value={targetRole}
+                    disabled={Boolean(workspaceAttemptId)}
+                    onChange={(e) => setTargetRole(e.target.value)}
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="ag-exp">Experience Level <span className="text-destructive">*</span></Label>
+                  <Label htmlFor="ag-exp">
+                    Experience Level <span className="text-destructive">*</span>
+                  </Label>
                   <Select value={expLevel} onValueChange={setExpLevel}>
-                    <SelectTrigger id="ag-exp"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="ag-exp">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       {EXPERIENCE_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -890,38 +1181,68 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ag-github">GitHub Links (optional)</Label>
-                <Textarea id="ag-github" placeholder="One URL per line…" rows={2} value={githubLinks} onChange={(e) => setGithubLinks(e.target.value)} className="font-mono text-xs" />
+                <Textarea
+                  id="ag-github"
+                  placeholder="One URL per line…"
+                  rows={2}
+                  value={githubLinks}
+                  onChange={(e) => setGithubLinks(e.target.value)}
+                  className="font-mono text-xs"
+                />
               </div>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setShowCamera((v) => !v)}
                   className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
-                    showCamera ? "border-blue-500/30 bg-blue-500/10 text-blue-400" : "border-zinc-700 bg-zinc-900 text-zinc-500"
+                    showCamera
+                      ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                      : "border-zinc-700 bg-zinc-900 text-zinc-500"
                   }`}
                 >
-                  <span className={`h-2 w-2 rounded-full ${showCamera ? "bg-green-400" : "bg-zinc-600"}`} />
+                  <span
+                    className={`h-2 w-2 rounded-full ${showCamera ? "bg-green-400" : "bg-zinc-600"}`}
+                  />
                   Lens Early-Turn {showCamera ? "ON" : "OFF"}
                 </button>
-                <p className="text-[11px] text-muted-foreground">Camera optional — improves turn boundary detection</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Camera optional — improves turn boundary detection
+                </p>
               </div>
               <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-xs text-amber-700 dark:text-amber-400 flex gap-2">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>Once started the interview cannot be paused. Ensure a quiet environment with a working microphone.</span>
+                <span>
+                  Once started the interview cannot be paused. Ensure a quiet
+                  environment with a working microphone.
+                </span>
               </div>
               <div className="flex flex-col gap-3 pt-1 sm:flex-row">
                 <Button onClick={handleStart} disabled={starting}>
-                  {starting
-                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Launching Antigravity…</>
-                    : "Start Interview"}
+                  {starting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Launching Antigravity…
+                    </>
+                  ) : (
+                    "Start Interview"
+                  )}
                 </Button>
                 {import.meta.env.DEV && (
-                  <Button variant="outline" onClick={handleEmbeddedStart} disabled={starting}>
+                  <Button
+                    variant="outline"
+                    onClick={handleEmbeddedStart}
+                    disabled={starting}
+                  >
                     Use embedded interview
                   </Button>
                 )}
               </div>
-              {starting && <p className="text-xs text-muted-foreground">Opening the standalone Antigravity interview room. Keep this tab available for the return handoff.</p>}
+              {starting && (
+                <p className="text-xs text-muted-foreground">
+                  Opening the standalone Antigravity interview room. Keep this
+                  tab available for the return handoff.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -932,7 +1253,19 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
   // ── Render: done ───────────────────────────────────────────────────────────
 
   if (phase === "done") {
-    return <DoneView completion={completion} reportData={reportData} onReset={() => { setEngine(null); setCompletion(null); setReportData(null); setStarting(false); setPhase("setup"); }} />;
+    return (
+      <DoneView
+        completion={completion}
+        reportData={reportData}
+        onReset={() => {
+          setEngine(null);
+          setCompletion(null);
+          setReportData(null);
+          setStarting(false);
+          setPhase("setup");
+        }}
+      />
+    );
   }
 
   // ── Render: interview ──────────────────────────────────────────────────────
@@ -942,7 +1275,9 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-white/5">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold tracking-tight text-zinc-200">Antigravity Protocol</span>
+          <span className="text-sm font-semibold tracking-tight text-zinc-200">
+            Antigravity Protocol
+          </span>
           {engineBooted && (
             <span className="text-xs px-2 py-0.5 rounded-md bg-white/5 text-zinc-400">
               S{sprint} · {SPRINT_LABELS[sprint]}
@@ -955,10 +1290,14 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               type="button"
               onClick={() => setShowCamera((v) => !v)}
               className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-all ${
-                showCamera ? "border-blue-500/25 bg-blue-500/10 text-blue-400" : "border-zinc-800 bg-zinc-900/50 text-zinc-600"
+                showCamera
+                  ? "border-blue-500/25 bg-blue-500/10 text-blue-400"
+                  : "border-zinc-800 bg-zinc-900/50 text-zinc-600"
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${showCamera ? "bg-green-400" : "bg-zinc-700"}`} />
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${showCamera ? "bg-green-400" : "bg-zinc-700"}`}
+              />
               Lens {showCamera ? "ON" : "OFF"}
             </button>
           )}
@@ -971,13 +1310,23 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
                     key={s}
                     className="h-[3px] w-7 rounded-full transition-all duration-700"
                     style={{
-                      background: s < sprint ? "oklch(0.6 0.18 255)" : s === sprint ? "linear-gradient(90deg, oklch(0.6 0.18 255), oklch(0.75 0.15 75))" : "oklch(0.2 0.01 265)",
-                      boxShadow: s === sprint ? "0 0 10px oklch(0.55 0.18 255 / 0.5)" : "none",
+                      background:
+                        s < sprint
+                          ? "oklch(0.6 0.18 255)"
+                          : s === sprint
+                            ? "linear-gradient(90deg, oklch(0.6 0.18 255), oklch(0.75 0.15 75))"
+                            : "oklch(0.2 0.01 265)",
+                      boxShadow:
+                        s === sprint
+                          ? "0 0 10px oklch(0.55 0.18 255 / 0.5)"
+                          : "none",
                     }}
                   />
                 ))}
               </div>
-              <span className="text-[11px] text-zinc-600 tabular-nums">{questionCount}/15</span>
+              <span className="text-[11px] text-zinc-600 tabular-nums">
+                {questionCount}/15
+              </span>
             </div>
           )}
           {!interviewComplete && (
@@ -1000,7 +1349,13 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
             <div className="relative w-full flex items-center justify-center">
               {showCamera && (
                 <div className="absolute inset-6 overflow-hidden rounded-full border border-white/5 bg-black/30 opacity-35 mix-blend-screen grayscale">
-                  <video ref={videoRef} autoPlay playsInline muted className="h-full w-full scale-x-[-1] object-cover" />
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="h-full w-full scale-x-[-1] object-cover"
+                  />
                 </div>
               )}
               <AIOrb state={interviewPhase} />
@@ -1008,39 +1363,62 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
             <div className="text-center space-y-1">
               <p className="text-xs font-medium text-zinc-300">
-                {interviewPhase === "listening" ? "Listening"
-                  : interviewPhase === "thinking" ? "Analyzing..."
-                  : interviewPhase === "speaking" ? "Speaking"
-                  : engineBooted ? "Idle" : "Initializing…"}
+                {interviewPhase === "listening"
+                  ? "Listening"
+                  : interviewPhase === "thinking"
+                    ? "Analyzing..."
+                    : interviewPhase === "speaking"
+                      ? "Speaking"
+                      : engineBooted
+                        ? "Idle"
+                        : "Initializing…"}
               </p>
               {engineBooted && (
-                <p className="text-[11px] text-zinc-600 font-mono tracking-wider">{PERSONA_DESC[persona]}</p>
+                <p className="text-[11px] text-zinc-600 font-mono tracking-wider">
+                  {PERSONA_DESC[persona]}
+                </p>
               )}
             </div>
 
-            {interviewPhase === "listening" && <Waveform level={micLevel} active={true} />}
+            {interviewPhase === "listening" && (
+              <Waveform level={micLevel} active={true} />
+            )}
           </div>
 
           {/* Sprint legend */}
           {engineBooted && (
             <div className="w-full space-y-2">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-700 font-medium">Sprint Progress</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-700 font-medium">
+                Sprint Progress
+              </p>
               <div className="flex gap-1.5">
                 {[1, 2, 3].map((s) => (
                   <div key={s} className="flex-1 space-y-1">
                     <div
                       className="h-1.5 rounded-full transition-all duration-700"
                       style={{
-                        background: s < sprint ? "oklch(0.6 0.18 255)" : s === sprint ? "linear-gradient(90deg, oklch(0.6 0.18 255), oklch(0.75 0.15 75))" : "oklch(0.15 0.01 265)",
-                        boxShadow: s === sprint ? "0 0 10px oklch(0.55 0.18 255 / 0.4)" : "none",
+                        background:
+                          s < sprint
+                            ? "oklch(0.6 0.18 255)"
+                            : s === sprint
+                              ? "linear-gradient(90deg, oklch(0.6 0.18 255), oklch(0.75 0.15 75))"
+                              : "oklch(0.15 0.01 265)",
+                        boxShadow:
+                          s === sprint
+                            ? "0 0 10px oklch(0.55 0.18 255 / 0.4)"
+                            : "none",
                       }}
                     />
-                    <p className="text-[9px] text-zinc-700 truncate">{SPRINT_LABELS[s]}</p>
+                    <p className="text-[9px] text-zinc-700 truncate">
+                      {SPRINT_LABELS[s]}
+                    </p>
                   </div>
                 ))}
               </div>
               {showCamera && (
-                <p className="text-[9px] text-zinc-700 mt-2 uppercase tracking-[0.15em]">Lens active · turn-boundary fusion</p>
+                <p className="text-[9px] text-zinc-700 mt-2 uppercase tracking-[0.15em]">
+                  Lens active · turn-boundary fusion
+                </p>
               )}
             </div>
           )}
@@ -1048,20 +1426,30 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
         {/* Right: Transcript */}
         <div className="flex-1 flex flex-col overflow-hidden relative">
-          <div ref={transcriptRef} className="flex-1 overflow-y-auto px-10 py-8 space-y-6">
+          <div
+            ref={transcriptRef}
+            className="flex-1 overflow-y-auto px-10 py-8 space-y-6"
+          >
             {!engineBooted && !interviewComplete && (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center space-y-4 max-w-sm">
                   <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-6">
                     <span className="text-xl">∞</span>
                   </div>
-                  <h2 className="text-lg font-medium text-zinc-200">Adversarial AI Interview</h2>
+                  <h2 className="text-lg font-medium text-zinc-200">
+                    Adversarial AI Interview
+                  </h2>
                   <p className="text-zinc-500 text-sm leading-relaxed">
-                    A real-time cognitive depth interview. 3 sprints. Probing your ownership, fundamentals, and system thinking.
+                    A real-time cognitive depth interview. 3 sprints. Probing
+                    your ownership, fundamentals, and system thinking.
                   </p>
-                  <p className="text-zinc-700 text-[10px] uppercase tracking-[0.2em] pt-4">Probe → Break → Analyze → Adapt</p>
+                  <p className="text-zinc-700 text-[10px] uppercase tracking-[0.2em] pt-4">
+                    Probe → Break → Analyze → Adapt
+                  </p>
                   {interviewError ? (
-                    <p className="text-red-400 text-xs mt-4">{interviewError}</p>
+                    <p className="text-red-400 text-xs mt-4">
+                      {interviewError}
+                    </p>
                   ) : (
                     <Loader2 className="w-4 h-4 animate-spin text-zinc-600 mx-auto mt-4" />
                   )}
@@ -1069,12 +1457,16 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
               </div>
             )}
 
-            {messages.map((msg, i) => <MessageItem key={i} msg={msg} />)}
+            {messages.map((msg, i) => (
+              <MessageItem key={i} msg={msg} />
+            ))}
 
             {partial && (
               <div className="flex justify-end pr-4">
                 <div className="max-w-[80%]">
-                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-2 text-right">Accumulating</p>
+                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-2 text-right">
+                    Accumulating
+                  </p>
                   <div className="rounded-2xl px-5 py-3.5 text-[13px] bg-white/[0.03] text-zinc-400 border border-white/[0.05] italic">
                     {partial}
                   </div>
@@ -1084,7 +1476,8 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
             {nearEnd && !interviewComplete && (
               <div className="rounded-xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-400">
-                Two questions remaining. The interview is closing in on its final boundary check.
+                Two questions remaining. The interview is closing in on its
+                final boundary check.
               </div>
             )}
 
@@ -1093,8 +1486,12 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
                 <div className="inline-block px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-green-500 text-[10px] mb-2 uppercase tracking-widest">
                   Complete
                 </div>
-                <p className="text-zinc-200 text-sm font-medium">Interview complete.</p>
-                <p className="text-zinc-500 text-[11px]">Compiling your report and reasoning metrics…</p>
+                <p className="text-zinc-200 text-sm font-medium">
+                  Interview complete.
+                </p>
+                <p className="text-zinc-500 text-[11px]">
+                  Compiling your report and reasoning metrics…
+                </p>
                 <Loader2 className="w-4 h-4 animate-spin text-zinc-700 mx-auto mt-3" />
               </div>
             )}
@@ -1117,11 +1514,23 @@ export default function AntigravityLabPage({ targetJobTitle, experienceYears }: 
 
             <div className="ml-auto flex items-center gap-3 text-[11px] font-medium text-zinc-400">
               <div className="flex items-center gap-2">
-                {interviewPhase === "listening" && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
-                {interviewPhase === "thinking" && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
-                {interviewPhase === "speaking" && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
+                {interviewPhase === "listening" && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                )}
+                {interviewPhase === "thinking" && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                )}
+                {interviewPhase === "speaking" && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                )}
                 <span className="uppercase tracking-widest text-[10px] text-zinc-500">
-                  {interviewPhase === "listening" ? "Listening" : interviewPhase === "thinking" ? "Reasoning" : interviewPhase === "speaking" ? "Speaking" : "Idle"}
+                  {interviewPhase === "listening"
+                    ? "Listening"
+                    : interviewPhase === "thinking"
+                      ? "Reasoning"
+                      : interviewPhase === "speaking"
+                        ? "Speaking"
+                        : "Idle"}
                 </span>
               </div>
               <div className="h-4 w-px bg-white/10" />
@@ -1143,7 +1552,9 @@ function MessageItem({ msg }: { msg: Message }) {
     return (
       <div className="flex items-center gap-6 py-6">
         <div className="flex-1 h-px bg-white/5" />
-        <span className="text-[10px] text-zinc-600 uppercase tracking-[0.3em] font-medium">{msg.text}</span>
+        <span className="text-[10px] text-zinc-600 uppercase tracking-[0.3em] font-medium">
+          {msg.text}
+        </span>
         <div className="flex-1 h-px bg-white/5" />
       </div>
     );
@@ -1152,16 +1563,22 @@ function MessageItem({ msg }: { msg: Message }) {
     return (
       <div className="flex items-center gap-4 py-2">
         <div className="flex-1 h-px bg-white/[0.03]" />
-        <span className="text-[9px] text-zinc-700 uppercase tracking-[0.25em]">shifting focus</span>
+        <span className="text-[9px] text-zinc-700 uppercase tracking-[0.25em]">
+          shifting focus
+        </span>
         <div className="flex-1 h-px bg-white/[0.03]" />
       </div>
     );
   }
   const isAI = msg.role === "ai";
   return (
-    <div className={`flex ${isAI ? "justify-start" : "justify-end"} group animate-in fade-in slide-in-from-bottom-1 duration-500`}>
+    <div
+      className={`flex ${isAI ? "justify-start" : "justify-end"} group animate-in fade-in slide-in-from-bottom-1 duration-500`}
+    >
       <div className="max-w-[85%] space-y-2">
-        <div className={`flex items-center gap-2 ${isAI ? "" : "flex-row-reverse"}`}>
+        <div
+          className={`flex items-center gap-2 ${isAI ? "" : "flex-row-reverse"}`}
+        >
           <p className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">
             {isAI ? "Interrogator" : "Candidate"}
           </p>
@@ -1181,7 +1598,10 @@ function MessageItem({ msg }: { msg: Message }) {
             isAI && msg.severity && msg.severity !== "low"
               ? {
                   borderLeftWidth: "2px",
-                  borderLeftColor: msg.severity === "high" ? "oklch(0.66 0.21 24)" : "oklch(0.8 0.16 72)",
+                  borderLeftColor:
+                    msg.severity === "high"
+                      ? "oklch(0.66 0.21 24)"
+                      : "oklch(0.8 0.16 72)",
                 }
               : undefined
           }
@@ -1199,14 +1619,35 @@ function ScoreGauge({ score }: { score: number | null }) {
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
   const pct = score != null ? Math.min(Math.max(score / 10, 0), 1) : 0;
-  const color = score == null ? "#52525b" : score >= 7 ? "oklch(0.7 0.18 145)" : score >= 4 ? "oklch(0.75 0.15 75)" : "oklch(0.66 0.21 24)";
+  const color =
+    score == null
+      ? "#52525b"
+      : score >= 7
+        ? "oklch(0.7 0.18 145)"
+        : score >= 4
+          ? "oklch(0.75 0.15 75)"
+          : "oklch(0.66 0.21 24)";
   return (
     <div className="relative flex items-center justify-center w-36 h-36">
-      <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 128 128">
-        <circle cx="64" cy="64" r={radius} fill="none" stroke="oklch(0.15 0.01 265)" strokeWidth="10" />
+      <svg
+        className="absolute inset-0 w-full h-full -rotate-90"
+        viewBox="0 0 128 128"
+      >
         <circle
-          cx="64" cy="64" r={radius} fill="none"
-          stroke={color} strokeWidth="10"
+          cx="64"
+          cy="64"
+          r={radius}
+          fill="none"
+          stroke="oklch(0.15 0.01 265)"
+          strokeWidth="10"
+        />
+        <circle
+          cx="64"
+          cy="64"
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="10"
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - pct)}
           strokeLinecap="round"
@@ -1214,8 +1655,12 @@ function ScoreGauge({ score }: { score: number | null }) {
         />
       </svg>
       <div className="text-center">
-        <p className="text-2xl font-bold text-white">{score != null ? score.toFixed(1) : "—"}</p>
-        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">/ 10</p>
+        <p className="text-2xl font-bold text-white">
+          {score != null ? score.toFixed(1) : "—"}
+        </p>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+          / 10
+        </p>
       </div>
     </div>
   );
@@ -1233,10 +1678,12 @@ function VerdictBadge({ verdict }: { verdict: string | null }) {
     v.includes("HIRE") && !v.includes("NO")
       ? "bg-green-500/15 border-green-500/30 text-green-400"
       : v.includes("MAYBE")
-      ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
-      : "bg-red-500/15 border-red-500/30 text-red-400";
+        ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+        : "bg-red-500/15 border-red-500/30 text-red-400";
   return (
-    <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-xs font-bold uppercase tracking-widest ${style}`}>
+    <span
+      className={`inline-flex items-center rounded-lg border px-3 py-1 text-xs font-bold uppercase tracking-widest ${style}`}
+    >
       {v}
     </span>
   );
@@ -1244,21 +1691,41 @@ function VerdictBadge({ verdict }: { verdict: string | null }) {
 
 function ScoreBar({ label, score }: { label: string; score: number }) {
   const pct = Math.min(Math.max((score / 10) * 100, 0), 100);
-  const color = score >= 7 ? "oklch(0.7 0.18 145)" : score >= 4 ? "oklch(0.75 0.15 75)" : "oklch(0.66 0.21 24)";
+  const color =
+    score >= 7
+      ? "oklch(0.7 0.18 145)"
+      : score >= 4
+        ? "oklch(0.75 0.15 75)"
+        : "oklch(0.66 0.21 24)";
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-4">
-        <span className="text-sm text-zinc-300 capitalize">{label.replace(/_/g, " ")}</span>
-        <span className="font-mono text-xs text-zinc-500">{score.toFixed(1)}</span>
+        <span className="text-sm text-zinc-300 capitalize">
+          {label.replace(/_/g, " ")}
+        </span>
+        <span className="font-mono text-xs text-zinc-500">
+          {score.toFixed(1)}
+        </span>
       </div>
       <div className="h-2 rounded-full bg-white/5 overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color, boxShadow: `0 0 10px ${color}` }} />
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{
+            width: `${pct}%`,
+            background: color,
+            boxShadow: `0 0 10px ${color}`,
+          }}
+        />
       </div>
     </div>
   );
 }
 
-function DoneView({ completion, reportData, onReset }: {
+function DoneView({
+  completion,
+  reportData,
+  onReset,
+}: {
   completion: CompletionResult | null;
   reportData: ReportData | null;
   onReset: () => void;
@@ -1275,21 +1742,35 @@ function DoneView({ completion, reportData, onReset }: {
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">Interview Report</p>
+            <p className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">
+              Interview Report
+            </p>
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">
               {hasReport ? "Failure boundary analysis" : "Interview Complete"}
             </h1>
             {reportData && (
               <div className="flex flex-wrap gap-2">
-                {reportData.target_role && <span className="rounded-lg border border-white/10 px-3 py-1 text-xs text-zinc-400">{reportData.target_role}</span>}
-                {reportData.years_experience && <span className="rounded-lg border border-white/10 px-3 py-1 text-xs text-zinc-400">{reportData.years_experience} YOE</span>}
+                {reportData.target_role && (
+                  <span className="rounded-lg border border-white/10 px-3 py-1 text-xs text-zinc-400">
+                    {reportData.target_role}
+                  </span>
+                )}
+                {reportData.years_experience && (
+                  <span className="rounded-lg border border-white/10 px-3 py-1 text-xs text-zinc-400">
+                    {reportData.years_experience} YOE
+                  </span>
+                )}
                 <VerdictBadge verdict={reportData.hire_recommendation} />
               </div>
             )}
             {!hasReport && completion?.badge && (
               <div className="flex flex-wrap gap-2 items-center">
                 <VerdictBadge verdict={completion.verdict} />
-                {completion.badge && <span className="text-sm text-zinc-300">{completion.badge}</span>}
+                {completion.badge && (
+                  <span className="text-sm text-zinc-300">
+                    {completion.badge}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -1310,30 +1791,52 @@ function DoneView({ completion, reportData, onReset }: {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {reportData && (
               <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-5">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">Questions</p>
-                <p className="text-2xl font-bold mt-2 text-blue-400">{reportData.total_questions}</p>
-                <p className="text-xs text-zinc-600 mt-1">asked across the full interview</p>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                  Questions
+                </p>
+                <p className="text-2xl font-bold mt-2 text-blue-400">
+                  {reportData.total_questions}
+                </p>
+                <p className="text-xs text-zinc-600 mt-1">
+                  asked across the full interview
+                </p>
               </div>
             )}
             {reportData && (
               <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-5">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">High Severity</p>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                  High Severity
+                </p>
                 {(() => {
-                  const c = reportData.raw_weaknesses.filter((w) => w.severity === "high").length;
-                  return <>
-                    <p className={`text-2xl font-bold mt-2 ${c > 0 ? "text-red-400" : "text-green-400"}`}>{c}</p>
-                    <p className="text-xs text-zinc-600 mt-1">pressure points judged weak</p>
-                  </>;
+                  const c = reportData.raw_weaknesses.filter(
+                    (w) => w.severity === "high",
+                  ).length;
+                  return (
+                    <>
+                      <p
+                        className={`text-2xl font-bold mt-2 ${c > 0 ? "text-red-400" : "text-green-400"}`}
+                      >
+                        {c}
+                      </p>
+                      <p className="text-xs text-zinc-600 mt-1">
+                        pressure points judged weak
+                      </p>
+                    </>
+                  );
                 })()}
               </div>
             )}
             {displayScore != null && (
               <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-5">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">Overall Score</p>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                  Overall Score
+                </p>
                 <p className="text-2xl font-bold mt-2 text-zinc-200">
                   {displayScore.toFixed(1)}/10
                 </p>
-                <p className="text-xs text-zinc-600 mt-1">aggregate synthesis signal</p>
+                <p className="text-xs text-zinc-600 mt-1">
+                  aggregate synthesis signal
+                </p>
               </div>
             )}
           </div>
@@ -1342,88 +1845,150 @@ function DoneView({ completion, reportData, onReset }: {
         {/* Summary */}
         {reportData?.summary && (
           <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-4">Assessment Summary</p>
-            <p className="text-sm leading-7 text-zinc-300 max-w-4xl">{reportData.summary}</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-4">
+              Assessment Summary
+            </p>
+            <p className="text-sm leading-7 text-zinc-300 max-w-4xl">
+              {reportData.summary}
+            </p>
           </div>
         )}
 
         {/* Resume credibility */}
-        {reportData?.claim_credibility_risk && reportData.claim_credibility_risk.level !== "not_tested" && (
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-6 py-5">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-3">Resume Claim Credibility</p>
-            <VerdictBadge verdict={`${reportData.claim_credibility_risk.level.toUpperCase()} RISK`} />
-            <p className="mt-4 text-sm leading-7 text-zinc-300">{reportData.claim_credibility_risk.detail}</p>
-          </div>
-        )}
+        {reportData?.claim_credibility_risk &&
+          reportData.claim_credibility_risk.level !== "not_tested" && (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-6 py-5">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-3">
+                Resume Claim Credibility
+              </p>
+              <VerdictBadge
+                verdict={`${reportData.claim_credibility_risk.level.toUpperCase()} RISK`}
+              />
+              <p className="mt-4 text-sm leading-7 text-zinc-300">
+                {reportData.claim_credibility_risk.detail}
+              </p>
+            </div>
+          )}
 
         {/* Main 2-col layout */}
         {hasReport && (
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div className="space-y-6">
               {/* Score breakdown */}
-              {reportData && Object.entries(reportData.scores ?? {}).filter(([, s]) => typeof s === "number").length > 0 && (
-                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Score Breakdown</p>
-                  <div className="space-y-4">
-                    {Object.entries(reportData.scores).map(([dim, score]) =>
-                      typeof score === "number" && Number.isFinite(score) ? (
-                        <ScoreBar key={dim} label={dim} score={score} />
-                      ) : (
-                        <div key={dim} className="rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3">
-                          <div className="flex justify-between gap-4">
-                            <span className="text-sm text-zinc-400 capitalize">{dim.replace(/_/g, " ")}</span>
-                            <span className="font-mono text-xs text-zinc-600">{String(score)}</span>
+              {reportData &&
+                Object.entries(reportData.scores ?? {}).filter(
+                  ([, s]) => typeof s === "number",
+                ).length > 0 && (
+                  <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">
+                      Score Breakdown
+                    </p>
+                    <div className="space-y-4">
+                      {Object.entries(reportData.scores).map(([dim, score]) =>
+                        typeof score === "number" && Number.isFinite(score) ? (
+                          <ScoreBar key={dim} label={dim} score={score} />
+                        ) : (
+                          <div
+                            key={dim}
+                            className="rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3"
+                          >
+                            <div className="flex justify-between gap-4">
+                              <span className="text-sm text-zinc-400 capitalize">
+                                {dim.replace(/_/g, " ")}
+                              </span>
+                              <span className="font-mono text-xs text-zinc-600">
+                                {String(score)}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-xs text-zinc-600">
+                              Insufficient coverage to score numerically.
+                            </p>
                           </div>
-                          <p className="mt-2 text-xs text-zinc-600">Insufficient coverage to score numerically.</p>
-                        </div>
-                      )
-                    )}
+                        ),
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               {/* Failure surface */}
-              {reportData && Object.entries(reportData.failure_surface ?? {}).length > 0 && (
-                <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-2">Failure Surface</p>
-                  <p className="text-xs text-zinc-600 mb-5">Higher means the candidate broke earlier under pressure.</p>
-                  <div className="space-y-4">
-                    {Object.entries(reportData.failure_surface).map(([area, score]) => {
-                      const pct = Math.round(score * 100);
-                      const color = score >= 0.6 ? "oklch(0.66 0.21 24)" : score >= 0.35 ? "oklch(0.8 0.16 72)" : "oklch(0.7 0.18 145)";
-                      return (
-                        <div key={area} className="space-y-1.5">
-                          <div className="flex justify-between gap-4">
-                            <span className="text-sm text-zinc-300 capitalize">{area.replace(/_/g, " ")}</span>
-                            <span className="font-mono text-xs text-zinc-600">{pct}%</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-white/5 overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color, boxShadow: `0 0 12px ${color}` }} />
-                          </div>
-                        </div>
-                      );
-                    })}
+              {reportData &&
+                Object.entries(reportData.failure_surface ?? {}).length > 0 && (
+                  <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-2">
+                      Failure Surface
+                    </p>
+                    <p className="text-xs text-zinc-600 mb-5">
+                      Higher means the candidate broke earlier under pressure.
+                    </p>
+                    <div className="space-y-4">
+                      {Object.entries(reportData.failure_surface).map(
+                        ([area, score]) => {
+                          const pct = Math.round(score * 100);
+                          const color =
+                            score >= 0.6
+                              ? "oklch(0.66 0.21 24)"
+                              : score >= 0.35
+                                ? "oklch(0.8 0.16 72)"
+                                : "oklch(0.7 0.18 145)";
+                          return (
+                            <div key={area} className="space-y-1.5">
+                              <div className="flex justify-between gap-4">
+                                <span className="text-sm text-zinc-300 capitalize">
+                                  {area.replace(/_/g, " ")}
+                                </span>
+                                <span className="font-mono text-xs text-zinc-600">
+                                  {pct}%
+                                </span>
+                              </div>
+                              <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${pct}%`,
+                                    background: color,
+                                    boxShadow: `0 0 12px ${color}`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        },
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               {/* Detected weaknesses */}
               {reportData && reportData.raw_weaknesses.length > 0 && (
                 <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Detected Weaknesses</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">
+                    Detected Weaknesses
+                  </p>
                   <div className="space-y-3">
                     {reportData.raw_weaknesses.map((w, i) => (
-                      <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+                      <div
+                        key={i}
+                        className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4"
+                      >
                         <div className="flex items-center gap-2 mb-2">
                           <span
                             className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ background: w.severity === "high" ? "oklch(0.66 0.21 24)" : w.severity === "medium" ? "oklch(0.8 0.16 72)" : "oklch(0.6 0.18 255)" }}
+                            style={{
+                              background:
+                                w.severity === "high"
+                                  ? "oklch(0.66 0.21 24)"
+                                  : w.severity === "medium"
+                                    ? "oklch(0.8 0.16 72)"
+                                    : "oklch(0.6 0.18 255)",
+                            }}
                           />
                           <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                             {w.severity} · {w.type.replace(/_/g, " ")}
                           </span>
                         </div>
-                        <p className="text-sm leading-7 text-zinc-200">{w.weakness}</p>
+                        <p className="text-sm leading-7 text-zinc-200">
+                          {w.weakness}
+                        </p>
                         <p className="mt-2 text-xs uppercase tracking-[0.12em] text-zinc-600">
                           Strategy: {w.attack_strategy.replace(/_/g, " ")}
                         </p>
@@ -1438,10 +2003,17 @@ function DoneView({ completion, reportData, onReset }: {
               {/* Strengths */}
               {reportData && reportData.strengths.length > 0 && (
                 <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Strengths</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">
+                    Strengths
+                  </p>
                   <ul className="space-y-3">
                     {reportData.strengths.map((s, i) => (
-                      <li key={i} className="rounded-xl border border-green-500/15 bg-green-500/5 px-4 py-4 text-sm leading-7 text-zinc-200">{s}</li>
+                      <li
+                        key={i}
+                        className="rounded-xl border border-green-500/15 bg-green-500/5 px-4 py-4 text-sm leading-7 text-zinc-200"
+                      >
+                        {s}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -1450,10 +2022,17 @@ function DoneView({ completion, reportData, onReset }: {
               {/* Risk flags */}
               {reportData && reportData.risk_flags.length > 0 && (
                 <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Risk Flags</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">
+                    Risk Flags
+                  </p>
                   <ul className="space-y-3">
                     {reportData.risk_flags.map((f, i) => (
-                      <li key={i} className="rounded-xl border border-red-500/15 bg-red-500/5 px-4 py-4 text-sm leading-7 text-zinc-200">{f}</li>
+                      <li
+                        key={i}
+                        className="rounded-xl border border-red-500/15 bg-red-500/5 px-4 py-4 text-sm leading-7 text-zinc-200"
+                      >
+                        {f}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -1462,10 +2041,17 @@ function DoneView({ completion, reportData, onReset }: {
               {/* Untested dimensions */}
               {reportData && reportData.untested_dimensions.length > 0 && (
                 <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">Untested Dimensions</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-5">
+                    Untested Dimensions
+                  </p>
                   <ul className="space-y-3">
                     {reportData.untested_dimensions.map((d, i) => (
-                      <li key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 text-sm leading-7 text-zinc-300">{d}</li>
+                      <li
+                        key={i}
+                        className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 text-sm leading-7 text-zinc-300"
+                      >
+                        {d}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -1478,7 +2064,8 @@ function DoneView({ completion, reportData, onReset }: {
         {!hasReport && (
           <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-6 py-8 text-center">
             <p className="text-zinc-400 text-sm">
-              Your report is being compiled. Check back in a few minutes or refresh the page.
+              Your report is being compiled. Check back in a few minutes or
+              refresh the page.
             </p>
             <p className="text-zinc-600 text-xs mt-2">
               You'll receive an email update within 10–15 hours.
@@ -1488,7 +2075,11 @@ function DoneView({ completion, reportData, onReset }: {
 
         {/* Actions */}
         <div className="flex gap-3 pt-2">
-          <Button variant="outline" onClick={onReset} className="bg-transparent border-white/10 text-zinc-400 hover:text-white hover:border-white/20">
+          <Button
+            variant="outline"
+            onClick={onReset}
+            className="bg-transparent border-white/10 text-zinc-400 hover:text-white hover:border-white/20"
+          >
             Start New Interview
           </Button>
         </div>

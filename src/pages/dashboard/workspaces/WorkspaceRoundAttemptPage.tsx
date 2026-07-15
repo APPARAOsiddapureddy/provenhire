@@ -13,10 +13,14 @@ type StartAttemptResponse = {
   attemptId: string;
   sessionId: string;
   sessionStatus: string;
+  targetRole?: string;
 };
 
 export default function WorkspaceRoundAttemptPage() {
-  const { code = "", roundId = "" } = useParams<{ code: string; roundId: string }>();
+  const { code = "", roundId = "" } = useParams<{
+    code: string;
+    roundId: string;
+  }>();
   const navigate = useNavigate();
   const [attempt, setAttempt] = useState<StartAttemptResponse | null>(null);
   const workspaceCode = decodeURIComponent(code).trim().toUpperCase();
@@ -30,12 +34,30 @@ export default function WorkspaceRoundAttemptPage() {
         );
         setAttempt(res);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not start workspace round");
-        navigate(`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspaceCode)}`);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not start workspace round",
+        );
+        navigate(
+          `/dashboard/jobseeker/workspaces/${encodeURIComponent(workspaceCode)}`,
+        );
       }
     };
     if (workspaceCode && roundId) void start();
   }, [workspaceCode, roundId, navigate]);
+
+  useEffect(() => {
+    if (attempt?.roundType !== "interview") return;
+    const params = new URLSearchParams({
+      workspace_attempt_id: attempt.attemptId,
+      workspace_code: workspaceCode,
+    });
+    if (attempt.targetRole) params.set("target_role", attempt.targetRole);
+    navigate(`/dashboard/jobseeker/antigravity?${params.toString()}`, {
+      replace: true,
+    });
+  }, [attempt, navigate, workspaceCode]);
 
   if (!attempt) {
     return (
@@ -48,13 +70,38 @@ export default function WorkspaceRoundAttemptPage() {
   }
 
   if (attempt.roundType === "mcq") {
-    return <McqRoundRunner workspaceCode={workspaceCode} sessionId={attempt.sessionId} />;
+    return (
+      <McqRoundRunner
+        workspaceCode={workspaceCode}
+        sessionId={attempt.sessionId}
+      />
+    );
   }
   if (attempt.roundType === "coding") {
-    return <DsaRoundRunner workspaceCode={workspaceCode} sessionId={attempt.sessionId} />;
+    return (
+      <DsaRoundRunner
+        workspaceCode={workspaceCode}
+        sessionId={attempt.sessionId}
+      />
+    );
   }
   if (attempt.roundType === "sql") {
-    return <SqlRoundRunner workspaceCode={workspaceCode} sessionId={attempt.sessionId} />;
+    return (
+      <SqlRoundRunner
+        workspaceCode={workspaceCode}
+        sessionId={attempt.sessionId}
+      />
+    );
+  }
+  if (attempt.roundType === "interview") {
+    return (
+      <UserWorkspaceShell>
+        <div className="min-h-[420px] flex items-center justify-center gap-3 text-[var(--dash-text-muted)]">
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
+          Opening the Antigravity interview setup…
+        </div>
+      </UserWorkspaceShell>
+    );
   }
 
   return (

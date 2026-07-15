@@ -72,6 +72,8 @@ model User {
   workspaceSqlSessions           WorkspaceSqlSession[]
   workspaceSqlSubmissions        WorkspaceSqlSubmission[]
   workspaceRoundAttempts         WorkspaceRoundAttempt[]
+  workspaceCandidateDecisions    WorkspaceCandidateDecision[]  @relation("WorkspaceDecisionCandidate")
+  workspaceDecisionReviews       WorkspaceCandidateDecision[]  @relation("WorkspaceDecisionReviewer")
 }
 
 /// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
@@ -354,6 +356,8 @@ model Workspace {
   recruiterProfileId String?
   name               String
   organization       String
+  targetRole         String
+  hiringRubric       Json
   code               String              @unique
   startAt            DateTime
   endAt              DateTime
@@ -363,12 +367,13 @@ model Workspace {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  ownerUser        User                    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  recruiterProfile RecruiterProfile?       @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
-  rounds           WorkspaceRound[]
-  registrations    WorkspaceRegistration[]
-  allowedEmails    WorkspaceAllowedEmail[]
-  roundAttempts    WorkspaceRoundAttempt[]
+  ownerUser          User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  recruiterProfile   RecruiterProfile?            @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
+  rounds             WorkspaceRound[]
+  registrations      WorkspaceRegistration[]
+  allowedEmails      WorkspaceAllowedEmail[]
+  roundAttempts      WorkspaceRoundAttempt[]
+  candidateDecisions WorkspaceCandidateDecision[]
 
   @@index([ownerRole, ownerUserId])
   @@index([recruiterProfileId])
@@ -531,6 +536,7 @@ model WorkspaceRoundAttempt {
   mcqSessionId            String?                     @unique
   dsaRoundSessionId       String?                     @unique
   sqlSessionId            String?                     @unique
+  interviewId             String?                     @unique
   status                  WorkspaceRoundAttemptStatus @default(active)
   score                   Int?
   percentageScore         Int?
@@ -547,11 +553,35 @@ model WorkspaceRoundAttempt {
   mcqSession            McqSession?           @relation(fields: [mcqSessionId], references: [id], onDelete: SetNull)
   dsaRoundSession       DsaRoundSession?      @relation(fields: [dsaRoundSessionId], references: [id], onDelete: SetNull)
   sqlSession            WorkspaceSqlSession?  @relation(fields: [sqlSessionId], references: [id], onDelete: SetNull)
+  interview             Interview?            @relation(fields: [interviewId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceRegistrationId, workspaceRoundId])
   @@index([workspaceId, status])
   @@index([workspaceRoundId, status])
   @@index([userId, status])
+}
+
+model WorkspaceCandidateDecision {
+  id                String   @id @default(uuid())
+  workspaceId       String
+  candidateUserId   String
+  reviewerUserId    String
+  outcome           String
+  rationale         String   @db.Text
+  rubricAssessments Json
+  rubricSnapshot    Json
+  evidenceSnapshot  Json
+  evidenceHash      String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  candidate User      @relation("WorkspaceDecisionCandidate", fields: [candidateUserId], references: [id], onDelete: Cascade)
+  reviewer  User      @relation("WorkspaceDecisionReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, candidateUserId])
+  @@index([reviewerUserId, updatedAt])
+  @@index([workspaceId, outcome])
 }
 
 model Job {
@@ -950,13 +980,14 @@ model Interview {
   /// Raw 0–100 scores from each pass, e.g. [72, 78, 74]
   evaluationScoreVariance Json?
 
-  user               User                      @relation(fields: [userId], references: [id])
-  messages           InterviewMessage[]
-  questionResults    InterviewQuestionResult[]
-  proctoringReviews  ProctoringReviewLog[]
-  adminReviewQueue   AdminReviewQueue?
-  antigravityHandoff AntigravityHandoff?
-  antigravityReport  AntigravityReport?
+  user                  User                      @relation(fields: [userId], references: [id])
+  messages              InterviewMessage[]
+  questionResults       InterviewQuestionResult[]
+  proctoringReviews     ProctoringReviewLog[]
+  adminReviewQueue      AdminReviewQueue?
+  antigravityHandoff    AntigravityHandoff?
+  antigravityReport     AntigravityReport?
+  workspaceRoundAttempt WorkspaceRoundAttempt?
 
   @@index([userId, interviewType, status])
   @@index([userId, interviewType, status, completedAt])
@@ -1043,18 +1074,18 @@ model AntigravityTelemetryEvent {
 /// Durable, versioned LLM synthesis over persisted assessment evidence.
 /// Raw assessment artifacts remain canonical; this is a regenerable reasoning projection.
 model AssessmentReportGeneration {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   workspaceId      String
   userId           String
   reportKind       String
   sourceHash       String
   promptVersion    String
   model            String
-  status           String   @default("pending")
+  status           String    @default("pending")
   result           Json?
   usage            Json?
   estimatedCostUsd Float?
-  error             String?  @db.Text
+  error            String?   @db.Text
   startedAt        DateTime  @default(now())
   completedAt      DateTime?
   createdAt        DateTime  @default(now())

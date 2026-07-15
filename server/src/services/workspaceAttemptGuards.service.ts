@@ -31,23 +31,28 @@ export async function assertWorkspaceRoundStartAllowed(
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status !== "started") {
-    throw new WorkspaceServiceError("Workspace is not currently accepting round attempts.", 409);
+    throw new WorkspaceServiceError(
+      "Workspace is not currently accepting round attempts.",
+      409,
+    );
   }
   if (workspace.endAt.getTime() <= Date.now()) {
     throw new WorkspaceServiceError("Workspace has ended.", 410);
   }
 
   const round = workspace.rounds.find((candidate) => candidate.id === roundId);
-  if (!round) throw new WorkspaceServiceError("Workspace round not found.", 404);
-  if (round.type === "interview") {
-    throw new WorkspaceServiceError("Interview rounds are not supported in this attempt flow yet.", 409);
-  }
-
+  if (!round)
+    throw new WorkspaceServiceError("Workspace round not found.", 404);
   const registration = await tx.workspaceRegistration.findUnique({
-    where: { workspaceId_userId: { workspaceId: workspace.id, userId: actor.id } },
+    where: {
+      workspaceId_userId: { workspaceId: workspace.id, userId: actor.id },
+    },
   });
   if (!registration || registration.status !== "registered") {
-    throw new WorkspaceServiceError("You are not registered for this workspace.", 403);
+    throw new WorkspaceServiceError(
+      "You are not registered for this workspace.",
+      403,
+    );
   }
 
   const previousRoundIds = workspace.rounds
@@ -62,7 +67,10 @@ export async function assertWorkspaceRoundStartAllowed(
       },
     });
     if (completedPrevious !== previousRoundIds.length) {
-      throw new WorkspaceServiceError("Complete previous rounds before starting this round.", 409);
+      throw new WorkspaceServiceError(
+        "Complete previous rounds before starting this round.",
+        409,
+      );
     }
   }
 
@@ -81,7 +89,9 @@ export async function assertWorkspaceSessionWritable(
   const attempt = await tx.workspaceRoundAttempt.findFirst({
     where: {
       userId: params.actor.id,
-      ...(params.dsaRoundSessionId ? { dsaRoundSessionId: params.dsaRoundSessionId } : {}),
+      ...(params.dsaRoundSessionId
+        ? { dsaRoundSessionId: params.dsaRoundSessionId }
+        : {}),
       ...(params.mcqSessionId ? { mcqSessionId: params.mcqSessionId } : {}),
       ...(params.sqlSessionId ? { sqlSessionId: params.sqlSessionId } : {}),
     },
@@ -91,18 +101,31 @@ export async function assertWorkspaceSessionWritable(
       workspaceRound: true,
     },
   });
-  if (!attempt) throw new WorkspaceServiceError("Workspace attempt not found.", 404);
+  if (!attempt)
+    throw new WorkspaceServiceError("Workspace attempt not found.", 404);
   if (attempt.workspaceRegistration.status !== "registered") {
-    throw new WorkspaceServiceError("You were removed from this workspace.", 403);
+    throw new WorkspaceServiceError(
+      "You were removed from this workspace.",
+      403,
+    );
   }
-  if (attempt.workspace.status === "archived" || attempt.workspace.status === "ended") {
+  if (
+    attempt.workspace.status === "archived" ||
+    attempt.workspace.status === "ended"
+  ) {
     throw new WorkspaceServiceError("This workspace round is closed.", 409);
   }
   if (attempt.workspace.status !== "started") {
-    throw new WorkspaceServiceError("Workspace is not currently accepting round attempts.", 409);
+    throw new WorkspaceServiceError(
+      "Workspace is not currently accepting round attempts.",
+      409,
+    );
   }
   if (attempt.status !== "active") {
-    throw new WorkspaceServiceError("Workspace round attempt is already finalized.", 409);
+    throw new WorkspaceServiceError(
+      "Workspace round attempt is already finalized.",
+      409,
+    );
   }
   return attempt;
 }

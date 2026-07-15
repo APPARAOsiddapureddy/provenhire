@@ -3,15 +3,40 @@ import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Archive,
@@ -61,7 +86,14 @@ type WorkspaceDetailsStepProps = {
   workspaceCode?: string | null;
 };
 
-export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, workspaceCode }: WorkspaceDetailsStepProps) {
+export function WorkspaceDetailsStep({
+  value,
+  onChange,
+  onSave,
+  saving,
+  locked,
+  workspaceCode,
+}: WorkspaceDetailsStepProps) {
   const validation = validateWorkspaceDetails(value);
 
   return (
@@ -69,8 +101,13 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
       <CardHeader className="p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle className="text-base sm:text-lg">Workspace Details</CardTitle>
-            <CardDescription>Save the hiring event basics first. The backend generates the workspace code.</CardDescription>
+            <CardTitle className="text-base sm:text-lg">
+              Workspace Details
+            </CardTitle>
+            <CardDescription>
+              Save the hiring event basics first. The backend generates the
+              workspace code.
+            </CardDescription>
           </div>
           {workspaceCode && (
             <Badge variant="outline" className="w-fit font-mono">
@@ -87,7 +124,9 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
               id="workspace-name"
               value={value.name}
               disabled={locked}
-              onChange={(event) => onChange({ ...value, name: event.target.value })}
+              onChange={(event) =>
+                onChange({ ...value, name: event.target.value })
+              }
               placeholder="Campus Hiring Challenge"
             />
           </div>
@@ -97,10 +136,51 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
               id="workspace-org"
               value={value.organization}
               disabled={locked}
-              onChange={(event) => onChange({ ...value, organization: event.target.value })}
+              onChange={(event) =>
+                onChange({ ...value, organization: event.target.value })
+              }
               placeholder="Acme University"
             />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="workspace-target-role">Employer target role</Label>
+          <Input
+            id="workspace-target-role"
+            value={value.targetRole}
+            disabled={locked}
+            onChange={(event) =>
+              onChange({ ...value, targetRole: event.target.value })
+            }
+            placeholder="Senior Backend Engineer"
+          />
+          <p className="text-xs text-muted-foreground">
+            This employer-owned role—not the candidate profile—governs report
+            calibration.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="workspace-responsibilities">
+            Employer-approved responsibilities
+          </Label>
+          <Textarea
+            id="workspace-responsibilities"
+            value={value.responsibilities}
+            disabled={locked}
+            onChange={(event) =>
+              onChange({ ...value, responsibilities: event.target.value })
+            }
+            rows={6}
+            placeholder={
+              "One responsibility per line\nOwn reliable backend services\nDebug production incidents\nDesign observable APIs"
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Add 3–12 concrete responsibilities. Reviewers must apply these to
+            evidence before recording a decision.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -111,7 +191,9 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
               type="datetime-local"
               value={value.startAt}
               disabled={locked}
-              onChange={(event) => onChange({ ...value, startAt: event.target.value })}
+              onChange={(event) =>
+                onChange({ ...value, startAt: event.target.value })
+              }
             />
           </div>
           <div className="space-y-2">
@@ -121,7 +203,9 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
               type="datetime-local"
               value={value.endAt}
               disabled={locked}
-              onChange={(event) => onChange({ ...value, endAt: event.target.value })}
+              onChange={(event) =>
+                onChange({ ...value, endAt: event.target.value })
+              }
             />
           </div>
         </div>
@@ -136,7 +220,12 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
               pattern="[0-9]*"
               value={value.totalRounds}
               disabled={locked}
-              onChange={(event) => onChange({ ...value, totalRounds: event.target.value.replace(/\D/g, "") })}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  totalRounds: event.target.value.replace(/\D/g, ""),
+                })
+              }
             />
           </div>
           <div className="space-y-2">
@@ -144,7 +233,9 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
             <Select
               value={value.accessMode}
               disabled={locked}
-              onValueChange={(accessMode: WorkspaceDetailsDraft["accessMode"]) => onChange({ ...value, accessMode })}
+              onValueChange={(
+                accessMode: WorkspaceDetailsDraft["accessMode"],
+              ) => onChange({ ...value, accessMode })}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -158,11 +249,19 @@ export function WorkspaceDetailsStep({ value, onChange, onSave, saving, locked, 
         </div>
 
         {validation && <p className="text-sm text-destructive">{validation}</p>}
-        {locked && <p className="text-sm text-muted-foreground">Published workspace details cannot be edited.</p>}
+        {locked && (
+          <p className="text-sm text-muted-foreground">
+            Published workspace details cannot be edited.
+          </p>
+        )}
 
         <div className="flex justify-end">
           <Button onClick={onSave} disabled={saving || !!validation || locked}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+            {saving ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
             Save & Next
           </Button>
         </div>
@@ -180,18 +279,33 @@ type RoundConfigStepProps = {
   locked?: boolean;
 };
 
-export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving, locked }: RoundConfigStepProps) {
+export function RoundConfigStep({
+  rounds,
+  totalRounds,
+  onChange,
+  onSave,
+  saving,
+  locked,
+}: RoundConfigStepProps) {
   const [activeOrder, setActiveOrder] = useState(1);
-  const [sqlAvailability, setSqlAvailability] = useState<SqlTaskAvailability | null>(null);
+  const [sqlAvailability, setSqlAvailability] =
+    useState<SqlTaskAvailability | null>(null);
   const [sqlAvailabilityError, setSqlAvailabilityError] = useState(false);
-  const active = rounds.find((round) => round.order === activeOrder) ?? rounds[0];
+  const active =
+    rounds.find((round) => round.order === activeOrder) ?? rounds[0];
   const validation = validateRounds(rounds, totalRounds);
-  const weightTotal = rounds.reduce((sum, round) => sum + (parseIntegerDraft(round.scoreWeightage, 0, 100) ?? 0), 0);
+  const weightTotal = rounds.reduce(
+    (sum, round) =>
+      sum + (parseIntegerDraft(round.scoreWeightage, 0, 100) ?? 0),
+    0,
+  );
 
   useEffect(() => {
     let cancelled = false;
     api
-      .get<{ availability: SqlTaskAvailability }>("/api/workspaces/question-bank/sql")
+      .get<{ availability: SqlTaskAvailability }>(
+        "/api/workspaces/question-bank/sql",
+      )
       .then((res) => {
         if (!cancelled) setSqlAvailability(res.availability);
       })
@@ -205,17 +319,36 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
 
   const updateRound = (patch: Partial<WorkspaceRoundDraft>) => {
     if (!active) return;
-    onChange(rounds.map((round) => (round.order === active.order ? { ...round, ...patch } : round)));
+    onChange(
+      rounds.map((round) =>
+        round.order === active.order ? { ...round, ...patch } : round,
+      ),
+    );
   };
 
-  const activeSqlShortage = active && active.type === "sql" && sqlAvailability
-    ? {
-        Easy: Math.max(0, (parseIntegerDraft(active.easyCount, 0, 200) ?? 0) - sqlAvailability.byDifficulty.Easy),
-        Medium: Math.max(0, (parseIntegerDraft(active.mediumCount, 0, 200) ?? 0) - sqlAvailability.byDifficulty.Medium),
-        Hard: Math.max(0, (parseIntegerDraft(active.hardCount, 0, 200) ?? 0) - sqlAvailability.byDifficulty.Hard),
-      }
-    : null;
-  const hasActiveSqlShortage = !!activeSqlShortage && Object.values(activeSqlShortage).some((count) => count > 0);
+  const activeSqlShortage =
+    active && active.type === "sql" && sqlAvailability
+      ? {
+          Easy: Math.max(
+            0,
+            (parseIntegerDraft(active.easyCount, 0, 200) ?? 0) -
+              sqlAvailability.byDifficulty.Easy,
+          ),
+          Medium: Math.max(
+            0,
+            (parseIntegerDraft(active.mediumCount, 0, 200) ?? 0) -
+              sqlAvailability.byDifficulty.Medium,
+          ),
+          Hard: Math.max(
+            0,
+            (parseIntegerDraft(active.hardCount, 0, 200) ?? 0) -
+              sqlAvailability.byDifficulty.Hard,
+          ),
+        }
+      : null;
+  const hasActiveSqlShortage =
+    !!activeSqlShortage &&
+    Object.values(activeSqlShortage).some((count) => count > 0);
   const saveDisabled = saving || !!validation || locked || hasActiveSqlShortage;
 
   return (
@@ -223,10 +356,18 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
       <CardHeader className="p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle className="text-base sm:text-lg">Configure Rounds</CardTitle>
-            <CardDescription>Set timing, scoring, question selection, and difficulty mix for every round.</CardDescription>
+            <CardTitle className="text-base sm:text-lg">
+              Configure Rounds
+            </CardTitle>
+            <CardDescription>
+              Set timing, scoring, question selection, and difficulty mix for
+              every round.
+            </CardDescription>
           </div>
-          <Badge variant={weightTotal === 100 ? "default" : "destructive"} className="w-fit">
+          <Badge
+            variant={weightTotal === 100 ? "default" : "destructive"}
+            className="w-fit"
+          >
             Weightage {weightTotal}/100
           </Badge>
         </div>
@@ -236,24 +377,39 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
           <div className="space-y-2">
             {rounds.map((round) => {
               const easyCount = parseIntegerDraft(round.easyCount, 0, 200) ?? 0;
-              const mediumCount = parseIntegerDraft(round.mediumCount, 0, 200) ?? 0;
+              const mediumCount =
+                parseIntegerDraft(round.mediumCount, 0, 200) ?? 0;
               const hardCount = parseIntegerDraft(round.hardCount, 0, 200) ?? 0;
-              const questionCount = parseIntegerDraft(round.questionCount, 1, 200) ?? -1;
-              const scoreWeightage = parseIntegerDraft(round.scoreWeightage, 1, 100) ?? 0;
+              const questionCount =
+                parseIntegerDraft(round.questionCount, 1, 200) ?? -1;
+              const scoreWeightage =
+                parseIntegerDraft(round.scoreWeightage, 1, 100) ?? 0;
               const difficultyTotal = easyCount + mediumCount + hardCount;
-              const valid = round.name.trim() && difficultyTotal === questionCount && scoreWeightage > 0;
+              const valid =
+                round.name.trim() &&
+                difficultyTotal === questionCount &&
+                scoreWeightage > 0;
               return (
                 <button
                   key={round.order}
                   type="button"
                   onClick={() => setActiveOrder(round.order)}
-                  className={"w-full rounded-md border px-3 py-3 text-left text-sm transition " + (activeOrder === round.order ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted")}
+                  className={
+                    "w-full rounded-md border px-3 py-3 text-left text-sm transition " +
+                    (activeOrder === round.order
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-background hover:bg-muted")
+                  }
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">Round {round.order}</span>
-                    {valid && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                    {valid && (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    )}
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground truncate">{round.name || "Untitled round"}</div>
+                  <div className="mt-1 text-xs text-muted-foreground truncate">
+                    {round.name || "Untitled round"}
+                  </div>
                 </button>
               );
             })}
@@ -264,11 +420,23 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Round name</Label>
-                  <Input value={active.name} disabled={locked} onChange={(event) => updateRound({ name: event.target.value })} />
+                  <Input
+                    value={active.name}
+                    disabled={locked}
+                    onChange={(event) =>
+                      updateRound({ name: event.target.value })
+                    }
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Round type</Label>
-                  <Select value={active.type} disabled={locked} onValueChange={(type: WorkspaceRoundType) => updateRound({ type })}>
+                  <Select
+                    value={active.type}
+                    disabled={locked}
+                    onValueChange={(type: WorkspaceRoundType) =>
+                      updateRound({ type })
+                    }
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -288,7 +456,9 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
                   <Select
                     value={active.questionType ?? "random"}
                     disabled={locked || active.type !== "mcq"}
-                    onValueChange={(questionType: "random" | "fixed") => updateRound({ questionType })}
+                    onValueChange={(questionType: "random" | "fixed") =>
+                      updateRound({ questionType })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -299,17 +469,59 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
                     </SelectContent>
                   </Select>
                 </div>
-                <NumberField label="Questions" value={active.questionCount} disabled={locked} min={1} max={200} onChange={(questionCount) => updateRound({ questionCount })} />
-                <NumberField label="Minutes" value={active.timeLimitMins} disabled={locked} min={1} max={480} onChange={(timeLimitMins) => updateRound({ timeLimitMins })} />
-                <NumberField label="Weightage" value={active.scoreWeightage} disabled={locked} min={1} max={100} onChange={(scoreWeightage) => updateRound({ scoreWeightage })} />
+                <NumberField
+                  label="Questions"
+                  value={active.questionCount}
+                  disabled={locked}
+                  min={1}
+                  max={200}
+                  onChange={(questionCount) => updateRound({ questionCount })}
+                />
+                <NumberField
+                  label="Minutes"
+                  value={active.timeLimitMins}
+                  disabled={locked}
+                  min={1}
+                  max={480}
+                  onChange={(timeLimitMins) => updateRound({ timeLimitMins })}
+                />
+                <NumberField
+                  label="Weightage"
+                  value={active.scoreWeightage}
+                  disabled={locked}
+                  min={1}
+                  max={100}
+                  onChange={(scoreWeightage) => updateRound({ scoreWeightage })}
+                />
               </div>
 
               <div>
                 <Label>Difficulty split</Label>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-                  <NumberField label="Easy" value={active.easyCount} disabled={locked} min={0} max={200} onChange={(easyCount) => updateRound({ easyCount })} />
-                  <NumberField label="Medium" value={active.mediumCount} disabled={locked} min={0} max={200} onChange={(mediumCount) => updateRound({ mediumCount })} />
-                  <NumberField label="Hard" value={active.hardCount} disabled={locked} min={0} max={200} onChange={(hardCount) => updateRound({ hardCount })} />
+                  <NumberField
+                    label="Easy"
+                    value={active.easyCount}
+                    disabled={locked}
+                    min={0}
+                    max={200}
+                    onChange={(easyCount) => updateRound({ easyCount })}
+                  />
+                  <NumberField
+                    label="Medium"
+                    value={active.mediumCount}
+                    disabled={locked}
+                    min={0}
+                    max={200}
+                    onChange={(mediumCount) => updateRound({ mediumCount })}
+                  />
+                  <NumberField
+                    label="Hard"
+                    value={active.hardCount}
+                    disabled={locked}
+                    min={0}
+                    max={200}
+                    onChange={(hardCount) => updateRound({ hardCount })}
+                  />
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
                   Current total:{" "}
@@ -323,28 +535,50 @@ export function RoundConfigStep({ rounds, totalRounds, onChange, onSave, saving,
               {active.type === "sql" && (
                 <div className="rounded-md border border-[var(--dash-navy-border)] bg-white/[0.03] px-3 py-2 text-sm">
                   <div className="font-medium text-[var(--dash-text-primary)]">
-                    SQL bank: E {sqlAvailability?.byDifficulty.Easy ?? "-"} / M {sqlAvailability?.byDifficulty.Medium ?? "-"} / H {sqlAvailability?.byDifficulty.Hard ?? "-"} eligible
+                    SQL bank: E {sqlAvailability?.byDifficulty.Easy ?? "-"} / M{" "}
+                    {sqlAvailability?.byDifficulty.Medium ?? "-"} / H{" "}
+                    {sqlAvailability?.byDifficulty.Hard ?? "-"} eligible
                   </div>
                   {hasActiveSqlShortage && activeSqlShortage ? (
                     <div className="mt-1 text-destructive">
-                      Not enough eligible SQL tasks: E {activeSqlShortage.Easy}, M {activeSqlShortage.Medium}, H {activeSqlShortage.Hard} short.
+                      Not enough eligible SQL tasks: E {activeSqlShortage.Easy},
+                      M {activeSqlShortage.Medium}, H {activeSqlShortage.Hard}{" "}
+                      short.
                     </div>
                   ) : null}
                   {sqlAvailability?.missingHiddenTests ? (
                     <div className="mt-1 text-amber-500">
-                      {sqlAvailability.missingHiddenTests} visible SQL task{sqlAvailability.missingHiddenTests === 1 ? " is" : "s are"} excluded until hidden tests are added.
+                      {sqlAvailability.missingHiddenTests} visible SQL task
+                      {sqlAvailability.missingHiddenTests === 1
+                        ? " is"
+                        : "s are"}{" "}
+                      excluded until hidden tests are added.
                     </div>
                   ) : null}
-                  {sqlAvailabilityError ? <div className="mt-1 text-muted-foreground">Could not load SQL bank counts.</div> : null}
+                  {sqlAvailabilityError ? (
+                    <div className="mt-1 text-muted-foreground">
+                      Could not load SQL bank counts.
+                    </div>
+                  ) : null}
                 </div>
               )}
 
-              {validation && <p className="text-sm text-destructive">{validation}</p>}
-              {locked && <p className="text-sm text-muted-foreground">Published workspace rounds cannot be edited.</p>}
+              {validation && (
+                <p className="text-sm text-destructive">{validation}</p>
+              )}
+              {locked && (
+                <p className="text-sm text-muted-foreground">
+                  Published workspace rounds cannot be edited.
+                </p>
+              )}
 
               <div className="flex justify-end">
                 <Button onClick={onSave} disabled={saveDisabled}>
-                  {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
                   Save Round Config
                 </Button>
               </div>
@@ -395,16 +629,45 @@ type WorkspaceReviewStepProps = {
   onBackToRounds: () => void;
 };
 
-export function WorkspaceReviewStep({ workspace, details, rounds, publishing, onPublish, onBackToRounds }: WorkspaceReviewStepProps) {
+export function WorkspaceReviewStep({
+  workspace,
+  details,
+  rounds,
+  publishing,
+  onPublish,
+  onBackToRounds,
+}: WorkspaceReviewStepProps) {
   const detailsError = validateWorkspaceDetails(details);
   const totalRounds = parseIntegerDraft(details.totalRounds, 1, 5) ?? 0;
   const payloadRounds = roundsToPayload(rounds);
   const roundsError = validateRounds(rounds, totalRounds);
   const checks = [
     { label: "Workspace details saved", ok: !detailsError },
+    {
+      label: "Employer role rubric configured",
+      ok:
+        !!workspace.targetRole &&
+        (workspace.hiringRubric?.responsibilities?.length ?? 0) >= 3,
+    },
     { label: "All rounds configured", ok: !roundsError },
-    { label: "Score weightage totals 100", ok: (payloadRounds ?? []).reduce((sum, round) => sum + round.scoreWeightage, 0) === 100 },
-    { label: "Difficulty splits match question counts", ok: !!payloadRounds && payloadRounds.every((round) => round.easyCount + round.mediumCount + round.hardCount === round.questionCount) },
+    {
+      label: "Score weightage totals 100",
+      ok:
+        (payloadRounds ?? []).reduce(
+          (sum, round) => sum + round.scoreWeightage,
+          0,
+        ) === 100,
+    },
+    {
+      label: "Difficulty splits match question counts",
+      ok:
+        !!payloadRounds &&
+        payloadRounds.every(
+          (round) =>
+            round.easyCount + round.mediumCount + round.hardCount ===
+            round.questionCount,
+        ),
+    },
   ];
   const ready = checks.every((check) => check.ok);
 
@@ -412,23 +675,43 @@ export function WorkspaceReviewStep({ workspace, details, rounds, publishing, on
     <div className="space-y-6">
       <Card>
         <CardHeader className="p-4 sm:p-6">
-          <CardTitle className="text-base sm:text-lg">Review Workspace</CardTitle>
-          <CardDescription>Confirm the setup before publishing the workspace.</CardDescription>
+          <CardTitle className="text-base sm:text-lg">
+            Review Workspace
+          </CardTitle>
+          <CardDescription>
+            Confirm the setup before publishing the workspace.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 p-4 sm:p-6 pt-0">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <SummaryItem label="Name" value={workspace.name} />
             <SummaryItem label="Organization" value={workspace.organization} />
+            <SummaryItem label="Target role" value={workspace.targetRole} />
             <SummaryItem label="Workspace code" value={workspace.code} mono />
-            <SummaryItem label="Access mode" value={workspace.accessMode === "invite_only" ? "Invite-only" : "Public"} />
-            <SummaryItem label="Starts" value={formatDateTime(workspace.startAt)} />
+            <SummaryItem
+              label="Access mode"
+              value={
+                workspace.accessMode === "invite_only"
+                  ? "Invite-only"
+                  : "Public"
+              }
+            />
+            <SummaryItem
+              label="Starts"
+              value={formatDateTime(workspace.startAt)}
+            />
             <SummaryItem label="Ends" value={formatDateTime(workspace.endAt)} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {checks.map((check) => (
-              <div key={check.label} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
-                <CheckCircle2 className={`h-4 w-4 ${check.ok ? "text-emerald-600" : "text-muted-foreground"}`} />
+              <div
+                key={check.label}
+                className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
+              >
+                <CheckCircle2
+                  className={`h-4 w-4 ${check.ok ? "text-emerald-600" : "text-muted-foreground"}`}
+                />
                 <span>{check.label}</span>
               </div>
             ))}
@@ -457,7 +740,8 @@ export function WorkspaceReviewStep({ workspace, details, rounds, publishing, on
                     <TableCell>{round.timeLimitMins} min</TableCell>
                     <TableCell>{round.scoreWeightage}%</TableCell>
                     <TableCell>
-                      E{round.easyCount} / M{round.mediumCount} / H{round.hardCount}
+                      E{round.easyCount} / M{round.mediumCount} / H
+                      {round.hardCount}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -465,14 +749,20 @@ export function WorkspaceReviewStep({ workspace, details, rounds, publishing, on
             </Table>
           </div>
 
-          {workspace.accessMode === "invite_only" && <AllowedEmailsUploader workspaceCode={workspace.code} />}
+          {workspace.accessMode === "invite_only" && (
+            <AllowedEmailsUploader workspaceCode={workspace.code} />
+          )}
 
           <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
             <Button variant="outline" onClick={onBackToRounds}>
               Back to rounds
             </Button>
             <Button onClick={onPublish} disabled={publishing || !ready}>
-              {publishing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              {publishing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+              )}
               Create Workspace
             </Button>
           </div>
@@ -482,16 +772,32 @@ export function WorkspaceReviewStep({ workspace, details, rounds, publishing, on
   );
 }
 
-function SummaryItem({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function SummaryItem({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className="rounded-md border bg-background px-3 py-2">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`mt-1 font-medium break-words ${mono ? "font-mono text-xs" : ""}`}>{value}</div>
+      <div
+        className={`mt-1 font-medium break-words ${mono ? "font-mono text-xs" : ""}`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
 
-export function AllowedEmailsUploader({ workspaceCode }: { workspaceCode: string }) {
+export function AllowedEmailsUploader({
+  workspaceCode,
+}: {
+  workspaceCode: string;
+}) {
   const [uploading, setUploading] = useState(false);
   const [summary, setSummary] = useState<AllowlistImportSummary | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -507,7 +813,10 @@ export function AllowedEmailsUploader({ workspaceCode }: { workspaceCode: string
       const form = new FormData();
       form.append("workspaceCode", workspaceCode);
       form.append("file", file);
-      const res = await api.post<{ summary: AllowlistImportSummary }>("/api/workspaces/allowed-emails/import", form);
+      const res = await api.post<{ summary: AllowlistImportSummary }>(
+        "/api/workspaces/allowed-emails/import",
+        form,
+      );
       setSummary(res.summary);
       toast.success("Allowed emails imported.");
     } catch (error) {
@@ -525,13 +834,30 @@ export function AllowedEmailsUploader({ workspaceCode }: { workspaceCode: string
           <FileSpreadsheet className="h-4 w-4 text-primary" />
           Invite-only allowlist
         </CardTitle>
-        <CardDescription>Upload a CSV with an email column before sharing this workspace code.</CardDescription>
+        <CardDescription>
+          Upload a CSV with an email column before sharing this workspace code.
+        </CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-0 space-y-3">
         <div className="flex flex-col sm:flex-row gap-2">
-          <Input ref={inputRef} type="file" accept=".csv,text/csv" onChange={(event) => upload(event.target.files?.[0])} disabled={uploading} />
-          <Button type="button" variant="outline" disabled={uploading} onClick={() => inputRef.current?.click()}>
-            {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+          <Input
+            ref={inputRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(event) => upload(event.target.files?.[0])}
+            disabled={uploading}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={uploading}
+            onClick={() => inputRef.current?.click()}
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 mr-2" />
+            )}
             Upload CSV
           </Button>
         </div>
@@ -572,11 +898,17 @@ export function WorkspaceRegistrationsTable({
   readonly?: boolean;
   preview?: WorkspaceRegistrationsPreview;
 }) {
-  const [registrations, setRegistrations] = useState<WorkspaceRegistration[]>(preview?.registrations ?? []);
+  const [registrations, setRegistrations] = useState<WorkspaceRegistration[]>(
+    preview?.registrations ?? [],
+  );
   const [loading, setLoading] = useState(!preview);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  const [dossier, setDossier] = useState<WorkspaceCandidateDossier | null>(null);
-  const [dossierLoadingUserId, setDossierLoadingUserId] = useState<string | null>(null);
+  const [dossier, setDossier] = useState<WorkspaceCandidateDossier | null>(
+    null,
+  );
+  const [dossierLoadingUserId, setDossierLoadingUserId] = useState<
+    string | null
+  >(null);
 
   const fetchRegistrations = async () => {
     if (preview) {
@@ -586,10 +918,14 @@ export function WorkspaceRegistrationsTable({
     }
     setLoading(true);
     try {
-      const res = await api.get<{ registrations: WorkspaceRegistration[] }>(`/api/workspaces/${workspaceId}/registrations`);
+      const res = await api.get<{ registrations: WorkspaceRegistration[] }>(
+        `/api/workspaces/${workspaceId}/registrations`,
+      );
       setRegistrations(res.registrations ?? []);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load registrations");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load registrations",
+      );
     } finally {
       setLoading(false);
     }
@@ -607,7 +943,11 @@ export function WorkspaceRegistrationsTable({
       );
       setDossier(res.dossier);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load candidate dossier");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to load candidate dossier",
+      );
     } finally {
       setDossierLoadingUserId(null);
     }
@@ -624,12 +964,17 @@ export function WorkspaceRegistrationsTable({
         await api.del(`/api/workspaces/${workspaceId}/registrations/${userId}`);
         toast.success("User removed from workspace.");
       } else {
-        await api.post(`/api/workspaces/${workspaceId}/registrations/${userId}/restore`, {});
+        await api.post(
+          `/api/workspaces/${workspaceId}/registrations/${userId}/restore`,
+          {},
+        );
         toast.success("User restored.");
       }
       await fetchRegistrations();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Registration update failed");
+      toast.error(
+        error instanceof Error ? error.message : "Registration update failed",
+      );
     } finally {
       setBusyUserId(null);
     }
@@ -640,10 +985,19 @@ export function WorkspaceRegistrationsTable({
       <CardHeader className="p-4 sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <CardTitle className="text-base sm:text-lg">Registrations</CardTitle>
-            <CardDescription>Registered and removed users for this workspace.</CardDescription>
+            <CardTitle className="text-base sm:text-lg">
+              Registrations
+            </CardTitle>
+            <CardDescription>
+              Registered and removed users for this workspace.
+            </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchRegistrations} disabled={loading || Boolean(preview)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchRegistrations}
+            disabled={loading || Boolean(preview)}
+          >
             <RefreshCw className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">Refresh</span>
           </Button>
@@ -651,9 +1005,13 @@ export function WorkspaceRegistrationsTable({
       </CardHeader>
       <CardContent className="p-4 sm:p-6 pt-0">
         {loading ? (
-          <div className="py-10 text-center text-muted-foreground">Loading registrations...</div>
+          <div className="py-10 text-center text-muted-foreground">
+            Loading registrations...
+          </div>
         ) : registrations.length === 0 ? (
-          <div className="py-10 text-center text-muted-foreground">No registrations yet.</div>
+          <div className="py-10 text-center text-muted-foreground">
+            No registrations yet.
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <Table className="min-w-[780px]">
@@ -668,38 +1026,86 @@ export function WorkspaceRegistrationsTable({
               </TableHeader>
               <TableBody>
                 {registrations.map((registration) => {
-                  const name = registration.user?.jobSeekerProfile?.fullName || registration.user?.name || "Candidate";
+                  const name =
+                    registration.user?.jobSeekerProfile?.fullName ||
+                    registration.user?.name ||
+                    "Candidate";
                   return (
                     <TableRow key={registration.id}>
                       <TableCell className="font-medium">{name}</TableCell>
                       <TableCell>{registration.user?.email ?? "-"}</TableCell>
                       <TableCell>
-                        <Badge variant={registration.status === "registered" ? "default" : "destructive"}>{registration.status}</Badge>
+                        <Badge
+                          variant={
+                            registration.status === "registered"
+                              ? "default"
+                              : "destructive"
+                          }
+                        >
+                          {registration.status}
+                        </Badge>
                       </TableCell>
-                      <TableCell>{formatDateTime(registration.registeredAt)}</TableCell>
+                      <TableCell>
+                        {formatDateTime(registration.registeredAt)}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button asChild variant="default" size="sm">
-                            <Link to={workspaceId === "local-preview-workspace" ? `/local-preview/workspace/candidates/${registration.userId}/reports` : `/admin/workspaces/${workspaceId}/candidates/${registration.userId}/reports`}>
+                            <Link
+                              to={
+                                workspaceId === "local-preview-workspace"
+                                  ? `/local-preview/workspace/candidates/${registration.userId}/reports`
+                                  : `/admin/workspaces/${workspaceId}/candidates/${registration.userId}/reports`
+                              }
+                            >
                               <FileText className="h-4 w-4 mr-2" />
                               Full reports
                             </Link>
                           </Button>
-                          <Button variant="outline" size="sm" disabled={dossierLoadingUserId === registration.userId} onClick={() => openDossier(registration.userId)}>
-                            {dossierLoadingUserId === registration.userId ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              dossierLoadingUserId === registration.userId
+                            }
+                            onClick={() => openDossier(registration.userId)}
+                          >
+                            {dossierLoadingUserId === registration.userId ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <FileText className="h-4 w-4 mr-2" />
+                            )}
                             Quick view
                           </Button>
-                        {registration.status === "registered" ? (
-                          <Button variant="outline" size="sm" disabled={readonly || busyUserId === registration.userId} onClick={() => updateStatus(registration.userId, "remove")}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Remove
-                          </Button>
-                        ) : (
-                          <Button variant="outline" size="sm" disabled={readonly || busyUserId === registration.userId} onClick={() => updateStatus(registration.userId, "restore")}>
-                            <RotateCcw className="h-4 w-4 mr-2" />
-                            Restore
-                          </Button>
-                        )}
+                          {registration.status === "registered" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                readonly || busyUserId === registration.userId
+                              }
+                              onClick={() =>
+                                updateStatus(registration.userId, "remove")
+                              }
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Remove
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                readonly || busyUserId === registration.userId
+                              }
+                              onClick={() =>
+                                updateStatus(registration.userId, "restore")
+                              }
+                            >
+                              <RotateCcw className="h-4 w-4 mr-2" />
+                              Restore
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -710,63 +1116,167 @@ export function WorkspaceRegistrationsTable({
           </div>
         )}
       </CardContent>
-      <CandidateDossierDialog dossier={dossier} onOpenChange={(open) => { if (!open) setDossier(null); }} />
+      <CandidateDossierDialog
+        dossier={dossier}
+        onOpenChange={(open) => {
+          if (!open) setDossier(null);
+        }}
+      />
     </Card>
   );
 }
 
-function CandidateDossierDialog({ dossier, onOpenChange }: { dossier: WorkspaceCandidateDossier | null; onOpenChange: (open: boolean) => void }) {
+function CandidateDossierDialog({
+  dossier,
+  onOpenChange,
+}: {
+  dossier: WorkspaceCandidateDossier | null;
+  onOpenChange: (open: boolean) => void;
+}) {
   const report = dossier?.modules.antigravity.latest?.report ?? {};
-  const summary = String(report.recruiter_summary || report.summary || "No Antigravity report has been received yet.");
-  const strengths = Array.isArray(report.strengths) ? report.strengths.map(String) : [];
-  const risks = Array.isArray(report.risk_flags) ? report.risk_flags.map(String) : [];
+  const summary = String(
+    report.recruiter_summary ||
+      report.summary ||
+      "No Antigravity report has been received yet.",
+  );
+  const strengths = Array.isArray(report.strengths)
+    ? report.strengths.map(String)
+    : [];
+  const risks = Array.isArray(report.risk_flags)
+    ? report.risk_flags.map(String)
+    : [];
   const latestAg = dossier?.modules.antigravity.latest;
   return (
     <Dialog open={Boolean(dossier)} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{dossier?.candidate.jobSeekerProfile?.fullName || dossier?.candidate.name || "Candidate"} · assessment dossier</DialogTitle>
-          <DialogDescription>Aptitude, DSA, and Antigravity evidence from the ProvenHire Postgres record.</DialogDescription>
+          <DialogTitle>
+            {dossier?.candidate.jobSeekerProfile?.fullName ||
+              dossier?.candidate.name ||
+              "Candidate"}{" "}
+            · assessment dossier
+          </DialogTitle>
+          <DialogDescription>
+            Aptitude, DSA, and Antigravity evidence from the ProvenHire Postgres
+            record.
+          </DialogDescription>
         </DialogHeader>
         {dossier ? (
           <div className="space-y-5">
             <div className="grid gap-3 md:grid-cols-3">
-              <ReportMetric label="Aptitude" value={dossier.modules.aptitude.latest?.score ?? "Not completed"} detail={dossier.modules.aptitude.latest ? formatDateTime(dossier.modules.aptitude.latest.completedAt) : "No persisted result"} />
-              <ReportMetric label="DSA" value={dossier.modules.dsa.latest?.score ?? "Not completed"} detail={dossier.modules.dsa.latest ? formatDateTime(dossier.modules.dsa.latest.completedAt) : "No persisted result"} />
-              <ReportMetric label="Antigravity" value={latestAg?.overallScore ?? "Not completed"} detail={latestAg ? `${latestAg.hireRecommendation || "No verdict"} · ${latestAg._count.telemetryEvents} telemetry facts` : "No persisted report"} />
+              <ReportMetric
+                label="Aptitude"
+                value={
+                  dossier.modules.aptitude.latest?.score ?? "Not completed"
+                }
+                detail={
+                  dossier.modules.aptitude.latest
+                    ? formatDateTime(
+                        dossier.modules.aptitude.latest.completedAt,
+                      )
+                    : "No persisted result"
+                }
+              />
+              <ReportMetric
+                label="DSA"
+                value={dossier.modules.dsa.latest?.score ?? "Not completed"}
+                detail={
+                  dossier.modules.dsa.latest
+                    ? formatDateTime(dossier.modules.dsa.latest.completedAt)
+                    : "No persisted result"
+                }
+              />
+              <ReportMetric
+                label="Antigravity"
+                value={latestAg?.overallScore ?? "Not completed"}
+                detail={
+                  latestAg
+                    ? `${latestAg.hireRecommendation || "No verdict"} · ${latestAg._count.telemetryEvents} telemetry facts`
+                    : "No persisted report"
+                }
+              />
             </div>
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Workspace round record</CardTitle>
-                <CardDescription>Scores persisted by the workspace attempt pipeline.</CardDescription>
+                <CardTitle className="text-base">
+                  Workspace round record
+                </CardTitle>
+                <CardDescription>
+                  Scores persisted by the workspace attempt pipeline.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {dossier.registration.roundAttempts.length ? dossier.registration.roundAttempts.map((attempt) => (
-                  <div key={attempt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
-                    <span className="font-medium">{attempt.workspaceRound.order}. {attempt.workspaceRound.name}</span>
-                    <span>{attempt.percentageScore ?? attempt.score ?? "Pending"} · {attempt.status}</span>
-                  </div>
-                )) : <p className="text-sm text-muted-foreground">No workspace attempts yet.</p>}
+                {dossier.registration.roundAttempts.length ? (
+                  dossier.registration.roundAttempts.map((attempt) => (
+                    <div
+                      key={attempt.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
+                    >
+                      <span className="font-medium">
+                        {attempt.workspaceRound.order}.{" "}
+                        {attempt.workspaceRound.name}
+                      </span>
+                      <span>
+                        {attempt.percentageScore ?? attempt.score ?? "Pending"}{" "}
+                        · {attempt.status}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No workspace attempts yet.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Antigravity recruiter report</CardTitle>
-                <CardDescription>{latestAg ? `${latestAg.schemaVersion} · session ${latestAg.antigravitySessionId}` : "Awaiting report delivery"}</CardDescription>
+                <CardTitle className="text-base">
+                  Antigravity recruiter report
+                </CardTitle>
+                <CardDescription>
+                  {latestAg
+                    ? `${latestAg.schemaVersion} · session ${latestAg.antigravitySessionId}`
+                    : "Awaiting report delivery"}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm leading-6">{summary}</p>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <EvidenceList title="Verified strengths" items={strengths} empty="No verified strengths recorded." />
-                  <EvidenceList title="Scoped risks" items={risks} empty="No scoped risks recorded." />
+                  <EvidenceList
+                    title="Verified strengths"
+                    items={strengths}
+                    empty="No verified strengths recorded."
+                  />
+                  <EvidenceList
+                    title="Scoped risks"
+                    items={risks}
+                    empty="No scoped risks recorded."
+                  />
                 </div>
                 {latestAg ? (
                   <div className="grid gap-3 sm:grid-cols-3 text-sm">
-                    <ReportMetric label="Confidence" value={latestAg.confidenceScore ?? "—"} detail="Evaluator confidence" />
-                    <ReportMetric label="Evidence turns" value={Array.isArray(latestAg.transcript) ? latestAg.transcript.length : 0} detail="Question/answer interactions" />
-                    <ReportMetric label="Received" value={formatDateTime(latestAg.receivedAt)} detail="Durable ingestion time" />
+                    <ReportMetric
+                      label="Confidence"
+                      value={latestAg.confidenceScore ?? "—"}
+                      detail="Evaluator confidence"
+                    />
+                    <ReportMetric
+                      label="Evidence turns"
+                      value={
+                        Array.isArray(latestAg.transcript)
+                          ? latestAg.transcript.length
+                          : 0
+                      }
+                      detail="Question/answer interactions"
+                    />
+                    <ReportMetric
+                      label="Received"
+                      value={formatDateTime(latestAg.receivedAt)}
+                      detail="Durable ingestion time"
+                    />
                   </div>
                 ) : null}
               </CardContent>
@@ -778,27 +1288,61 @@ function CandidateDossierDialog({ dossier, onOpenChange }: { dossier: WorkspaceC
   );
 }
 
-function ReportMetric({ label, value, detail }: { label: string; value: string | number; detail: string }) {
+function ReportMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+}) {
   return (
     <div className="rounded-lg border bg-muted/20 p-3">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
       <div className="mt-1 text-lg font-semibold">{value}</div>
       <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
     </div>
   );
 }
 
-function EvidenceList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+function EvidenceList({
+  title,
+  items,
+  empty,
+}: {
+  title: string;
+  items: string[];
+  empty: string;
+}) {
   return (
     <div className="rounded-lg border p-3">
       <h4 className="font-medium">{title}</h4>
-      {items.length ? <ul className="mt-2 space-y-2 text-sm text-muted-foreground">{items.slice(0, 8).map((item, index) => <li key={`${index}-${item}`} className="leading-5">• {item}</li>)}</ul> : <p className="mt-2 text-sm text-muted-foreground">{empty}</p>}
+      {items.length ? (
+        <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+          {items.slice(0, 8).map((item, index) => (
+            <li key={`${index}-${item}`} className="leading-5">
+              • {item}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">{empty}</p>
+      )}
     </div>
   );
 }
 
-export function WorkspaceLeaderboardPreview({ workspaceCode }: { workspaceCode: string }) {
-  const [rows, setRows] = useState<WorkspaceLeaderboardResponse["leaderboard"]>([]);
+export function WorkspaceLeaderboardPreview({
+  workspaceCode,
+}: {
+  workspaceCode: string;
+}) {
+  const [rows, setRows] = useState<WorkspaceLeaderboardResponse["leaderboard"]>(
+    [],
+  );
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -808,11 +1352,17 @@ export function WorkspaceLeaderboardPreview({ workspaceCode }: { workspaceCode: 
     try {
       const qs = new URLSearchParams({ limit: "10" });
       if (cursor) qs.set("cursor", cursor);
-      const res = await api.get<WorkspaceLeaderboardResponse>(`/api/user/workspaces/code/${encodeURIComponent(workspaceCode)}/leaderboard?${qs.toString()}`);
-      setRows((prev) => (cursor ? [...prev, ...res.leaderboard] : res.leaderboard));
+      const res = await api.get<WorkspaceLeaderboardResponse>(
+        `/api/user/workspaces/code/${encodeURIComponent(workspaceCode)}/leaderboard?${qs.toString()}`,
+      );
+      setRows((prev) =>
+        cursor ? [...prev, ...res.leaderboard] : res.leaderboard,
+      );
       setNextCursor(res.nextCursor);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load leaderboard");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load leaderboard",
+      );
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -830,13 +1380,19 @@ export function WorkspaceLeaderboardPreview({ workspaceCode }: { workspaceCode: 
           <BarChart3 className="h-4 w-4 text-primary" />
           Leaderboard Preview
         </CardTitle>
-        <CardDescription>Public ranking preview for this workspace.</CardDescription>
+        <CardDescription>
+          Public ranking preview for this workspace.
+        </CardDescription>
       </CardHeader>
       <CardContent className="p-4 sm:p-6 pt-0">
         {loading ? (
-          <div className="py-10 text-center text-muted-foreground">Loading leaderboard...</div>
+          <div className="py-10 text-center text-muted-foreground">
+            Loading leaderboard...
+          </div>
         ) : rows.length === 0 ? (
-          <div className="py-10 text-center text-muted-foreground">No completed round scores yet.</div>
+          <div className="py-10 text-center text-muted-foreground">
+            No completed round scores yet.
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="overflow-x-auto">
@@ -855,11 +1411,15 @@ export function WorkspaceLeaderboardPreview({ workspaceCode }: { workspaceCode: 
                   {rows.map((row) => (
                     <TableRow key={`${row.rank}-${row.userId}`}>
                       <TableCell className="font-mono">#{row.rank}</TableCell>
-                      <TableCell className="font-medium">{row.name || "Candidate"}</TableCell>
+                      <TableCell className="font-medium">
+                        {row.name || "Candidate"}
+                      </TableCell>
                       <TableCell>{row.email}</TableCell>
                       <TableCell>{row.totalScore}</TableCell>
                       <TableCell>{row.completedRounds}</TableCell>
-                      <TableCell>{formatDateTime(row.lastCompletedAt)}</TableCell>
+                      <TableCell>
+                        {formatDateTime(row.lastCompletedAt)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -867,8 +1427,16 @@ export function WorkspaceLeaderboardPreview({ workspaceCode }: { workspaceCode: 
             </div>
             {nextCursor && (
               <div className="flex justify-center">
-                <Button variant="outline" onClick={() => fetchPage(nextCursor)} disabled={loadingMore}>
-                  {loadingMore ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BarChart3 className="h-4 w-4 mr-2" />}
+                <Button
+                  variant="outline"
+                  onClick={() => fetchPage(nextCursor)}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <BarChart3 className="h-4 w-4 mr-2" />
+                  )}
                   Load more
                 </Button>
               </div>
@@ -887,10 +1455,15 @@ export function WorkspaceOverviewCard({ workspace }: { workspace: Workspace }) {
       <CardHeader className="p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle className="text-base sm:text-lg">{workspace.name}</CardTitle>
+            <CardTitle className="text-base sm:text-lg">
+              {workspace.name}
+            </CardTitle>
             <CardDescription>{workspace.organization}</CardDescription>
           </div>
-          <Badge variant="outline" className={statusBadgeClass(workspace.status)}>
+          <Badge
+            variant="outline"
+            className={statusBadgeClass(workspace.status)}
+          >
             {statusLabel(workspace.status)}
           </Badge>
         </div>
@@ -898,9 +1471,17 @@ export function WorkspaceOverviewCard({ workspace }: { workspace: Workspace }) {
       <CardContent className="p-4 sm:p-6 pt-0">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <SummaryItem label="Code" value={workspace.code} mono />
-          <SummaryItem label="Access" value={workspace.accessMode === "invite_only" ? "Invite-only" : "Public"} />
+          <SummaryItem
+            label="Access"
+            value={
+              workspace.accessMode === "invite_only" ? "Invite-only" : "Public"
+            }
+          />
           <SummaryItem label="Rounds" value={String(roundCount)} />
-          <SummaryItem label="Window" value={`${formatDateTime(workspace.startAt)} - ${formatDateTime(workspace.endAt)}`} />
+          <SummaryItem
+            label="Window"
+            value={`${formatDateTime(workspace.startAt)} - ${formatDateTime(workspace.endAt)}`}
+          />
         </div>
       </CardContent>
     </Card>
@@ -915,7 +1496,9 @@ export function WorkspaceRoundsTable({ rounds }: { rounds: WorkspaceRound[] }) {
           <ClipboardList className="h-4 w-4 text-primary" />
           Rounds
         </CardTitle>
-        <CardDescription>Published configuration for each workspace round.</CardDescription>
+        <CardDescription>
+          Published configuration for each workspace round.
+        </CardDescription>
       </CardHeader>
       <CardContent className="p-4 sm:p-6 pt-0">
         <div className="overflow-x-auto">
@@ -943,7 +1526,8 @@ export function WorkspaceRoundsTable({ rounds }: { rounds: WorkspaceRound[] }) {
                   <TableCell>{round.timeLimitMins} min</TableCell>
                   <TableCell>{round.scoreWeightage}%</TableCell>
                   <TableCell>
-                    E{round.easyCount} / M{round.mediumCount} / H{round.hardCount}
+                    E{round.easyCount} / M{round.mediumCount} / H
+                    {round.hardCount}
                   </TableCell>
                 </TableRow>
               ))}
@@ -962,7 +1546,10 @@ export function WorkspaceProgress({ step }: { step: number }) {
       <CardContent className="p-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           {labels.map((label, index) => (
-            <div key={label} className={`text-xs sm:text-sm font-medium ${step === index + 1 ? "text-foreground" : "text-muted-foreground"}`}>
+            <div
+              key={label}
+              className={`text-xs sm:text-sm font-medium ${step === index + 1 ? "text-foreground" : "text-muted-foreground"}`}
+            >
               {index + 1}. {label}
             </div>
           ))}
@@ -999,20 +1586,47 @@ export function WorkspaceActionBar({
         <span className="hidden sm:inline">Copy code</span>
       </Button>
       {workspace.status === "published" && (
-        <Button variant="default" size="sm" onClick={onStart} disabled={starting}>
-          {starting ? <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" /> : <Play className="h-4 w-4 sm:mr-2" />}
+        <Button
+          variant="default"
+          size="sm"
+          onClick={onStart}
+          disabled={starting}
+        >
+          {starting ? (
+            <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+          ) : (
+            <Play className="h-4 w-4 sm:mr-2" />
+          )}
           <span className="hidden sm:inline">Start</span>
         </Button>
       )}
       {workspace.status !== "draft" && workspace.status !== "archived" && (
-        <Button variant="destructive" size="sm" onClick={onArchive} disabled={archiving}>
-          {archiving ? <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" /> : <Archive className="h-4 w-4 sm:mr-2" />}
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={onArchive}
+          disabled={archiving}
+        >
+          {archiving ? (
+            <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+          ) : (
+            <Archive className="h-4 w-4 sm:mr-2" />
+          )}
           <span className="hidden sm:inline">Archive</span>
         </Button>
       )}
       {workspace.status !== "started" && (
-        <Button variant="destructive" size="sm" onClick={onDelete} disabled={deleting}>
-          {deleting ? <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 sm:mr-2" />}
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={onDelete}
+          disabled={deleting}
+        >
+          {deleting ? (
+            <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4 sm:mr-2" />
+          )}
           <span className="hidden sm:inline">Delete</span>
         </Button>
       )}
@@ -1032,13 +1646,19 @@ export function WorkspaceTabs({
     <Tabs defaultValue="overview" className="space-y-4">
       <div className="overflow-x-auto pb-1">
         <TabsList className="inline-flex w-max min-w-full sm:min-w-0 sm:w-auto flex-nowrap gap-1 p-1 h-auto">
-          <TabsTrigger value="overview" className="shrink-0">Overview</TabsTrigger>
-          <TabsTrigger value="rounds" className="shrink-0">Rounds</TabsTrigger>
+          <TabsTrigger value="overview" className="shrink-0">
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="rounds" className="shrink-0">
+            Rounds
+          </TabsTrigger>
           <TabsTrigger value="registrations" className="shrink-0">
             <Users className="h-3 w-3 mr-1" />
             Registrations
           </TabsTrigger>
-          <TabsTrigger value="allowlist" className="shrink-0">Allowlist</TabsTrigger>
+          <TabsTrigger value="allowlist" className="shrink-0">
+            Allowlist
+          </TabsTrigger>
           <TabsTrigger value="leaderboard" className="shrink-0">
             <BarChart3 className="h-3 w-3 mr-1" />
             Leaderboard
@@ -1053,7 +1673,10 @@ export function WorkspaceTabs({
         <WorkspaceRoundsTable rounds={workspace.rounds ?? []} />
       </TabsContent>
       <TabsContent value="registrations">
-        <WorkspaceRegistrationsTable workspaceId={workspace.id} readonly={readonly} />
+        <WorkspaceRegistrationsTable
+          workspaceId={workspace.id}
+          readonly={readonly}
+        />
       </TabsContent>
       <TabsContent value="allowlist">
         {workspace.accessMode === "invite_only" ? (
@@ -1062,7 +1685,10 @@ export function WorkspaceTabs({
           <Card>
             <CardHeader className="p-4 sm:p-6">
               <CardTitle className="text-base sm:text-lg">Allowlist</CardTitle>
-              <CardDescription>This workspace is public, so candidates can join with the workspace code.</CardDescription>
+              <CardDescription>
+                This workspace is public, so candidates can join with the
+                workspace code.
+              </CardDescription>
             </CardHeader>
           </Card>
         )}
