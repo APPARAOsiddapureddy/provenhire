@@ -6,20 +6,19 @@ import { prisma } from "../config/prisma.js";
 import { WorkspaceServiceError } from "./workspace.service.js";
 import { getWorkspaceCandidateDossier, type WorkspaceActor } from "./workspaceRegistration.service.js";
 
-export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v1";
+export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v2_grounded";
 export const REPORT_AGENT_MODEL = process.env.REPORT_AGENT_MODEL?.trim() || "deepseek/deepseek-r1";
 
 const citation = z.object({
   claim: z.string().min(1),
   evidence: z.array(z.string().min(1)).min(1),
-  confidence: z.enum(["high", "medium", "low"]),
+  support: z.enum(["direct", "derived", "limited"]),
 });
 
 export const dsaAgentReportSchema = z.object({
-  schemaVersion: z.literal("dsa_reasoning_report_v1"),
+  schemaVersion: z.literal("dsa_reasoning_report_v2"),
   executiveRead: z.string().min(1),
-  decisionSignal: z.enum(["strong", "mixed", "weak", "insufficient_evidence"]),
-  confidence: z.number().min(0).max(1),
+  evidenceStatus: z.enum(["complete", "partial", "insufficient_evidence"]),
   algorithmicReasoning: z.string().min(1),
   implementationQuality: z.string().min(1),
   correctnessBoundary: z.string().min(1),
@@ -34,19 +33,13 @@ export const dsaAgentReportSchema = z.object({
     edgeCaseRead: z.string().min(1),
     followUpReasoning: z.string().min(1),
   })),
-  roleReadiness: z.object({
-    readyFor: z.array(z.string()),
-    needsSupportFor: z.array(z.string()),
-    avoidUntilVerified: z.array(z.string()),
-  }),
   recommendedPanelProbes: z.array(z.string()),
   evidenceLimits: z.array(z.string()),
 });
 
 export const unifiedAgentReportSchema = z.object({
-  schemaVersion: z.literal("unified_reasoning_report_v1"),
-  recommendation: z.enum(["advance", "advance_with_follow_up", "hold", "insufficient_evidence"]),
-  confidence: z.number().min(0).max(1),
+  schemaVersion: z.literal("unified_reasoning_report_v2"),
+  evidenceStatus: z.enum(["complete", "partial", "insufficient_evidence"]),
   executiveRead: z.string().min(1),
   crossModuleThesis: z.string().min(1),
   reinforcingSignals: z.array(citation),
@@ -57,11 +50,6 @@ export const unifiedAgentReportSchema = z.object({
     evidence: z.array(z.string()),
     resolution: z.string().min(1),
   })),
-  roleFit: z.object({
-    readyNow: z.array(z.string()),
-    conditional: z.array(z.string()),
-    notYetProven: z.array(z.string()),
-  }),
   panelDecisionGuide: z.array(z.string()),
   evidenceLimits: z.array(z.string()),
 });
@@ -76,32 +64,30 @@ function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknown> {
   const citationProperties = {
     claim: { type: "string" },
     evidence: { type: "array", items: { type: "string" }, minItems: 1 },
-    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    support: { type: "string", enum: ["direct", "derived", "limited"] },
   };
   if (kind === "dsa") return {
     type: "object", additionalProperties: false,
     properties: {
-      schemaVersion: { type: "string", const: "dsa_reasoning_report_v1" },
-      executiveRead: { type: "string" }, decisionSignal: { type: "string", enum: ["strong", "mixed", "weak", "insufficient_evidence"] }, confidence: { type: "number", minimum: 0, maximum: 1 },
+      schemaVersion: { type: "string", const: "dsa_reasoning_report_v2" },
+      executiveRead: { type: "string" }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] },
       algorithmicReasoning: { type: "string" }, implementationQuality: { type: "string" }, correctnessBoundary: { type: "string" },
-      verifiedStrengths: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "confidence"] } },
-      failureAndRiskAnalysis: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "confidence"] } },
+      verifiedStrengths: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
+      failureAndRiskAnalysis: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
       problemReads: { type: "array", items: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, correctness: { type: "string" }, approach: { type: "string" }, complexity: { type: "string" }, codeQuality: { type: "string" }, edgeCaseRead: { type: "string" }, followUpReasoning: { type: "string" } }, required: ["title", "correctness", "approach", "complexity", "codeQuality", "edgeCaseRead", "followUpReasoning"] } },
-      roleReadiness: { type: "object", additionalProperties: false, properties: { readyFor: { type: "array", items: { type: "string" } }, needsSupportFor: { type: "array", items: { type: "string" } }, avoidUntilVerified: { type: "array", items: { type: "string" } } }, required: ["readyFor", "needsSupportFor", "avoidUntilVerified"] },
       recommendedPanelProbes: { type: "array", items: { type: "string" } }, evidenceLimits: { type: "array", items: { type: "string" } },
     },
-    required: ["schemaVersion", "executiveRead", "decisionSignal", "confidence", "algorithmicReasoning", "implementationQuality", "correctnessBoundary", "verifiedStrengths", "failureAndRiskAnalysis", "problemReads", "roleReadiness", "recommendedPanelProbes", "evidenceLimits"],
+    required: ["schemaVersion", "executiveRead", "evidenceStatus", "algorithmicReasoning", "implementationQuality", "correctnessBoundary", "verifiedStrengths", "failureAndRiskAnalysis", "problemReads", "recommendedPanelProbes", "evidenceLimits"],
   };
   return {
     type: "object", additionalProperties: false,
     properties: {
-      schemaVersion: { type: "string", const: "unified_reasoning_report_v1" }, recommendation: { type: "string", enum: ["advance", "advance_with_follow_up", "hold", "insufficient_evidence"] }, confidence: { type: "number", minimum: 0, maximum: 1 }, executiveRead: { type: "string" }, crossModuleThesis: { type: "string" },
-      reinforcingSignals: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "confidence"] } }, contradictions: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "confidence"] } },
+      schemaVersion: { type: "string", const: "unified_reasoning_report_v2" }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] }, executiveRead: { type: "string" }, crossModuleThesis: { type: "string" },
+      reinforcingSignals: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } }, contradictions: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
       riskRegister: { type: "array", items: { type: "object", additionalProperties: false, properties: { risk: { type: "string" }, severity: { type: "string", enum: ["high", "medium", "low"] }, evidence: { type: "array", items: { type: "string" } }, resolution: { type: "string" } }, required: ["risk", "severity", "evidence", "resolution"] } },
-      roleFit: { type: "object", additionalProperties: false, properties: { readyNow: { type: "array", items: { type: "string" } }, conditional: { type: "array", items: { type: "string" } }, notYetProven: { type: "array", items: { type: "string" } } }, required: ["readyNow", "conditional", "notYetProven"] },
       panelDecisionGuide: { type: "array", items: { type: "string" } }, evidenceLimits: { type: "array", items: { type: "string" } },
     },
-    required: ["schemaVersion", "recommendation", "confidence", "executiveRead", "crossModuleThesis", "reinforcingSignals", "contradictions", "riskRegister", "roleFit", "panelDecisionGuide", "evidenceLimits"],
+    required: ["schemaVersion", "evidenceStatus", "executiveRead", "crossModuleThesis", "reinforcingSignals", "contradictions", "riskRegister", "panelDecisionGuide", "evidenceLimits"],
   };
 }
 
@@ -112,21 +98,75 @@ function evidenceFor(kind: AssessmentReportKind, dossier: Awaited<ReturnType<typ
     ...base,
     aptitude: dossier.modules.aptitude,
     dsa: dossier.modules.dsa,
-    antigravity: dossier.modules.antigravity.latest ? {
-      overallScore: dossier.modules.antigravity.latest.overallScore,
-      hireRecommendation: dossier.modules.antigravity.latest.hireRecommendation,
-      confidenceScore: dossier.modules.antigravity.latest.confidenceScore,
-      report: dossier.modules.antigravity.latest.report,
-      evidencePacket: dossier.modules.antigravity.latest.evidencePacket,
-    } : null,
+    antigravity: dossier.modules.antigravity.latest
+      ? {
+          overallScore: dossier.modules.antigravity.latest.overallScore,
+          report: dossier.modules.antigravity.latest.report,
+          evidencePacket:
+            "evidencePacket" in dossier.modules.antigravity.latest
+              ? dossier.modules.antigravity.latest.evidencePacket
+              : null,
+        }
+      : null,
   };
 }
 
 function systemPrompt(kind: AssessmentReportKind): string {
-  const shared = `You are a senior hiring-evidence analyst. Produce a decision-useful report from the supplied persisted evidence only. Never invent a score, test, answer, behavior, responsibility, or claim. Distinguish verified facts from inference. Every important conclusion must cite concrete evidence strings that a recruiter can locate in the input. Treat missing evidence as a limit, not as a negative fact. Avoid generic praise and avoid repeating raw metrics without interpretation.`;
+  const shared = `You are a senior assessment-evidence analyst. Produce an evidence interpretation from the supplied persisted evidence only. You do not recommend advance, hold, hire, or reject, and you do not calculate role readiness. Never invent a score, test, answer, behavior, responsibility, or claim. Distinguish directly recorded facts from derived interpretation. Every evidence citation MUST use the exact format /json/pointer :: exact source excerpt, where the pointer resolves inside the supplied JSON and the excerpt appears verbatim at that pointer. Treat missing evidence as a limit, not as a negative fact. Avoid generic praise and avoid repeating raw metrics without interpretation.`;
   return kind === "dsa"
     ? `${shared}\nAnalyze algorithmic reasoning, executable correctness, source quality, edge cases, complexity claims, and follow-up reasoning. Passing tests are bounded evidence, not proof of universal correctness or optimality.`
-    : `${shared}\nSynthesize Aptitude, DSA, and Antigravity without averaging away contradictions. Explain what independently reinforces, what conflicts, what is role-ready, and the smallest panel action that resolves each material uncertainty.`;
+    : `${shared}\nSynthesize Aptitude, DSA, and Antigravity without averaging away contradictions. Explain what independently reinforces, what conflicts, which evidence remains missing, and the smallest panel action that resolves each material uncertainty.`;
+}
+
+function resolveJsonPointer(root: unknown, pointer: string): unknown {
+  if (!pointer.startsWith("/")) return undefined;
+  return pointer
+    .slice(1)
+    .split("/")
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"))
+    .reduce<unknown>((current, part) => {
+      if (Array.isArray(current)) {
+        const index = Number(part);
+        return Number.isInteger(index) ? current[index] : undefined;
+      }
+      return current && typeof current === "object"
+        ? (current as Record<string, unknown>)[part]
+        : undefined;
+    }, root);
+}
+
+export function assertGroundedAssessmentReport(
+  result: unknown,
+  evidence: unknown,
+): void {
+  const references: string[] = [];
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const row = value as Record<string, unknown>;
+    if (Array.isArray(row.evidence))
+      references.push(...row.evidence.map(String));
+    Object.values(row).forEach(visit);
+  };
+  visit(result);
+  if (!references.length)
+    throw new Error("Report rejected: no material claim has a source citation.");
+  const invalid = references.filter((reference) => {
+    const separator = reference.indexOf(" :: ");
+    if (separator <= 0) return true;
+    const pointer = reference.slice(0, separator).trim();
+    const excerpt = reference.slice(separator + 4).trim();
+    if (!excerpt) return true;
+    const source = resolveJsonPointer(evidence, pointer);
+    return source === undefined || !JSON.stringify(source).includes(excerpt);
+  });
+  if (invalid.length)
+    throw new Error(
+      `Report rejected: ${invalid.length} evidence citation(s) do not resolve to the persisted source.`,
+    );
 }
 
 async function callOpenRouter(kind: AssessmentReportKind, evidence: unknown) {
@@ -150,11 +190,17 @@ async function callOpenRouter(kind: AssessmentReportKind, evidence: unknown) {
   const content = body.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("Report model returned an empty response.");
   const parsed = schemaFor(kind).parse(JSON.parse(content.replace(/^```json\s*|\s*```$/g, "")));
+  assertGroundedAssessmentReport(parsed, evidence);
   return { result: parsed, usage: body.usage ?? {}, estimatedCostUsd: Number(body.usage?.cost ?? 0) || null };
 }
 
 export async function generateAssessmentReport(actor: WorkspaceActor, workspaceId: string, userId: string, kind: AssessmentReportKind, force = false) {
   const dossier = await getWorkspaceCandidateDossier(actor, workspaceId, userId);
+  if (dossier.synthesis.decisionStatus !== "human_review_required")
+    throw new WorkspaceServiceError(
+      "Report generation is blocked until every source module has complete, auditable evidence.",
+      409,
+    );
   const evidence = evidenceFor(kind, dossier);
   const sourceHash = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
   if (!force) {

@@ -30,6 +30,7 @@
     "audit:create-users": "tsx scripts/createTestUsers.ts",
     "audit:flow": "tsx scripts/auditFlow.ts",
     "test:candidate-synthesis": "tsx scripts/candidate-synthesis-contract.ts",
+    "test:report-integrity": "tsx scripts/report-integrity-contract.ts",
     "seed:interview-bank": "tsx prisma/seeds/interviewQuestionBank.seed.ts",
     "clear-test-users": "tsx prisma/clear-test-users.ts"
   },

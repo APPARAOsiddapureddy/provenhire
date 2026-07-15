@@ -255,40 +255,20 @@ function dossierFor(
     },
     synthesis: {
       schemaVersion: "candidate_assessment_synthesis_v2",
-      recommendation: "HUMAN REVIEW REQUIRED",
-      decisionStatus: "human_review_required",
+      recommendation: "INSUFFICIENT EVIDENCE",
+      decisionStatus: "insufficient_evidence",
       compositeScore: null,
       confidence: null,
       completedModules: 3,
       overallRead:
-        "All three module results are available. Their 31-point spread is evidence to investigate, not a number to average away. A human reviewer must apply an employer-approved role rubric.",
-      crossModuleSignals: strong
-        ? [
-            "High aptitude and DSA scores agree on objective problem-solving strength.",
-            "Interview communication and adaptability remain positive signals.",
-          ]
-        : [
-            "Aptitude and DSA support solid baseline problem solving.",
-            "Interview communication and honest uncertainty handling are positive role signals.",
-          ],
-      contradictions: strong
-        ? [
-            "Objective Aptitude/DSA performance materially exceeds the Antigravity implementation-depth signal; validate crash recovery and production ownership before a final decision.",
-          ]
-        : [
-            "Objective problem solving is stronger than distributed failure-recovery evidence; validate crash recovery and multi-region operation.",
-          ],
-      verifiedStrengths: strong
-        ? [
-            "Distributed-systems invariants",
-            "Objective coding execution",
-            "Incident and observability reasoning",
-          ]
-        : [
-            "Implementation fundamentals",
-            "Problem comprehension",
-            "Honest uncertainty handling",
-          ],
+        "All three modules have stored results, but the Aptitude ledger and the failed DSA judge case are incomplete. Cross-module interpretation and the human decision are withheld until those sources are recovered or the assessments are rerun.",
+      crossModuleSignals: [
+        "Cross-module strengths are withheld until every source module is auditable.",
+      ],
+      contradictions: [
+        "Cross-module comparison is withheld until every module has complete, auditable evidence.",
+      ],
+      verifiedStrengths: [],
       scopedRisks: strong
         ? [
             "Idempotency claims lack crash-recovery mechanisms.",
@@ -311,10 +291,11 @@ function dossierFor(
         aptitudeScore,
         dsaScore,
         antigravityScore,
-        antigravityVerdict: strong ? "MAYBE" : "HIRE WITH FOLLOW-UP",
-        scoreSpread:
-          Math.max(aptitudeScore, dsaScore, antigravityScore) -
-          Math.min(aptitudeScore, dsaScore, antigravityScore),
+        antigravityVerdict: null,
+        scoreSpread: 0,
+        aptitudeEvidenceComplete: false,
+        dsaEvidenceComplete: false,
+        antigravityEvidenceComplete: true,
       },
       integrity: {
         status: "verified",
@@ -331,6 +312,15 @@ function dossierFor(
           "Design safe data and service boundaries",
         ],
       },
+      evidenceCompleteness: {
+        aptitude: false,
+        dsa: false,
+        antigravity: true,
+        issues: [
+          "Aptitude retains only 8/30 question records.",
+          "The partial DSA submission does not retain a reproducible failed judge case.",
+        ],
+      },
       decisionGates: [
         {
           key: "identity_and_role",
@@ -341,24 +331,24 @@ function dossierFor(
         },
         {
           key: "module_evidence",
-          status: "ready",
+          status: "incomplete",
           label: "Required assessment evidence",
           detail:
-            "3/3 module results are available; the Aptitude ledger is explicitly marked partial.",
+            "3/3 modules have stored results, but Aptitude retains only 8/30 questions and the DSA failure is not reproducible. Decision use is blocked.",
         },
         {
           key: "role_rubric",
-          status: "not_configured",
+          status: "ready",
           label: "Employer role rubric",
           detail:
-            "No employer-approved responsibility rubric or pass/fail policy is configured. Scores are not converted into a hiring outcome.",
+            "Three employer-approved responsibilities are attached. They cannot be applied until the source evidence is complete.",
         },
         {
           key: "human_decision",
           status: "pending",
           label: "Named human decision owner",
           detail:
-            "A qualified reviewer must resolve the 31-point disagreement and record a decision rationale.",
+            "A qualified reviewer can record a decision only after the incomplete Aptitude and DSA evidence is recovered or rerun.",
         },
       ],
     },
@@ -563,7 +553,7 @@ function dossierFor(
             preview_replay_case_id:
               "export_ced237fe-624e-401f-b55a-8404ae1ae6a3_ced237fe-624e-401f-b55a-8404ae1ae6a3",
             recruiter_summary: strong
-              ? "The candidate communicates high-level system-design trade-offs, but implementation knowledge and failure handling remain shallow. Coverage was moderate, so the report cannot support an unconditional advance."
+              ? "The candidate communicates high-level system-design trade-offs, while implementation knowledge and failure handling remain shallow in the retained interview evidence. Coverage was moderate; use the unresolved crash-recovery and tenant-isolation probes to collect the missing evidence."
               : "Arjun showed solid implementation fundamentals and honest boundaries. A targeted follow-up on distributed failure recovery would reduce the remaining uncertainty.",
             strengths: strong
               ? [

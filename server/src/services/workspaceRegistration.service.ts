@@ -12,6 +12,11 @@ import {
   sendWorkspaceInvitationEmail,
   sendWorkspaceRemovalEmail,
 } from "./resend.js";
+import {
+  sanitizeAntigravityReportForCandidate,
+  sanitizeAssessmentGenerationForCandidate,
+  sanitizeDsaWorkspaceEvidenceForCandidate,
+} from "./candidateDossierSanitizer.js";
 
 export type WorkspaceActor = {
   id: string;
@@ -48,6 +53,9 @@ export function buildCandidateAssessmentSynthesis(input: {
   targetRole?: string | null;
   roleResponsibilities?: string[];
   workspaceInterviewLinked?: boolean;
+  aptitudeEvidenceComplete?: boolean;
+  dsaEvidenceComplete?: boolean;
+  antigravityEvidenceComplete?: boolean;
 }) {
   const aptitude = scorePercent(input.aptitude?.score, "percent");
   const dsa = scorePercent(input.dsa?.score, "percent");
@@ -55,38 +63,61 @@ export function buildCandidateAssessmentSynthesis(input: {
   const measured = [aptitude, dsa, antigravity].filter(
     (value): value is number => value !== null,
   );
+  const aptitudeEvidenceComplete = input.aptitudeEvidenceComplete ?? true;
+  const dsaEvidenceComplete = input.dsaEvidenceComplete ?? true;
+  const antigravityEvidenceComplete =
+    input.antigravityEvidenceComplete ?? true;
+  const decisionMeasured = [
+    aptitudeEvidenceComplete ? aptitude : null,
+    dsaEvidenceComplete ? dsa : null,
+    antigravityEvidenceComplete ? antigravity : null,
+  ].filter((value): value is number => value !== null);
   const spread =
-    measured.length > 1 ? Math.max(...measured) - Math.min(...measured) : 0;
+    decisionMeasured.length > 1
+      ? Math.max(...decisionMeasured) - Math.min(...decisionMeasured)
+      : 0;
   const report =
     input.antigravity?.report && typeof input.antigravity.report === "object"
       ? (input.antigravity.report as Record<string, unknown>)
       : {};
-  const strengths = Array.isArray(report.strengths)
-    ? report.strengths.map(String)
+  const strengthSource = report.tested_strengths ?? report.strengths;
+  const riskSource = report.tested_risks ?? report.risk_flags;
+  const strengths = Array.isArray(strengthSource)
+    ? strengthSource.map(String)
     : [];
-  const risks = Array.isArray(report.risk_flags)
-    ? report.risk_flags.map(String)
+  const risks = Array.isArray(riskSource)
+    ? riskSource.map(String)
     : [];
 
   const crossModuleSignals: string[] = [];
   const contradictions: string[] = [];
-  if (aptitude !== null && aptitude >= 80)
+  if (aptitudeEvidenceComplete && aptitude !== null && aptitude >= 80)
     crossModuleSignals.push(
       "Strong aptitude evidence supports fast comprehension and structured problem solving.",
     );
-  if (dsa !== null && dsa >= 80)
+  if (dsaEvidenceComplete && dsa !== null && dsa >= 80)
     crossModuleSignals.push(
       "DSA performance verifies implementation fluency under objective test constraints.",
     );
-  if (antigravity !== null && antigravity >= 80)
+  if (
+    antigravityEvidenceComplete &&
+    antigravity !== null &&
+    antigravity >= 80
+  )
     crossModuleSignals.push(
       "Antigravity evidence supports role-level reasoning, communication, and ownership under pressure.",
     );
-  if (measured.length === 3 && spread <= 12)
+  if (decisionMeasured.length === 3 && spread <= 12)
     crossModuleSignals.push(
       "All three modules agree closely; the candidate signal is consistent rather than driven by one assessment.",
     );
-  if (aptitude !== null && dsa !== null && Math.abs(aptitude - dsa) >= 15) {
+  if (
+    aptitudeEvidenceComplete &&
+    dsaEvidenceComplete &&
+    aptitude !== null &&
+    dsa !== null &&
+    Math.abs(aptitude - dsa) >= 15
+  ) {
     contradictions.push(
       aptitude > dsa
         ? "Conceptual aptitude materially exceeds coding execution; validate implementation speed and debugging discipline."
@@ -94,6 +125,8 @@ export function buildCandidateAssessmentSynthesis(input: {
     );
   }
   if (
+    dsaEvidenceComplete &&
+    antigravityEvidenceComplete &&
     dsa !== null &&
     antigravity !== null &&
     Math.abs(dsa - antigravity) >= 15
@@ -104,12 +137,27 @@ export function buildCandidateAssessmentSynthesis(input: {
         : "Interview reasoning is stronger than objective coding; verify independent implementation through a scoped work sample.",
     );
   }
-  if (!contradictions.length)
+  if (decisionMeasured.length < 3)
+    contradictions.push(
+      "Cross-module comparison is withheld until every module has complete, auditable evidence.",
+    );
+  else if (!contradictions.length)
     contradictions.push(
       "No material cross-module contradiction was detected at the current evidence threshold.",
     );
 
   const completedModules = measured.length;
+  const incompleteEvidence = [
+    ...(!aptitudeEvidenceComplete && aptitude !== null
+      ? ["Aptitude has a persisted score but its complete question ledger is not retained."]
+      : []),
+    ...(!dsaEvidenceComplete && dsa !== null
+      ? ["DSA has aggregate results but not enough problem, source, and test evidence to reproduce every correctness concern."]
+      : []),
+    ...(!antigravityEvidenceComplete && antigravity !== null
+      ? ["Antigravity is missing the complete bound evidence packet or transcript required to audit its conclusions."]
+      : []),
+  ];
   const normalizeRole = (value: string | null | undefined) =>
     String(value || "")
       .toLowerCase()
@@ -153,7 +201,7 @@ export function buildCandidateAssessmentSynthesis(input: {
   ];
   const decisionStatus = integrityIssues.length
     ? "blocked_integrity"
-    : completedModules < 3
+    : completedModules < 3 || incompleteEvidence.length
       ? "insufficient_evidence"
       : "human_review_required";
   const recommendation =
@@ -173,9 +221,17 @@ export function buildCandidateAssessmentSynthesis(input: {
     },
     {
       key: "module_evidence",
-      status: completedModules === 3 ? "ready" : "incomplete",
+      status:
+        completedModules === 3 && !incompleteEvidence.length
+          ? "ready"
+          : "incomplete",
       label: "Required assessment evidence",
-      detail: `${completedModules}/3 assessment modules contain persisted results.`,
+      detail:
+        completedModules < 3
+          ? `${completedModules}/3 assessment modules contain persisted results.`
+          : incompleteEvidence.length
+            ? `All three modules have results, but the dossier is not decision-ready: ${incompleteEvidence.join(" ")}`
+            : "All three modules have complete, auditable evidence for human review.",
     },
     {
       key: "role_rubric",
@@ -209,7 +265,7 @@ export function buildCandidateAssessmentSynthesis(input: {
       decisionStatus === "blocked_integrity"
         ? "Do not use this dossier for a hiring decision. The assessment artifact failed candidate/workspace/role binding checks."
         : decisionStatus === "insufficient_evidence"
-          ? "The dossier is incomplete. Collect the missing assessment evidence before a human reviewer records a decision."
+          ? `The dossier is not decision-ready. ${incompleteEvidence.join(" ") || "Collect every missing module before a human reviewer records a decision."}`
           : `All three module results are available. Their ${Math.round(spread * 10) / 10}-point spread is evidence to investigate, not a number to average away. A human reviewer must apply an employer-approved role rubric.`,
     crossModuleSignals: crossModuleSignals.length
       ? crossModuleSignals
@@ -217,12 +273,17 @@ export function buildCandidateAssessmentSynthesis(input: {
           "The current evidence is too sparse to claim a cross-module strength.",
         ],
     contradictions,
-    verifiedStrengths: strengths.slice(0, 6),
+    verifiedStrengths:
+      decisionStatus === "human_review_required" ? strengths.slice(0, 6) : [],
     scopedRisks: risks.slice(0, 6),
     nextActions: [
       ...integrityIssues.slice(0, 2),
       ...contradictions
-        .filter((item) => !item.startsWith("No material"))
+        .filter(
+          (item) =>
+            !item.startsWith("No material") &&
+            !item.startsWith("Cross-module comparison is withheld"),
+        )
         .slice(0, 2),
       ...(risks.length
         ? [`Probe the highest Antigravity risk directly: ${risks[0]}`]
@@ -237,8 +298,11 @@ export function buildCandidateAssessmentSynthesis(input: {
       aptitudeScore: aptitude,
       dsaScore: dsa,
       antigravityScore: antigravity,
-      antigravityVerdict: input.antigravity?.hireRecommendation ?? null,
+      antigravityVerdict: null,
       scoreSpread: Math.round(spread * 10) / 10,
+      aptitudeEvidenceComplete,
+      dsaEvidenceComplete,
+      antigravityEvidenceComplete,
     },
     integrity: {
       status: integrityIssues.length ? "blocked" : "verified",
@@ -252,6 +316,12 @@ export function buildCandidateAssessmentSynthesis(input: {
       responsibilities: input.roleResponsibilities ?? [],
     },
     decisionGates,
+    evidenceCompleteness: {
+      aptitude: aptitudeEvidenceComplete,
+      dsa: dsaEvidenceComplete,
+      antigravity: antigravityEvidenceComplete,
+      issues: incompleteEvidence,
+    },
   };
 }
 
@@ -932,31 +1002,11 @@ export async function getWorkspaceCandidateDossier(
     )[0];
 
   const [
-    aptitudeResults,
-    dsaResults,
     antigravityReports,
     workspaceDsaSubmissions,
     workspaceMcqSession,
     reportGenerations,
   ] = await Promise.all([
-    prisma.aptitudeTestResult.findMany({
-      where: { userId, invalidated: false },
-      orderBy: { completedAt: "desc" },
-      take: 5,
-      select: { id: true, score: true, answers: true, completedAt: true },
-    }),
-    prisma.dsaRoundResult.findMany({
-      where: { userId, invalidated: false },
-      orderBy: { completedAt: "desc" },
-      take: 5,
-      select: {
-        id: true,
-        roundSessionId: true,
-        score: true,
-        answers: true,
-        completedAt: true,
-      },
-    }),
     prisma.antigravityReport.findMany({
       where: { userId },
       orderBy: { receivedAt: "desc" },
@@ -1146,6 +1196,57 @@ export async function getWorkspaceCandidateDossier(
         })),
       }
     : null;
+  const aptitudeEvidenceComplete = Boolean(
+    workspaceAptitudeEvidence &&
+      workspaceAptitudeEvidence.totalQuestions > 0 &&
+      workspaceAptitudeEvidence.questionReview.length ===
+        workspaceAptitudeEvidence.totalQuestions &&
+      workspaceAptitudeEvidence.questionReview.every(
+        (item) =>
+          item.question !== "Question text was not retained." &&
+          item.correctAnswer.trim().length > 0,
+      ),
+  );
+  const retainedJudgeRows = (value: unknown): Record<string, unknown>[] => {
+    if (Array.isArray(value))
+      return value.filter(
+        (row): row is Record<string, unknown> =>
+          Boolean(row) && typeof row === "object" && !Array.isArray(row),
+      );
+    if (!value || typeof value !== "object") return [];
+    const nested = (value as Record<string, unknown>).results;
+    return Array.isArray(nested)
+      ? nested.filter(
+          (row): row is Record<string, unknown> =>
+            Boolean(row) && typeof row === "object" && !Array.isArray(row),
+        )
+      : [];
+  };
+  const dsaEvidenceComplete = Boolean(
+    workspaceDsaEvidence?.submissions.length &&
+      workspaceDsaEvidence.submissions.every((submission) => {
+        const rows = retainedJudgeRows(submission.results);
+        const failedRows = rows.filter((row) => row.passed === false);
+        const failedRowsExplainable = failedRows.every((row) =>
+          [
+            row.input,
+            row.expected,
+            row.expectedOutput,
+            row.actual,
+            row.actualOutput,
+            row.error,
+            row.message,
+          ].some((detail) => String(detail ?? "").trim().length > 0),
+        );
+        return Boolean(
+          submission.question?.description &&
+            submission.code &&
+            submission.totalCount > 0 &&
+            rows.length === submission.totalCount &&
+            failedRowsExplainable,
+        );
+      }),
+  );
   const targetRole = registration.workspace.targetRole;
   const hiringRubric =
     registration.workspace.hiringRubric &&
@@ -1171,19 +1272,23 @@ export async function getWorkspaceCandidateDossier(
   const workspaceInterviewLinked = Boolean(
     workspaceInterviewAttempt?.interviewId && boundAntigravityReport,
   );
+  const antigravityEvidenceComplete = Boolean(
+    boundAntigravityReport?.evidencePacket &&
+      Array.isArray(boundAntigravityReport.transcript) &&
+      boundAntigravityReport.transcript.length > 0,
+  );
   const synthesis = buildCandidateAssessmentSynthesis({
-    aptitude:
-      aptitudeResults[0] ??
-      (workspaceAptitudeEvidence
-        ? { score: workspaceAptitudeEvidence.score }
-        : null),
-    dsa:
-      dsaResults[0] ??
-      (workspaceDsaEvidence ? { score: workspaceDsaEvidence.score } : null),
+    aptitude: workspaceAptitudeEvidence
+      ? { score: workspaceAptitudeEvidence.score }
+      : null,
+    dsa: workspaceDsaEvidence ? { score: workspaceDsaEvidence.score } : null,
     antigravity: matchingAntigravityReport,
     targetRole,
     roleResponsibilities,
     workspaceInterviewLinked,
+    aptitudeEvidenceComplete,
+    dsaEvidenceComplete,
+    antigravityEvidenceComplete,
   });
   const recordedDecision = await prisma.workspaceCandidateDecision.findUnique({
     where: {
@@ -1218,13 +1323,13 @@ export async function getWorkspaceCandidateDossier(
     },
     modules: {
       aptitude: {
-        latest: aptitudeResults[0] ?? null,
-        history: aptitudeResults,
+        latest: null,
+        history: [],
         workspaceEvidence: workspaceAptitudeEvidence,
       },
       dsa: {
-        latest: dsaResults[0] ?? null,
-        history: dsaResults,
+        latest: null,
+        history: [],
         workspaceEvidence: workspaceDsaEvidence,
       },
       antigravity: {
@@ -1235,52 +1340,9 @@ export async function getWorkspaceCandidateDossier(
   };
   if (access === "manager") return dossier;
 
-  const candidateReportPayload =
-    matchingAntigravityReport?.report &&
-    typeof matchingAntigravityReport.report === "object" &&
-    !Array.isArray(matchingAntigravityReport.report)
-      ? (matchingAntigravityReport.report as Record<string, unknown>)
-      : {};
   const candidateAntigravityReport = matchingAntigravityReport
-    ? {
-        ...matchingAntigravityReport,
-        hireRecommendation: null,
-        confidenceScore: null,
-        report: {
-          preview_replay_case_id:
-            candidateReportPayload.preview_replay_case_id ?? null,
-          tested_strengths:
-            candidateReportPayload.tested_strengths ??
-            candidateReportPayload.strengths ??
-            [],
-          tested_risks:
-            candidateReportPayload.tested_risks ??
-            candidateReportPayload.risk_flags ??
-            [],
-        },
-      }
+    ? sanitizeAntigravityReportForCandidate(matchingAntigravityReport)
     : null;
-  const sanitizeGeneration = (
-    generation: (typeof reportGenerations)[number] | null,
-    kind: "dsa" | "unified",
-  ) => {
-    if (!generation) return null;
-    const result =
-      generation.result && typeof generation.result === "object"
-        ? (generation.result as Record<string, unknown>)
-        : {};
-    return {
-      ...generation,
-      result:
-        kind === "dsa"
-          ? {
-              verifiedStrengths: result.verifiedStrengths ?? [],
-              failureAndRiskAnalysis: result.failureAndRiskAnalysis ?? [],
-              recommendedPanelProbes: result.recommendedPanelProbes ?? [],
-            }
-          : { roleFit: result.roleFit ?? {} },
-    };
-  };
 
   return {
     ...dossier,
@@ -1296,11 +1358,31 @@ export async function getWorkspaceCandidateDossier(
     },
     recordedDecision: null,
     agentReports: {
-      dsa: sanitizeGeneration(dossier.agentReports.dsa, "dsa"),
-      unified: sanitizeGeneration(dossier.agentReports.unified, "unified"),
+      dsa: sanitizeAssessmentGenerationForCandidate(
+        dossier.agentReports.dsa,
+        "dsa",
+      ),
+      unified: sanitizeAssessmentGenerationForCandidate(
+        dossier.agentReports.unified,
+        "unified",
+      ),
     },
     modules: {
       ...dossier.modules,
+      aptitude: {
+        latest: null,
+        history: [],
+        workspaceEvidence: dossier.modules.aptitude.workspaceEvidence,
+      },
+      dsa: {
+        latest: null,
+        history: [],
+        workspaceEvidence: dossier.modules.dsa.workspaceEvidence
+          ? sanitizeDsaWorkspaceEvidenceForCandidate(
+              dossier.modules.dsa.workspaceEvidence,
+            )
+          : null,
+      },
       antigravity: {
         latest: candidateAntigravityReport,
         history: [],
@@ -1356,6 +1438,12 @@ export async function recordWorkspaceCandidateDecision(
       409,
     );
   }
+  if (dossier.synthesis.decisionStatus !== "human_review_required") {
+    throw new WorkspaceServiceError(
+      "Decision recording is blocked until every module has complete, auditable evidence.",
+      409,
+    );
+  }
   const responsibilities = dossier.synthesis.roleRubric.responsibilities;
   if (responsibilities.length < 3) {
     throw new WorkspaceServiceError(
@@ -1402,9 +1490,15 @@ export async function recordWorkspaceCandidateDecision(
     antigravity: dossier.modules.antigravity.latest
       ? {
           id: dossier.modules.antigravity.latest.id,
-          interviewId: dossier.modules.antigravity.latest.interviewId,
+          interviewId:
+            "interviewId" in dossier.modules.antigravity.latest
+              ? dossier.modules.antigravity.latest.interviewId
+              : null,
           sessionId: dossier.modules.antigravity.latest.antigravitySessionId,
-          reportHash: dossier.modules.antigravity.latest.reportHash,
+          reportHash:
+            "reportHash" in dossier.modules.antigravity.latest
+              ? dossier.modules.antigravity.latest.reportHash
+              : null,
         }
       : null,
   };

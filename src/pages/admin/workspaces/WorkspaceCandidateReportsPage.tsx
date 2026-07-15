@@ -60,6 +60,24 @@ const strings = (value: unknown): string[] =>
   asList(value).map(String).filter(Boolean);
 const numeric = (value: unknown, fallback = 0) =>
   Number.isFinite(Number(value)) ? Number(value) : fallback;
+const evidenceComplete = (
+  dossier: WorkspaceCandidateDossier,
+  module: "aptitude" | "dsa" | "antigravity",
+) => dossier.synthesis?.evidenceCompleteness?.[module] === true;
+const interviewEvidenceState = (
+  latest: WorkspaceCandidateDossier["modules"]["antigravity"]["latest"],
+) => {
+  if (!latest) return "NOT ASSESSED";
+  const report = asRecord(latest.report);
+  const explicit = String(report.evidence_status || "").trim();
+  if (explicit) return titleize(explicit);
+  const legacy = String(latest.hireRecommendation || "").toUpperCase();
+  if (legacy.includes("INSUFFICIENT")) return "INSUFFICIENT INTERVIEW EVIDENCE";
+  if (legacy.includes("NO HIRE")) return "LIMITED INTERVIEW EVIDENCE";
+  if (legacy.includes("HIRE") && !legacy.includes("MAYBE"))
+    return "SUBSTANTIAL INTERVIEW EVIDENCE";
+  return "MIXED INTERVIEW EVIDENCE";
+};
 const titleize = (value: string) =>
   value
     .replace(/[_-]+/g, " ")
@@ -177,11 +195,15 @@ function AdminDecisionBanner({
     null;
   const synthesis = dossier.synthesis;
   const score = kind === "aptitude" ? aptitude : kind === "dsa" ? dsa : null;
+  const moduleComplete =
+    kind === "unified" ? true : evidenceComplete(dossier, kind);
   const decision =
     kind === "unified"
       ? synthesis?.recommendation || "INSUFFICIENT EVIDENCE"
       : score == null
         ? "ASSESSMENT EVIDENCE UNAVAILABLE"
+        : !moduleComplete
+          ? "PARTIAL EVIDENCE — DECISION USE BLOCKED"
         : kind === "aptitude"
           ? "OBJECTIVE SIGNAL RECORDED"
           : "CODING EVIDENCE RECORDED";
@@ -207,7 +229,7 @@ function AdminDecisionBanner({
   const proofs =
     kind === "aptitude"
       ? [
-          `${score ?? "—"}/100 persisted score`,
+          `${score ?? "—"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
           `${String(aptitudeAnswers.correct ?? "—")} correct responses`,
           aptitudeReview.length === aptitudeTotal && aptitudeTotal > 0
             ? `All ${aptitudeTotal} question records retained`
@@ -215,9 +237,11 @@ function AdminDecisionBanner({
         ]
       : kind === "dsa"
         ? [
-            `${score ?? "—"}/100 persisted score`,
+            `${score ?? "—"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
             `${fullyPassed}/${dsaSubmissions.length} submissions passed every retained test`,
-            "Source and retained judge evidence are inspectable below",
+            moduleComplete
+              ? "Problem, source, and test evidence are reproducible below"
+              : "At least one correctness concern lacks reproducible judge evidence",
           ]
         : [
             `${synthesis?.completedModules ?? 0}/3 module results available`,
@@ -230,7 +254,9 @@ function AdminDecisionBanner({
     kind === "unified"
       ? synthesis?.overallRead ||
         "Collect the missing evidence before a human reviewer records a decision."
-      : "This module is one input to a human review. It does not independently approve or reject the candidate.";
+      : moduleComplete
+        ? "This module is one input to a human review. It does not independently approve or reject the candidate."
+        : "A score exists, but the retained source is incomplete. Do not use this module in a hiring decision until the missing evidence is recovered or the assessment is rerun.";
   return (
     <Card className="overflow-hidden border-slate-800 shadow-lg">
       <CardContent className="bg-slate-950 p-6 text-white md:p-8">
@@ -450,6 +476,7 @@ function AgentReasoningReport({
 }
 
 type DecisionRating = "meets" | "partial" | "not_demonstrated" | "conflicting";
+type DecisionDraftRating = DecisionRating | "unassessed";
 
 type DecisionPayload = {
   outcome: "advance" | "hold" | "reject" | "additional_evidence";
@@ -479,11 +506,15 @@ function HumanDecisionPanel({
   );
   const [rationale, setRationale] = useState(existing?.rationale ?? "");
   const [assessments, setAssessments] = useState<
-    DecisionPayload["rubricAssessments"]
+    Array<
+      Omit<DecisionPayload["rubricAssessments"][number], "rating"> & {
+        rating: DecisionDraftRating;
+      }
+    >
   >(() =>
     responsibilities.map((responsibility) => ({
       responsibility,
-      rating: "partial",
+      rating: "unassessed",
       rationale: "",
       evidenceRefs: [],
     })),
@@ -491,18 +522,25 @@ function HumanDecisionPanel({
   const gatesReady =
     dossier.synthesis?.integrity?.status === "verified" &&
     dossier.synthesis.completedModules === 3 &&
+    dossier.synthesis.decisionStatus === "human_review_required" &&
     responsibilities.length >= 3;
   const complete =
     rationale.trim().length >= 30 &&
     assessments.length === responsibilities.length &&
     assessments.every(
       (item) =>
-        item.rationale.trim().length >= 10 && item.evidenceRefs.length > 0,
+        item.rating !== "unassessed" &&
+        item.rationale.trim().length >= 10 &&
+        item.evidenceRefs.length > 0,
     );
 
   const updateAssessment = (
     index: number,
-    patch: Partial<DecisionPayload["rubricAssessments"][number]>,
+    patch: Partial<
+      Omit<DecisionPayload["rubricAssessments"][number], "rating"> & {
+        rating: DecisionDraftRating;
+      }
+    >,
   ) =>
     setAssessments((current) =>
       current.map((item, itemIndex) =>
@@ -537,8 +575,9 @@ function HumanDecisionPanel({
         ) : null}
         {!gatesReady ? (
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-            Decision entry remains locked until evidence binding, all three
-            modules, and the employer role rubric are complete.
+            Decision entry remains locked until evidence binding, complete
+            auditable source data for all three modules, and the employer role
+            rubric are ready.
           </div>
         ) : (
           <>
@@ -584,7 +623,7 @@ function HumanDecisionPanel({
                   <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr]">
                     <Select
                       value={assessment.rating}
-                      onValueChange={(rating: DecisionRating) =>
+                      onValueChange={(rating: DecisionDraftRating) =>
                         updateAssessment(index, { rating })
                       }
                     >
@@ -592,6 +631,9 @@ function HumanDecisionPanel({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="unassessed" disabled>
+                          Select an evidence rating
+                        </SelectItem>
                         <SelectItem value="meets">Meets</SelectItem>
                         <SelectItem value="partial">
                           Partially demonstrated
@@ -637,7 +679,10 @@ function HumanDecisionPanel({
                 onRecord?.({
                   outcome,
                   rationale,
-                  rubricAssessments: assessments,
+                  rubricAssessments: assessments.map((assessment) => ({
+                    ...assessment,
+                    rating: assessment.rating as DecisionRating,
+                  })),
                 })
               }
             >
@@ -679,12 +724,22 @@ function Overview({
   return (
     <div className="space-y-5">
       <AdminDecisionBanner kind="unified" dossier={dossier} />
-      <AgentReasoningReport
-        title="Unified candidate reasoning report"
-        report={dossier.agentReports?.unified}
-        generating={generating}
-        onGenerate={onGenerate}
-      />
+      {synthesis.decisionStatus === "human_review_required" ? (
+        <AgentReasoningReport
+          title="Unified candidate reasoning report"
+          report={dossier.agentReports?.unified}
+          generating={generating}
+          onGenerate={onGenerate}
+        />
+      ) : (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="p-5 text-sm leading-7 text-amber-950">
+            Unified AI interpretation is withheld. A generated narrative cannot
+            repair missing question records or judge evidence; recover or rerun
+            the incomplete modules first.
+          </CardContent>
+        </Card>
+      )}
       <Card className="border-amber-300 bg-amber-50/60">
         <CardHeader>
           <CardDescription>Decision governance</CardDescription>
@@ -725,22 +780,25 @@ function Overview({
       />
       <div className="grid gap-4 md:grid-cols-3">
         <Metric
-          label="Aptitude"
-          value={synthesis.evidenceBasis.aptitudeScore ?? "—"}
-          detail="Comprehension and structured problem solving"
-        />
-        <Metric
-          label="DSA"
-          value={synthesis.evidenceBasis.dsaScore ?? "—"}
-          detail="Objective coding and test performance"
-        />
-        <Metric
-          label="Antigravity"
-          value={synthesis.evidenceBasis.antigravityScore ?? "—"}
-          detail={
-            synthesis.evidenceBasis.antigravityVerdict ||
-            "Interview reasoning evidence"
+          label="Aptitude evidence"
+          value={
+            synthesis.evidenceCompleteness?.aptitude ? "Complete" : "Partial"
           }
+          detail={`Stored module result: ${synthesis.evidenceBasis.aptitudeScore ?? "—"}/100`}
+        />
+        <Metric
+          label="DSA evidence"
+          value={synthesis.evidenceCompleteness?.dsa ? "Complete" : "Partial"}
+          detail={`Stored module result: ${synthesis.evidenceBasis.dsaScore ?? "—"}/100`}
+        />
+        <Metric
+          label="Interview evidence"
+          value={
+            synthesis.evidenceCompleteness?.antigravity
+              ? "Complete"
+              : "Partial"
+          }
+          detail={`Recorded interview result: ${synthesis.evidenceBasis.antigravityScore == null ? "—" : `${synthesis.evidenceBasis.antigravityScore / 10}/10`}`}
         />
       </div>
       <Card>
@@ -777,11 +835,10 @@ function Overview({
             ))}
           </div>
           <div className="rounded-xl bg-muted/50 p-4 text-sm leading-7">
-            <strong>Calibration:</strong> the module spread is{" "}
-            {synthesis.evidenceBasis.scoreSpread} points.{" "}
-            {synthesis.evidenceBasis.scoreSpread <= 10
-              ? "The modules broadly agree, but agreement is not a hiring rule without an employer-approved rubric."
-              : "The spread is material. Resolve the contradiction directly; do not average it into a composite hiring score."}
+            <strong>Calibration:</strong>{" "}
+            {synthesis.decisionStatus === "human_review_required"
+              ? `The complete module evidence spans ${synthesis.evidenceBasis.scoreSpread} points. Resolve any material disagreement directly; do not average unlike assessments into a hiring score.`
+              : "Cross-module score comparison is withheld because at least one module is incomplete or not auditable."}
           </div>
         </CardContent>
       </Card>
@@ -852,14 +909,22 @@ function AptitudeReport({ dossier }: { dossier: WorkspaceCandidateDossier }) {
         <CardContent className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Metric
-              label="Score"
+              label={ledgerComplete ? "Score" : "Stored score"}
               value={`${latest.score ?? "—"}/100`}
-              detail="Persisted assessment score"
+              detail={
+                ledgerComplete
+                  ? "Verified against the complete question ledger"
+                  : "Not decision-ready: the full ledger is missing"
+              }
             />
             <Metric
-              label="Accuracy"
-              value={`${accuracy}%`}
-              detail={`${correct} correct across ${attempted} attempted`}
+              label={ledgerComplete ? "Accuracy" : "Reported accuracy"}
+              value={ledgerComplete ? `${accuracy}%` : "Withheld"}
+              detail={
+                ledgerComplete
+                  ? `${correct} correct across ${attempted} attempted`
+                  : `${correct} correct is recorded, but only ${review.length}/${total || "?"} answers are auditable`
+              }
             />
             <Metric
               label="Incorrect"
@@ -875,7 +940,9 @@ function AptitudeReport({ dossier }: { dossier: WorkspaceCandidateDossier }) {
           <div className="rounded-xl border-l-4 border-l-primary bg-muted/40 p-4">
             <p className="font-semibold">Reasoning interpretation</p>
             <p className="mt-2 text-sm leading-7">
-              {accuracy >= 90
+              {!ledgerComplete
+                ? "Interpretation is withheld because the complete question ledger is unavailable. The stored score and counts may be displayed as historical facts, but they cannot support domain or hiring conclusions."
+                : accuracy >= 90
                 ? "The attempt shows high objective precision with a very small error surface. The report still separates wrong and skipped items so the panel can distinguish a knowledge gap from time allocation."
                 : accuracy >= 75
                   ? "The baseline is positive, but the error ledger should be reviewed for repeated domain or time-pressure patterns."
@@ -895,7 +962,7 @@ function AptitudeReport({ dossier }: { dossier: WorkspaceCandidateDossier }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {categories.length ? (
+          {ledgerComplete && categories.length ? (
             <div className="space-y-4">
               {categories.map((category, index) => (
                 <div key={index}>
@@ -913,7 +980,9 @@ function AptitudeReport({ dossier }: { dossier: WorkspaceCandidateDossier }) {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Legacy attempt: category-level evidence was not persisted.
+              {ledgerComplete
+                ? "Category-level evidence was not persisted."
+                : "Domain conclusions are withheld until every question and its domain mapping are retained."}
             </p>
           )}
         </CardContent>
@@ -1104,15 +1173,27 @@ function DsaReport({
   const languages = submissions.length
     ? [...new Set(submissions.map((item) => item.language))].join(", ")
     : String(answers.language ?? "Not recorded");
+  const complete = evidenceComplete(dossier, "dsa");
   return (
     <div className="space-y-5">
       <AdminDecisionBanner kind="dsa" dossier={dossier} />
-      <AgentReasoningReport
-        title="DSA reasoning report"
-        report={dossier.agentReports?.dsa}
-        generating={generating}
-        onGenerate={onGenerate}
-      />
+      {complete ? (
+        <AgentReasoningReport
+          title="DSA reasoning report"
+          report={dossier.agentReports?.dsa}
+          generating={generating}
+          onGenerate={onGenerate}
+        />
+      ) : (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="p-5 text-sm leading-7 text-amber-950">
+            AI interpretation is withheld because the persisted problem,
+            source, and test evidence cannot reproduce every correctness
+            concern. Recover the judge details or rerun the assessment before
+            generating strengths, risks, or role conclusions.
+          </CardContent>
+        </Card>
+      )}
       <Card>
         <CardHeader>
           <CardDescription>
@@ -1151,7 +1232,9 @@ function DsaReport({
             <p className="mt-2 text-sm leading-7">
               {totalTests && totalPassed === totalTests
                 ? "The official submissions satisfy the complete persisted test suite. The report still exposes source, complexity claims, and follow-up reasoning because passing tests alone does not establish maintainability or conceptual depth."
-                : `${totalPassed}/${totalTests || "?"} retained tests passed. At least one submission is not fully correct against the retained suite; inspect the failed case before drawing a broader implementation conclusion.`}
+                : complete
+                  ? `${totalPassed}/${totalTests || "?"} retained tests passed. At least one submission is not fully correct; its retained failure evidence must be inspected before drawing a broader conclusion.`
+                  : `${totalPassed}/${totalTests || "?"} aggregate tests passed, but at least one failed case is not reproducible from the retained evidence. No broader correctness or role conclusion is allowed.`}
             </p>
           </div>
         </CardContent>
@@ -1393,10 +1476,12 @@ function CandidateFeedbackHeader({
   title,
   score,
   summary,
+  scoreLabel = "Your result",
 }: {
   title: string;
   score: string;
   summary: string;
+  scoreLabel?: string;
 }) {
   return (
     <Card className="overflow-hidden border-emerald-300">
@@ -1413,7 +1498,7 @@ function CandidateFeedbackHeader({
           </div>
           <div className="rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-center">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">
-              Your result
+              {scoreLabel}
             </p>
             <p className="mt-1 text-4xl font-black">{score}</p>
           </div>
@@ -1431,13 +1516,24 @@ function CandidateOverview({
   const synthesis = dossier.synthesis;
   const result = asRecord(dossier.agentReports?.unified?.result);
   const role = asRecord(result.roleFit);
-  const strengths = synthesis?.verifiedStrengths ?? [];
+  const completeEvidenceCount = synthesis?.evidenceCompleteness
+    ? ["aptitude", "dsa", "antigravity"].filter(
+        (key) =>
+          synthesis.evidenceCompleteness?.[
+            key as "aptitude" | "dsa" | "antigravity"
+          ],
+      ).length
+    : 0;
+  const strengths =
+    synthesis?.decisionStatus === "human_review_required"
+      ? synthesis.verifiedStrengths
+      : [];
   const risks = synthesis?.scopedRisks ?? [];
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
         title="Your complete assessment feedback"
-        score={`${synthesis?.completedModules ?? 0}/3`}
+        score={`${completeEvidenceCount}/3 evidence complete`}
         summary="This coaching view keeps the three assessment results separate. It shows what the retained evidence supports and converts remaining gaps into practice deliverables; it does not calculate or reveal an employer hiring outcome."
       />
       {synthesis?.integrity?.status === "blocked" ? (
@@ -1450,19 +1546,35 @@ function CandidateOverview({
       ) : null}
       <div className="grid gap-4 md:grid-cols-3">
         <Metric
-          label="Aptitude"
+          label="Aptitude · /100 scale"
           value={synthesis?.evidenceBasis.aptitudeScore ?? "—"}
-          detail="Structured reasoning under fixed constraints"
+          detail={
+            synthesis?.evidenceCompleteness?.aptitude
+              ? "Complete question evidence retained"
+              : "Stored result; complete question evidence unavailable"
+          }
         />
         <Metric
-          label="DSA"
+          label="DSA · /100 scale"
           value={synthesis?.evidenceBasis.dsaScore ?? "—"}
-          detail="Executable problem solving"
+          detail={
+            synthesis?.evidenceCompleteness?.dsa
+              ? "Reproducible source and judge evidence retained"
+              : "Stored result; at least one correctness concern is not reproducible"
+          }
         />
         <Metric
-          label="Interview"
-          value={synthesis?.evidenceBasis.antigravityScore ?? "—"}
-          detail="Reasoning and ownership under pressure"
+          label="Interview · /10 scale"
+          value={
+            synthesis?.evidenceBasis.antigravityScore == null
+              ? "—"
+              : synthesis.evidenceBasis.antigravityScore / 10
+          }
+          detail={
+            synthesis?.evidenceCompleteness?.antigravity
+              ? "Complete bound interview evidence retained"
+              : "Interview evidence is incomplete"
+          }
         />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -1477,7 +1589,8 @@ function CandidateOverview({
           empty="No material improvement area was recorded."
         />
       </div>
-      {synthesis?.integrity?.status !== "blocked" ? (
+      {synthesis?.decisionStatus === "human_review_required" &&
+      (synthesis.roleRubric?.responsibilities.length ?? 0) >= 3 ? (
         <Card>
           <CardHeader>
             <CardTitle>Your role-readiness map</CardTitle>
@@ -1554,22 +1667,60 @@ function CandidateAptitudeReport({
   const correct = numeric(answers.correct);
   const attempted = Math.max(0, total - skipped);
   const accuracy = attempted ? Math.round((correct / attempted) * 100) : 0;
+  const ledgerComplete = total > 0 && review.length === total;
+  const timeLimitMinutes = numeric(answers.timeLimitSeconds)
+    ? Math.round(numeric(answers.timeLimitSeconds) / 60)
+    : null;
+  const learningGuide = (row: Json) => {
+    const question = String(row.question || "").toLowerCase();
+    if (question.includes("relative reduction"))
+      return {
+        diagnosis:
+          "Likely misconception: subtracting percentages without dividing by the original baseline.",
+        worked:
+          "The drop is 2.5 − 1.5 = 1.0 percentage point. Relative reduction uses the original 2.5% as the baseline: 1.0 ÷ 2.5 = 0.40, so the reduction is 40%.",
+        practice:
+          "Success criterion: solve three baseline-change questions and state the denominator before calculating.",
+      };
+    if (question.includes("cache hit saves 18 ms"))
+      return {
+        diagnosis:
+          "Likely issue: unit conversion or time allocation; no answer was submitted.",
+        worked:
+          "18 ms × 4,000 hits = 72,000 ms. Divide by 1,000 to convert milliseconds to seconds: 72 seconds.",
+        practice:
+          "Success criterion: complete three rate × saving questions in under two minutes and write the unit conversion on every line.",
+      };
+    return {
+      diagnosis:
+        "The retained data identifies the outcome but not the exact misconception.",
+      worked: `Compare your submitted answer with ${String(row.correctAnswer || "the expected answer")} and write the rule that distinguishes them.`,
+      practice:
+        "Success criterion: solve one near-transfer and one differently worded example, then explain the governing rule aloud.",
+    };
+  };
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
         title="Your Aptitude feedback"
-        score={score == null ? "—" : `${score}/100`}
+        score={score == null ? "—" : `${ledgerComplete ? "" : "Stored "}${score}/100`}
         summary={
-          accuracy >= 85
+          !ledgerComplete
+            ? `Only ${review.length}/${total || "?"} question records are available. Use the retained mistakes for practice, but do not treat the headline score or domain ranking as fully auditable.`
+            : accuracy >= 85
             ? "Your reasoning accuracy is a strength. Your next improvement comes from understanding the exact wrong or skipped patterns, not from repeating the entire syllabus."
             : "Your score shows a usable baseline, but your next practice cycle should target the error patterns and time-allocation choices below."
         }
       />
       <div className="grid gap-4 md:grid-cols-3">
         <Metric
-          label="Accuracy"
-          value={`${accuracy}%`}
-          detail={`${correct} correct across ${attempted} attempts`}
+          label={ledgerComplete ? "Accuracy" : "Accuracy status"}
+          value={ledgerComplete ? `${accuracy}%` : "Withheld"}
+          detail={
+            ledgerComplete
+              ? `${correct} correct across ${attempted} attempts`
+              : "Complete answer history is unavailable"
+          }
         />
         <Metric
           label="Skipped"
@@ -1583,7 +1734,11 @@ function CandidateAptitudeReport({
               ? `${Math.round(numeric(answers.timeTakenSeconds) / 60)} min`
               : "—"
           }
-          detail="Compare pace with the recorded limit"
+          detail={
+            timeLimitMinutes
+              ? `Recorded limit: ${timeLimitMinutes} min`
+              : "Time limit was not retained"
+          }
         />
       </div>
       <Card>
@@ -1594,7 +1749,7 @@ function CandidateAptitudeReport({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {categories.length ? (
+          {ledgerComplete && categories.length ? (
             [...categories]
               .sort((a, b) => numeric(b.score) - numeric(a.score))
               .map((category) => (
@@ -1608,7 +1763,9 @@ function CandidateAptitudeReport({
               ))
           ) : (
             <p className="text-sm text-muted-foreground">
-              This attempt did not retain domain labels.
+              {ledgerComplete
+                ? "This attempt did not retain domain labels."
+                : "Domain rankings are withheld because the complete question-to-domain ledger is unavailable."}
             </p>
           )}
         </CardContent>
@@ -1622,11 +1779,13 @@ function CandidateAptitudeReport({
         </CardHeader>
         <CardContent className="space-y-3">
           {issues.length ? (
-            issues.map((row, index) => (
-              <div
-                key={String(row.id ?? index)}
-                className="rounded-xl border p-4"
-              >
+            issues.map((row, index) => {
+              const guide = learningGuide(row);
+              return (
+                <div
+                  key={String(row.id ?? index)}
+                  className="rounded-xl border p-4"
+                >
                 <div className="flex flex-wrap justify-between gap-2">
                   <p className="font-medium">{String(row.question)}</p>
                   <Badge variant="outline">{String(row.outcome)}</Badge>
@@ -1645,13 +1804,20 @@ function CandidateAptitudeReport({
                     </strong>
                   </p>
                 </div>
-                <p className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
-                  Practice action: solve two variations of this reasoning
-                  pattern, then explain the rule you used before calculating the
-                  answer.
-                </p>
-              </div>
-            ))
+                  <div className="mt-3 space-y-2 rounded-lg bg-muted/50 p-3 text-sm leading-6">
+                    <p>
+                      <strong>Diagnosis:</strong> {guide.diagnosis}
+                    </p>
+                    <p>
+                      <strong>Worked reasoning:</strong> {guide.worked}
+                    </p>
+                    <p>
+                      <strong>Practice action:</strong> {guide.practice}
+                    </p>
+                  </div>
+                </div>
+              );
+            })
           ) : (
             <p className="text-sm text-muted-foreground">
               No question-level mistakes were retained.
@@ -1673,10 +1839,28 @@ function CandidateDsaReport({
   const answers = asRecord(latest?.answers);
   const result = asRecord(dossier.agentReports?.dsa?.result);
   const score = workspace?.score ?? latest?.score ?? null;
-  const strengths = asList(result.verifiedStrengths).map(asRecord);
-  const risks = asList(result.failureAndRiskAnalysis).map(asRecord);
-  const problems = asList(answers.problems).map(asRecord);
-  const probes = strings(result.recommendedPanelProbes);
+  const complete = evidenceComplete(dossier, "dsa");
+  const strengths = complete
+    ? asList(result.verifiedStrengths).map(asRecord)
+    : [];
+  const risks = complete
+    ? asList(result.failureAndRiskAnalysis).map(asRecord)
+    : [];
+  const problems = workspace?.submissions.length
+    ? workspace.submissions.map((submission): Json => ({
+        title: submission.question?.title || submission.questionId,
+        description: submission.question?.description || "",
+        constraints: submission.question?.constraints || [],
+        code: submission.code,
+        language: submission.language,
+        testCasesPassed: submission.passedCount,
+        testCasesTotal: submission.totalCount,
+        results: asList(asRecord(submission.results).results).map(asRecord),
+      }))
+    : asList(answers.problems).map(asRecord);
+  const probes = strings(
+    result.candidatePracticePrompts ?? result.recommendedPanelProbes,
+  );
   const candidateProbes = probes.map((probe) =>
     probe
       .replace(/^Ask the candidate to\s+/i, "Practice how to ")
@@ -1688,7 +1872,9 @@ function CandidateDsaReport({
         title="Your DSA feedback"
         score={score == null ? "—" : `${score}/100`}
         summary={
-          score != null && score >= 80
+          !complete
+            ? "A stored result exists, but at least one correctness concern cannot be reproduced from the retained source. The report therefore limits coaching to facts you can inspect."
+            : score != null && score >= 80
             ? "Your implementation signal is strong. The goal now is to close the difference between passing the retained tests and proving that your solution remains correct under edge cases, concurrency, and failure."
             : "Your implementation baseline is developing. Use the problem feedback below to separate algorithm selection, correctness, and code-quality improvements."
         }
@@ -1747,8 +1933,21 @@ function CandidateDsaReport({
         </CardHeader>
         <CardContent className="space-y-3">
           {problems.length ? (
-            problems.map((problem, index) => (
-              <div key={index} className="rounded-xl border p-4">
+            problems.map((problem, index) => {
+              const resultRows = asList(problem.results).map(asRecord);
+              const visibleFailure = resultRows.find(
+                (row) =>
+                  row.passed === false &&
+                  String(row.visibility || "candidate_visible") !== "hidden" &&
+                  [row.input, row.expected, row.actual, row.message].some(
+                    (item) => String(item ?? "").trim(),
+                  ),
+              );
+              const isPartial =
+                numeric(problem.testCasesPassed) <
+                numeric(problem.testCasesTotal);
+              return (
+                <div key={index} className="rounded-xl border p-4">
                 <div className="flex flex-wrap justify-between gap-2">
                   <p className="font-semibold">
                     {String(problem.title || `Problem ${index + 1}`)}
@@ -1760,29 +1959,46 @@ function CandidateDsaReport({
                 </div>
                 <p className="mt-3 text-sm leading-6">
                   <strong>Your approach:</strong>{" "}
-                  {String(problem.approach || "Not retained")}
+                  {String(
+                    problem.approach ||
+                      problem.description ||
+                      "The problem statement was not retained.",
+                  )}
                 </p>
                 <p className="mt-2 text-sm leading-6">
                   <strong>Complexity:</strong>{" "}
                   {String(problem.timeComplexity || "—")} time ·{" "}
                   {String(problem.spaceComplexity || "—")} space
                 </p>
-                <p className="mt-2 rounded-lg bg-muted/50 p-3 text-sm">
-                  <strong>Evidence read:</strong>{" "}
-                  {String(
-                    problem.followUpRead ||
-                      "No retained follow-up explanation.",
-                  )}
-                </p>
+                {problem.code ? (
+                  <details className="mt-2 rounded-lg border p-3">
+                    <summary className="cursor-pointer text-sm font-semibold">
+                      Inspect your submitted source
+                    </summary>
+                    <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">
+                      <code>{String(problem.code)}</code>
+                    </pre>
+                  </details>
+                ) : null}
+                {visibleFailure ? (
+                  <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm leading-6 text-rose-950">
+                    <p className="font-semibold">Reproducible failed case</p>
+                    <p>Input: {JSON.stringify(visibleFailure.input ?? "Not retained")}</p>
+                    <p>Expected: {JSON.stringify(visibleFailure.expected ?? "Not retained")}</p>
+                    <p>Actual: {JSON.stringify(visibleFailure.actual ?? visibleFailure.message ?? "Not retained")}</p>
+                  </div>
+                ) : null}
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
                   <strong>Next improvement:</strong>{" "}
-                  {numeric(problem.testCasesPassed) <
-                  numeric(problem.testCasesTotal)
-                    ? "Reproduce the failed retained test, explain the broken invariant, patch it, and add one neighboring adversarial case."
+                  {isPartial && visibleFailure
+                    ? "Reproduce the visible failed case, name the broken invariant, patch it, and add one neighboring adversarial case."
+                    : isPartial
+                      ? "The failed case is hidden or was not retained, so a specific patch cannot be prescribed responsibly. Ask for a public counterexample or rerun this problem with candidate-visible judge evidence."
                     : "Add one adversarial case outside the retained suite and explain why the invariant still holds."}
                 </p>
-              </div>
-            ))
+                </div>
+              );
+            })
           ) : (
             <p className="text-sm text-muted-foreground">
               No problem-level coaching evidence was retained.
@@ -1830,8 +2046,23 @@ function AntigravityReport({
   const report = asRecord(latest.report);
   const coverage = asRecord(report.coverage_portrait);
   const domain = asRecord(coverage.primary_domain);
+  const coveragePercent = numeric(
+    report.coverage_percentage ??
+      coverage.coverage_percent ??
+      coverage.completion_percentage ??
+      (numeric(coverage.coverage_score) <= 1
+        ? numeric(coverage.coverage_score) * 100
+        : coverage.coverage_score),
+  );
+  const isLocalPreviewCandidate =
+    import.meta.env.DEV &&
+    dossier.candidate.email.endsWith("@provenhire.local");
   const baseUrl = String(
-    import.meta.env.VITE_ANTIGRAVITY_PUBLIC_URL || "http://localhost:3000",
+    isLocalPreviewCandidate
+      ? import.meta.env.VITE_ANTIGRAVITY_LOCAL_PREVIEW_URL ||
+          "http://localhost:3001"
+      : import.meta.env.VITE_ANTIGRAVITY_PUBLIC_URL ||
+          "http://localhost:3000",
   ).replace(/\/$/, "");
   const previewCaseId = String(report.preview_replay_case_id || "");
   const recruiterUrl = previewCaseId
@@ -1881,6 +2112,7 @@ function AntigravityReport({
             latest.overallScore == null ? "—" : `${latest.overallScore}/10`
           }
           summary="Your full reflection is a separate coaching experience. It explains what you proved, what remained unproven, how your answers behaved under pressure, and what to practice before your next interview."
+          scoreLabel="Recorded interview result"
         />
         <Card className="overflow-hidden border-emerald-300">
           <CardContent className="grid gap-6 p-6 md:grid-cols-[1fr_auto] md:items-center md:p-8">
@@ -1909,7 +2141,8 @@ function AntigravityReport({
             </div>
             <Button asChild size="lg">
               <a href={candidateUrl} target="_blank" rel="noreferrer">
-                Open my full reflection <ArrowRight className="ml-2 h-5 w-5" />
+                Open complete interview reflection{" "}
+                <ArrowRight className="ml-2 h-5 w-5" />
               </a>
             </Button>
           </CardContent>
@@ -1941,17 +2174,18 @@ function AntigravityReport({
           <div className="grid gap-8 lg:grid-cols-[1.35fr_.65fr] lg:items-center">
             <div>
               <Badge className="bg-violet-400/20 text-violet-100 hover:bg-violet-400/20">
-                The complete assessment is in Antigravity
+                The complete interview evidence is in Antigravity
               </Badge>
               <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight md:text-5xl">
-                This page is the index. The full report is the decision
-                workspace.
+                This page is the index. The full report is the interview
+                evidence workspace.
               </h2>
               <p className="mt-4 max-w-3xl text-base leading-8 text-slate-200">
                 Open the recruiter report for the complete evidence map—not a
-                longer version of this scorecard. It contains the decision
-                narrative, responsibility fit, pressure trajectory, claim
-                verification, evidence heat map, risks, and exact next actions.
+                longer version of this scorecard. It contains the evidence
+                summary, tested responsibility evidence, pressure trajectory,
+                claim verification, evidence heat map, limitations, and exact
+                next actions. It does not make the employment decision.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <Button
@@ -1979,11 +2213,11 @@ function AntigravityReport({
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
               {[
-                ["Decision", "Verdict, confidence, and defensibility"],
-                ["Responsibilities", "Ready now, supported, and avoid"],
+                ["Evidence status", "Coverage, support, and limitations"],
+                ["Responsibilities", "Demonstrated, unresolved, and not assessed"],
                 ["Evidence", "Heat map, probes, claims, trajectory"],
                 ["Risk", "Unresolved gaps and exact validation"],
-                ["Next actions", "Panel questions and hiring workflow"],
+                ["Next actions", "Panel questions and evidence workflow"],
               ].map(([label, detail], index) => (
                 <div
                   key={label}
@@ -2021,41 +2255,23 @@ function AntigravityReport({
                 and stable links to both authorized views.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild>
-                <a href={recruiterUrl} target="_blank" rel="noreferrer">
-                  Open full recruiter report{" "}
-                  <ExternalLink className="ml-2 h-4 w-4" />
-                </a>
-              </Button>
-              <Button asChild variant="outline">
-                <a href={candidateUrl} target="_blank" rel="noreferrer">
-                  Open candidate reflection{" "}
-                  <ExternalLink className="ml-2 h-4 w-4" />
-                </a>
-              </Button>
-            </div>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Metric
-            label="Score"
+            label="Recorded interview result"
             value={`${latest.overallScore ?? "—"}/10`}
-            detail="Evidence-weighted interview score"
+            detail="Interview-only scale; not comparable to Aptitude or DSA"
           />
           <Metric
-            label="Verdict"
-            value={latest.hireRecommendation || "—"}
-            detail="Final evaluator recommendation"
+            label="Evidence state"
+            value={interviewEvidenceState(latest)}
+            detail="Interview evidence only—not an employment outcome"
           />
           <Metric
-            label="Confidence"
-            value={
-              latest.confidenceScore == null
-                ? "—"
-                : `${Math.round(latest.confidenceScore * 100)}%`
-            }
-            detail="Evaluator confidence"
+            label="Coverage"
+            value={coveragePercent ? `${coveragePercent}%` : "Not retained"}
+            detail="Expected interview evidence addressed"
           />
           <Metric
             label="Telemetry"
@@ -2066,7 +2282,9 @@ function AntigravityReport({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Recruiter reasoning</CardTitle>
+          <CardTitle className="text-base">
+            Interview evidence interpretation
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm leading-7">

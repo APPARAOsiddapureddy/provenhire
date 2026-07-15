@@ -131,6 +131,9 @@ export type WorkspaceCandidateDossier = {
       antigravityScore: number | null;
       antigravityVerdict: string | null;
       scoreSpread: number;
+      aptitudeEvidenceComplete?: boolean;
+      dsaEvidenceComplete?: boolean;
+      antigravityEvidenceComplete?: boolean;
     };
     integrity?: {
       status: "blocked" | "verified";
@@ -149,6 +152,12 @@ export type WorkspaceCandidateDossier = {
       label: string;
       detail: string;
     }>;
+    evidenceCompleteness?: {
+      aptitude: boolean;
+      dsa: boolean;
+      antigravity: boolean;
+      issues: string[];
+    };
   };
   recordedDecision?: {
     id: string;
