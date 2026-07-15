@@ -1872,3 +1872,15 @@
   border-radius: 4px !important;
   font-size: 0.8125rem !important;
 }
+
+/* High-contrast heading for the persisted report-agent executive read. */
+.text-indigo-700 {
+  color: #1e1b4b !important;
+  background: #eef2ff;
+  border-left: 4px solid #4f46e5;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem !important;
+  line-height: 1.5;
+  letter-spacing: 0.04em !important;
+}
