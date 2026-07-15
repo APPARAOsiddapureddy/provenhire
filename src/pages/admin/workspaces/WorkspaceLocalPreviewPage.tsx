@@ -53,7 +53,9 @@ function dossierFor(registration: WorkspaceRegistration, scoreOffset = 0): Works
   const strong = scoreOffset === 0;
   const aptitudeScore = 91 - scoreOffset;
   const dsaScore = 88 - scoreOffset;
-  const antigravityScore = strong ? 91 : 74;
+  // The linked saved Antigravity artifact is a 6.0/10 MAYBE report. Keep the
+  // workspace index aligned with that canonical report instead of inventing a demo verdict.
+  const antigravityScore = strong ? 60 : 74;
   const compositeScore = Math.round(((aptitudeScore + dsaScore + antigravityScore) / 3) * 10) / 10;
   const aptitudeQuestionReview = [
     { id: "lr-01", question: "A deployment can start only after both security approval and load testing. Load testing is complete, but security approval is pending. What follows?", options: ["Deployment may start", "Deployment must wait", "Only a rollback may start", "No conclusion"], selectedAnswer: "Deployment must wait", correctAnswer: "Deployment must wait", outcome: "correct", marks: 4 },
@@ -85,30 +87,30 @@ function dossierFor(registration: WorkspaceRegistration, scoreOffset = 0): Works
     },
     synthesis: {
       schemaVersion: "candidate_assessment_synthesis_v1",
-      recommendation: strong ? "ADVANCE" : "ADVANCE WITH TARGETED FOLLOW-UP",
+      recommendation: "ADVANCE WITH TARGETED FOLLOW-UP",
       compositeScore,
-      confidence: strong ? 0.94 : 0.86,
+      confidence: strong ? 0.82 : 0.86,
       completedModules: 3,
       overallRead: strong
-        ? `ADVANCE. The evidence-weighted composite is ${compositeScore}/100 across all three modules. Aptitude and DSA verify objective problem solving; Antigravity independently confirms mechanism-level reasoning, production judgment, and ownership under pressure.`
+        ? `ADVANCE WITH TARGETED FOLLOW-UP. Aptitude and DSA are strong, but the canonical Antigravity report is MAYBE at 60/100 because implementation depth and failure handling remain insufficiently proven.`
         : `ADVANCE WITH TARGETED FOLLOW-UP. The ${compositeScore}/100 composite is positive, but Antigravity trails the objective rounds and identifies a crash-recovery depth gap that should be validated before a final offer decision.`,
       crossModuleSignals: strong
-        ? ["High aptitude and DSA scores agree on problem-solving strength.", "Antigravity verifies that objective performance transfers into production reasoning.", "All three modules are in a narrow score band, reducing single-test bias."]
+        ? ["High aptitude and DSA scores agree on objective problem-solving strength.", "Interview communication and adaptability remain positive signals."]
         : ["Aptitude and DSA support solid baseline problem solving.", "Interview communication and honest uncertainty handling are positive role signals."],
       contradictions: strong
-        ? ["No material cross-module contradiction was detected at the current evidence threshold."]
+        ? ["Objective Aptitude/DSA performance materially exceeds the Antigravity implementation-depth signal; validate crash recovery and production ownership before a final decision."]
         : ["Objective problem solving is stronger than distributed failure-recovery evidence; validate crash recovery and multi-region operation."],
       verifiedStrengths: strong ? ["Distributed-systems invariants", "Objective coding execution", "Incident and observability reasoning"] : ["Implementation fundamentals", "Problem comprehension", "Honest uncertainty handling"],
-      scopedRisks: strong ? ["Product-cost tradeoff framing needs one targeted follow-up."] : ["Crash-recovery depth is only partially verified.", "Multi-region operations remain untested."],
-      nextActions: strong ? ["Run one product-cost tradeoff discussion with a hiring manager.", "Use the report evidence in the final panel decision."] : ["Run a 30-minute crash-recovery design probe.", "Ask for one independently implemented reliability work sample."],
-      evidenceBasis: { aptitudeScore, dsaScore, antigravityScore, antigravityVerdict: strong ? "STRONG HIRE" : "HIRE WITH FOLLOW-UP", scoreSpread: Math.max(aptitudeScore, dsaScore, antigravityScore) - Math.min(aptitudeScore, dsaScore, antigravityScore) },
+      scopedRisks: strong ? ["Idempotency claims lack crash-recovery mechanisms.", "Tenant isolation remained conceptual rather than implementation-specific."] : ["Crash-recovery depth is only partially verified.", "Multi-region operations remain untested."],
+      nextActions: strong ? ["Run one write-before-ack crash-recovery design probe.", "Ask for concrete tenant-isolation enforcement and tests."] : ["Run a 30-minute crash-recovery design probe.", "Ask for one independently implemented reliability work sample."],
+      evidenceBasis: { aptitudeScore, dsaScore, antigravityScore, antigravityVerdict: strong ? "MAYBE" : "HIRE WITH FOLLOW-UP", scoreSpread: Math.max(aptitudeScore, dsaScore, antigravityScore) - Math.min(aptitudeScore, dsaScore, antigravityScore) },
     },
     agentReports: {
       dsa: {
         id: `${registration.userId}-dsa-agent`, reportKind: "dsa", promptVersion: "assessment_report_agents_v1", model: "deepseek/deepseek-r1", sourceHash: "local-preview", completedAt: now,
         result: {
           schemaVersion: "dsa_reasoning_report_v1", decisionSignal: strong ? "strong" : "mixed", confidence: strong ? 0.91 : 0.76,
-          executiveRead: strong ? "The candidate is not merely passing examples: the two solutions show a coherent correctness strategy, bounded state, and awareness of the boundary between process-local logic and durable delivery semantics." : "The candidate has a usable implementation baseline, but the evidence separates clean in-memory reasoning from incomplete crash-recovery judgment.",
+          executiveRead: strong ? "Advance to the technical interview. The candidate passed both problems and 21 of 22 retained tests, and the source supports sound data-structure choices. Do not treat this round as proof of production distributed-systems ownership: durability, concurrent writers, and process-death recovery still require a targeted panel probe." : "Advance only with a targeted follow-up. The implementation baseline is usable, but crash-recovery and edge-case evidence remain incomplete.",
           algorithmicReasoning: "The event processor correctly identifies ordering as the dominant operation and bounds active per-key state by the rolling window. The ledger solution uses expected O(n) map operations and explicitly detects conflicting key reuse.",
           implementationQuality: "Source is concise and readable, with identities and failure branches visible. Production use would still require durable storage, atomic commit semantics, and operational instrumentation.",
           correctnessBoundary: "21/22 retained tests support strong bounded correctness. They do not prove concurrency safety, persistence across process death, or behavior under multi-writer races.",
@@ -122,11 +124,11 @@ function dossierFor(registration: WorkspaceRegistration, scoreOffset = 0): Works
       unified: {
         id: `${registration.userId}-unified-agent`, reportKind: "unified", promptVersion: "assessment_report_agents_v1", model: "deepseek/deepseek-r1", sourceHash: "local-preview", completedAt: now,
         result: {
-          schemaVersion: "unified_reasoning_report_v1", recommendation: strong ? "advance" : "advance_with_follow_up", confidence: strong ? 0.92 : 0.8,
-          executiveRead: strong ? "Advance. Three independent assessment modes converge on a candidate who reasons precisely, implements credible mechanisms, and can defend production trade-offs under pressure. The remaining uncertainty is managerial product-cost prioritization, not core engineering ability." : "Advance with a targeted reliability follow-up. Objective reasoning and implementation are positive, while the interview narrows the uncertainty to crash recovery and multi-region ownership.",
+          schemaVersion: "unified_reasoning_report_v1", recommendation: "advance_with_follow_up", confidence: strong ? 0.82 : 0.8,
+          executiveRead: strong ? "Advance only after a targeted technical follow-up. Aptitude (91) and DSA (88) support strong objective problem solving, but the canonical Antigravity verdict is MAYBE (60) because crash recovery and implementation depth were not proven." : "Advance with a targeted reliability follow-up. Objective reasoning and implementation are positive, while the interview narrows the uncertainty to crash recovery and multi-region ownership.",
           crossModuleThesis: "Aptitude establishes fast structured comprehension; DSA converts that into executable mechanisms; Antigravity verifies whether the same reasoning survives ownership and failure-mode pressure.",
           reinforcingSignals: [{ claim: "Structured reasoning transfers from fixed problems into production mechanisms", evidence: [`Aptitude ${aptitudeScore}/100`, `DSA ${dsaScore}/100`, `Antigravity ${antigravityScore}/100`], confidence: "high" }],
-          contradictions: strong ? [] : [{ claim: "Implementation performance is stronger than demonstrated distributed recovery depth", evidence: ["DSA baseline positive", "Antigravity crash-recovery risk remains open"], confidence: "high" }],
+          contradictions: [{ claim: "Objective implementation performance is stronger than demonstrated production failure-handling depth", evidence: [`DSA ${dsaScore}/100`, `Antigravity ${antigravityScore}/100`, "Crash-recovery mechanism unresolved"], confidence: "high" }],
           riskRegister: [{ risk: strong ? "Product-cost prioritization remains lightly tested" : "Crash recovery remains partially verified", severity: "medium", evidence: [strong ? "Antigravity recommended follow-up" : "Interview failure-recovery gap"], resolution: strong ? "Run one cost-versus-reliability decision discussion." : "Run a write-before-ack recovery design probe." }],
           roleFit: { readyNow: ["Backend feature ownership", "Observable reliability improvements"], conditional: ["High-stakes distributed correctness with design review"], notYetProven: ["Independent multi-region operational ownership"] },
           panelDecisionGuide: ["Use the DSA source and Antigravity claim evidence together; do not re-test generic syntax.", "Resolve only the highest remaining uncertainty before the final decision."],
@@ -142,24 +144,24 @@ function dossierFor(registration: WorkspaceRegistration, scoreOffset = 0): Works
           id: `${registration.userId}-ag-report`,
           antigravitySessionId: `local_${registration.userId}_session`,
           schemaVersion: "final_report_v2",
-          overallScore: strong ? 9.1 : 7.4,
-          hireRecommendation: strong ? "STRONG HIRE" : "HIRE WITH FOLLOW-UP",
-          confidenceScore: strong ? 0.91 : 0.78,
+          overallScore: strong ? 6.0 : 7.4,
+          hireRecommendation: strong ? "MAYBE" : "HIRE WITH FOLLOW-UP",
+          confidenceScore: strong ? 0.6 : 0.78,
           report: {
             preview_replay_case_id: "export_ced237fe-624e-401f-b55a-8404ae1ae6a3_ced237fe-624e-401f-b55a-8404ae1ae6a3",
             recruiter_summary: strong
-              ? "Riya converted resume claims into mechanism-level evidence and held up under failure-mode pressure. The remaining risk is scoped to product prioritization under ambiguous cost constraints."
+              ? "The candidate communicates high-level system-design trade-offs, but implementation knowledge and failure handling remain shallow. Coverage was moderate, so the report cannot support an unconditional advance."
               : "Arjun showed solid implementation fundamentals and honest boundaries. A targeted follow-up on distributed failure recovery would reduce the remaining uncertainty.",
             strengths: strong
-              ? ["Concrete distributed-systems invariants", "Strong incident and observability evidence", "Clear authorship boundaries"]
+              ? ["Communicates high-level system-design trade-offs", "Adapts answers under pressure", "Identifies common scalability levers"]
               : ["Good implementation fundamentals", "Honest uncertainty handling", "Clear communication"],
             risk_flags: strong
-              ? ["Needs sharper product framing when reliability competes with cost"]
+              ? ["Idempotency lacks a crash-recovery mechanism", "Tenant isolation lacks implementation-specific proof"]
               : ["Distributed crash-recovery depth remains partially tested", "Limited evidence for multi-region operation"],
-            scores: strong ? { technical_depth: 9.4, reasoning_structure: 9.1, production_awareness: 9.5, communication: 8.6 } : { technical_depth: 7.2, reasoning_structure: 7.8, production_awareness: 6.8, communication: 8.1 },
-            coverage_portrait: { coverage_score: strong ? 0.88 : 0.72, coverage_confidence: strong ? 0.92 : 0.79, primary_domain: { voluntary_coverage: strong ? ["Failure modes", "Observability", "Ownership"] : ["Implementation fundamentals", "Communication"], recovered_coverage: ["Product tradeoffs"], missed_coverage: strong ? [] : ["Multi-region recovery"], incorrect_coverage: [] } },
-            claim_findings: [{ claim: "Owned production reliability improvements", status: strong ? "substantiated" : "partial", interpretation: strong ? "Mechanism, incident trigger, rollout, and ownership boundaries survived pressure testing." : "Implementation contribution was credible; end-to-end operational ownership remained shared." }],
-            recommended_followups: strong ? ["Ask for a product-cost prioritization memo."] : ["Probe crash recovery after a write-before-ack failure.", "Validate multi-region operational ownership."],
+            scores: strong ? { technical_depth: 5.0, reasoning_structure: 7.0, production_awareness: 6.0, communication: 7.0, adaptability: 8.0 } : { technical_depth: 7.2, reasoning_structure: 7.8, production_awareness: 6.8, communication: 8.1 },
+            coverage_portrait: { coverage_score: strong ? 0.6 : 0.72, coverage_confidence: strong ? 0.6 : 0.79, primary_domain: { voluntary_coverage: strong ? ["High-level design trade-offs", "Common scalability levers"] : ["Implementation fundamentals", "Communication"], recovered_coverage: ["Product tradeoffs"], missed_coverage: strong ? ["Crash recovery", "Concrete tenant isolation"] : ["Multi-region recovery"], incorrect_coverage: [] } },
+            claim_findings: [{ claim: "Owned production reliability improvements", status: strong ? "partial" : "partial", interpretation: strong ? "High-level concepts were credible, but crash-recovery and tenant-isolation mechanisms were not concretely demonstrated." : "Implementation contribution was credible; end-to-end operational ownership remained shared." }],
+            recommended_followups: strong ? ["Design idempotency across write-before-ack process death.", "Show concrete tenant-isolation enforcement and tests."] : ["Probe crash recovery after a write-before-ack failure.", "Validate multi-region operational ownership."],
           },
           evidencePacket: { schema_version: "final_evidence_packet_v2", evidence_turns: 16 },
           telemetrySummary: { total_events: strong ? 184 : 161 },
@@ -168,9 +170,9 @@ function dossierFor(registration: WorkspaceRegistration, scoreOffset = 0): Works
           interview: {
             id: `${registration.userId}-interview-record`,
             jobRole: candidate.jobSeekerProfile?.targetJobTitle,
-            totalScore: strong ? 91 : 74,
-            badgeLevel: strong ? "exceptional" : "verified",
-            finalVerdict: strong ? "STRONG HIRE" : "HIRE WITH FOLLOW-UP",
+            totalScore: strong ? 60 : 74,
+            badgeLevel: strong ? "developing" : "verified",
+            finalVerdict: strong ? "MAYBE" : "HIRE WITH FOLLOW-UP",
             completedAt: now,
           },
           _count: { telemetryEvents: strong ? 184 : 161 },
