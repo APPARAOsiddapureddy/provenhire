@@ -2174,7 +2174,11 @@ function MissingModule({ name }: { name: string }) {
 }
 
 export default function WorkspaceCandidateReportsPage() {
-  const { id, userId } = useParams<{ id: string; userId: string }>();
+  const { id, userId, code } = useParams<{
+    id: string;
+    userId: string;
+    code: string;
+  }>();
   const [searchParams] = useSearchParams();
   const requested = searchParams.get("module") as ModuleKey | null;
   const module: ModuleKey = [
@@ -2185,8 +2189,12 @@ export default function WorkspaceCandidateReportsPage() {
   ].includes(requested || "")
     ? requested!
     : "overview";
-  const audience: ReportAudience =
-    searchParams.get("audience") === "candidate" ? "candidate" : "admin";
+  const selfService = Boolean(code);
+  const audience: ReportAudience = selfService
+    ? "candidate"
+    : searchParams.get("audience") === "candidate"
+      ? "candidate"
+      : "admin";
   const [dossier, setDossier] = useState<WorkspaceCandidateDossier | null>(
     null,
   );
@@ -2200,6 +2208,24 @@ export default function WorkspaceCandidateReportsPage() {
   const local = import.meta.env.DEV && (!id || id === localWorkspaceId);
 
   useEffect(() => {
+    if (selfService && code) {
+      api
+        .get<{ dossier: WorkspaceCandidateDossier }>(
+          `/api/user/workspaces/code/${encodeURIComponent(code)}/my-dossier`,
+        )
+        .then((response) => {
+          setDossier(response.dossier);
+          setError("");
+        })
+        .catch((reason) =>
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Failed to load your workspace feedback",
+          ),
+        );
+      return;
+    }
     if (!userId) return;
     if (local) {
       setDossier(preview.dossiers[userId] ?? null);
@@ -2221,7 +2247,7 @@ export default function WorkspaceCandidateReportsPage() {
             : "Failed to load candidate reports",
         ),
       );
-  }, [id, userId, local]);
+  }, [id, userId, local, selfService, code]);
 
   async function generateReport(kind: "dsa" | "unified") {
     if (local || !id || !userId) return;
@@ -2289,12 +2315,16 @@ export default function WorkspaceCandidateReportsPage() {
         </Card>
       </main>
     );
-  const backHref = local
-    ? "/local-preview/workspace"
-    : `/admin/workspaces/${id}`;
-  const baseHref = local
-    ? `/local-preview/workspace/candidates/${userId}/reports`
-    : `/admin/workspaces/${id}/candidates/${userId}/reports`;
+  const backHref = selfService
+    ? `/dashboard/jobseeker/workspaces/${encodeURIComponent(code || "")}`
+    : local
+      ? "/local-preview/workspace"
+      : `/admin/workspaces/${id}`;
+  const baseHref = selfService
+    ? `/dashboard/jobseeker/workspaces/${encodeURIComponent(code || "")}/reports`
+    : local
+      ? `/local-preview/workspace/candidates/${userId}/reports`
+      : `/admin/workspaces/${id}/candidates/${userId}/reports`;
   const modules: Array<{ key: ModuleKey; label: string; icon: typeof Target }> =
     [
       { key: "overview", label: "Unified reasoning", icon: Target },
@@ -2343,45 +2373,47 @@ export default function WorkspaceCandidateReportsPage() {
             </Badge>
           </div>
         </header>
-        <section
-          className="grid gap-3 rounded-xl border bg-background p-3 md:grid-cols-2"
-          aria-label="Report audience"
-        >
-          <Button
-            asChild
-            size="lg"
-            variant={audience === "admin" ? "default" : "outline"}
-            className="h-auto justify-start py-4"
+        {!selfService ? (
+          <section
+            className="grid gap-3 rounded-xl border bg-background p-3 md:grid-cols-2"
+            aria-label="Report audience"
           >
-            <Link to={`${baseHref}?module=${module}&audience=admin`}>
-              <BriefcaseBusiness className="mr-3 h-5 w-5" />
-              <span className="text-left">
-                <span className="block font-bold">Reviewer evidence</span>
-                <span className="block text-xs font-normal opacity-80">
-                  Evidence gates, contradictions, risk, and panel action
+            <Button
+              asChild
+              size="lg"
+              variant={audience === "admin" ? "default" : "outline"}
+              className="h-auto justify-start py-4"
+            >
+              <Link to={`${baseHref}?module=${module}&audience=admin`}>
+                <BriefcaseBusiness className="mr-3 h-5 w-5" />
+                <span className="text-left">
+                  <span className="block font-bold">Reviewer evidence</span>
+                  <span className="block text-xs font-normal opacity-80">
+                    Evidence gates, contradictions, risk, and panel action
+                  </span>
                 </span>
-              </span>
-            </Link>
-          </Button>
-          <Button
-            asChild
-            size="lg"
-            variant={audience === "candidate" ? "default" : "outline"}
-            className="h-auto justify-start py-4"
-          >
-            <Link to={`${baseHref}?module=${module}&audience=candidate`}>
-              <GraduationCap className="mr-3 h-5 w-5" />
-              <span className="text-left">
-                <span className="block font-bold">
-                  Preview candidate feedback
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="lg"
+              variant={audience === "candidate" ? "default" : "outline"}
+              className="h-auto justify-start py-4"
+            >
+              <Link to={`${baseHref}?module=${module}&audience=candidate`}>
+                <GraduationCap className="mr-3 h-5 w-5" />
+                <span className="text-left">
+                  <span className="block font-bold">
+                    Preview candidate feedback
+                  </span>
+                  <span className="block text-xs font-normal opacity-80">
+                    Strengths, mistakes, coaching, and practice plan
+                  </span>
                 </span>
-                <span className="block text-xs font-normal opacity-80">
-                  Strengths, mistakes, coaching, and practice plan
-                </span>
-              </span>
-            </Link>
-          </Button>
-        </section>
+              </Link>
+            </Button>
+          </section>
+        ) : null}
         <nav
           className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-2 lg:grid-cols-4"
           aria-label="Candidate report modules"

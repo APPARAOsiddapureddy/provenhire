@@ -298,16 +298,33 @@ function WorkspaceRounds({
       attempt,
     ]),
   );
+  const completedCount = (registration?.roundAttempts ?? []).filter(
+    (attempt) =>
+      attempt.status === "completed" || attempt.status === "auto_completed",
+  ).length;
   return (
     <Card className="workspace-dashboard-panel">
       <CardHeader>
-        <CardTitle className="text-base text-[var(--dash-text-primary)]">
-          Rounds
-        </CardTitle>
-        <CardDescription>
-          Assessment rounds unlock in order and persist their evidence to your
-          workspace record.
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base text-[var(--dash-text-primary)]">
+              Rounds
+            </CardTitle>
+            <CardDescription>
+              Assessment rounds unlock in order and persist their evidence to
+              your workspace record.
+            </CardDescription>
+          </div>
+          {registration && completedCount > 0 ? (
+            <Button size="sm" asChild>
+              <Link
+                to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/reports?module=overview`}
+              >
+                View my feedback ({completedCount}/{workspace.rounds.length})
+              </Link>
+            </Button>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">

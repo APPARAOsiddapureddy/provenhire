@@ -843,8 +843,31 @@ export async function getWorkspaceCandidateDossier(
   actor: WorkspaceActor,
   workspaceId: string,
   userId: string,
+  access: "manager" | "self" = "manager",
 ) {
-  await assertCanManageWorkspace(actor, workspaceId);
+  if (access === "self") {
+    if (actor.role !== "jobseeker" || actor.id !== userId) {
+      throw new WorkspaceServiceError("Candidate access required.", 403);
+    }
+    const ownRegistration = await prisma.workspaceRegistration.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: {
+        status: true,
+        workspace: { select: { status: true } },
+      },
+    });
+    if (!ownRegistration || ownRegistration.status !== "registered") {
+      throw new WorkspaceServiceError("Workspace registration not found.", 404);
+    }
+    if (ownRegistration.workspace.status === "draft") {
+      throw new WorkspaceServiceError(
+        "Workspace reports are not available.",
+        409,
+      );
+    }
+  } else {
+    await assertCanManageWorkspace(actor, workspaceId);
+  }
   const registration = await prisma.workspaceRegistration.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
     include: {
@@ -1171,7 +1194,7 @@ export async function getWorkspaceCandidateDossier(
     },
   });
 
-  return {
+  const dossier = {
     schemaVersion: "workspace_candidate_dossier_v1",
     workspaceId,
     candidate: registration.user,
@@ -1210,6 +1233,93 @@ export async function getWorkspaceCandidateDossier(
       },
     },
   };
+  if (access === "manager") return dossier;
+
+  const candidateReportPayload =
+    matchingAntigravityReport?.report &&
+    typeof matchingAntigravityReport.report === "object" &&
+    !Array.isArray(matchingAntigravityReport.report)
+      ? (matchingAntigravityReport.report as Record<string, unknown>)
+      : {};
+  const candidateAntigravityReport = matchingAntigravityReport
+    ? {
+        ...matchingAntigravityReport,
+        hireRecommendation: null,
+        confidenceScore: null,
+        report: {
+          preview_replay_case_id:
+            candidateReportPayload.preview_replay_case_id ?? null,
+          tested_strengths:
+            candidateReportPayload.tested_strengths ??
+            candidateReportPayload.strengths ??
+            [],
+          tested_risks:
+            candidateReportPayload.tested_risks ??
+            candidateReportPayload.risk_flags ??
+            [],
+        },
+      }
+    : null;
+  const sanitizeGeneration = (
+    generation: (typeof reportGenerations)[number] | null,
+    kind: "dsa" | "unified",
+  ) => {
+    if (!generation) return null;
+    const result =
+      generation.result && typeof generation.result === "object"
+        ? (generation.result as Record<string, unknown>)
+        : {};
+    return {
+      ...generation,
+      result:
+        kind === "dsa"
+          ? {
+              verifiedStrengths: result.verifiedStrengths ?? [],
+              failureAndRiskAnalysis: result.failureAndRiskAnalysis ?? [],
+              recommendedPanelProbes: result.recommendedPanelProbes ?? [],
+            }
+          : { roleFit: result.roleFit ?? {} },
+    };
+  };
+
+  return {
+    ...dossier,
+    synthesis: {
+      ...synthesis,
+      recommendation: "COACHING EVIDENCE READY",
+      decisionStatus: undefined,
+      decisionGates: [],
+      evidenceBasis: {
+        ...synthesis.evidenceBasis,
+        antigravityVerdict: null,
+      },
+    },
+    recordedDecision: null,
+    agentReports: {
+      dsa: sanitizeGeneration(dossier.agentReports.dsa, "dsa"),
+      unified: sanitizeGeneration(dossier.agentReports.unified, "unified"),
+    },
+    modules: {
+      ...dossier.modules,
+      antigravity: {
+        latest: candidateAntigravityReport,
+        history: [],
+      },
+    },
+  };
+}
+
+export async function getMyWorkspaceCandidateDossier(
+  actor: WorkspaceActor,
+  codeInput: string,
+) {
+  const code = codeInput.trim().toUpperCase();
+  const workspace = await prisma.workspace.findUnique({
+    where: { code },
+    select: { id: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  return getWorkspaceCandidateDossier(actor, workspace.id, actor.id, "self");
 }
 
 export type WorkspaceDecisionInput = {
