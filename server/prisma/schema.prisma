@@ -1040,6 +1040,31 @@ model AntigravityTelemetryEvent {
   @@index([eventName])
 }
 
+/// Durable, versioned LLM synthesis over persisted assessment evidence.
+/// Raw assessment artifacts remain canonical; this is a regenerable reasoning projection.
+model AssessmentReportGeneration {
+  id               String   @id @default(uuid())
+  workspaceId      String
+  userId           String
+  reportKind       String
+  sourceHash       String
+  promptVersion    String
+  model            String
+  status           String   @default("pending")
+  result           Json?
+  usage            Json?
+  estimatedCostUsd Float?
+  error             String?  @db.Text
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([workspaceId, userId, reportKind, sourceHash, promptVersion, model])
+  @@index([workspaceId, userId, reportKind, createdAt])
+  @@index([status, createdAt])
+}
+
 /// After AI interview submission: admin approves/rejects before human expert stage + payment gate.
 model AdminReviewQueue {
   id            String    @id @default(uuid())

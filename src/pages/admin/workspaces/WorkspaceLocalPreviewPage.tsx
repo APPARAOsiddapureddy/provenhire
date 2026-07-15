@@ -103,6 +103,37 @@ function dossierFor(registration: WorkspaceRegistration, scoreOffset = 0): Works
       nextActions: strong ? ["Run one product-cost tradeoff discussion with a hiring manager.", "Use the report evidence in the final panel decision."] : ["Run a 30-minute crash-recovery design probe.", "Ask for one independently implemented reliability work sample."],
       evidenceBasis: { aptitudeScore, dsaScore, antigravityScore, antigravityVerdict: strong ? "STRONG HIRE" : "HIRE WITH FOLLOW-UP", scoreSpread: Math.max(aptitudeScore, dsaScore, antigravityScore) - Math.min(aptitudeScore, dsaScore, antigravityScore) },
     },
+    agentReports: {
+      dsa: {
+        id: `${registration.userId}-dsa-agent`, reportKind: "dsa", promptVersion: "assessment_report_agents_v1", model: "deepseek/deepseek-r1", sourceHash: "local-preview", completedAt: now,
+        result: {
+          schemaVersion: "dsa_reasoning_report_v1", decisionSignal: strong ? "strong" : "mixed", confidence: strong ? 0.91 : 0.76,
+          executiveRead: strong ? "The candidate is not merely passing examples: the two solutions show a coherent correctness strategy, bounded state, and awareness of the boundary between process-local logic and durable delivery semantics." : "The candidate has a usable implementation baseline, but the evidence separates clean in-memory reasoning from incomplete crash-recovery judgment.",
+          algorithmicReasoning: "The event processor correctly identifies ordering as the dominant operation and bounds active per-key state by the rolling window. The ledger solution uses expected O(n) map operations and explicitly detects conflicting key reuse.",
+          implementationQuality: "Source is concise and readable, with identities and failure branches visible. Production use would still require durable storage, atomic commit semantics, and operational instrumentation.",
+          correctnessBoundary: "21/22 retained tests support strong bounded correctness. They do not prove concurrency safety, persistence across process death, or behavior under multi-writer races.",
+          verifiedStrengths: [{ claim: "Connects data-structure choice to the governing invariant", evidence: ["Per-key rolling queue", "Idempotency key mapped to payload hash"], confidence: "high" }],
+          failureAndRiskAnalysis: [{ claim: "Durability is reasoned about but not implemented in the submitted map", evidence: ["Official source uses process-local Map storage"], confidence: "high" }],
+          roleReadiness: { readyFor: ["Bounded backend implementation tasks", "Algorithm selection with explicit invariants"], needsSupportFor: ["Transactional delivery ledgers", "Concurrent multi-writer correctness"], avoidUntilVerified: ["Owning payment idempotency without a persistence design review"] },
+          recommendedPanelProbes: ["Ask the candidate to make the ledger atomic across write-before-ack process death.", "Introduce two concurrent writers using the same key with different payloads."],
+          evidenceLimits: ["The local preview contains representative source and aggregate judge outcomes, not a live production submission record."],
+        }, usage: { prompt_tokens: 4312, completion_tokens: 1620 }, estimatedCostUsd: 0.0071,
+      },
+      unified: {
+        id: `${registration.userId}-unified-agent`, reportKind: "unified", promptVersion: "assessment_report_agents_v1", model: "deepseek/deepseek-r1", sourceHash: "local-preview", completedAt: now,
+        result: {
+          schemaVersion: "unified_reasoning_report_v1", recommendation: strong ? "advance" : "advance_with_follow_up", confidence: strong ? 0.92 : 0.8,
+          executiveRead: strong ? "Advance. Three independent assessment modes converge on a candidate who reasons precisely, implements credible mechanisms, and can defend production trade-offs under pressure. The remaining uncertainty is managerial product-cost prioritization, not core engineering ability." : "Advance with a targeted reliability follow-up. Objective reasoning and implementation are positive, while the interview narrows the uncertainty to crash recovery and multi-region ownership.",
+          crossModuleThesis: "Aptitude establishes fast structured comprehension; DSA converts that into executable mechanisms; Antigravity verifies whether the same reasoning survives ownership and failure-mode pressure.",
+          reinforcingSignals: [{ claim: "Structured reasoning transfers from fixed problems into production mechanisms", evidence: [`Aptitude ${aptitudeScore}/100`, `DSA ${dsaScore}/100`, `Antigravity ${antigravityScore}/100`], confidence: "high" }],
+          contradictions: strong ? [] : [{ claim: "Implementation performance is stronger than demonstrated distributed recovery depth", evidence: ["DSA baseline positive", "Antigravity crash-recovery risk remains open"], confidence: "high" }],
+          riskRegister: [{ risk: strong ? "Product-cost prioritization remains lightly tested" : "Crash recovery remains partially verified", severity: "medium", evidence: [strong ? "Antigravity recommended follow-up" : "Interview failure-recovery gap"], resolution: strong ? "Run one cost-versus-reliability decision discussion." : "Run a write-before-ack recovery design probe." }],
+          roleFit: { readyNow: ["Backend feature ownership", "Observable reliability improvements"], conditional: ["High-stakes distributed correctness with design review"], notYetProven: ["Independent multi-region operational ownership"] },
+          panelDecisionGuide: ["Use the DSA source and Antigravity claim evidence together; do not re-test generic syntax.", "Resolve only the highest remaining uncertainty before the final decision."],
+          evidenceLimits: ["The local preview is production-shaped demonstration data, not a real candidate record."],
+        }, usage: { prompt_tokens: 6870, completion_tokens: 1950 }, estimatedCostUsd: 0.0097,
+      },
+    },
     modules: {
       aptitude: { latest: { id: `${registration.userId}-aptitude-result`, score: aptitudeScore, completedAt: now, answers: { totalQuestions: 30, correct: strong ? 27 : 23, incorrect: strong ? 2 : 5, skipped: strong ? 1 : 2, totalMarks: 100, earnedMarks: aptitudeScore, timeTakenSeconds: strong ? 1432 : 1680, timeLimitSeconds: 1800, questionReview: aptitudeQuestionReview, categories: [{ name: "Logical reasoning", score: strong ? 94 : 82 }, { name: "Quantitative aptitude", score: strong ? 89 : 76 }, { name: "Computer science fundamentals", score: strong ? 91 : 79 }] } }, history: [] },
       dsa: { latest: { id: `${registration.userId}-dsa-result`, score: dsaScore, completedAt: now, answers: { language: "TypeScript", totalProblems: 2, passedProblems: strong ? 2 : 1, testCasesPassed: strong ? 21 : 17, testCasesTotal: 22, complexityAssessment: strong ? "Both submissions state and justify their asymptotic costs. The first solution pays O(n log n) to normalize unordered arrivals; the ledger solution is O(n) expected time with O(u) storage for unique keys." : "Correct core solution; recovery and edge-case handling need follow-up.", problems: dsaProblems } }, history: [] },

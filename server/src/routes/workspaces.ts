@@ -16,6 +16,7 @@ import {
 import {
   importAllowedWorkspaceEmailsController,
   getWorkspaceCandidateDossierController,
+  generateWorkspaceCandidateReportController,
   listWorkspaceRegistrationsController,
   removeWorkspaceRegistrationController,
   restoreWorkspaceRegistrationController,
@@ -50,6 +51,7 @@ workspacesRouter.use(requireAuth);
 
 workspacesRouter.get("/:id/registrations", listWorkspaceRegistrationsController);
 workspacesRouter.get("/:id/registrations/:userId/dossier", getWorkspaceCandidateDossierController);
+workspacesRouter.post("/:id/registrations/:userId/reports/generate", generateWorkspaceCandidateReportController);
 workspacesRouter.delete("/:id/registrations/:userId", removeWorkspaceRegistrationController);
 workspacesRouter.post("/:id/registrations/:userId/restore", restoreWorkspaceRegistrationController);
 workspacesRouter.post("/allowed-emails/import", uploadWorkspaceAllowedEmailsCsv, importAllowedWorkspaceEmailsController);

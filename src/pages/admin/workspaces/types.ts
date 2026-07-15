@@ -112,6 +112,10 @@ export type WorkspaceCandidateDossier = {
       scoreSpread: number;
     };
   };
+  agentReports?: {
+    dsa: { id: string; reportKind: string; promptVersion: string; model: string; result: Record<string, unknown>; usage?: unknown; estimatedCostUsd?: number | null; completedAt?: string | null; sourceHash: string } | null;
+    unified: { id: string; reportKind: string; promptVersion: string; model: string; result: Record<string, unknown>; usage?: unknown; estimatedCostUsd?: number | null; completedAt?: string | null; sourceHash: string } | null;
+  };
   modules: {
     aptitude: {
       latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null;

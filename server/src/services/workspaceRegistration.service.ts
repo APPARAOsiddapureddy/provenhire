@@ -664,7 +664,7 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
     .filter((attempt) => attempt.roundType === "mcq" && attempt.mcqSessionId)
     .sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0))[0];
 
-  const [aptitudeResults, dsaResults, antigravityReports, workspaceDsaSubmissions, workspaceMcqSession] = await Promise.all([
+  const [aptitudeResults, dsaResults, antigravityReports, workspaceDsaSubmissions, workspaceMcqSession, reportGenerations] = await Promise.all([
     prisma.aptitudeTestResult.findMany({
       where: { userId, invalidated: false },
       orderBy: { completedAt: "desc" },
@@ -733,6 +733,12 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
           },
         })
       : Promise.resolve(null),
+    prisma.assessmentReportGeneration.findMany({
+      where: { workspaceId, userId, status: "complete" },
+      orderBy: { completedAt: "desc" },
+      take: 10,
+      select: { id: true, reportKind: true, promptVersion: true, model: true, result: true, usage: true, estimatedCostUsd: true, completedAt: true, sourceHash: true },
+    }),
   ]);
   const workspaceAptitudeEvidence = workspaceMcqSession ? (() => {
     const questions = Array.isArray(workspaceMcqSession.questions) ? workspaceMcqSession.questions : [];
@@ -801,6 +807,10 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
       roundAttempts: registration.roundAttempts,
     },
     synthesis,
+    agentReports: {
+      dsa: reportGenerations.find((generation) => generation.reportKind === "dsa") ?? null,
+      unified: reportGenerations.find((generation) => generation.reportKind === "unified") ?? null,
+    },
     modules: {
       aptitude: { latest: aptitudeResults[0] ?? null, history: aptitudeResults, workspaceEvidence: workspaceAptitudeEvidence },
       dsa: { latest: dsaResults[0] ?? null, history: dsaResults, workspaceEvidence: workspaceDsaEvidence },

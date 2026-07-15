@@ -11,6 +11,7 @@ import {
   removeWorkspaceRegistration,
   restoreWorkspaceRegistration,
 } from "../services/workspaceRegistration.service.js";
+import { generateAssessmentReport } from "../services/assessmentReportAgent.service.js";
 
 type UploadedCsvFile = {
   buffer: Buffer;
@@ -28,6 +29,17 @@ export async function getWorkspaceCandidateDossierController(req: AuthedRequest,
   try {
     const dossier = await getWorkspaceCandidateDossier(actorFromRequest(req), req.params.id, req.params.userId);
     return res.json({ dossier });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function generateWorkspaceCandidateReportController(req: AuthedRequest, res: Response) {
+  const parsed = z.object({ kind: z.enum(["dsa", "unified"]), force: z.boolean().optional() }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "kind must be dsa or unified" });
+  try {
+    const generation = await generateAssessmentReport(actorFromRequest(req), req.params.id, req.params.userId, parsed.data.kind, Boolean(parsed.data.force));
+    return res.json({ generation });
   } catch (error) {
     return sendError(res, error);
   }
