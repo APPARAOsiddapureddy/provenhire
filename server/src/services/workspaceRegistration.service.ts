@@ -657,7 +657,14 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
   });
   if (!registration) throw new WorkspaceServiceError("Workspace registration not found.", 404);
 
-  const [aptitudeResults, dsaResults, antigravityReports] = await Promise.all([
+  const workspaceDsaAttempt = [...registration.roundAttempts]
+    .filter((attempt) => attempt.roundType === "coding" && attempt.dsaRoundSessionId)
+    .sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0))[0];
+  const workspaceAptitudeAttempt = [...registration.roundAttempts]
+    .filter((attempt) => attempt.roundType === "mcq" && attempt.mcqSessionId)
+    .sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0))[0];
+
+  const [aptitudeResults, dsaResults, antigravityReports, workspaceDsaSubmissions, workspaceMcqSession] = await Promise.all([
     prisma.aptitudeTestResult.findMany({
       where: { userId, invalidated: false },
       orderBy: { completedAt: "desc" },
@@ -689,10 +696,97 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
         _count: { select: { telemetryEvents: true } },
       },
     }),
+    workspaceDsaAttempt?.dsaRoundSessionId
+      ? prisma.dsaSubmission.findMany({
+          where: { roundSessionId: workspaceDsaAttempt.dsaRoundSessionId, isOfficial: true },
+          orderBy: { submittedAt: "asc" },
+          select: {
+            id: true,
+            questionId: true,
+            language: true,
+            code: true,
+            passedCount: true,
+            totalCount: true,
+            results: true,
+            followUpScore: true,
+            followUpResults: true,
+            submittedAt: true,
+          },
+        })
+      : Promise.resolve([]),
+    workspaceAptitudeAttempt?.mcqSessionId
+      ? prisma.mcqSession.findUnique({
+          where: { id: workspaceAptitudeAttempt.mcqSessionId },
+          select: {
+            id: true,
+            questions: true,
+            answerKey: true,
+            answers: true,
+            startTime: true,
+            endTime: true,
+            submittedAt: true,
+            finalizedAt: true,
+            score: true,
+            correctCount: true,
+            incorrectCount: true,
+            skippedCount: true,
+          },
+        })
+      : Promise.resolve(null),
   ]);
+  const workspaceAptitudeEvidence = workspaceMcqSession ? (() => {
+    const questions = Array.isArray(workspaceMcqSession.questions) ? workspaceMcqSession.questions : [];
+    const answerKey = workspaceMcqSession.answerKey && typeof workspaceMcqSession.answerKey === "object" && !Array.isArray(workspaceMcqSession.answerKey)
+      ? workspaceMcqSession.answerKey as Record<string, unknown> : {};
+    const answers = workspaceMcqSession.answers && typeof workspaceMcqSession.answers === "object" && !Array.isArray(workspaceMcqSession.answers)
+      ? workspaceMcqSession.answers as Record<string, unknown> : {};
+    return {
+      sessionId: workspaceMcqSession.id,
+      score: workspaceAptitudeAttempt?.percentageScore ?? null,
+      completedAt: workspaceAptitudeAttempt?.completedAt ?? workspaceMcqSession.finalizedAt,
+      totalQuestions: questions.length,
+      correct: workspaceMcqSession.correctCount,
+      incorrect: workspaceMcqSession.incorrectCount,
+      skipped: workspaceMcqSession.skippedCount,
+      timeTakenSeconds: Math.max(0, Math.round(((workspaceMcqSession.finalizedAt ?? workspaceMcqSession.submittedAt ?? workspaceMcqSession.endTime).getTime() - workspaceMcqSession.startTime.getTime()) / 1000)),
+      timeLimitSeconds: Math.max(0, Math.round((workspaceMcqSession.endTime.getTime() - workspaceMcqSession.startTime.getTime()) / 1000)),
+      questionReview: questions.map((raw, index) => {
+        const question = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+        const id = String(question.id ?? index);
+        const selectedAnswer = typeof answers[id] === "string" ? String(answers[id]) : "";
+        const correctAnswer = typeof answerKey[id] === "string" ? String(answerKey[id]) : "";
+        return {
+          id,
+          question: String(question.question ?? "Question text was not retained."),
+          options: Array.isArray(question.options) ? question.options.map(String) : [],
+          selectedAnswer: selectedAnswer || null,
+          correctAnswer,
+          outcome: !selectedAnswer ? "skipped" : selectedAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase() ? "correct" : "incorrect",
+          marks: Number(question.marks ?? 1),
+        };
+      }),
+    };
+  })() : null;
+  const dsaQuestions = workspaceDsaSubmissions.length
+    ? await prisma.dsaQuestion.findMany({
+        where: { id: { in: workspaceDsaSubmissions.map((submission) => submission.questionId) } },
+        select: { id: true, title: true, description: true, difficulty: true, examples: true, constraints: true },
+      })
+    : [];
+  const dsaQuestionById = new Map(dsaQuestions.map((question) => [question.id, question]));
+  const workspaceDsaEvidence = workspaceDsaAttempt?.dsaRoundSessionId ? {
+    attemptId: workspaceDsaAttempt.id,
+    roundSessionId: workspaceDsaAttempt.dsaRoundSessionId,
+    score: workspaceDsaAttempt.percentageScore ?? workspaceDsaAttempt.score,
+    completedAt: workspaceDsaAttempt.completedAt,
+    submissions: workspaceDsaSubmissions.map((submission) => ({
+      ...submission,
+      question: dsaQuestionById.get(submission.questionId) ?? null,
+    })),
+  } : null;
   const synthesis = buildCandidateAssessmentSynthesis({
-    aptitude: aptitudeResults[0] ?? null,
-    dsa: dsaResults[0] ?? null,
+    aptitude: aptitudeResults[0] ?? (workspaceAptitudeEvidence ? { score: workspaceAptitudeEvidence.score } : null),
+    dsa: dsaResults[0] ?? (workspaceDsaEvidence ? { score: workspaceDsaEvidence.score } : null),
     antigravity: antigravityReports[0] ?? null,
   });
 
@@ -708,8 +802,8 @@ export async function getWorkspaceCandidateDossier(actor: WorkspaceActor, worksp
     },
     synthesis,
     modules: {
-      aptitude: { latest: aptitudeResults[0] ?? null, history: aptitudeResults },
-      dsa: { latest: dsaResults[0] ?? null, history: dsaResults },
+      aptitude: { latest: aptitudeResults[0] ?? null, history: aptitudeResults, workspaceEvidence: workspaceAptitudeEvidence },
+      dsa: { latest: dsaResults[0] ?? null, history: dsaResults, workspaceEvidence: workspaceDsaEvidence },
       antigravity: { latest: antigravityReports[0] ?? null, history: antigravityReports },
     },
   };

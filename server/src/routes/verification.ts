@@ -153,6 +153,7 @@ async function sendIfAptitudeLocked(userId: string, res: Response): Promise<bool
 async function resolveAptitudeSubmitSession(userId: string): Promise<{
   answerKey: Record<string, string>;
   marksKey: Record<string, number>;
+  questions?: unknown;
   testStartedAt: Date | null;
   questionSet: string | null;
 } | null> {
@@ -162,6 +163,7 @@ async function resolveAptitudeSubmitSession(userId: string): Promise<{
       return {
         answerKey: row.answerKey,
         marksKey: row.marksKey ?? {},
+        questions: row.questions,
         testStartedAt: row.testStartedAt ?? null,
         questionSet: row.questionSet ?? null,
       };
@@ -1048,6 +1050,28 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
       const totalQuestions = allQuestionIds.length;
       const skippedCount = Math.max(0, totalQuestions - attemptedCount);
       const incorrectCount = Math.max(0, attemptedCount - correctCount);
+      const persistedQuestions = Array.isArray(session?.questions) ? session.questions : [];
+      const questionById = new Map(
+        persistedQuestions
+          .filter((question): question is Record<string, unknown> => Boolean(question) && typeof question === "object" && !Array.isArray(question))
+          .map((question) => [String(question.id ?? ""), question]),
+      );
+      const questionReview = allQuestionIds.map((qId) => {
+        const question = questionById.get(qId);
+        const selectedAnswer = typeof answersIncoming[qId] === "string" ? answersIncoming[qId] : "";
+        const correctAnswer = answerKey[qId] ?? "";
+        return {
+          id: qId,
+          question: String(question?.question ?? "Question text was not retained."),
+          options: Array.isArray(question?.options) ? question.options.map(String) : [],
+          selectedAnswer: selectedAnswer || null,
+          correctAnswer,
+          outcome: selectedAnswer.trim().length === 0
+            ? "skipped"
+            : normalizeAnswer(selectedAnswer) === normalizeAnswer(correctAnswer) ? "correct" : "incorrect",
+          marks: marksKey?.[qId] ?? 1,
+        };
+      });
       answersPayload = {
         questions: totalQuestions,
         correct: correctCount,
@@ -1055,6 +1079,7 @@ verificationRouter.post("/aptitude", requireAuth, requireJobSeeker, async (req: 
         skipped: skippedCount,
         earnedMarks,
         totalMarks: totalMarksVal,
+        questionReview,
         ...(parsed.data.meta?.timeTakenSeconds != null ? { timeTakenSeconds: parsed.data.meta.timeTakenSeconds } : {}),
         ...(parsed.data.meta?.timeLimitSeconds != null ? { timeLimitSeconds: parsed.data.meta.timeLimitSeconds } : {}),
       };

@@ -87,6 +87,8 @@ export type WorkspaceCandidateDossier = {
       percentageScore?: number | null;
       weightedScore?: number | null;
       completedAt?: string | null;
+      dsaRoundSessionId?: string | null;
+      mcqSessionId?: string | null;
       workspaceRound: { id: string; order: number; name: string; type: WorkspaceRoundType; scoreWeightage: number };
     }>;
   };
@@ -111,8 +113,45 @@ export type WorkspaceCandidateDossier = {
     };
   };
   modules: {
-    aptitude: { latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null; history: unknown[] };
-    dsa: { latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null; history: unknown[] };
+    aptitude: {
+      latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null;
+      history: unknown[];
+      workspaceEvidence?: {
+        sessionId: string;
+        score?: number | null;
+        completedAt?: string | null;
+        totalQuestions: number;
+        correct?: number | null;
+        incorrect?: number | null;
+        skipped?: number | null;
+        timeTakenSeconds: number;
+        timeLimitSeconds: number;
+        questionReview: unknown[];
+      } | null;
+    };
+    dsa: {
+      latest: { id: string; score?: number | null; completedAt: string; answers?: unknown } | null;
+      history: unknown[];
+      workspaceEvidence?: {
+        attemptId: string;
+        roundSessionId: string;
+        score?: number | null;
+        completedAt?: string | null;
+        submissions: Array<{
+          id: string;
+          questionId: string;
+          language: string;
+          code: string;
+          passedCount: number;
+          totalCount: number;
+          results: unknown;
+          followUpScore?: number | null;
+          followUpResults?: unknown;
+          submittedAt: string;
+          question?: { id: string; title: string; description: string; difficulty: string; examples: unknown; constraints: string[] } | null;
+        }>;
+      } | null;
+    };
     antigravity: {
       latest: {
         id: string;
