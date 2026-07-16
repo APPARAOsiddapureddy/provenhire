@@ -105,3 +105,51 @@ export async function persistAntigravityReportArtifact(input: {
 
   return { ...artifact, telemetryEventsAccepted: events.length };
 }
+
+/**
+ * Append one telemetry fact that Antigravity emitted after its final-report
+ * snapshot. Event ids are globally idempotent, so durable outbox retries cannot
+ * duplicate facts in a candidate dossier.
+ */
+export async function appendAntigravityTelemetryEvent(input: {
+  handoffId: string;
+  antigravitySessionId: string;
+  event: JsonRecord;
+}) {
+  const artifact = await prisma.antigravityReport.findFirst({
+    where: {
+      handoffId: input.handoffId,
+      antigravitySessionId: input.antigravitySessionId,
+    },
+    select: { id: true, userId: true },
+  });
+  if (!artifact) return null;
+
+  const eventId =
+    typeof input.event.event_id === "string" && input.event.event_id
+      ? input.event.event_id
+      : crypto
+          .createHash("sha256")
+          .update(
+            `${input.antigravitySessionId}|${input.event.ts ?? ""}|${input.event.event ?? ""}`,
+          )
+          .digest("hex");
+  const result = await prisma.antigravityTelemetryEvent.createMany({
+    data: [
+      {
+        id: eventId,
+        reportId: artifact.id,
+        userId: artifact.userId,
+        antigravitySessionId: input.antigravitySessionId,
+        eventName: String(input.event.event || "unknown"),
+        source:
+          typeof input.event.source === "string" ? input.event.source : null,
+        level: typeof input.event.level === "string" ? input.event.level : null,
+        eventAt: eventDate(input.event),
+        payload: jsonValue(input.event),
+      },
+    ],
+    skipDuplicates: true,
+  });
+  return { eventId, inserted: result.count === 1 };
+}

@@ -31,7 +31,10 @@ import {
 } from "../services/candidateRetake.service.js";
 import { getCandidateModuleContext } from "../services/performancePipeline.js";
 import { roleTypeToTrack } from "../constants/verificationPipeline.js";
-import { persistAntigravityReportArtifact } from "../services/antigravityReport.service.js";
+import {
+  appendAntigravityTelemetryEvent,
+  persistAntigravityReportArtifact,
+} from "../services/antigravityReport.service.js";
 
 export const aiInterviewAdapterRouter = Router();
 
@@ -1489,6 +1492,58 @@ aiInterviewAdapterRouter.post(
       return res
         .status(500)
         .json({ error: "Failed to complete Antigravity handoff." });
+    }
+  },
+);
+
+const handoffTelemetrySchema = z.object({
+  handoff_id: z.string().trim().min(1),
+  antigravity_session_id: z.string().trim().min(1),
+  delivery_id: z.string().trim().min(1).optional(),
+  event: z.record(z.unknown()),
+});
+
+aiInterviewAdapterRouter.post(
+  "/handoff-telemetry",
+  async (req: AuthedRequest, res) => {
+    const parsed = handoffTelemetrySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid handoff-telemetry payload." });
+    }
+    const { handoff_id, antigravity_session_id, event } = parsed.data;
+    if (
+      !verifyWebhookSignature(
+        req,
+        "telemetry",
+        handoff_id,
+        antigravity_session_id,
+      )
+    ) {
+      return res
+        .status(401)
+        .json({ error: "Invalid Antigravity callback signature." });
+    }
+
+    try {
+      const result = await appendAntigravityTelemetryEvent({
+        handoffId: handoff_id,
+        antigravitySessionId: antigravity_session_id,
+        event,
+      });
+      if (!result) {
+        // A late-event delivery can race the bulk report callback. A non-2xx
+        // response keeps the Antigravity outbox row retryable until the report
+        // artifact exists.
+        return res.status(409).json({
+          error: "Antigravity report artifact is not ready for telemetry.",
+        });
+      }
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error("[ai-interview-adapter/handoff-telemetry]", e);
+      return res
+        .status(500)
+        .json({ error: "Failed to append Antigravity telemetry." });
     }
   },
 );
