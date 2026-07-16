@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "concurrently -k \"vite\" \"cd server && node_modules\\.bin\\tsx.cmd watch server.ts\"",
-    "dev": "concurrently -k \"vite\" \"cd server && node_modules/.bin/tsx watch server.ts\"",
+    "start": "concurrently -k \"vite\" \"npm --prefix server run dev\"",
+    "dev": "concurrently -k \"vite\" \"npm --prefix server run dev\"",
     "dev:frontend": "vite",
     "setup:ai-proctor": "cd ai-proctor && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
     "dev:ai-proctor": "cd ai-proctor && .venv/bin/python -m uvicorn api:app --host 127.0.0.1 --port 8001",
