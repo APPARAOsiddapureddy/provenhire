@@ -35,6 +35,11 @@ import {
   appendAntigravityTelemetryEvent,
   persistAntigravityReportArtifact,
 } from "../services/antigravityReport.service.js";
+import {
+  enqueueCandidateReportWorkflow,
+  upsertAssessmentIncident,
+} from "../services/assessmentWorkflow.service.js";
+import { createAntigravityReportAccessToken } from "../services/antigravityReportAccess.service.js";
 
 export const aiInterviewAdapterRouter = Router();
 
@@ -45,6 +50,14 @@ const HANDOFF_TOKEN_TTL_MS = 15 * 60 * 1000;
 
 function antigravityApiUrl(): string {
   return getAntigravityApiBaseUrl();
+}
+
+function antigravityReportUrl(sessionId: string): string {
+  const url = new URL(`/report/${encodeURIComponent(sessionId)}`, `${antigravityApiUrl()}/`);
+  url.searchParams.set("audience", "admin");
+  const token = createAntigravityReportAccessToken(sessionId, "admin", 5 * 60);
+  if (token) url.searchParams.set("access_token", token);
+  return url.toString();
 }
 
 function createLaunchToken(): string {
@@ -382,6 +395,24 @@ async function finalizeInterview(
       },
     }),
   ]);
+
+  // The browser is not part of report orchestration. Once the immutable
+  // Antigravity artifact and workspace attempt are committed, enqueue the
+  // crash-safe DSA + unified report pipeline in ProvenHire Postgres.
+  const workspaceAttempt = await prisma.workspaceRoundAttempt.findFirst({
+    where: { interviewId, userId, roundType: "interview" },
+    select: { workspaceId: true },
+  });
+  if (workspaceAttempt && sessionId) {
+    await enqueueCandidateReportWorkflow({
+      workspaceId: workspaceAttempt.workspaceId,
+      userId,
+      interviewId,
+      handoffId: handoffId ?? null,
+      antigravitySessionId: sessionId,
+      report: agReport as unknown as Record<string, unknown>,
+    });
+  }
 
   // Fire-and-forget: publish rich analytics to unified performance pipeline
   if (totalScore != null) {
@@ -1088,7 +1119,7 @@ aiInterviewAdapterRouter.get(
       // requiring the user to keep the tab open.
       try {
         const agRes = await fetch(
-          `${antigravityApiUrl()}/report/${agSessionId}`,
+          antigravityReportUrl(agSessionId),
           {
             signal: AbortSignal.timeout(5_000),
           },
@@ -1191,7 +1222,7 @@ aiInterviewAdapterRouter.get(
       }
 
       // Poll Antigravity report endpoint
-      const agRes = await fetch(`${antigravityApiUrl()}/report/${sessionId}`, {
+      const agRes = await fetch(antigravityReportUrl(sessionId), {
         signal: AbortSignal.timeout(10_000),
       });
 
@@ -1374,7 +1405,7 @@ aiInterviewAdapterRouter.post(
         });
       }
 
-      const agRes = await fetch(`${antigravityApiUrl()}/report/${session_id}`, {
+      const agRes = await fetch(antigravityReportUrl(session_id), {
         signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
       });
       if (!agRes.ok) {
@@ -1448,7 +1479,7 @@ aiInterviewAdapterRouter.post(
       let agReport = parsed.data.report as AgReport | undefined;
       if (!agReport?.complete) {
         const agRes = await fetch(
-          `${antigravityApiUrl()}/report/${antigravity_session_id}`,
+          antigravityReportUrl(antigravity_session_id),
           {
             signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
           },
@@ -1585,6 +1616,24 @@ aiInterviewAdapterRouter.post(
         where: { id: handoff.interviewId, status: "in_progress" },
         data: { status: "abandoned" },
       });
+      const workspaceAttempt = await prisma.workspaceRoundAttempt.findFirst({
+        where: { interviewId: handoff.interviewId },
+        select: { workspaceId: true, userId: true },
+      });
+      if (workspaceAttempt) {
+        await upsertAssessmentIncident({
+          dedupeKey: `${handoff.interviewId}:antigravity:finalization_failed`,
+          workspaceId: workspaceAttempt.workspaceId,
+          userId: workspaceAttempt.userId,
+          interviewId: handoff.interviewId,
+          handoffId: handoff_id,
+          module: "antigravity",
+          issueCode: "finalization_failed",
+          severity: "critical",
+          summary: "Antigravity exhausted report-finalization retries.",
+          detail: { error, antigravitySessionId: antigravity_session_id || null },
+        });
+      }
       return res.json({ ok: true });
     } catch (e) {
       console.error("[ai-interview-adapter/handoff-failed]", e);
@@ -1622,7 +1671,7 @@ aiInterviewAdapterRouter.post(
       }
 
       const agRes = await fetch(
-        `${antigravityApiUrl()}/report/${handoff.antigravitySessionId}`,
+        antigravityReportUrl(handoff.antigravitySessionId),
         {
           signal: AbortSignal.timeout(ANTIGRAVITY_REPORT_TIMEOUT_MS),
         },

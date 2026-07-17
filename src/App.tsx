@@ -96,6 +96,9 @@ const WorkspaceLocalPreviewPage = lazy(
 const WorkspaceCandidateReportsPage = lazy(
   () => import("./pages/admin/workspaces/WorkspaceCandidateReportsPage"),
 );
+const WorkspaceTechnicalDeskPage = lazy(
+  () => import("./pages/admin/workspaces/WorkspaceTechnicalDeskPage"),
+);
 const UserWorkspacesPage = lazy(
   () => import("./pages/dashboard/workspaces/UserWorkspacesPage"),
 );
@@ -281,6 +284,16 @@ const App = () => (
                 }
               />
               <Route
+                path="/local-preview/workspace/technical-desk"
+                element={
+                  import.meta.env.DEV ? (
+                    <WorkspaceTechnicalDeskPage />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
                 path="/admin/dashboard"
                 element={
                   <ProtectedRoute allowedRole="admin">
@@ -317,6 +330,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="admin">
                     <WorkspaceCandidateReportsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/workspaces/:id/technical-desk"
+                element={
+                  <ProtectedRoute allowedRole="admin">
+                    <WorkspaceTechnicalDeskPage />
                   </ProtectedRoute>
                 }
               />

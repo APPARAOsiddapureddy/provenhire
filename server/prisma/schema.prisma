@@ -1096,6 +1096,56 @@ model AssessmentReportGeneration {
   @@index([status, createdAt])
 }
 
+/// Crash-safe orchestration record for automatic post-assessment report work.
+model AssessmentWorkflowJob {
+  id            String    @id @default(uuid())
+  workspaceId   String
+  userId        String
+  interviewId   String?
+  jobKind       String    @default("candidate_report_pipeline")
+  status        String    @default("pending")
+  currentStep   String    @default("queued")
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(8)
+  nextAttemptAt DateTime  @default(now())
+  lockedAt      DateTime?
+  lockedBy      String?
+  lastError     String?   @db.Text
+  context       Json?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, userId, jobKind, interviewId])
+  @@index([status, nextAttemptAt])
+  @@index([workspaceId, createdAt])
+}
+
+/// Operator-visible assessment pipeline fault or evidence-quality warning.
+model AssessmentPipelineIncident {
+  id          String    @id @default(uuid())
+  dedupeKey   String    @unique
+  workspaceId String
+  userId      String
+  interviewId String?
+  handoffId   String?
+  module      String
+  issueCode   String
+  severity    String
+  status      String    @default("open")
+  summary     String
+  detail      Json?
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, status, severity])
+  @@index([userId, createdAt])
+  @@index([interviewId])
+}
+
 /// After AI interview submission: admin approves/rejects before human expert stage + payment gate.
 model AdminReviewQueue {
   id            String    @id @default(uuid())

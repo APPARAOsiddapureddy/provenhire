@@ -2065,12 +2065,16 @@ function AntigravityReport({
           "http://localhost:3000",
   ).replace(/\/$/, "");
   const previewCaseId = String(report.preview_replay_case_id || "");
+  const reportAccessToken = latest.reportAccessToken || "";
+  const accessQuery = reportAccessToken
+    ? `?access_token=${encodeURIComponent(reportAccessToken)}`
+    : "";
   const recruiterUrl = previewCaseId
     ? `${baseUrl}/report-preview/${encodeURIComponent(previewCaseId)}`
-    : `${baseUrl}/report/${encodeURIComponent(latest.antigravitySessionId)}`;
+    : `${baseUrl}/report/${encodeURIComponent(latest.antigravitySessionId)}${accessQuery}`;
   const candidateUrl = previewCaseId
     ? `${baseUrl}/report-preview/${encodeURIComponent(previewCaseId)}?view=candidate`
-    : `${baseUrl}/report/${encodeURIComponent(latest.antigravitySessionId)}/candidate`;
+    : `${baseUrl}/report/${encodeURIComponent(latest.antigravitySessionId)}/candidate${accessQuery}`;
   if (dossier.synthesis?.integrity?.status === "blocked") {
     return (
       <Card className="border-rose-400 bg-rose-50">

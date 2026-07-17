@@ -17,6 +17,8 @@ import {
   sanitizeAssessmentGenerationForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
 } from "./candidateDossierSanitizer.js";
+import { assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
+import { createAntigravityReportAccessToken } from "./antigravityReportAccess.service.js";
 
 export type WorkspaceActor = {
   id: string;
@@ -1269,6 +1271,15 @@ export async function getWorkspaceCandidateDossier(
       ) ?? null)
     : null;
   const matchingAntigravityReport = boundAntigravityReport;
+  const managerAntigravityReport = matchingAntigravityReport
+    ? {
+        ...matchingAntigravityReport,
+        reportAccessToken: createAntigravityReportAccessToken(
+          matchingAntigravityReport.antigravitySessionId,
+          "admin",
+        ),
+      }
+    : null;
   const workspaceInterviewLinked = Boolean(
     workspaceInterviewAttempt?.interviewId && boundAntigravityReport,
   );
@@ -1333,15 +1344,37 @@ export async function getWorkspaceCandidateDossier(
         workspaceEvidence: workspaceDsaEvidence,
       },
       antigravity: {
-        latest: matchingAntigravityReport,
+        latest: managerAntigravityReport,
         history: antigravityReports,
       },
     },
   };
+  const currentDsaReportHash = assessmentEvidenceHash("dsa", dossier);
+  const currentUnifiedReportHash = assessmentEvidenceHash("unified", dossier);
+  dossier.agentReports = {
+    dsa:
+      reportGenerations.find(
+        (generation) =>
+          generation.reportKind === "dsa" &&
+          generation.sourceHash === currentDsaReportHash,
+      ) ?? null,
+    unified:
+      reportGenerations.find(
+        (generation) =>
+          generation.reportKind === "unified" &&
+          generation.sourceHash === currentUnifiedReportHash,
+      ) ?? null,
+  };
   if (access === "manager") return dossier;
 
   const candidateAntigravityReport = matchingAntigravityReport
-    ? sanitizeAntigravityReportForCandidate(matchingAntigravityReport)
+    ? {
+        ...sanitizeAntigravityReportForCandidate(matchingAntigravityReport),
+        reportAccessToken: createAntigravityReportAccessToken(
+          matchingAntigravityReport.antigravitySessionId,
+          "candidate",
+        ),
+      }
     : null;
 
   return {

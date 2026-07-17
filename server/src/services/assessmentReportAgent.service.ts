@@ -1,13 +1,14 @@
-import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { prisma } from "../config/prisma.js";
 import { WorkspaceServiceError } from "./workspace.service.js";
 import { getWorkspaceCandidateDossier, type WorkspaceActor } from "./workspaceRegistration.service.js";
+import { assessmentEvidenceFor, assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 
 export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v2_grounded";
 export const REPORT_AGENT_MODEL = process.env.REPORT_AGENT_MODEL?.trim() || "deepseek/deepseek-r1";
+export const REPORT_CRITIC_MODEL = process.env.REPORT_CRITIC_MODEL?.trim() || REPORT_AGENT_MODEL;
 
 const citation = z.object({
   claim: z.string().min(1),
@@ -91,26 +92,6 @@ function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknown> {
   };
 }
 
-function evidenceFor(kind: AssessmentReportKind, dossier: Awaited<ReturnType<typeof getWorkspaceCandidateDossier>>) {
-  const base = { candidate: dossier.candidate, registration: dossier.registration, deterministicSynthesis: dossier.synthesis };
-  if (kind === "dsa") return { ...base, dsa: dossier.modules.dsa };
-  return {
-    ...base,
-    aptitude: dossier.modules.aptitude,
-    dsa: dossier.modules.dsa,
-    antigravity: dossier.modules.antigravity.latest
-      ? {
-          overallScore: dossier.modules.antigravity.latest.overallScore,
-          report: dossier.modules.antigravity.latest.report,
-          evidencePacket:
-            "evidencePacket" in dossier.modules.antigravity.latest
-              ? dossier.modules.antigravity.latest.evidencePacket
-              : null,
-        }
-      : null,
-  };
-}
-
 function systemPrompt(kind: AssessmentReportKind): string {
   const shared = `You are a senior assessment-evidence analyst. Produce an evidence interpretation from the supplied persisted evidence only. You do not recommend advance, hold, hire, or reject, and you do not calculate role readiness. Never invent a score, test, answer, behavior, responsibility, or claim. Distinguish directly recorded facts from derived interpretation. Every evidence citation MUST use the exact format /json/pointer :: exact source excerpt, where the pointer resolves inside the supplied JSON and the excerpt appears verbatim at that pointer. Treat missing evidence as a limit, not as a negative fact. Avoid generic praise and avoid repeating raw metrics without interpretation.`;
   return kind === "dsa"
@@ -189,9 +170,80 @@ async function callOpenRouter(kind: AssessmentReportKind, evidence: unknown) {
   if (!response.ok) throw new Error(body.error?.message || `OpenRouter report generation failed (${response.status})`);
   const content = body.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("Report model returned an empty response.");
-  const parsed = schemaFor(kind).parse(JSON.parse(content.replace(/^```json\s*|\s*```$/g, "")));
+  let parsed = schemaFor(kind).parse(JSON.parse(content.replace(/^```json\s*|\s*```$/g, "")));
   assertGroundedAssessmentReport(parsed, evidence);
-  return { result: parsed, usage: body.usage ?? {}, estimatedCostUsd: Number(body.usage?.cost ?? 0) || null };
+
+  const criticResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Report Critic" },
+    body: JSON.stringify({
+      model: REPORT_CRITIC_MODEL,
+      temperature: 0,
+      max_tokens: 1800,
+      reasoning: { effort: "high", exclude: true },
+      provider: { require_parameters: true },
+      response_format: { type: "json_schema", json_schema: { name: "assessment_report_critique", strict: true, schema: {
+        type: "object", additionalProperties: false,
+        properties: {
+          approved: { type: "boolean" },
+          issues: { type: "array", items: { type: "string" } },
+          requiredChanges: { type: "array", items: { type: "string" } },
+        },
+        required: ["approved", "issues", "requiredChanges"],
+      } } },
+      messages: [
+        { role: "system", content: "You are the independent quality judge for an employment-assessment report. Do not reveal chain-of-thought. Return only the structured verdict. Reject unsupported claims, fake precision, unresolved citations, score averaging that hides contradictions, hiring recommendations, vague AI prose, or failure to state evidence limits." },
+        { role: "user", content: `Persisted evidence:\n${JSON.stringify(evidence)}\n\nDraft report:\n${JSON.stringify(parsed)}` },
+      ],
+    }),
+  });
+  const criticBody = await criticResponse.json() as { error?: { message?: string }; choices?: Array<{ message?: { content?: string } }>; usage?: Record<string, unknown> & { cost?: number } };
+  if (!criticResponse.ok) throw new Error(criticBody.error?.message || `Report critic failed (${criticResponse.status})`);
+  const criticContent = criticBody.choices?.[0]?.message?.content?.trim();
+  if (!criticContent) throw new Error("Report critic returned an empty response.");
+  const critique = z.object({ approved: z.boolean(), issues: z.array(z.string()), requiredChanges: z.array(z.string()) }).parse(JSON.parse(criticContent.replace(/^```json\s*|\s*```$/g, "")));
+
+  let revisionUsage: Record<string, unknown> = {};
+  let revisionCost = 0;
+  if (!critique.approved) {
+    const revisionResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Report Revision" },
+      body: JSON.stringify({
+        model: REPORT_AGENT_MODEL,
+        temperature: 0.05,
+        max_tokens: 6000,
+        reasoning: { effort: "high", exclude: true },
+        provider: { require_parameters: true },
+        response_format: { type: "json_schema", json_schema: { name: `${kind}_assessment_report_revision`, strict: true, schema: jsonSchemaFor(kind) } },
+        messages: [
+          { role: "system", content: `${systemPrompt(kind)}\nRevise the draft to address every critic requirement. Return the complete corrected report only.` },
+          { role: "user", content: `Persisted evidence:\n${JSON.stringify(evidence)}\n\nDraft:\n${JSON.stringify(parsed)}\n\nCritic issues:\n${JSON.stringify(critique)}` },
+        ],
+      }),
+    });
+    const revisionBody = await revisionResponse.json() as { error?: { message?: string }; choices?: Array<{ message?: { content?: string } }>; usage?: Record<string, unknown> & { cost?: number } };
+    if (!revisionResponse.ok) throw new Error(revisionBody.error?.message || `Report revision failed (${revisionResponse.status})`);
+    const revisionContent = revisionBody.choices?.[0]?.message?.content?.trim();
+    if (!revisionContent) throw new Error("Report revision returned an empty response.");
+    parsed = schemaFor(kind).parse(JSON.parse(revisionContent.replace(/^```json\s*|\s*```$/g, "")));
+    assertGroundedAssessmentReport(parsed, evidence);
+    revisionUsage = revisionBody.usage ?? {};
+    revisionCost = Number(revisionBody.usage?.cost ?? 0) || 0;
+  }
+  return {
+    result: parsed,
+    usage: {
+      draft: body.usage ?? {},
+      critic: criticBody.usage ?? {},
+      revision: revisionUsage,
+      critique,
+    },
+    estimatedCostUsd:
+      (Number(body.usage?.cost ?? 0) || 0) +
+      (Number(criticBody.usage?.cost ?? 0) || 0) +
+      revisionCost,
+  };
 }
 
 export async function generateAssessmentReport(actor: WorkspaceActor, workspaceId: string, userId: string, kind: AssessmentReportKind, force = false) {
@@ -201,8 +253,8 @@ export async function generateAssessmentReport(actor: WorkspaceActor, workspaceI
       "Report generation is blocked until every source module has complete, auditable evidence.",
       409,
     );
-  const evidence = evidenceFor(kind, dossier);
-  const sourceHash = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
+  const evidence = assessmentEvidenceFor(kind, dossier);
+  const sourceHash = assessmentEvidenceHash(kind, dossier);
   if (!force) {
     const cached = await prisma.assessmentReportGeneration.findFirst({ where: { workspaceId, userId, reportKind: kind, sourceHash, promptVersion: REPORT_AGENT_PROMPT_VERSION, model: REPORT_AGENT_MODEL, status: "complete" }, orderBy: { completedAt: "desc" } });
     if (cached) return cached;

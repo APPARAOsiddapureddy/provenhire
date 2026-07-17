@@ -274,6 +274,7 @@ export type WorkspaceCandidateDossier = {
           completedAt?: string | null;
         };
         _count: { telemetryEvents: number };
+        reportAccessToken?: string;
       } | null;
       history: unknown[];
     };

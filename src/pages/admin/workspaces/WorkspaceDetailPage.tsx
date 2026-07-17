@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Edit, Loader2 } from "lucide-react";
+import { Activity, ArrowLeft, Edit, Loader2 } from "lucide-react";
 import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import type { Workspace } from "./types";
 import { WorkspaceActionBar, WorkspaceTabs } from "./WorkspaceAdminComponents";
@@ -150,6 +150,12 @@ export default function WorkspaceDetailPage() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link to={`/admin/workspaces/${workspace.id}/technical-desk`}>
+                  <Activity className="mr-2 h-4 w-4" />
+                  Technical desk
+                </Link>
+              </Button>
               {canEditDraft(workspace) && (
                 <Button asChild variant="outline" size="sm">
                   <Link to={`/admin/workspaces/new?workspaceId=${workspace.id}`}>

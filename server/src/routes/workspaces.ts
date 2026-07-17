@@ -24,6 +24,11 @@ import {
 } from "../controllers/workspaceRegistration.controller.js";
 import { requireAuth } from "../middleware/auth.js";
 import { allowWorkspaceCreator } from "../middleware/workspace.js";
+import {
+  listWorkspaceTechnicalDesk,
+  resolveAssessmentIncident,
+  retryAssessmentWorkflowJob,
+} from "../services/assessmentWorkflow.service.js";
 
 export const workspacesRouter = Router();
 
@@ -95,6 +100,27 @@ workspacesRouter.get(
   "/question-bank/sql",
   getWorkspaceSqlTaskAvailabilityController,
 );
+workspacesRouter.get("/:id/technical-desk", async (req, res, next) => {
+  try {
+    res.json(await listWorkspaceTechnicalDesk(req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+workspacesRouter.post("/:id/technical-desk/jobs/:jobId/retry", async (req, res, next) => {
+  try {
+    res.json({ job: await retryAssessmentWorkflowJob(req.params.id, req.params.jobId) });
+  } catch (error) {
+    next(error);
+  }
+});
+workspacesRouter.post("/:id/technical-desk/incidents/:incidentId/resolve", async (req, res, next) => {
+  try {
+    res.json({ incident: await resolveAssessmentIncident(req.params.id, req.params.incidentId) });
+  } catch (error) {
+    next(error);
+  }
+});
 workspacesRouter.get("/:id", getWorkspaceController);
 workspacesRouter.patch("/:id", updateWorkspaceController);
 workspacesRouter.put("/:id/rounds", replaceWorkspaceRoundsController);
