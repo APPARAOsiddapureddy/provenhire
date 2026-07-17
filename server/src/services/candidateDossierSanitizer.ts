@@ -1,0 +1,167 @@
+type JsonRecord = Record<string, unknown>;
+
+function record(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Candidate report payloads are constructed from an allowlist. Never spread a
+ * recruiter artifact here: those rows also contain transcript, telemetry,
+ * evidence packets, report history, evaluator confidence, and legacy hiring
+ * verdicts that are not part of candidate coaching.
+ */
+export function sanitizeAntigravityReportForCandidate(value: unknown) {
+  const artifact = record(value);
+  const report = record(artifact.report);
+  const interview = record(artifact.interview);
+  const count = record(artifact._count);
+
+  return {
+    id: String(artifact.id ?? ""),
+    antigravitySessionId: String(artifact.antigravitySessionId ?? ""),
+    schemaVersion: String(artifact.schemaVersion ?? "final_report_v2"),
+    overallScore: optionalNumber(artifact.overallScore),
+    report: {
+      preview_replay_case_id: optionalString(report.preview_replay_case_id),
+      tested_strengths: stringArray(
+        report.tested_strengths ?? report.strengths,
+      ),
+      tested_risks: stringArray(report.tested_risks ?? report.risk_flags),
+    },
+    receivedAt: String(artifact.receivedAt ?? ""),
+    interview: {
+      id: String(interview.id ?? ""),
+      jobRole: optionalString(interview.jobRole),
+      completedAt: optionalString(interview.completedAt),
+    },
+    _count: {
+      telemetryEvents: Math.max(0, Number(count.telemetryEvents) || 0),
+    },
+  };
+}
+
+export function sanitizeAssessmentGenerationForCandidate(
+  value: unknown,
+  kind: "dsa" | "unified",
+) {
+  const generation = record(value);
+  if (!Object.keys(generation).length) return null;
+  const result = record(generation.result);
+
+  const safeResult =
+    kind === "dsa"
+      ? {
+          verifiedStrengths: Array.isArray(result.verifiedStrengths)
+            ? result.verifiedStrengths
+            : [],
+          failureAndRiskAnalysis: Array.isArray(result.failureAndRiskAnalysis)
+            ? result.failureAndRiskAnalysis
+            : [],
+          candidatePracticePrompts: Array.isArray(result.problemReads)
+            ? result.problemReads
+                .map((item) => optionalString(record(item).followUpReasoning))
+                .filter((item): item is string => Boolean(item))
+            : [],
+        }
+      : {
+          roleFit: record(result.roleFit),
+          evidenceLimits: stringArray(result.evidenceLimits),
+        };
+
+  return {
+    id: String(generation.id ?? ""),
+    reportKind: String(generation.reportKind ?? kind),
+    promptVersion: String(generation.promptVersion ?? ""),
+    model: String(generation.model ?? ""),
+    result: safeResult,
+    completedAt: optionalString(generation.completedAt),
+    sourceHash: String(generation.sourceHash ?? ""),
+  };
+}
+
+function judgeRows(value: unknown): JsonRecord[] {
+  if (Array.isArray(value)) return value.map(record);
+  const payload = record(value);
+  return Array.isArray(payload.results) ? payload.results.map(record) : [];
+}
+
+export function sanitizeDsaWorkspaceEvidenceForCandidate(value: unknown) {
+  const evidence = record(value);
+  const submissions = Array.isArray(evidence.submissions)
+    ? evidence.submissions.map((raw) => {
+        const submission = record(raw);
+        const question = record(submission.question);
+        const results = judgeRows(submission.results).map((row) => {
+          const hidden = Boolean(row.hidden ?? row.isHidden ?? row.is_hidden);
+          return {
+            passed: row.passed === true,
+            status: optionalString(row.status),
+            message: optionalString(row.message ?? row.error),
+            ...(hidden
+              ? { visibility: "hidden" }
+              : {
+                  visibility: "candidate_visible",
+                  input: row.input ?? null,
+                  expected: row.expected ?? row.expectedOutput ?? null,
+                  actual: row.actual ?? row.actualOutput ?? null,
+                }),
+          };
+        });
+        return {
+          id: String(submission.id ?? ""),
+          questionId: String(submission.questionId ?? ""),
+          language: String(submission.language ?? ""),
+          code: String(submission.code ?? ""),
+          passedCount: Math.max(0, Number(submission.passedCount) || 0),
+          totalCount: Math.max(0, Number(submission.totalCount) || 0),
+          results: { results },
+          submittedAt: String(submission.submittedAt ?? ""),
+          question: {
+            id: String(question.id ?? submission.questionId ?? ""),
+            title: String(question.title ?? "Problem"),
+            description: String(question.description ?? ""),
+            difficulty: String(question.difficulty ?? ""),
+            examples: question.examples ?? null,
+            constraints: stringArray(question.constraints),
+          },
+        };
+      })
+    : [];
+  return {
+    attemptId: String(evidence.attemptId ?? ""),
+    roundSessionId: String(evidence.roundSessionId ?? ""),
+    score: optionalNumber(evidence.score),
+    completedAt: optionalString(evidence.completedAt),
+    submissions,
+  };
+}
+
+export const CANDIDATE_FORBIDDEN_REPORT_KEYS = [
+  "hireRecommendation",
+  "confidenceScore",
+  "finalVerdict",
+  "badgeLevel",
+  "totalScore",
+  "evidencePacket",
+  "telemetrySummary",
+  "transcript",
+  "history",
+  "recordedDecision",
+  "decisionGates",
+  "recommendedPanelProbes",
+] as const;

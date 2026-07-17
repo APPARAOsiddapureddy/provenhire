@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { api } from "@/lib/api";
 
 type SyncState = "syncing" | "complete" | "failed";
@@ -19,9 +25,18 @@ type SyncResponse = {
 export default function AntigravityReturnPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const handoffId = useMemo(() => params.get("handoff_id")?.trim() || "", [params]);
+  const handoffId = useMemo(
+    () => params.get("handoff_id")?.trim() || "",
+    [params],
+  );
+  const workspaceCode = useMemo(
+    () => params.get("workspace_code")?.trim().toUpperCase() || "",
+    [params],
+  );
   const [state, setState] = useState<SyncState>("syncing");
-  const [message, setMessage] = useState("Antigravity is generating the final report.");
+  const [message, setMessage] = useState(
+    "Antigravity is generating the final report.",
+  );
   const [result, setResult] = useState<SyncResponse | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const attemptsRef = useRef(0);
@@ -41,32 +56,40 @@ export default function AntigravityReturnPage() {
       try {
         const payload = await api.post<SyncResponse>(
           `/api/ai-interview-adapter/handoff-sync/${handoffId}`,
-          {}
+          {},
         );
         if (cancelled) return;
         setResult(payload);
 
         if (payload.complete) {
           setState("complete");
-          setMessage("Your interview report has been safely returned to ProvenHire.");
+          setMessage(
+            "Your interview report has been safely returned to ProvenHire.",
+          );
           return;
         }
 
         if (payload.status === "failed" || payload.status === "expired") {
           setState("failed");
-          setMessage(payload.error || `The Antigravity handoff is ${payload.status}.`);
+          setMessage(
+            payload.error || `The Antigravity handoff is ${payload.status}.`,
+          );
           return;
         }
 
         setMessage(
           attemptsRef.current <= 2
             ? "Antigravity is generating the final report."
-            : "Still working. Final scoring can take a little longer on the last turn."
+            : "Still working. Final scoring can take a little longer on the last turn.",
         );
         timer = setTimeout(sync, attemptsRef.current < 20 ? 3000 : 8000);
       } catch (e) {
         if (cancelled) return;
-        setMessage(e instanceof Error ? e.message : "Could not sync the Antigravity report yet.");
+        setMessage(
+          e instanceof Error
+            ? e.message
+            : "Could not sync the Antigravity report yet.",
+        );
         timer = setTimeout(sync, 5000);
       }
     }
@@ -106,7 +129,9 @@ export default function AntigravityReturnPage() {
           <div className="rounded-lg border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
             <div className="flex justify-between gap-4">
               <span>Handoff</span>
-              <span className="font-mono">{handoffId ? handoffId.slice(0, 8) : "missing"}</span>
+              <span className="font-mono">
+                {handoffId ? handoffId.slice(0, 8) : "missing"}
+              </span>
             </div>
             {result?.status && (
               <div className="mt-2 flex justify-between gap-4">
@@ -136,8 +161,20 @@ export default function AntigravityReturnPage() {
                 Keep Waiting
               </Button>
             )}
-            <Button onClick={() => navigate("/dashboard/jobseeker")}>
-              {state === "complete" ? "Back to Dashboard" : "Go to Dashboard"}
+            <Button
+              onClick={() =>
+                navigate(
+                  workspaceCode
+                    ? `/dashboard/jobseeker/workspaces/${encodeURIComponent(workspaceCode)}`
+                    : "/dashboard/jobseeker",
+                )
+              }
+            >
+              {state === "complete" && workspaceCode
+                ? "Back to Workspace"
+                : state === "complete"
+                  ? "Back to Dashboard"
+                  : "Go to Dashboard"}
             </Button>
           </div>
         </CardContent>

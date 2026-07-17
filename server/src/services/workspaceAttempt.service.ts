@@ -1,28 +1,55 @@
 import { prisma } from "../config/prisma.js";
-import { WorkspaceServiceError, syncWorkspaceLifecycle } from "./workspace.service.js";
+import {
+  WorkspaceServiceError,
+  syncWorkspaceLifecycle,
+} from "./workspace.service.js";
 import { startWorkspaceMcqSession } from "./mcqSession.service.js";
-import { getWorkspaceDsaSessionSnapshot, startWorkspaceDsaSession } from "./workspaceDsaSession.service.js";
-import { getWorkspaceSqlSessionSnapshot, startWorkspaceSqlSession } from "./workspaceSqlSession.service.js";
+import {
+  getWorkspaceDsaSessionSnapshot,
+  startWorkspaceDsaSession,
+} from "./workspaceDsaSession.service.js";
+import {
+  getWorkspaceSqlSessionSnapshot,
+  startWorkspaceSqlSession,
+} from "./workspaceSqlSession.service.js";
 import {
   assertWorkspaceRoundStartAllowed,
   normalizeWorkspaceCode,
   type WorkspaceAttemptActor,
 } from "./workspaceAttemptGuards.service.js";
 
-export async function startWorkspaceRoundAttempt(actor: WorkspaceAttemptActor, codeInput: string, roundId: string) {
+export async function startWorkspaceRoundAttempt(
+  actor: WorkspaceAttemptActor,
+  codeInput: string,
+  roundId: string,
+) {
   const code = normalizeWorkspaceCode(codeInput);
-  const workspaceRow = await prisma.workspace.findUnique({ where: { code }, select: { id: true } });
+  const workspaceRow = await prisma.workspace.findUnique({
+    where: { code },
+    select: { id: true },
+  });
   if (workspaceRow) await syncWorkspaceLifecycle(workspaceRow.id);
 
   const roundType = await prisma.$transaction(async (tx) => {
-    const { round } = await assertWorkspaceRoundStartAllowed(tx, actor, code, roundId);
+    const { round } = await assertWorkspaceRoundStartAllowed(
+      tx,
+      actor,
+      code,
+      roundId,
+    );
     return round.type;
   });
 
   if (roundType === "mcq") {
-    const snapshot = await startWorkspaceMcqSession(actor, { workspaceCode: code, workspaceRoundId: roundId });
+    const snapshot = await startWorkspaceMcqSession(actor, {
+      workspaceCode: code,
+      workspaceRoundId: roundId,
+    });
     if (!snapshot.workspaceAttempt) {
-      throw new WorkspaceServiceError("Workspace attempt could not be created.", 500);
+      throw new WorkspaceServiceError(
+        "Workspace attempt could not be created.",
+        500,
+      );
     }
     return {
       roundType,
@@ -33,7 +60,10 @@ export async function startWorkspaceRoundAttempt(actor: WorkspaceAttemptActor, c
   }
 
   if (roundType === "coding") {
-    const snapshot = await startWorkspaceDsaSession(actor, { workspaceCode: code, workspaceRoundId: roundId });
+    const snapshot = await startWorkspaceDsaSession(actor, {
+      workspaceCode: code,
+      workspaceRoundId: roundId,
+    });
     return {
       roundType,
       attemptId: snapshot.workspaceAttempt.id,
@@ -43,7 +73,10 @@ export async function startWorkspaceRoundAttempt(actor: WorkspaceAttemptActor, c
   }
 
   if (roundType === "sql") {
-    const snapshot = await startWorkspaceSqlSession(actor, { workspaceCode: code, workspaceRoundId: roundId });
+    const snapshot = await startWorkspaceSqlSession(actor, {
+      workspaceCode: code,
+      workspaceRoundId: roundId,
+    });
     return {
       roundType,
       attemptId: snapshot.workspaceAttempt.id,
@@ -52,25 +85,87 @@ export async function startWorkspaceRoundAttempt(actor: WorkspaceAttemptActor, c
     };
   }
 
+  if (roundType === "interview") {
+    const attempt = await prisma.$transaction(async (tx) => {
+      const { workspace, round, registration } =
+        await assertWorkspaceRoundStartAllowed(tx, actor, code, roundId);
+      return tx.workspaceRoundAttempt.upsert({
+        where: {
+          workspaceRegistrationId_workspaceRoundId: {
+            workspaceRegistrationId: registration.id,
+            workspaceRoundId: round.id,
+          },
+        },
+        create: {
+          workspaceId: workspace.id,
+          workspaceRoundId: round.id,
+          workspaceRegistrationId: registration.id,
+          userId: actor.id,
+          roundType: "interview",
+        },
+        update: {},
+        select: {
+          id: true,
+          status: true,
+          interviewId: true,
+          workspace: { select: { targetRole: true } },
+        },
+      });
+    });
+    if (attempt.status !== "active") {
+      throw new WorkspaceServiceError(
+        "Workspace interview attempt is already finalized.",
+        409,
+      );
+    }
+    return {
+      roundType,
+      attemptId: attempt.id,
+      sessionId: attempt.interviewId ?? attempt.id,
+      sessionStatus: attempt.status,
+      targetRole: attempt.workspace.targetRole,
+    };
+  }
+
   throw new WorkspaceServiceError("Unsupported workspace round type.", 409);
 }
 
-export async function getWorkspaceRoundAttemptSession(actor: WorkspaceAttemptActor, attemptId: string) {
+export async function getWorkspaceRoundAttemptSession(
+  actor: WorkspaceAttemptActor,
+  attemptId: string,
+) {
   const attempt = await prisma.workspaceRoundAttempt.findFirst({
     where: { id: attemptId, userId: actor.id },
-    select: { roundType: true, mcqSessionId: true, dsaRoundSessionId: true, sqlSessionId: true },
+    select: {
+      roundType: true,
+      mcqSessionId: true,
+      dsaRoundSessionId: true,
+      sqlSessionId: true,
+      interviewId: true,
+    },
   });
-  if (!attempt) throw new WorkspaceServiceError("Workspace attempt not found.", 404);
+  if (!attempt)
+    throw new WorkspaceServiceError("Workspace attempt not found.", 404);
   if (attempt.roundType === "mcq" && attempt.mcqSessionId) {
     return { roundType: attempt.roundType, sessionId: attempt.mcqSessionId };
   }
   if (attempt.roundType === "coding" && attempt.dsaRoundSessionId) {
     await getWorkspaceDsaSessionSnapshot(actor, attempt.dsaRoundSessionId);
-    return { roundType: attempt.roundType, sessionId: attempt.dsaRoundSessionId };
+    return {
+      roundType: attempt.roundType,
+      sessionId: attempt.dsaRoundSessionId,
+    };
   }
   if (attempt.roundType === "sql" && attempt.sqlSessionId) {
     await getWorkspaceSqlSessionSnapshot(actor, attempt.sqlSessionId);
     return { roundType: attempt.roundType, sessionId: attempt.sqlSessionId };
+  }
+  if (attempt.roundType === "interview") {
+    return {
+      roundType: attempt.roundType,
+      sessionId: attempt.interviewId ?? attemptId,
+      workspaceAttemptId: attemptId,
+    };
   }
   throw new WorkspaceServiceError("Workspace attempt session not found.", 404);
 }
