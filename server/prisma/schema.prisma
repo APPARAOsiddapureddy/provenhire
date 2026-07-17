@@ -74,6 +74,8 @@ model User {
   workspaceRoundAttempts         WorkspaceRoundAttempt[]
   workspaceCandidateDecisions    WorkspaceCandidateDecision[]  @relation("WorkspaceDecisionCandidate")
   workspaceDecisionReviews       WorkspaceCandidateDecision[]  @relation("WorkspaceDecisionReviewer")
+  placementReadinessHandoffs     PlacementReadinessHandoff[]
+  placementReadinessArtifacts    PlacementReadinessArtifact[]
 }
 
 /// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
@@ -367,13 +369,15 @@ model Workspace {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  ownerUser          User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  recruiterProfile   RecruiterProfile?            @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
-  rounds             WorkspaceRound[]
-  registrations      WorkspaceRegistration[]
-  allowedEmails      WorkspaceAllowedEmail[]
-  roundAttempts      WorkspaceRoundAttempt[]
-  candidateDecisions WorkspaceCandidateDecision[]
+  ownerUser                   User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  recruiterProfile            RecruiterProfile?            @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
+  rounds                      WorkspaceRound[]
+  registrations               WorkspaceRegistration[]
+  allowedEmails               WorkspaceAllowedEmail[]
+  roundAttempts               WorkspaceRoundAttempt[]
+  candidateDecisions          WorkspaceCandidateDecision[]
+  placementReadinessHandoffs  PlacementReadinessHandoff[]
+  placementReadinessArtifacts PlacementReadinessArtifact[]
 
   @@index([ownerRole, ownerUserId])
   @@index([recruiterProfileId])
@@ -546,14 +550,16 @@ model WorkspaceRoundAttempt {
   createdAt               DateTime                    @default(now())
   updatedAt               DateTime                    @updatedAt
 
-  workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  workspaceRound        WorkspaceRound        @relation(fields: [workspaceRoundId], references: [id], onDelete: Cascade)
-  workspaceRegistration WorkspaceRegistration @relation(fields: [workspaceRegistrationId], references: [id], onDelete: Cascade)
-  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mcqSession            McqSession?           @relation(fields: [mcqSessionId], references: [id], onDelete: SetNull)
-  dsaRoundSession       DsaRoundSession?      @relation(fields: [dsaRoundSessionId], references: [id], onDelete: SetNull)
-  sqlSession            WorkspaceSqlSession?  @relation(fields: [sqlSessionId], references: [id], onDelete: SetNull)
-  interview             Interview?            @relation(fields: [interviewId], references: [id], onDelete: SetNull)
+  workspace                  Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceRound             WorkspaceRound              @relation(fields: [workspaceRoundId], references: [id], onDelete: Cascade)
+  workspaceRegistration      WorkspaceRegistration       @relation(fields: [workspaceRegistrationId], references: [id], onDelete: Cascade)
+  user                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mcqSession                 McqSession?                 @relation(fields: [mcqSessionId], references: [id], onDelete: SetNull)
+  dsaRoundSession            DsaRoundSession?            @relation(fields: [dsaRoundSessionId], references: [id], onDelete: SetNull)
+  sqlSession                 WorkspaceSqlSession?        @relation(fields: [sqlSessionId], references: [id], onDelete: SetNull)
+  interview                  Interview?                  @relation(fields: [interviewId], references: [id], onDelete: SetNull)
+  placementReadinessHandoff  PlacementReadinessHandoff?
+  placementReadinessArtifact PlacementReadinessArtifact?
 
   @@unique([workspaceRegistrationId, workspaceRoundId])
   @@index([workspaceId, status])
@@ -1069,6 +1075,72 @@ model AntigravityTelemetryEvent {
   @@index([antigravitySessionId, eventAt])
   @@index([userId, eventAt])
   @@index([eventName])
+}
+
+model PlacementReadinessHandoff {
+  id                      String    @id @default(uuid())
+  userId                  String
+  workspaceId             String
+  workspaceRoundAttemptId String    @unique
+  placementSessionId      String?   @unique
+  launchTokenHash         String    @unique
+  status                  String    @default("created")
+  returnUrl               String
+  launchPayload           Json
+  lastError               String?   @db.Text
+  expiresAt               DateTime
+  launchedAt              DateTime?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  failedAt                DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  user             User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace        Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceAttempt WorkspaceRoundAttempt             @relation(fields: [workspaceRoundAttemptId], references: [id], onDelete: Cascade)
+  artifact         PlacementReadinessArtifact?
+  callbackEvents   PlacementReadinessCallbackEvent[]
+
+  @@index([userId, status])
+  @@index([workspaceId, status])
+  @@index([expiresAt])
+}
+
+model PlacementReadinessArtifact {
+  id                      String   @id @default(uuid())
+  handoffId               String   @unique
+  userId                  String
+  workspaceId             String
+  workspaceRoundAttemptId String   @unique
+  placementSessionId      String   @unique
+  schemaVersion           String
+  reportHash              String
+  artifact                Json
+  receivedAt              DateTime @default(now())
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  handoff          PlacementReadinessHandoff @relation(fields: [handoffId], references: [id], onDelete: Cascade)
+  user             User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceAttempt WorkspaceRoundAttempt     @relation(fields: [workspaceRoundAttemptId], references: [id], onDelete: Cascade)
+
+  @@index([userId, receivedAt])
+  @@index([workspaceId, receivedAt])
+}
+
+model PlacementReadinessCallbackEvent {
+  id         String   @id
+  handoffId  String
+  eventType  String
+  payload    Json
+  receivedAt DateTime @default(now())
+
+  handoff PlacementReadinessHandoff @relation(fields: [handoffId], references: [id], onDelete: Cascade)
+
+  @@index([handoffId, receivedAt])
+  @@index([eventType, receivedAt])
 }
 
 /// Durable, versioned LLM synthesis over persisted assessment evidence.

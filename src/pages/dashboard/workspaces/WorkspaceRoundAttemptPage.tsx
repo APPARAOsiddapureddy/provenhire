@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ export default function WorkspaceRoundAttemptPage() {
   }>();
   const navigate = useNavigate();
   const [attempt, setAttempt] = useState<StartAttemptResponse | null>(null);
+  const placementLaunchStarted = useRef(false);
   const workspaceCode = decodeURIComponent(code).trim().toUpperCase();
 
   useEffect(() => {
@@ -48,14 +49,15 @@ export default function WorkspaceRoundAttemptPage() {
   }, [workspaceCode, roundId, navigate]);
 
   useEffect(() => {
-    if (attempt?.roundType !== "interview") return;
-    const params = new URLSearchParams({
+    if (attempt?.roundType !== "interview" || placementLaunchStarted.current) return;
+    placementLaunchStarted.current = true;
+    void api.post<{ launch_url: string }>("/api/placement-readiness/handoff-launch", {
       workspace_attempt_id: attempt.attemptId,
-      workspace_code: workspaceCode,
-    });
-    if (attempt.targetRole) params.set("target_role", attempt.targetRole);
-    navigate(`/dashboard/jobseeker/antigravity?${params.toString()}`, {
-      replace: true,
+    }).then((response) => {
+      window.location.assign(response.launch_url);
+    }).catch((error) => {
+      toast.error(error instanceof Error ? error.message : "Could not open Placement Readiness.");
+      navigate(`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspaceCode)}`, { replace: true });
     });
   }, [attempt, navigate, workspaceCode]);
 
@@ -98,7 +100,7 @@ export default function WorkspaceRoundAttemptPage() {
       <UserWorkspaceShell>
         <div className="min-h-[420px] flex items-center justify-center gap-3 text-[var(--dash-text-muted)]">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
-          Opening the Antigravity interview setup…
+          Opening ProvenHire Placement Readiness…
         </div>
       </UserWorkspaceShell>
     );
