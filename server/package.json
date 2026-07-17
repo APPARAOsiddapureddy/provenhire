@@ -31,6 +31,7 @@
     "audit:flow": "tsx scripts/auditFlow.ts",
     "test:candidate-synthesis": "tsx scripts/candidate-synthesis-contract.ts",
     "test:report-integrity": "tsx scripts/report-integrity-contract.ts",
+    "test:report-routing": "tsx scripts/report-model-routing-contract.ts",
     "seed:interview-bank": "tsx prisma/seeds/interviewQuestionBank.seed.ts",
     "clear-test-users": "tsx prisma/clear-test-users.ts"
   },

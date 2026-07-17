@@ -31,6 +31,14 @@ services:
         sync: false
       - key: REPORT_AGENT_MODEL
         value: google/gemini-2.5-flash
+      - key: REPORT_UNIFIED_ESCALATION_MODEL
+        value: google/gemini-3.1-pro-preview
+      - key: REPORT_UNIFIED_ESCALATION_ENABLED
+        value: "true"
+      - key: REPORT_UNIFIED_ESCALATION_SCORE_SPREAD
+        value: "20"
+      - key: REPORT_UNIFIED_ESCALATION_CONFIDENCE_MAX
+        value: "0.7"
       - key: REPORT_CRITIC_MODEL
         value: gpt-oss-120b
       - key: REPORT_CRITIC_PROVIDER

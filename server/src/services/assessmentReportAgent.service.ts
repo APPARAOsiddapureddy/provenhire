@@ -6,10 +6,77 @@ import { WorkspaceServiceError } from "./workspace.service.js";
 import { getWorkspaceCandidateDossier, type WorkspaceActor } from "./workspaceRegistration.service.js";
 import { assessmentEvidenceFor, assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 
-export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v2_grounded";
+export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v3_grounded_routing";
 export const REPORT_AGENT_MODEL = process.env.REPORT_AGENT_MODEL?.trim() || "google/gemini-2.5-flash";
+export const REPORT_UNIFIED_ESCALATION_MODEL = process.env.REPORT_UNIFIED_ESCALATION_MODEL?.trim() || "google/gemini-3.1-pro-preview";
+export const REPORT_UNIFIED_ESCALATION_ENABLED = process.env.REPORT_UNIFIED_ESCALATION_ENABLED?.trim().toLowerCase() !== "false";
+export const REPORT_UNIFIED_ESCALATION_SCORE_SPREAD = Number(process.env.REPORT_UNIFIED_ESCALATION_SCORE_SPREAD || 20);
+export const REPORT_UNIFIED_ESCALATION_CONFIDENCE_MAX = Number(process.env.REPORT_UNIFIED_ESCALATION_CONFIDENCE_MAX || 0.7);
 export const REPORT_CRITIC_MODEL = process.env.REPORT_CRITIC_MODEL?.trim() || "gpt-oss-120b";
 export const REPORT_CRITIC_PROVIDER = process.env.REPORT_CRITIC_PROVIDER?.trim().toLowerCase() || "cerebras";
+
+export type AssessmentReportModelRoute = {
+  model: string;
+  tier: "standard" | "escalated";
+  reasons: string[];
+};
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function finiteNumber(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function selectAssessmentReportModel(
+  kind: AssessmentReportKind,
+  evidence: unknown,
+): AssessmentReportModelRoute {
+  if (kind !== "unified" || !REPORT_UNIFIED_ESCALATION_ENABLED) {
+    return { model: REPORT_AGENT_MODEL, tier: "standard", reasons: [] };
+  }
+
+  const root = objectValue(evidence);
+  const synthesis = objectValue(root.deterministicSynthesis);
+  const evidenceBasis = objectValue(synthesis.evidenceBasis);
+  const scoreSpread = finiteNumber(evidenceBasis.scoreSpread);
+  const contradictions = Array.isArray(synthesis.contradictions)
+    ? synthesis.contradictions.map(String).filter((item) =>
+        !item.startsWith("No material") &&
+        !item.startsWith("Cross-module comparison is withheld"))
+    : [];
+  const antigravity = objectValue(root.antigravity);
+  const report = objectValue(antigravity.report);
+  const packet = objectValue(antigravity.evidencePacket);
+  const rawConfidence = [
+    report.confidence_score,
+    report.confidence,
+    packet.confidence_score,
+    packet.confidence,
+  ].map(finiteNumber).find((value): value is number => value !== null) ?? null;
+  const confidence = rawConfidence === null
+    ? null
+    : rawConfidence > 1 ? rawConfidence / 100 : rawConfidence;
+
+  const reasons: string[] = [];
+  if (scoreSpread !== null && scoreSpread >= REPORT_UNIFIED_ESCALATION_SCORE_SPREAD)
+    reasons.push(`cross-module score spread ${scoreSpread} >= ${REPORT_UNIFIED_ESCALATION_SCORE_SPREAD}`);
+  if (contradictions.length)
+    reasons.push(`${contradictions.length} material cross-module contradiction(s)`);
+  if (confidence !== null && confidence < REPORT_UNIFIED_ESCALATION_CONFIDENCE_MAX)
+    reasons.push(`Antigravity confidence ${confidence} < ${REPORT_UNIFIED_ESCALATION_CONFIDENCE_MAX}`);
+
+  const shouldEscalate =
+    (scoreSpread !== null && scoreSpread >= REPORT_UNIFIED_ESCALATION_SCORE_SPREAD) ||
+    reasons.length >= 2;
+  return shouldEscalate
+    ? { model: REPORT_UNIFIED_ESCALATION_MODEL, tier: "escalated", reasons }
+    : { model: REPORT_AGENT_MODEL, tier: "standard", reasons };
+}
 
 const citation = z.object({
   claim: z.string().min(1),
@@ -152,7 +219,11 @@ export function assertGroundedAssessmentReport(
     );
 }
 
-export async function callReportGenerationChain(kind: AssessmentReportKind, evidence: unknown) {
+export async function callReportGenerationChain(
+  kind: AssessmentReportKind,
+  evidence: unknown,
+  route = selectAssessmentReportModel(kind, evidence),
+) {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new WorkspaceServiceError("Report agent unavailable: configure OPENROUTER_API_KEY on the ProvenHire server.", 503);
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -160,7 +231,7 @@ export async function callReportGenerationChain(kind: AssessmentReportKind, evid
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Reports" },
     signal: AbortSignal.timeout(120_000),
     body: JSON.stringify({
-      model: REPORT_AGENT_MODEL,
+      model: route.model,
       temperature: 0.1,
       max_tokens: 8000,
       reasoning: { effort: "high", exclude: true },
@@ -245,7 +316,7 @@ export async function callReportGenerationChain(kind: AssessmentReportKind, evid
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Report Revision" },
       signal: AbortSignal.timeout(120_000),
       body: JSON.stringify({
-        model: REPORT_AGENT_MODEL,
+        model: route.model,
         temperature: 0.05,
         max_tokens: 8000,
         reasoning: { effort: "high", exclude: true },
@@ -273,6 +344,7 @@ export async function callReportGenerationChain(kind: AssessmentReportKind, evid
       critic: criticBody.usage ?? {},
       revision: revisionUsage,
       critique,
+      routing: route,
     },
     estimatedCostUsd:
       (Number(body.usage?.cost ?? 0) || 0) +
@@ -290,17 +362,18 @@ export async function generateAssessmentReport(actor: WorkspaceActor, workspaceI
     );
   const evidence = assessmentEvidenceFor(kind, dossier);
   const sourceHash = assessmentEvidenceHash(kind, dossier);
+  const route = selectAssessmentReportModel(kind, evidence);
   if (!force) {
-    const cached = await prisma.assessmentReportGeneration.findFirst({ where: { workspaceId, userId, reportKind: kind, sourceHash, promptVersion: REPORT_AGENT_PROMPT_VERSION, model: REPORT_AGENT_MODEL, status: "complete" }, orderBy: { completedAt: "desc" } });
+    const cached = await prisma.assessmentReportGeneration.findFirst({ where: { workspaceId, userId, reportKind: kind, sourceHash, promptVersion: REPORT_AGENT_PROMPT_VERSION, model: route.model, status: "complete" }, orderBy: { completedAt: "desc" } });
     if (cached) return cached;
   }
   const generation = await prisma.assessmentReportGeneration.upsert({
-    where: { workspaceId_userId_reportKind_sourceHash_promptVersion_model: { workspaceId, userId, reportKind: kind, sourceHash, promptVersion: REPORT_AGENT_PROMPT_VERSION, model: REPORT_AGENT_MODEL } },
-    create: { workspaceId, userId, reportKind: kind, sourceHash, promptVersion: REPORT_AGENT_PROMPT_VERSION, model: REPORT_AGENT_MODEL, status: "pending" },
+    where: { workspaceId_userId_reportKind_sourceHash_promptVersion_model: { workspaceId, userId, reportKind: kind, sourceHash, promptVersion: REPORT_AGENT_PROMPT_VERSION, model: route.model } },
+    create: { workspaceId, userId, reportKind: kind, sourceHash, promptVersion: REPORT_AGENT_PROMPT_VERSION, model: route.model, status: "pending" },
     update: { status: "pending", error: null, startedAt: new Date(), completedAt: null },
   });
   try {
-    const output = await callReportGenerationChain(kind, evidence);
+    const output = await callReportGenerationChain(kind, evidence, route);
     return await prisma.assessmentReportGeneration.update({ where: { id: generation.id }, data: { status: "complete", result: output.result as unknown as Prisma.InputJsonValue, usage: output.usage as Prisma.InputJsonValue, estimatedCostUsd: output.estimatedCostUsd, completedAt: new Date() } });
   } catch (error) {
     await prisma.assessmentReportGeneration.update({ where: { id: generation.id }, data: { status: "error", error: error instanceof Error ? error.message : String(error), completedAt: new Date() } });

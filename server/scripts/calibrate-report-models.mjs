@@ -73,6 +73,8 @@ const evidence = {
 };
 
 const allCandidates = [
+  { id: "or-sonnet-5", provider: "openrouter", model: "anthropic/claude-sonnet-5", structuredOutput: false, requireParameters: false },
+  { id: "or-gemini-3.1-pro", provider: "openrouter", model: "google/gemini-3.1-pro-preview", reasoning: { effort: "high", exclude: true } },
   { id: "or-gpt-oss", provider: "openrouter", model: "openai/gpt-oss-120b", reasoning: { effort: "high", exclude: true } },
   { id: "or-gemma-4", provider: "openrouter", model: "google/gemma-4-31b-it", reasoning: { effort: "high", exclude: true } },
   { id: "or-gemini-2.5-flash", provider: "openrouter", model: "google/gemini-2.5-flash", reasoning: { effort: "high", exclude: true } },
@@ -119,14 +121,19 @@ async function completion(candidate, kind) {
     model: candidate.model,
     messages: [
       { role: "system", content: systemPrompt(kind) },
-      { role: "user", content: `Persisted evidence:\n${JSON.stringify(kind === "dsa" ? { candidate: evidence.candidate, registration: evidence.registration, deterministicSynthesis: evidence.deterministicSynthesis, dsa: evidence.dsa } : evidence)}` },
+      {
+        role: "user",
+        content: `Persisted evidence:\n${JSON.stringify(kind === "dsa" ? { candidate: evidence.candidate, registration: evidence.registration, deterministicSynthesis: evidence.deterministicSynthesis, dsa: evidence.dsa } : evidence)}${candidate.structuredOutput === false ? `\n\nReturn one JSON object matching this schema exactly; do not add wrapper keys:\n${JSON.stringify(jsonSchemaFor(kind))}` : ""}`,
+      },
     ],
     temperature: 0,
-    max_tokens: 10_000,
-    response_format: { type: "json_schema", json_schema: { name: `${kind}_assessment_report`, strict: true, schema: jsonSchemaFor(kind) } },
+    max_tokens: Number.parseInt(process.env.CALIBRATION_MAX_TOKENS || "10000", 10),
   };
+  if (candidate.structuredOutput !== false) {
+    request.response_format = { type: "json_schema", json_schema: { name: `${kind}_assessment_report`, strict: true, schema: jsonSchemaFor(kind) } };
+  }
   if (openRouter) {
-    request.provider = { require_parameters: true, data_collection: "deny" };
+    request.provider = { ...(candidate.requireParameters === false ? {} : { require_parameters: true }), data_collection: "deny" };
     request.reasoning = candidate.reasoning;
   } else if (candidate.reasoning_effort) {
     request.reasoning_effort = candidate.reasoning_effort;
@@ -140,7 +147,7 @@ async function completion(candidate, kind) {
       ...(openRouter ? { "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Report Calibration" } : {}),
     },
     body: JSON.stringify(request),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(Number.parseInt(process.env.CALIBRATION_TIMEOUT_MS || "90000", 10)),
   });
   const body = await response.json();
   if (!response.ok) throw new Error(body?.error?.message || `${candidate.model} returned ${response.status}: ${JSON.stringify(body).slice(0, 1200)}`);
@@ -180,7 +187,8 @@ async function judge(kind, result) {
   return { judgment: parseContent(body), usage: body.usage ?? {} };
 }
 
-const tasks = candidates.flatMap((candidate) => ["dsa", "unified"].map((kind) => ({ candidate, kind })));
+const requestedKinds = (process.env.CALIBRATION_KINDS || "dsa,unified").split(",").map((value) => value.trim()).filter((value) => value === "dsa" || value === "unified");
+const tasks = candidates.flatMap((candidate) => requestedKinds.map((kind) => ({ candidate, kind })));
 const rows = [];
 const artifact = `/tmp/provenhire_report_model_calibration_${new Date().toISOString().replaceAll(/[:.]/g, "-")}.json`;
 async function persistArtifact() {
