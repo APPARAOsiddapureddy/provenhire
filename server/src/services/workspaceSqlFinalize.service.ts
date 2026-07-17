@@ -214,12 +214,12 @@ export async function discardActiveWorkspaceRegistrationSqlAttempts(workspaceId:
     select: { id: true, sqlSessionId: true },
   });
   for (const attempt of attempts) {
-    if (!attempt.sqlSessionId) continue;
-    const attemptSqlSessionId = attempt.sqlSessionId;
+    const sqlSessionId = attempt.sqlSessionId;
+    if (!sqlSessionId) continue;
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sql_session:${attemptSqlSessionId}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sql_session:${sqlSessionId}`}))`;
       await tx.workspaceSqlSession.updateMany({
-        where: { id: attemptSqlSessionId, status: "active" },
+        where: { id: sqlSessionId, status: "active" },
         data: { status: "discarded", finalizedAt: new Date() },
       });
       await tx.workspaceRoundAttempt.updateMany({
