@@ -23,6 +23,18 @@ services:
         value: https://antigravity-gz2r.vercel.app
       - key: ANTIGRAVITY_WEBHOOK_SECRET
         sync: false
+      - key: ANTIGRAVITY_REPORT_ACCESS_SECRET
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: REPORT_AGENT_MODEL
+        value: google/gemini-2.5-flash
+      - key: REPORT_CRITIC_MODEL
+        value: gpt-oss-120b
+      - key: REPORT_CRITIC_PROVIDER
+        value: cerebras
 
   - type: web
     name: antigravity-service

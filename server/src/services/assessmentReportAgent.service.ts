@@ -7,8 +7,9 @@ import { getWorkspaceCandidateDossier, type WorkspaceActor } from "./workspaceRe
 import { assessmentEvidenceFor, assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 
 export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v2_grounded";
-export const REPORT_AGENT_MODEL = process.env.REPORT_AGENT_MODEL?.trim() || "deepseek/deepseek-r1";
-export const REPORT_CRITIC_MODEL = process.env.REPORT_CRITIC_MODEL?.trim() || REPORT_AGENT_MODEL;
+export const REPORT_AGENT_MODEL = process.env.REPORT_AGENT_MODEL?.trim() || "google/gemini-2.5-flash";
+export const REPORT_CRITIC_MODEL = process.env.REPORT_CRITIC_MODEL?.trim() || "gpt-oss-120b";
+export const REPORT_CRITIC_PROVIDER = process.env.REPORT_CRITIC_PROVIDER?.trim().toLowerCase() || "cerebras";
 
 const citation = z.object({
   claim: z.string().min(1),
@@ -57,20 +58,20 @@ export const unifiedAgentReportSchema = z.object({
 
 export type AssessmentReportKind = "dsa" | "unified";
 
-function schemaFor(kind: AssessmentReportKind) {
+export function schemaFor(kind: AssessmentReportKind) {
   return kind === "dsa" ? dsaAgentReportSchema : unifiedAgentReportSchema;
 }
 
-function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknown> {
+export function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknown> {
   const citationProperties = {
     claim: { type: "string" },
-    evidence: { type: "array", items: { type: "string" }, minItems: 1 },
+    evidence: { type: "array", items: { type: "string" } },
     support: { type: "string", enum: ["direct", "derived", "limited"] },
   };
   if (kind === "dsa") return {
     type: "object", additionalProperties: false,
     properties: {
-      schemaVersion: { type: "string", const: "dsa_reasoning_report_v2" },
+      schemaVersion: { type: "string", enum: ["dsa_reasoning_report_v2"] },
       executiveRead: { type: "string" }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] },
       algorithmicReasoning: { type: "string" }, implementationQuality: { type: "string" }, correctnessBoundary: { type: "string" },
       verifiedStrengths: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
@@ -83,7 +84,7 @@ function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknown> {
   return {
     type: "object", additionalProperties: false,
     properties: {
-      schemaVersion: { type: "string", const: "unified_reasoning_report_v2" }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] }, executiveRead: { type: "string" }, crossModuleThesis: { type: "string" },
+      schemaVersion: { type: "string", enum: ["unified_reasoning_report_v2"] }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] }, executiveRead: { type: "string" }, crossModuleThesis: { type: "string" },
       reinforcingSignals: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } }, contradictions: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
       riskRegister: { type: "array", items: { type: "object", additionalProperties: false, properties: { risk: { type: "string" }, severity: { type: "string", enum: ["high", "medium", "low"] }, evidence: { type: "array", items: { type: "string" } }, resolution: { type: "string" } }, required: ["risk", "severity", "evidence", "resolution"] } },
       panelDecisionGuide: { type: "array", items: { type: "string" } }, evidenceLimits: { type: "array", items: { type: "string" } },
@@ -92,8 +93,9 @@ function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknown> {
   };
 }
 
-function systemPrompt(kind: AssessmentReportKind): string {
-  const shared = `You are a senior assessment-evidence analyst. Produce an evidence interpretation from the supplied persisted evidence only. You do not recommend advance, hold, hire, or reject, and you do not calculate role readiness. Never invent a score, test, answer, behavior, responsibility, or claim. Distinguish directly recorded facts from derived interpretation. Every evidence citation MUST use the exact format /json/pointer :: exact source excerpt, where the pointer resolves inside the supplied JSON and the excerpt appears verbatim at that pointer. Treat missing evidence as a limit, not as a negative fact. Avoid generic praise and avoid repeating raw metrics without interpretation.`;
+export function systemPrompt(kind: AssessmentReportKind): string {
+  const schemaVersion = kind === "dsa" ? "dsa_reasoning_report_v2" : "unified_reasoning_report_v2";
+  const shared = `You are a senior assessment-evidence analyst. Produce an evidence interpretation from the supplied persisted evidence only. Set schemaVersion exactly to ${schemaVersion}. You do not recommend advance, hold, hire, or reject, and you do not calculate role readiness. Never invent a score, test, answer, behavior, responsibility, or claim. Distinguish directly recorded facts from derived interpretation. Every evidence citation MUST use the exact format /pointer/from/root :: exact source excerpt, for example /dsa/score :: 88. Use RFC 6901 slash-separated paths beginning at the supplied JSON root. The word "json" is not a path segment, and bracket notation such as problems[0] is invalid. Point to one scalar source value and copy that scalar verbatim after ::; do not paraphrase the excerpt and do not cite an object or array. Treat missing evidence as a limit, not as a negative fact. Avoid generic praise and avoid repeating raw metrics without interpretation.`;
   return kind === "dsa"
     ? `${shared}\nAnalyze algorithmic reasoning, executable correctness, source quality, edge cases, complexity claims, and follow-up reasoning. Passing tests are bounded evidence, not proof of universal correctness or optimality.`
     : `${shared}\nSynthesize Aptitude, DSA, and Antigravity without averaging away contradictions. Explain what independently reinforces, what conflicts, which evidence remains missing, and the smallest panel action that resolves each material uncertainty.`;
@@ -146,20 +148,21 @@ export function assertGroundedAssessmentReport(
   });
   if (invalid.length)
     throw new Error(
-      `Report rejected: ${invalid.length} evidence citation(s) do not resolve to the persisted source.`,
+      `Report rejected: ${invalid.length} evidence citation(s) do not resolve to the persisted source: ${invalid.slice(0, 5).join(" | ")}`,
     );
 }
 
-async function callOpenRouter(kind: AssessmentReportKind, evidence: unknown) {
+export async function callReportGenerationChain(kind: AssessmentReportKind, evidence: unknown) {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new WorkspaceServiceError("Report agent unavailable: configure OPENROUTER_API_KEY on the ProvenHire server.", 503);
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Reports" },
+    signal: AbortSignal.timeout(120_000),
     body: JSON.stringify({
       model: REPORT_AGENT_MODEL,
       temperature: 0.1,
-      max_tokens: 6000,
+      max_tokens: 8000,
       reasoning: { effort: "high", exclude: true },
       provider: { require_parameters: true },
       response_format: { type: "json_schema", json_schema: { name: `${kind}_assessment_report`, strict: true, schema: jsonSchemaFor(kind) } },
@@ -173,34 +176,65 @@ async function callOpenRouter(kind: AssessmentReportKind, evidence: unknown) {
   let parsed = schemaFor(kind).parse(JSON.parse(content.replace(/^```json\s*|\s*```$/g, "")));
   assertGroundedAssessmentReport(parsed, evidence);
 
-  const criticResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Report Critic" },
-    body: JSON.stringify({
-      model: REPORT_CRITIC_MODEL,
-      temperature: 0,
-      max_tokens: 1800,
-      reasoning: { effort: "high", exclude: true },
-      provider: { require_parameters: true },
-      response_format: { type: "json_schema", json_schema: { name: "assessment_report_critique", strict: true, schema: {
-        type: "object", additionalProperties: false,
-        properties: {
-          approved: { type: "boolean" },
-          issues: { type: "array", items: { type: "string" } },
-          requiredChanges: { type: "array", items: { type: "string" } },
-        },
-        required: ["approved", "issues", "requiredChanges"],
-      } } },
-      messages: [
-        { role: "system", content: "You are the independent quality judge for an employment-assessment report. Do not reveal chain-of-thought. Return only the structured verdict. Reject unsupported claims, fake precision, unresolved citations, score averaging that hides contradictions, hiring recommendations, vague AI prose, or failure to state evidence limits." },
-        { role: "user", content: `Persisted evidence:\n${JSON.stringify(evidence)}\n\nDraft report:\n${JSON.stringify(parsed)}` },
-      ],
-    }),
-  });
-  const criticBody = await criticResponse.json() as { error?: { message?: string }; choices?: Array<{ message?: { content?: string } }>; usage?: Record<string, unknown> & { cost?: number } };
-  if (!criticResponse.ok) throw new Error(criticBody.error?.message || `Report critic failed (${criticResponse.status})`);
-  const criticContent = criticBody.choices?.[0]?.message?.content?.trim();
-  if (!criticContent) throw new Error("Report critic returned an empty response.");
+  const useCerebrasCritic =
+    REPORT_CRITIC_PROVIDER === "cerebras" && Boolean(process.env.CEREBRAS_API_KEY?.trim());
+  const criticApiKey = useCerebrasCritic
+    ? process.env.CEREBRAS_API_KEY!.trim()
+    : apiKey;
+  const criticRequest: Record<string, unknown> = {
+    model: REPORT_CRITIC_MODEL,
+    temperature: 0,
+    max_tokens: 10_000,
+    response_format: { type: "json_schema", json_schema: { name: "assessment_report_critique", strict: true, schema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        approved: { type: "boolean" },
+        issues: { type: "array", items: { type: "string" } },
+        requiredChanges: { type: "array", items: { type: "string" } },
+      },
+      required: ["approved", "issues", "requiredChanges"],
+    } } },
+    messages: [
+      { role: "system", content: "You are the independent quality judge for an employment-assessment report. Do not reveal chain-of-thought. Return only the structured verdict. Reject unsupported claims, fake precision, unresolved citations, score averaging that hides contradictions, hiring recommendations, vague AI prose, or failure to state evidence limits." },
+      { role: "user", content: `Persisted evidence:\n${JSON.stringify(evidence)}\n\nDraft report:\n${JSON.stringify(parsed)}` },
+    ],
+  };
+  if (useCerebrasCritic) {
+    criticRequest.reasoning_effort = "high";
+    criticRequest.reasoning_format = "hidden";
+  } else {
+    criticRequest.reasoning = { effort: "high", exclude: true };
+    criticRequest.provider = { require_parameters: true, data_collection: "deny" };
+  }
+  type CriticBody = { error?: { message?: string }; choices?: Array<{ message?: { content?: string } }>; usage?: Record<string, unknown> & { cost?: number } };
+  let criticBody: CriticBody = {};
+  let criticContent = "";
+  for (const [attemptIndex, effort] of ["high", "medium"].entries()) {
+    const attemptRequest = { ...criticRequest };
+    attemptRequest.max_tokens = attemptIndex === 0 ? 10_000 : 6000;
+    if (useCerebrasCritic) attemptRequest.reasoning_effort = effort;
+    else attemptRequest.reasoning = { effort, exclude: true };
+    const criticResponse = await fetch(useCerebrasCritic
+      ? "https://api.cerebras.ai/v1/chat/completions"
+      : "https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${criticApiKey}`,
+        "Content-Type": "application/json",
+        ...(useCerebrasCritic ? {} : { "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Report Critic" }),
+      },
+      signal: AbortSignal.timeout(90_000),
+      body: JSON.stringify(attemptRequest),
+    });
+    criticBody = await criticResponse.json() as CriticBody;
+    if (!criticResponse.ok) {
+      if (attemptIndex === 1) throw new Error(criticBody.error?.message || `Report critic failed (${criticResponse.status})`);
+      continue;
+    }
+    criticContent = criticBody.choices?.[0]?.message?.content?.trim() || "";
+    if (criticContent) break;
+  }
+  if (!criticContent) throw new Error("Report critic exhausted its reasoning budget without returning a verdict.");
   const critique = z.object({ approved: z.boolean(), issues: z.array(z.string()), requiredChanges: z.array(z.string()) }).parse(JSON.parse(criticContent.replace(/^```json\s*|\s*```$/g, "")));
 
   let revisionUsage: Record<string, unknown> = {};
@@ -209,10 +243,11 @@ async function callOpenRouter(kind: AssessmentReportKind, evidence: unknown) {
     const revisionResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Report Revision" },
+      signal: AbortSignal.timeout(120_000),
       body: JSON.stringify({
         model: REPORT_AGENT_MODEL,
         temperature: 0.05,
-        max_tokens: 6000,
+        max_tokens: 8000,
         reasoning: { effort: "high", exclude: true },
         provider: { require_parameters: true },
         response_format: { type: "json_schema", json_schema: { name: `${kind}_assessment_report_revision`, strict: true, schema: jsonSchemaFor(kind) } },
@@ -265,7 +300,7 @@ export async function generateAssessmentReport(actor: WorkspaceActor, workspaceI
     update: { status: "pending", error: null, startedAt: new Date(), completedAt: null },
   });
   try {
-    const output = await callOpenRouter(kind, evidence);
+    const output = await callReportGenerationChain(kind, evidence);
     return await prisma.assessmentReportGeneration.update({ where: { id: generation.id }, data: { status: "complete", result: output.result as unknown as Prisma.InputJsonValue, usage: output.usage as Prisma.InputJsonValue, estimatedCostUsd: output.estimatedCostUsd, completedAt: new Date() } });
   } catch (error) {
     await prisma.assessmentReportGeneration.update({ where: { id: generation.id }, data: { status: "error", error: error instanceof Error ? error.message : String(error), completedAt: new Date() } });
