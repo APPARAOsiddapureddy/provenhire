@@ -17,6 +17,14 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: PLACEMENT_READINESS_WEB_URL
+        sync: false
+      - key: PROVENHIRE_WEB_URL
+        value: https://provenhire.in
+      - key: PLACEMENT_HANDOFF_SHARED_SECRET
+        sync: false
+      - key: PLACEMENT_WEBHOOK_SECRET
+        sync: false
       - key: ANTIGRAVITY_API_URL
         value: https://antigravity-backend-2oaj.onrender.com
       - key: ANTIGRAVITY_FRONTEND_URL

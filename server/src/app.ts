@@ -30,6 +30,7 @@ import { userWorkspacesRouter } from "./routes/userWorkspaces.js";
 import { sessionRouter } from "./routes/session.js";
 import { recruiterPaymentsRouter } from "./routes/recruiterPayments.js";
 import { razorpayWebhookRouter } from "./routes/razorpayWebhook.js";
+import { placementReadinessRouter } from "./routes/placementReadiness.js";
 
 export function createApp() {
   const app = express();
@@ -228,6 +229,7 @@ export function createApp() {
         "/api/session",
         "/api/recruiter/payments",
         "/api/webhooks/razorpay",
+        "/api/placement-readiness",
       ],
     });
   });
@@ -259,6 +261,7 @@ export function createApp() {
   app.use("/api/user/workspaces", userWorkspacesRouter);
   app.use("/api/session", sessionRouter);
   app.use("/api/recruiter/payments", recruiterPaymentsRouter);
+  app.use("/api/placement-readiness", placementReadinessRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Route not found" });
