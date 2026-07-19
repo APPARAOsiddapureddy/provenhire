@@ -26,50 +26,56 @@ model User {
   profileImage  String?
   createdAt     DateTime @default(now())
 
-  jobSeekerProfile           JobSeekerProfile?
-  recruiterProfile           RecruiterProfile?
-  interviews                 Interview[]
-  resumeAnalyses             ResumeAnalysis[]
-  jobApplications            JobApplication[]             @relation("JobApplicationsByUser")
-  savedJobs                  SavedJob[]
-  verificationStages         VerificationStage[]
-  aptitudeResults            AptitudeTestResult[]
-  aptitudeSessions           AptitudeSession[]
-  dsaResults                 DsaRoundResult[]
-  dsaRoundSessions           DsaRoundSession[]
-  dsaCodeSessions            DsaCodeSession[]
-  dsaFollowUpSessions        DsaFollowUpSession[]
-  dataRoundResults           DataRoundResult[]
-  notifications              Notification[]
-  appeals                    Appeal[]
-  humanInterviewSessions     HumanInterviewSession[]
-  humanInterviewAttempts     HumanInterviewAttempt[]
-  humanInterviewBookings     HumanInterviewBooking[]
-  adminReviewQueuesCandidate AdminReviewQueue[]           @relation("AdminReviewCandidate")
-  adminReviewQueuesReviewer  AdminReviewQueue[]           @relation("AdminReviewReviewer")
-  bookedSlots                InterviewerSlot[]
-  refreshTokens              RefreshToken[]
-  passwordResetTokens        PasswordResetToken[]
-  interviewerProfile         Interviewer?
-  skillVerifications         CandidateSkillVerification[]
-  preferences                UserPreferences?
-  provenHireResume           ProvenHireResume?
-  resumeChangeRequests       ResumeChangeRequest[]
-  retakeCredits              CandidateRetakeLedger[]
-  nonTechAssignments         NonTechAssignment[]
-  assessmentRuns             CandidateAssessmentRun[]
-  assessmentEvents           CandidateAssessmentEvent[]
-  performanceSignals         CandidatePerformanceSignal[]
-  performanceSnapshot        CandidatePerformanceSnapshot?
-  antigravityHandoffs        AntigravityHandoff[]
-  ownedWorkspaces            Workspace[]
-  workspaceRegistrations     WorkspaceRegistration[] @relation("WorkspaceRegistrationUser")
-  removedWorkspaceRegistrations WorkspaceRegistration[] @relation("WorkspaceRegistrationRemovedBy")
-  restoredWorkspaceRegistrations WorkspaceRegistration[] @relation("WorkspaceRegistrationRestoredBy")
-  mcqSessions                McqSession[]
-  workspaceSqlSessions       WorkspaceSqlSession[]
-  workspaceSqlSubmissions    WorkspaceSqlSubmission[]
-  workspaceRoundAttempts     WorkspaceRoundAttempt[]
+  jobSeekerProfile               JobSeekerProfile?
+  recruiterProfile               RecruiterProfile?
+  interviews                     Interview[]
+  resumeAnalyses                 ResumeAnalysis[]
+  jobApplications                JobApplication[]              @relation("JobApplicationsByUser")
+  savedJobs                      SavedJob[]
+  verificationStages             VerificationStage[]
+  aptitudeResults                AptitudeTestResult[]
+  aptitudeSessions               AptitudeSession[]
+  dsaResults                     DsaRoundResult[]
+  dsaRoundSessions               DsaRoundSession[]
+  dsaCodeSessions                DsaCodeSession[]
+  dsaFollowUpSessions            DsaFollowUpSession[]
+  dataRoundResults               DataRoundResult[]
+  notifications                  Notification[]
+  appeals                        Appeal[]
+  humanInterviewSessions         HumanInterviewSession[]
+  humanInterviewAttempts         HumanInterviewAttempt[]
+  humanInterviewBookings         HumanInterviewBooking[]
+  adminReviewQueuesCandidate     AdminReviewQueue[]            @relation("AdminReviewCandidate")
+  adminReviewQueuesReviewer      AdminReviewQueue[]            @relation("AdminReviewReviewer")
+  bookedSlots                    InterviewerSlot[]
+  refreshTokens                  RefreshToken[]
+  passwordResetTokens            PasswordResetToken[]
+  interviewerProfile             Interviewer?
+  skillVerifications             CandidateSkillVerification[]
+  preferences                    UserPreferences?
+  provenHireResume               ProvenHireResume?
+  resumeChangeRequests           ResumeChangeRequest[]
+  retakeCredits                  CandidateRetakeLedger[]
+  nonTechAssignments             NonTechAssignment[]
+  assessmentRuns                 CandidateAssessmentRun[]
+  assessmentEvents               CandidateAssessmentEvent[]
+  performanceSignals             CandidatePerformanceSignal[]
+  performanceSnapshot            CandidatePerformanceSnapshot?
+  antigravityHandoffs            AntigravityHandoff[]
+  antigravityReports             AntigravityReport[]
+  antigravityTelemetryEvents     AntigravityTelemetryEvent[]
+  ownedWorkspaces                Workspace[]
+  workspaceRegistrations         WorkspaceRegistration[]       @relation("WorkspaceRegistrationUser")
+  removedWorkspaceRegistrations  WorkspaceRegistration[]       @relation("WorkspaceRegistrationRemovedBy")
+  restoredWorkspaceRegistrations WorkspaceRegistration[]       @relation("WorkspaceRegistrationRestoredBy")
+  mcqSessions                    McqSession[]
+  workspaceSqlSessions           WorkspaceSqlSession[]
+  workspaceSqlSubmissions        WorkspaceSqlSubmission[]
+  workspaceRoundAttempts         WorkspaceRoundAttempt[]
+  workspaceCandidateDecisions    WorkspaceCandidateDecision[]  @relation("WorkspaceDecisionCandidate")
+  workspaceDecisionReviews       WorkspaceCandidateDecision[]  @relation("WorkspaceDecisionReviewer")
+  placementReadinessHandoffs     PlacementReadinessHandoff[]
+  placementReadinessArtifacts    PlacementReadinessArtifact[]
 }
 
 /// Issued when a non-technical candidate locks a topic and prompt (written assessment); 48h window from issuedAt.
@@ -99,55 +105,55 @@ model NonTechAssignment {
 }
 
 model JobSeekerProfile {
-  id                         String    @id @default(uuid())
-  userId                     String    @unique
-  fullName                   String?
-  email                      String?
-  currentRole                String?
-  experienceYears            Int?
-  resumeUrl                  String?
-  about                      String?
-  phone                      String?
-  location                   String?
-  college                    String?
-  graduationYear             String?
-  verificationStatus         String?
-  skills                     Json?
-  education                  Json?
-  workExperience             Json?
-  roleType                   String?   @default("technical")
+  id                                 String    @id @default(uuid())
+  userId                             String    @unique
+  fullName                           String?
+  email                              String?
+  currentRole                        String?
+  experienceYears                    Int?
+  resumeUrl                          String?
+  about                              String?
+  phone                              String?
+  location                           String?
+  college                            String?
+  graduationYear                     String?
+  verificationStatus                 String?
+  skills                             Json?
+  education                          Json?
+  workExperience                     Json?
+  roleType                           String?   @default("technical")
   /// product | design | business | operations | marketing | people — persisted at profile_setup completion (non-tech track).
-  nonTechSubtrack            String?
+  nonTechSubtrack                    String?
   /// engineering | science | analysis — persisted at profile_setup completion (data track).
-  dataSubtrack               String?
-  targetJobTitle             String?
-  noticePeriod               String? // e.g. "15 days", "1 month", "Immediate"
-  currentSalary              String? // e.g. "10 LPA", "15-20 L"
-  expectedSalary             String? // e.g. "20 LPA", "25-30 L"
+  dataSubtrack                       String?
+  targetJobTitle                     String?
+  noticePeriod                       String? // e.g. "15 days", "1 month", "Immediate"
+  currentSalary                      String? // e.g. "10 LPA", "15-20 L"
+  expectedSalary                     String? // e.g. "20 LPA", "25-30 L"
   // Settings: Career preferences & portfolio
-  githubUrl                  String?
-  linkedInUrl                String?
-  portfolioUrl               String?
-  preferredTechStack         Json? // string[]
-  experienceLevel            String? // Entry Level | Mid Level | Senior Level
-  preferredLocations         Json? // string[]
-  workModePreference         String? // Remote | Hybrid | Onsite
+  githubUrl                          String?
+  linkedInUrl                        String?
+  portfolioUrl                       String?
+  preferredTechStack                 Json? // string[]
+  experienceLevel                    String? // Entry Level | Mid Level | Senior Level
+  preferredLocations                 Json? // string[]
+  workModePreference                 String? // Remote | Hybrid | Onsite
   /// Set when the user fails 3 consecutive aptitude attempts; cleared implicitly once date passes (checked at request time).
-  aptitudeLockedUntil        DateTime?
+  aptitudeLockedUntil                DateTime?
   /// Latest non-technical verification assignment (prompt + submission); used by GET /assignment/current.
-  nonTechAssignmentPrompt    String?   @db.Text
-  nonTechAssignmentResponse  String?   @db.Text
+  nonTechAssignmentPrompt            String?   @db.Text
+  nonTechAssignmentResponse          String?   @db.Text
   /// Window for assignment freshness (e.g. set to submittedAt + 36h on each submit).
-  nonTechAssignmentExpiresAt DateTime?
+  nonTechAssignmentExpiresAt         DateTime?
   /// Each official graded submit increments this (used for free vs paid retake gating).
-  nonTechAssignmentSubmitCount Int      @default(0)
-  nonTechAssignmentLastSubmittedAt DateTime?
+  nonTechAssignmentSubmitCount       Int       @default(0)
+  nonTechAssignmentLastSubmittedAt   DateTime?
   /// After a paid retake (3rd+ submit), next paid attempt allowed only after this instant (PRD: 7 days).
   nonTechAssignmentPaidCooldownUntil DateTime?
   /// After a failed Human Expert Interview, candidate cannot re-book until this time (PRD: 30 days).
-  humanExpertRetryAfter      DateTime?
-  createdAt                  DateTime  @default(now())
-  updatedAt                  DateTime  @updatedAt
+  humanExpertRetryAfter              DateTime?
+  createdAt                          DateTime  @default(now())
+  updatedAt                          DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -346,27 +352,32 @@ model RecruiterCandidateResumeView {
 }
 
 model Workspace {
-  id                 String             @id @default(uuid())
+  id                 String              @id @default(uuid())
   ownerRole          WorkspaceOwnerRole
   ownerUserId        String
   recruiterProfileId String?
   name               String
   organization       String
-  code               String             @unique
+  targetRole         String
+  hiringRubric       Json
+  code               String              @unique
   startAt            DateTime
   endAt              DateTime
-  status             WorkspaceStatus    @default(draft)
+  status             WorkspaceStatus     @default(draft)
   accessMode         WorkspaceAccessMode @default(public)
   totalRounds        Int
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
-  ownerUser        User              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  recruiterProfile RecruiterProfile? @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
-  rounds           WorkspaceRound[]
-  registrations    WorkspaceRegistration[]
-  allowedEmails    WorkspaceAllowedEmail[]
-  roundAttempts    WorkspaceRoundAttempt[]
+  ownerUser                   User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  recruiterProfile            RecruiterProfile?            @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
+  rounds                      WorkspaceRound[]
+  registrations               WorkspaceRegistration[]
+  allowedEmails               WorkspaceAllowedEmail[]
+  roundAttempts               WorkspaceRoundAttempt[]
+  candidateDecisions          WorkspaceCandidateDecision[]
+  placementReadinessHandoffs  PlacementReadinessHandoff[]
+  placementReadinessArtifacts PlacementReadinessArtifact[]
 
   @@index([ownerRole, ownerUserId])
   @@index([recruiterProfileId])
@@ -375,7 +386,7 @@ model Workspace {
 }
 
 model WorkspaceRound {
-  id             String             @id @default(uuid())
+  id             String                @id @default(uuid())
   workspaceId    String
   order          Int
   name           String
@@ -383,12 +394,12 @@ model WorkspaceRound {
   questionCount  Int
   timeLimitMins  Int
   scoreWeightage Int
-  easyCount      Int                @default(0)
-  mediumCount    Int                @default(0)
-  hardCount      Int                @default(0)
+  easyCount      Int                   @default(0)
+  mediumCount    Int                   @default(0)
+  hardCount      Int                   @default(0)
   questionType   WorkspaceQuestionType @default(random)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 
   workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   fixedQuestionSet WorkspaceRoundQuestionSet?
@@ -412,10 +423,10 @@ model WorkspaceRegistration {
   createdAt        DateTime                    @default(now())
   updatedAt        DateTime                    @updatedAt
 
-  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user       User      @relation("WorkspaceRegistrationUser", fields: [userId], references: [id], onDelete: Cascade)
-  removedBy  User?     @relation("WorkspaceRegistrationRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
-  restoredBy User?     @relation("WorkspaceRegistrationRestoredBy", fields: [restoredByUserId], references: [id], onDelete: SetNull)
+  workspace     Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user          User                    @relation("WorkspaceRegistrationUser", fields: [userId], references: [id], onDelete: Cascade)
+  removedBy     User?                   @relation("WorkspaceRegistrationRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+  restoredBy    User?                   @relation("WorkspaceRegistrationRestoredBy", fields: [restoredByUserId], references: [id], onDelete: SetNull)
   roundAttempts WorkspaceRoundAttempt[]
 
   @@unique([workspaceId, userId])
@@ -474,22 +485,22 @@ model McqSession {
 }
 
 model WorkspaceSqlSession {
-  id                String                    @id @default(uuid())
-  userId            String
-  taskIds           String[]
-  tasks             Json                      @default(dbgenerated("'[]'::jsonb"))
-  currentTaskId     String?
-  drafts            Json                      @default(dbgenerated("'{}'::jsonb"))
-  startTime         DateTime                  @default(now())
-  endTime           DateTime
-  status            WorkspaceSqlSessionStatus @default(active)
-  submittedAt       DateTime?
-  finalizedAt       DateTime?
-  score             Int?
-  passedCount       Int?
-  totalCount        Int?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
+  id            String                    @id @default(uuid())
+  userId        String
+  taskIds       String[]
+  tasks         Json                      @default(dbgenerated("'[]'::jsonb"))
+  currentTaskId String?
+  drafts        Json                      @default(dbgenerated("'{}'::jsonb"))
+  startTime     DateTime                  @default(now())
+  endTime       DateTime
+  status        WorkspaceSqlSessionStatus @default(active)
+  submittedAt   DateTime?
+  finalizedAt   DateTime?
+  score         Int?
+  passedCount   Int?
+  totalCount    Int?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
 
   user                  User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   submissions           WorkspaceSqlSubmission[]
@@ -529,6 +540,7 @@ model WorkspaceRoundAttempt {
   mcqSessionId            String?                     @unique
   dsaRoundSessionId       String?                     @unique
   sqlSessionId            String?                     @unique
+  interviewId             String?                     @unique
   status                  WorkspaceRoundAttemptStatus @default(active)
   score                   Int?
   percentageScore         Int?
@@ -538,18 +550,44 @@ model WorkspaceRoundAttempt {
   createdAt               DateTime                    @default(now())
   updatedAt               DateTime                    @updatedAt
 
-  workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  workspaceRound        WorkspaceRound        @relation(fields: [workspaceRoundId], references: [id], onDelete: Cascade)
-  workspaceRegistration WorkspaceRegistration @relation(fields: [workspaceRegistrationId], references: [id], onDelete: Cascade)
-  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mcqSession            McqSession?           @relation(fields: [mcqSessionId], references: [id], onDelete: SetNull)
-  dsaRoundSession       DsaRoundSession?      @relation(fields: [dsaRoundSessionId], references: [id], onDelete: SetNull)
-  sqlSession            WorkspaceSqlSession?  @relation(fields: [sqlSessionId], references: [id], onDelete: SetNull)
+  workspace                  Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceRound             WorkspaceRound              @relation(fields: [workspaceRoundId], references: [id], onDelete: Cascade)
+  workspaceRegistration      WorkspaceRegistration       @relation(fields: [workspaceRegistrationId], references: [id], onDelete: Cascade)
+  user                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mcqSession                 McqSession?                 @relation(fields: [mcqSessionId], references: [id], onDelete: SetNull)
+  dsaRoundSession            DsaRoundSession?            @relation(fields: [dsaRoundSessionId], references: [id], onDelete: SetNull)
+  sqlSession                 WorkspaceSqlSession?        @relation(fields: [sqlSessionId], references: [id], onDelete: SetNull)
+  interview                  Interview?                  @relation(fields: [interviewId], references: [id], onDelete: SetNull)
+  placementReadinessHandoff  PlacementReadinessHandoff?
+  placementReadinessArtifact PlacementReadinessArtifact?
 
   @@unique([workspaceRegistrationId, workspaceRoundId])
   @@index([workspaceId, status])
   @@index([workspaceRoundId, status])
   @@index([userId, status])
+}
+
+model WorkspaceCandidateDecision {
+  id                String   @id @default(uuid())
+  workspaceId       String
+  candidateUserId   String
+  reviewerUserId    String
+  outcome           String
+  rationale         String   @db.Text
+  rubricAssessments Json
+  rubricSnapshot    Json
+  evidenceSnapshot  Json
+  evidenceHash      String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  candidate User      @relation("WorkspaceDecisionCandidate", fields: [candidateUserId], references: [id], onDelete: Cascade)
+  reviewer  User      @relation("WorkspaceDecisionReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, candidateUserId])
+  @@index([reviewerUserId, updatedAt])
+  @@index([workspaceId, outcome])
 }
 
 model Job {
@@ -581,19 +619,19 @@ model Job {
 }
 
 model JobApplication {
-  id                 String    @id @default(uuid())
-  jobId              String
-  jobSeekerId        String
-  status             String    @default("applied")
-  appliedAt          DateTime  @default(now())
-  resumeUrl          String?
-  assignmentResponse String? // Applicant's submission for non-technical job assignment
-  recruiterNote      String?   @db.Text
-  stageChangedAt     DateTime?
-  stageHistory       Json? // [{ stage, changedAt, changedBy? }]
+  id                                String    @id @default(uuid())
+  jobId                             String
+  jobSeekerId                       String
+  status                            String    @default("applied")
+  appliedAt                         DateTime  @default(now())
+  resumeUrl                         String?
+  assignmentResponse                String? // Applicant's submission for non-technical job assignment
+  recruiterNote                     String?   @db.Text
+  stageChangedAt                    DateTime?
+  stageHistory                      Json? // [{ stage, changedAt, changedBy? }]
   /// After AI expert completes: recruiter sets next step — provenhire_ai | human_expert | company_employee
-  recruiterNextInterviewMode      String?
-  recruiterInterviewPathSetAt     DateTime?
+  recruiterNextInterviewMode        String?
+  recruiterInterviewPathSetAt       DateTime?
   recruiterInterviewPathSetByUserId String?
 
   job       Job  @relation(fields: [jobId], references: [id])
@@ -697,13 +735,13 @@ model AptitudeSession {
 }
 
 model DsaRoundResult {
-  id          String   @id @default(uuid())
-  userId      String
-  roundSessionId String? @unique
-  score       Int?
-  answers     Json?
-  completedAt DateTime @default(now())
-  invalidated Boolean  @default(false)
+  id             String   @id @default(uuid())
+  userId         String
+  roundSessionId String?  @unique
+  score          Int?
+  answers        Json?
+  completedAt    DateTime @default(now())
+  invalidated    Boolean  @default(false)
 
   user User @relation(fields: [userId], references: [id])
 
@@ -738,9 +776,9 @@ model DsaRoundSession {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  codeSessions     DsaCodeSession[]
-  followUpSessions DsaFollowUpSession[]
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeSessions           DsaCodeSession[]
+  followUpSessions       DsaFollowUpSession[]
   workspaceRoundAttempts WorkspaceRoundAttempt[]
 
   @@index([userId])
@@ -757,9 +795,9 @@ model DsaCodeSession {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roundSession   DsaRoundSession @relation(fields: [roundSessionId], references: [id], onDelete: Cascade)
-  question       DsaQuestion     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundSession DsaRoundSession @relation(fields: [roundSessionId], references: [id], onDelete: Cascade)
+  question     DsaQuestion     @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([roundSessionId, questionId, language])
   @@index([userId])
@@ -778,9 +816,9 @@ model DsaFollowUpSession {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roundSession   DsaRoundSession @relation(fields: [roundSessionId], references: [id], onDelete: Cascade)
-  question       DsaQuestion     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundSession DsaRoundSession @relation(fields: [roundSessionId], references: [id], onDelete: Cascade)
+  question     DsaQuestion     @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([roundSessionId, questionId])
   @@index([userId])
@@ -818,19 +856,19 @@ model DsaFollowUpQuestion {
 }
 
 model DsaSubmission {
-  id          String   @id @default(cuid())
-  userId      String
-  roundSessionId String?
-  questionId  String
-  language    String
-  code        String   @db.Text
-  passedCount Int
-  totalCount  Int
-  isOfficial  Boolean  @default(false)
-  results     Json
+  id              String   @id @default(cuid())
+  userId          String
+  roundSessionId  String?
+  questionId      String
+  language        String
+  code            String   @db.Text
+  passedCount     Int
+  totalCount      Int
+  isOfficial      Boolean  @default(false)
+  results         Json
   followUpScore   Int?
   followUpResults Json?
-  submittedAt DateTime @default(now())
+  submittedAt     DateTime @default(now())
 
   @@index([userId, questionId])
   @@index([userId, isOfficial])
@@ -948,34 +986,36 @@ model Interview {
   /// Raw 0–100 scores from each pass, e.g. [72, 78, 74]
   evaluationScoreVariance Json?
 
-  user              User                      @relation(fields: [userId], references: [id])
-  messages          InterviewMessage[]
-  questionResults   InterviewQuestionResult[]
-  proctoringReviews ProctoringReviewLog[]
-  adminReviewQueue  AdminReviewQueue?
-  antigravityHandoff AntigravityHandoff?
+  user                  User                      @relation(fields: [userId], references: [id])
+  messages              InterviewMessage[]
+  questionResults       InterviewQuestionResult[]
+  proctoringReviews     ProctoringReviewLog[]
+  adminReviewQueue      AdminReviewQueue?
+  antigravityHandoff    AntigravityHandoff?
+  antigravityReport     AntigravityReport?
+  workspaceRoundAttempt WorkspaceRoundAttempt?
 
   @@index([userId, interviewType, status])
   @@index([userId, interviewType, status, completedAt])
 }
 
 model AntigravityHandoff {
-  id                    String    @id @default(uuid())
-  userId                String
-  interviewId           String    @unique
-  antigravitySessionId  String?
-  launchTokenHash       String    @unique
-  status                String    @default("created")
-  returnUrl             String?
-  launchPayload         Json
-  lastError             String?   @db.Text
-  expiresAt             DateTime
-  launchedAt            DateTime?
-  startedAt             DateTime?
-  completedAt           DateTime?
-  failedAt              DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  userId               String
+  interviewId          String    @unique
+  antigravitySessionId String?
+  launchTokenHash      String    @unique
+  status               String    @default("created")
+  returnUrl            String?
+  launchPayload        Json
+  lastError            String?   @db.Text
+  expiresAt            DateTime
+  launchedAt           DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  failedAt             DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
@@ -983,6 +1023,199 @@ model AntigravityHandoff {
   @@index([userId, status])
   @@index([antigravitySessionId])
   @@index([expiresAt])
+}
+
+/// Immutable-source assessment artifact received from the standalone Antigravity service.
+/// The normalized report remains queryable even after Antigravity Redis expires.
+model AntigravityReport {
+  id                   String   @id @default(uuid())
+  userId               String
+  interviewId          String   @unique
+  handoffId            String?
+  antigravitySessionId String   @unique
+  schemaVersion        String
+  status               String   @default("complete")
+  overallScore         Float?
+  hireRecommendation   String?
+  confidenceScore      Float?
+  reportHash           String
+  report               Json
+  evidencePacket       Json?
+  telemetrySummary     Json?
+  transcript           Json?
+  receivedAt           DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interview       Interview                   @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  telemetryEvents AntigravityTelemetryEvent[]
+
+  @@index([userId, receivedAt])
+  @@index([handoffId])
+  @@index([status])
+}
+
+/// Idempotent, append-only runtime facts forwarded by Antigravity.
+model AntigravityTelemetryEvent {
+  id                   String   @id
+  reportId             String
+  userId               String
+  antigravitySessionId String
+  eventName            String
+  source               String?
+  level                String?
+  eventAt              DateTime
+  payload              Json
+  createdAt            DateTime @default(now())
+
+  report AntigravityReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([antigravitySessionId, eventAt])
+  @@index([userId, eventAt])
+  @@index([eventName])
+}
+
+model PlacementReadinessHandoff {
+  id                      String    @id @default(uuid())
+  userId                  String
+  workspaceId             String
+  workspaceRoundAttemptId String    @unique
+  placementSessionId      String?   @unique
+  launchTokenHash         String    @unique
+  status                  String    @default("created")
+  returnUrl               String
+  launchPayload           Json
+  lastError               String?   @db.Text
+  expiresAt               DateTime
+  launchedAt              DateTime?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  failedAt                DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  user             User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace        Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceAttempt WorkspaceRoundAttempt             @relation(fields: [workspaceRoundAttemptId], references: [id], onDelete: Cascade)
+  artifact         PlacementReadinessArtifact?
+  callbackEvents   PlacementReadinessCallbackEvent[]
+
+  @@index([userId, status])
+  @@index([workspaceId, status])
+  @@index([expiresAt])
+}
+
+model PlacementReadinessArtifact {
+  id                      String   @id @default(uuid())
+  handoffId               String   @unique
+  userId                  String
+  workspaceId             String
+  workspaceRoundAttemptId String   @unique
+  placementSessionId      String   @unique
+  schemaVersion           String
+  reportHash              String
+  artifact                Json
+  receivedAt              DateTime @default(now())
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  handoff          PlacementReadinessHandoff @relation(fields: [handoffId], references: [id], onDelete: Cascade)
+  user             User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceAttempt WorkspaceRoundAttempt     @relation(fields: [workspaceRoundAttemptId], references: [id], onDelete: Cascade)
+
+  @@index([userId, receivedAt])
+  @@index([workspaceId, receivedAt])
+}
+
+model PlacementReadinessCallbackEvent {
+  id         String   @id
+  handoffId  String
+  eventType  String
+  payload    Json
+  receivedAt DateTime @default(now())
+
+  handoff PlacementReadinessHandoff @relation(fields: [handoffId], references: [id], onDelete: Cascade)
+
+  @@index([handoffId, receivedAt])
+  @@index([eventType, receivedAt])
+}
+
+/// Durable, versioned LLM synthesis over persisted assessment evidence.
+/// Raw assessment artifacts remain canonical; this is a regenerable reasoning projection.
+model AssessmentReportGeneration {
+  id               String    @id @default(uuid())
+  workspaceId      String
+  userId           String
+  reportKind       String
+  sourceHash       String
+  promptVersion    String
+  model            String
+  status           String    @default("pending")
+  result           Json?
+  usage            Json?
+  estimatedCostUsd Float?
+  error            String?   @db.Text
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([workspaceId, userId, reportKind, sourceHash, promptVersion, model])
+  @@index([workspaceId, userId, reportKind, createdAt])
+  @@index([status, createdAt])
+}
+
+/// Crash-safe orchestration record for automatic post-assessment report work.
+model AssessmentWorkflowJob {
+  id            String    @id @default(uuid())
+  workspaceId   String
+  userId        String
+  interviewId   String?
+  jobKind       String    @default("candidate_report_pipeline")
+  status        String    @default("pending")
+  currentStep   String    @default("queued")
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(8)
+  nextAttemptAt DateTime  @default(now())
+  lockedAt      DateTime?
+  lockedBy      String?
+  lastError     String?   @db.Text
+  context       Json?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, userId, jobKind, interviewId])
+  @@index([status, nextAttemptAt])
+  @@index([workspaceId, createdAt])
+}
+
+/// Operator-visible assessment pipeline fault or evidence-quality warning.
+model AssessmentPipelineIncident {
+  id          String    @id @default(uuid())
+  dedupeKey   String    @unique
+  workspaceId String
+  userId      String
+  interviewId String?
+  handoffId   String?
+  module      String
+  issueCode   String
+  severity    String
+  status      String    @default("open")
+  summary     String
+  detail      Json?
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, status, severity])
+  @@index([userId, createdAt])
+  @@index([interviewId])
 }
 
 /// After AI interview submission: admin approves/rejects before human expert stage + payment gate.
@@ -1132,14 +1365,14 @@ model Notification {
 }
 
 model TransactionalEmailLog {
-  id          String   @id @default(uuid())
-  eventKey    String   @unique
-  eventType   String
-  recipient   String
-  subject     String
-  status      String   @default("sent")
-  sentAt      DateTime @default(now())
-  metadata    Json?
+  id        String   @id @default(uuid())
+  eventKey  String   @unique
+  eventType String
+  recipient String
+  subject   String
+  status    String   @default("sent")
+  sentAt    DateTime @default(now())
+  metadata  Json?
 
   @@index([eventType, sentAt])
   @@index([recipient])

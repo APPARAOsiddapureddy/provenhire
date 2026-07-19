@@ -3,12 +3,32 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowLeft, ClipboardList, Loader2, Lock, Trophy, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  ClipboardList,
+  Loader2,
+  Lock,
+  Trophy,
+  Users,
+} from "lucide-react";
 import UserWorkspaceShell from "./UserWorkspaceShell";
 import type {
   UserWorkspace,
@@ -54,7 +74,10 @@ function LeaderboardSkeleton() {
   return (
     <div className="space-y-3 py-2">
       {[1, 2, 3, 4].map((item) => (
-        <div key={item} className="grid grid-cols-[64px_1fr_90px_120px] gap-4 rounded-lg border border-[var(--dash-navy-border)] p-3">
+        <div
+          key={item}
+          className="grid grid-cols-[64px_1fr_90px_120px] gap-4 rounded-lg border border-[var(--dash-navy-border)] p-3"
+        >
           <Skeleton className="h-5 w-8" />
           <Skeleton className="h-5 w-full max-w-48" />
           <Skeleton className="h-5 w-16" />
@@ -69,7 +92,8 @@ export default function UserWorkspaceDetailPage() {
   const { code = "" } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const [workspace, setWorkspace] = useState<UserWorkspace | null>(null);
-  const [registration, setRegistration] = useState<UserWorkspaceRegistration | null>(null);
+  const [registration, setRegistration] =
+    useState<UserWorkspaceRegistration | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
 
@@ -78,13 +102,16 @@ export default function UserWorkspaceDetailPage() {
     if (!workspaceCode) return;
     setLoading(true);
     try {
-      const res = await api.get<{ workspace: UserWorkspace; registration: UserWorkspaceRegistration | null }>(
-        `/api/user/workspaces/code/${encodeURIComponent(workspaceCode)}/me`
-      );
+      const res = await api.get<{
+        workspace: UserWorkspace;
+        registration: UserWorkspaceRegistration | null;
+      }>(`/api/user/workspaces/code/${encodeURIComponent(workspaceCode)}/me`);
       setWorkspace(res.workspace);
       setRegistration(res.registration);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load workspace");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load workspace",
+      );
       navigate("/dashboard/jobseeker/workspaces");
     } finally {
       setLoading(false);
@@ -99,11 +126,16 @@ export default function UserWorkspaceDetailPage() {
     if (!workspace) return;
     setJoining(true);
     try {
-      await api.post(`/api/user/workspaces/code/${encodeURIComponent(workspace.code)}/join`, {});
+      await api.post(
+        `/api/user/workspaces/code/${encodeURIComponent(workspace.code)}/join`,
+        {},
+      );
       toast.success("Workspace joined.");
       await loadWorkspace();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not join workspace");
+      toast.error(
+        error instanceof Error ? error.message : "Could not join workspace",
+      );
     } finally {
       setJoining(false);
     }
@@ -136,23 +168,40 @@ export default function UserWorkspaceDetailPage() {
               <div className="dashboard-eyebrow">{workspace.organization}</div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="dashboard-hero-title">{workspace.name}</h1>
-                <Badge variant="outline" className={workspaceStatusClass(workspace.status)}>
+                <Badge
+                  variant="outline"
+                  className={workspaceStatusClass(workspace.status)}
+                >
                   {workspaceStatusLabel(workspace.status)}
                 </Badge>
               </div>
               <p className="dashboard-hero-subtitle">
-                Code <span className="font-mono text-[var(--dash-gold)]">{workspace.code}</span>
+                Code{" "}
+                <span className="font-mono text-[var(--dash-gold)]">
+                  {workspace.code}
+                </span>
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {canJoin && (
                 <Button onClick={joinWorkspace} disabled={joining}>
-                  {joining ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Users className="h-4 w-4 mr-2" />}
+                  {joining ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Users className="h-4 w-4 mr-2" />
+                  )}
                   Join workspace
                 </Button>
               )}
               {registration && (
-                <Badge variant="outline" className={isRemoved ? "border-red-400/30 bg-red-400/10 text-red-200" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"}>
+                <Badge
+                  variant="outline"
+                  className={
+                    isRemoved
+                      ? "border-red-400/30 bg-red-400/10 text-red-200"
+                      : "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                  }
+                >
                   {isRemoved ? "Removed" : "Registered"}
                 </Badge>
               )}
@@ -163,7 +212,8 @@ export default function UserWorkspaceDetailPage() {
         {isRemoved && (
           <Card className="border-red-400/30 bg-red-400/5">
             <CardContent className="p-4 text-sm text-red-100">
-              You were removed from this workspace. Contact the workspace organizer if this looks wrong.
+              You were removed from this workspace. Contact the workspace
+              organizer if this looks wrong.
             </CardContent>
           </Card>
         )}
@@ -176,11 +226,17 @@ export default function UserWorkspaceDetailPage() {
           </TabsList>
 
           <TabsContent value="overview">
-            <WorkspaceOverview workspace={workspace} registration={registration} />
+            <WorkspaceOverview
+              workspace={workspace}
+              registration={registration}
+            />
           </TabsContent>
 
           <TabsContent value="rounds">
-            <WorkspaceRounds workspace={workspace} registration={registration} />
+            <WorkspaceRounds
+              workspace={workspace}
+              registration={registration}
+            />
           </TabsContent>
 
           <TabsContent value="leaderboard">
@@ -192,7 +248,13 @@ export default function UserWorkspaceDetailPage() {
   );
 }
 
-function WorkspaceOverview({ workspace, registration }: { workspace: UserWorkspace; registration: UserWorkspaceRegistration | null }) {
+function WorkspaceOverview({
+  workspace,
+  registration,
+}: {
+  workspace: UserWorkspace;
+  registration: UserWorkspaceRegistration | null;
+}) {
   return (
     <Card className="workspace-dashboard-panel">
       <CardHeader>
@@ -200,25 +262,69 @@ function WorkspaceOverview({ workspace, registration }: { workspace: UserWorkspa
           <ClipboardList className="h-4 w-4 text-[var(--dash-gold)]" />
           Workspace overview
         </CardTitle>
-        <CardDescription>Attempts will be available in the next workspace phase.</CardDescription>
+        <CardDescription>
+          Complete each configured assessment in order. Results return to this
+          workspace.
+        </CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-        <Info label="Access" value={workspace.accessMode === "invite_only" ? "Invite-only" : "Public"} />
+        <Info
+          label="Access"
+          value={
+            workspace.accessMode === "invite_only" ? "Invite-only" : "Public"
+          }
+        />
         <Info label="Starts" value={formatWorkspaceDate(workspace.startAt)} />
         <Info label="Ends" value={formatWorkspaceDate(workspace.endAt)} />
-        <Info label="Registration" value={registration ? registration.status : "Not joined"} />
+        <Info
+          label="Registration"
+          value={registration ? registration.status : "Not joined"}
+        />
       </CardContent>
     </Card>
   );
 }
 
-function WorkspaceRounds({ workspace, registration }: { workspace: UserWorkspace; registration: UserWorkspaceRegistration | null }) {
-  const attempts = new Map((registration?.roundAttempts ?? []).map((attempt) => [attempt.workspaceRoundId, attempt]));
+function WorkspaceRounds({
+  workspace,
+  registration,
+}: {
+  workspace: UserWorkspace;
+  registration: UserWorkspaceRegistration | null;
+}) {
+  const attempts = new Map(
+    (registration?.roundAttempts ?? []).map((attempt) => [
+      attempt.workspaceRoundId,
+      attempt,
+    ]),
+  );
+  const completedCount = (registration?.roundAttempts ?? []).filter(
+    (attempt) =>
+      attempt.status === "completed" || attempt.status === "auto_completed",
+  ).length;
   return (
     <Card className="workspace-dashboard-panel">
       <CardHeader>
-        <CardTitle className="text-base text-[var(--dash-text-primary)]">Rounds</CardTitle>
-        <CardDescription>Read-only round configuration for now.</CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base text-[var(--dash-text-primary)]">
+              Rounds
+            </CardTitle>
+            <CardDescription>
+              Assessment rounds unlock in order and persist their evidence to
+              your workspace record.
+            </CardDescription>
+          </div>
+          {registration && completedCount > 0 ? (
+            <Button size="sm" asChild>
+              <Link
+                to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/reports?module=overview`}
+              >
+                View my feedback ({completedCount}/{workspace.rounds.length})
+              </Link>
+            </Button>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
@@ -240,13 +346,20 @@ function WorkspaceRounds({ workspace, registration }: { workspace: UserWorkspace
                   .filter((candidate) => candidate.order < round.order)
                   .every((candidate) => {
                     const previous = attempts.get(candidate.id);
-                    return previous?.status === "completed" || previous?.status === "auto_completed";
+                    return (
+                      previous?.status === "completed" ||
+                      previous?.status === "auto_completed"
+                    );
                   });
                 return (
                   <TableRow key={round.id}>
                     <TableCell>
-                      <div className="font-medium text-[var(--dash-text-primary)]">{round.name}</div>
-                      <div className="text-xs text-[var(--dash-text-muted)]">Round {round.order}</div>
+                      <div className="font-medium text-[var(--dash-text-primary)]">
+                        {round.name}
+                      </div>
+                      <div className="text-xs text-[var(--dash-text-muted)]">
+                        Round {round.order}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{round.type}</Badge>
@@ -288,17 +401,29 @@ function RoundAction({
   previousComplete: boolean;
 }) {
   if (attemptStatus === "completed" || attemptStatus === "auto_completed") {
-    return <Badge variant="outline" className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200">Completed</Badge>;
+    return (
+      <Badge
+        variant="outline"
+        className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+      >
+        Completed
+      </Badge>
+    );
   }
   if (
     registered &&
     workspace.status === "started" &&
     previousComplete &&
-    (round.type === "mcq" || round.type === "coding" || round.type === "sql")
+    (round.type === "mcq" ||
+      round.type === "coding" ||
+      round.type === "sql" ||
+      round.type === "interview")
   ) {
     return (
       <Button size="sm" asChild>
-        <Link to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/rounds/${encodeURIComponent(round.id)}`}>
+        <Link
+          to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/rounds/${encodeURIComponent(round.id)}`}
+        >
           {attemptStatus === "active" ? "Continue" : "Start"}
         </Link>
       </Button>
@@ -320,7 +445,9 @@ function RoundAction({
 }
 
 function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
-  const [rows, setRows] = useState<UserWorkspaceLeaderboardResponse["leaderboard"]>([]);
+  const [rows, setRows] = useState<
+    UserWorkspaceLeaderboardResponse["leaderboard"]
+  >([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -330,12 +457,16 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
       const qs = new URLSearchParams({ limit: "20" });
       if (cursor) qs.set("cursor", cursor);
       const res = await api.get<UserWorkspaceLeaderboardResponse>(
-        `/api/user/workspaces/code/${encodeURIComponent(workspaceCode)}/leaderboard?${qs.toString()}`
+        `/api/user/workspaces/code/${encodeURIComponent(workspaceCode)}/leaderboard?${qs.toString()}`,
       );
-      setRows((prev) => (cursor ? [...prev, ...res.leaderboard] : res.leaderboard));
+      setRows((prev) =>
+        cursor ? [...prev, ...res.leaderboard] : res.leaderboard,
+      );
       setNextCursor(res.nextCursor);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load leaderboard");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load leaderboard",
+      );
     } finally {
       setLoading(false);
     }
@@ -358,7 +489,9 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
         {loading && rows.length === 0 ? (
           <LeaderboardSkeleton />
         ) : rows.length === 0 ? (
-          <div className="py-10 text-center text-[var(--dash-text-muted)]">No scores yet.</div>
+          <div className="py-10 text-center text-[var(--dash-text-muted)]">
+            No scores yet.
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="overflow-x-auto">
@@ -376,8 +509,12 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
                     <TableRow key={`${row.rank}-${row.userId}`}>
                       <TableCell>#{row.rank}</TableCell>
                       <TableCell>
-                        <div className="font-medium text-[var(--dash-text-primary)]">{row.name || row.email}</div>
-                        <div className="text-xs text-[var(--dash-text-muted)]">{row.email}</div>
+                        <div className="font-medium text-[var(--dash-text-primary)]">
+                          {row.name || row.email}
+                        </div>
+                        <div className="text-xs text-[var(--dash-text-muted)]">
+                          {row.email}
+                        </div>
                       </TableCell>
                       <TableCell>{row.totalScore}</TableCell>
                       <TableCell>{row.completedRounds}</TableCell>
@@ -387,8 +524,14 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
               </Table>
             </div>
             {nextCursor && (
-              <Button variant="outline" onClick={() => load(nextCursor)} disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              <Button
+                variant="outline"
+                onClick={() => load(nextCursor)}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
                 Load more
               </Button>
             )}
@@ -403,7 +546,9 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-[var(--dash-navy-border)] bg-white/[0.03] px-3 py-2">
       <div className="text-xs text-[var(--dash-text-muted)]">{label}</div>
-      <div className="mt-1 font-medium text-[var(--dash-text-primary)]">{value}</div>
+      <div className="mt-1 font-medium text-[var(--dash-text-primary)]">
+        {value}
+      </div>
     </div>
   );
 }

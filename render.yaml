@@ -17,12 +17,40 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: PLACEMENT_READINESS_WEB_URL
+        sync: false
+      - key: PROVENHIRE_WEB_URL
+        value: https://provenhire.in
+      - key: PLACEMENT_HANDOFF_SHARED_SECRET
+        sync: false
+      - key: PLACEMENT_WEBHOOK_SECRET
+        sync: false
       - key: ANTIGRAVITY_API_URL
         value: https://antigravity-backend-2oaj.onrender.com
       - key: ANTIGRAVITY_FRONTEND_URL
         value: https://antigravity-gz2r.vercel.app
       - key: ANTIGRAVITY_WEBHOOK_SECRET
         sync: false
+      - key: ANTIGRAVITY_REPORT_ACCESS_SECRET
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: REPORT_AGENT_MODEL
+        value: google/gemini-2.5-flash
+      - key: REPORT_UNIFIED_ESCALATION_MODEL
+        value: google/gemini-3.1-pro-preview
+      - key: REPORT_UNIFIED_ESCALATION_ENABLED
+        value: "true"
+      - key: REPORT_UNIFIED_ESCALATION_SCORE_SPREAD
+        value: "20"
+      - key: REPORT_UNIFIED_ESCALATION_CONFIDENCE_MAX
+        value: "0.7"
+      - key: REPORT_CRITIC_MODEL
+        value: gpt-oss-120b
+      - key: REPORT_CRITIC_PROVIDER
+        value: cerebras
 
   - type: web
     name: antigravity-service
@@ -41,6 +69,8 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: ANTIGRAVITY_REQUIRE_POSTGRES
+        value: "1"
       - key: ANTIGRAVITY_CORS_ORIGINS
         sync: false
       - key: CARTESIA_API_KEY
