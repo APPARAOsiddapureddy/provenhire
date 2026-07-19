@@ -67,11 +67,6 @@ When you click "Send Verification Code", watch the **server terminal**. You shou
 1. **Add Gmail fallback** (easiest): Add `GMAIL_USER` and `GMAIL_APP_PASSWORD` to Render. When Resend rejects (recipient restriction), Gmail will send to any address.
 2. **Verify a domain on Resend**: Go to [resend.com/domains](https://resend.com/domains), add and verify your domain, then set `EMAIL_FROM=ProvenHire <noreply@yourdomain.com>` in Render. Resend will then allow any recipient.
 
-### Why Resend over Gmail for production?
-
-- **Resend** (with verified domain) works reliably. Free tier without domain: only to your own email.
-- **Gmail** works for any recipient but can be blocked/delayed from Render's IPs. Use as fallback when Resend restricts.
-
 ### Check Render Logs
 
 After clicking "Send Verification Code", check **Render → Logs**. If you see:
