@@ -142,7 +142,7 @@ export default function BroadcastMessageDialog({
           <DialogHeader>
             <DialogTitle>Broadcast Message</DialogTitle>
             <DialogDescription>
-              In-app notifications appear in the bell icon. Optionally send email via Resend.
+              In-app notifications appear in the bell icon
             </DialogDescription>
           </DialogHeader>
 
@@ -209,7 +209,7 @@ export default function BroadcastMessageDialog({
                 htmlFor="sendEmail"
                 className="text-sm font-medium leading-none cursor-pointer"
               >
-                Also send via email (requires RESEND_API_KEY)
+                Also send via email
               </label>
             </div>
 

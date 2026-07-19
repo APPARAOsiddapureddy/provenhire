@@ -66,7 +66,12 @@ function sendError(res: Response, error: unknown) {
     return res.status(error.statusCode).json({ error: error.message });
   }
   console.error("[workspace]", error);
-  return res.status(500).json({ error: "Workspace operation failed." });
+  const message = error instanceof Error ? error.message : "Workspace operation failed.";
+  // In non-production show error details to aid debugging.
+  if (process.env.NODE_ENV === "production") {
+    return res.status(500).json({ error: "Workspace operation failed." });
+  }
+  return res.status(500).json({ error: message, details: error instanceof Error ? error.stack : undefined });
 }
 
 export async function createWorkspaceController(req: AuthedRequest, res: Response) {

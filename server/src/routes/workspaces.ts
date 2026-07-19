@@ -59,7 +59,9 @@ workspacesRouter.get("/", listWorkspacesController);
 workspacesRouter.get("/question-bank/sql", getWorkspaceSqlTaskAvailabilityController);
 workspacesRouter.get("/:id", getWorkspaceController);
 workspacesRouter.patch("/:id", updateWorkspaceController);
+
 workspacesRouter.put("/:id/rounds", replaceWorkspaceRoundsController);
+
 workspacesRouter.post("/:id/publish", publishWorkspaceController);
 workspacesRouter.post("/:id/start", startWorkspaceController);
 workspacesRouter.patch("/:id/status", updateWorkspaceStatusController);
