@@ -30,5 +30,5 @@ MIGRATION_DIR="/absolute/path/to/exports" \
 MIGRATION_DEFAULT_PASSWORD="ChangeMe123!" \
 npm run migrate:legacy
 ```
-
+a
 Users without a `password_hash` in the export receive `MIGRATION_DEFAULT_PASSWORD`.
