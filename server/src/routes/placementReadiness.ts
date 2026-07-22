@@ -9,6 +9,11 @@ import { canReadPlacementArtifact, verifyPlacementCallback } from "../services/p
 export const placementReadinessRouter = Router();
 const TOKEN_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_PLACEMENT_WEB_URL = "https://provenhireplacement.vercel.app";
+// A handoff stuck in 'started'/'processing' this long with no update (no report,
+// no failure callback) is treated as abandoned rather than resumed forever. This
+// is a generous ceiling so no real in-progress interview is ever interrupted -
+// it only reclaims handoffs the candidate has genuinely walked away from.
+const HANDOFF_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 function secret(name: "PLACEMENT_HANDOFF_SHARED_SECRET" | "PLACEMENT_WEBHOOK_SECRET") {
   const value = process.env[name]?.trim();
@@ -51,12 +56,18 @@ export function resolveExistingPlacementLaunch(input: {
   status: string;
   placementSessionId: string | null;
   expiresAt: Date;
+  updatedAt: Date;
   webUrl?: string;
+  now?: number;
 }) {
   if (
     !input.placementSessionId ||
     !["started", "processing", "failed"].includes(input.status)
   ) return null;
+  if (["started", "processing"].includes(input.status)) {
+    const staleSinceMs = (input.now ?? Date.now()) - input.updatedAt.getTime();
+    if (staleSinceMs > HANDOFF_STALE_AFTER_MS) return null;
+  }
   const webUrl = input.webUrl ?? resolvePlacementWebUrl();
   return {
     handoff_id: input.handoffId,
@@ -99,6 +110,7 @@ placementReadinessRouter.post(
         status: true,
         placementSessionId: true,
         expiresAt: true,
+        updatedAt: true,
       },
     });
     const resumeLaunch = existingHandoff
@@ -107,6 +119,7 @@ placementReadinessRouter.post(
           status: existingHandoff.status,
           placementSessionId: existingHandoff.placementSessionId,
           expiresAt: existingHandoff.expiresAt,
+          updatedAt: existingHandoff.updatedAt,
         })
       : null;
     if (resumeLaunch) return res.json(resumeLaunch);

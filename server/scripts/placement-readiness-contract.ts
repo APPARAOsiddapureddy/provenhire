@@ -45,13 +45,16 @@ assert.equal(
   "https://placement.provenhire.in",
 );
 
+const resumeNowMs = Date.parse("2026-07-22T00:30:00.000Z");
 assert.deepEqual(
   resolveExistingPlacementLaunch({
     handoffId: "handoff-1",
     status: "started",
     placementSessionId: "session/1",
     expiresAt: new Date("2026-07-22T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-22T00:15:00.000Z"),
     webUrl: "https://placement.example.com",
+    now: resumeNowMs,
   }),
   {
     handoff_id: "handoff-1",
@@ -67,9 +70,24 @@ assert.equal(
     status: "created",
     placementSessionId: null,
     expiresAt: new Date("2026-07-22T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-22T00:00:00.000Z"),
     webUrl: "https://placement.example.com",
   }),
   null,
 );
+// A handoff abandoned for hours with no progress must not be resumed into a
+// dead interview room - it should fall through so the caller issues a fresh one.
+assert.equal(
+  resolveExistingPlacementLaunch({
+    handoffId: "handoff-3",
+    status: "started",
+    placementSessionId: "session/stale",
+    expiresAt: new Date("2026-07-22T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-22T00:00:00.000Z"),
+    webUrl: "https://placement.example.com",
+    now: Date.parse("2026-07-22T03:00:00.000Z"),
+  }),
+  null,
+);
 
-console.log("placement readiness contract: 12/12 passed");
+console.log("placement readiness contract: 14/14 passed");
