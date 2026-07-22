@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Code2,
   BrainCircuit,
+  Database,
   RadioTower,
   ShieldCheck,
 } from "lucide-react";
@@ -56,7 +57,7 @@ const attempt = (
   status: "completed",
   score,
   percentageScore: score,
-  weightedScore: score / 3,
+  weightedScore: score / 4,
   completedAt: now,
   workspaceRound: {
     id: `round-${order}`,
@@ -75,6 +76,7 @@ function dossierFor(
   const strong = scoreOffset === 0;
   const aptitudeScore = 91 - scoreOffset;
   const dsaScore = 88 - scoreOffset;
+  const sqlScore = 84 - scoreOffset;
   // The linked saved Antigravity artifact is a 6.0/10 MAYBE report. Keep the
   // workspace index aligned with that canonical report instead of inventing a demo verdict.
   const antigravityScore = strong ? 60 : 74;
@@ -245,9 +247,16 @@ function dossierFor(
           dsaScore,
         ),
         attempt(
-          `${registration.userId}-interview`,
+          `${registration.userId}-sql`,
           3,
-          "Antigravity interview",
+          "SQL round",
+          "sql",
+          sqlScore,
+        ),
+        attempt(
+          `${registration.userId}-interview`,
+          4,
+          "Placement Readiness interview",
           "interview",
           antigravityScore,
         ),
@@ -259,9 +268,13 @@ function dossierFor(
       decisionStatus: "insufficient_evidence",
       compositeScore: null,
       confidence: null,
-      completedModules: 3,
+      completedModules: 4,
+      requiredModules: ["aptitude", "dsa", "sql", "interview"],
+      completedModuleKeys: ["aptitude", "dsa", "sql", "interview"],
+      readyModuleKeys: ["sql", "interview"],
+      missingModuleKeys: ["aptitude", "dsa"],
       overallRead:
-        "All three modules have stored results, but the Aptitude ledger and the failed DSA judge case are incomplete. Cross-module interpretation and the human decision are withheld until those sources are recovered or the assessments are rerun.",
+        "All four configured modules have stored results, but the Aptitude ledger and the failed DSA judge case are incomplete. Cross-module interpretation and the human decision are withheld until those sources are recovered or the assessments are rerun.",
       crossModuleSignals: [
         "Cross-module strengths are withheld until every source module is auditable.",
       ],
@@ -290,6 +303,8 @@ function dossierFor(
       evidenceBasis: {
         aptitudeScore,
         dsaScore,
+        sqlScore,
+        interviewScore: antigravityScore,
         antigravityScore,
         antigravityVerdict: null,
         scoreSpread: 0,
@@ -315,7 +330,15 @@ function dossierFor(
       evidenceCompleteness: {
         aptitude: false,
         dsa: false,
+        sql: true,
+        interview: true,
         antigravity: true,
+        byModule: {
+          aptitude: false,
+          dsa: false,
+          sql: true,
+          interview: true,
+        },
         issues: [
           "Aptitude retains only 8/30 question records.",
           "The partial DSA submission does not retain a reproducible failed judge case.",
@@ -334,7 +357,7 @@ function dossierFor(
           status: "incomplete",
           label: "Required assessment evidence",
           detail:
-            "3/3 modules have stored results, but Aptitude retains only 8/30 questions and the DSA failure is not reproducible. Decision use is blocked.",
+            "4/4 configured modules have stored results, but Aptitude retains only 8/30 questions and the DSA failure is not reproducible. Decision use is blocked.",
         },
         {
           key: "role_rubric",
@@ -541,6 +564,112 @@ function dossierFor(
         },
         history: [],
       },
+      sql: {
+        latest: null,
+        history: [],
+        workspaceEvidence: {
+          attemptId: `${registration.userId}-sql`,
+          sessionId: `${registration.userId}-sql-session`,
+          score: sqlScore,
+          completedAt: now,
+          passedCount: 1,
+          totalCount: 2,
+          timeTakenSeconds: 1960,
+          submissions: [
+            {
+              id: `${registration.userId}-sql-submission-1`,
+              taskId: "sql-monthly-retention",
+              query:
+                "SELECT account_id, DATE_TRUNC('month', occurred_at) AS month, COUNT(*) AS active_days\nFROM account_events\nGROUP BY account_id, DATE_TRUNC('month', occurred_at);",
+              passedCount: 7,
+              totalCount: 8,
+              score: sqlScore,
+              results: {
+                summary: "7 of 8 retained judge cases passed",
+                failedCase: "Accounts with duplicate same-day events require COUNT(DISTINCT occurred_at::date).",
+              },
+              submittedAt: now,
+              task: {
+                title: "Monthly account retention",
+                difficulty: "medium",
+                description:
+                  "Aggregate active account days by month without double-counting duplicate daily events.",
+              },
+            },
+          ],
+        },
+      },
+      interview: {
+        latest: {
+          source: "placement_readiness",
+          id: `${registration.userId}-placement-artifact`,
+          sessionId: `${registration.userId}-placement-session`,
+          schemaVersion: "placement.report.v1",
+          reportHash: "local-preview-placement-report",
+          score: antigravityScore,
+          receivedAt: now,
+          handoffStatus: "completed",
+          report: {
+            scorecard: {
+              overallScore: antigravityScore,
+              readinessBand: strong ? "developing" : "interview ready",
+              reasoningSummary:
+                "The candidate communicated implementation choices clearly and used concrete project evidence, while crash-recovery depth remains the most valuable follow-up area.",
+              dimensionScores: {
+                communication: 82,
+                technicalDepth: 72,
+                projectOwnership: 76,
+                pressureHandling: 79,
+              },
+            },
+            readinessVerdict: {
+              summary:
+                "Ready for a focused employer panel, with one reliability-design probe recommended before a final decision.",
+            },
+            validationSummary: { validationPassed: true },
+            strongestConvertingSignals: [
+              "Explains implementation choices with specific project examples.",
+              "Acknowledges uncertainty without inventing production evidence.",
+            ],
+            avoidableRejectionRisks: [
+              "Crash recovery after a write-before-ack failure needs a concrete mechanism.",
+            ],
+            deliveryRead: {
+              summary: "Answers were structured and concise.",
+              pressureHandlingSignal:
+                "The candidate maintained clear boundaries when challenged.",
+            },
+            projectOwnershipRead: {
+              summary: "Ownership claims were tied to implementation decisions.",
+              authenticitySignal:
+                "Examples included trade-offs and failure boundaries rather than broad claims.",
+            },
+            questionReviews: [
+              {
+                slotId: "reliability-1",
+                slotLabel: "Reliability ownership",
+                answerBand: "partial",
+                questionText:
+                  "How would you make event delivery idempotent across a process crash?",
+                answerSummary:
+                  "Used an idempotency ledger but did not fully bind the write and acknowledgement transaction.",
+                whatWasGood: ["Identified idempotency keys and conflict detection."],
+                strongerAnswerWouldInclude: [
+                  "Persist result and acknowledgement state in one durable transaction.",
+                ],
+              },
+            ],
+            sevenDayPlan: [
+              "Practice one write-before-ack recovery design and explain its invariants.",
+            ],
+            thirtyDayPlan: [
+              "Build and test a durable outbox with retries, deduplication, and operator alerts.",
+            ],
+          },
+        },
+        status: "completed",
+        lastError: null,
+      },
       antigravity: {
         latest: {
           id: `${registration.userId}-ag-report`,
@@ -674,9 +803,15 @@ const rounds = [
     state: "Unlocked",
   },
   {
+    icon: Database,
+    name: "SQL round",
+    detail: "2 query tasks · 45 minutes",
+    state: "Unlocked",
+  },
+  {
     icon: RadioTower,
-    name: "Antigravity interview",
-    detail: "Adaptive voice interview · Report V2",
+    name: "Placement Readiness interview",
+    detail: "Adaptive voice interview · durable report",
     state: "Unlocked",
   },
 ];
@@ -718,7 +853,7 @@ export default function WorkspaceLocalPreviewPage() {
         </header>
 
         <section
-          className="grid gap-4 md:grid-cols-3"
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
           aria-label="Unlocked assessment rounds"
         >
           {rounds.map(({ icon: Icon, name, detail, state }) => (

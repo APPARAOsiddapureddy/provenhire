@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,7 @@ import type {
   UserWorkspaceLeaderboardResponse,
   UserWorkspaceRegistration,
   UserWorkspaceRound,
+  UserWorkspaceRoundAttempt,
 } from "./types";
 import {
   formatWorkspaceDate,
@@ -97,10 +98,10 @@ export default function UserWorkspaceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
 
-  const loadWorkspace = async () => {
+  const loadWorkspace = useCallback(async (silent = false) => {
     const workspaceCode = normalizeWorkspaceCode(decodeURIComponent(code));
     if (!workspaceCode) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await api.get<{
         workspace: UserWorkspace;
@@ -114,13 +115,30 @@ export default function UserWorkspaceDetailPage() {
       );
       navigate("/dashboard/jobseeker/workspaces");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [code, navigate]);
 
   useEffect(() => {
     void loadWorkspace();
-  }, [code]);
+  }, [loadWorkspace]);
+
+  const hasPendingPlacementReport = Boolean(
+    registration?.roundAttempts?.some(
+      (attempt) =>
+        attempt.roundType === "interview" &&
+        attempt.status === "active" &&
+        ["started", "processing"].includes(
+          attempt.placementReadinessHandoff?.status || "",
+        ),
+    ),
+  );
+
+  useEffect(() => {
+    if (!hasPendingPlacementReport) return;
+    const timer = window.setInterval(() => void loadWorkspace(true), 5_000);
+    return () => window.clearInterval(timer);
+  }, [hasPendingPlacementReport, loadWorkspace]);
 
   const joinWorkspace = async () => {
     if (!workspace) return;
@@ -372,7 +390,7 @@ function WorkspaceRounds({
                         round={round}
                         workspace={workspace}
                         registered={registration?.status === "registered"}
-                        attemptStatus={attempt?.status}
+                        attempt={attempt}
                         previousComplete={previousComplete}
                       />
                     </TableCell>
@@ -391,16 +409,16 @@ function RoundAction({
   round,
   workspace,
   registered,
-  attemptStatus,
+  attempt,
   previousComplete,
 }: {
   round: UserWorkspaceRound;
   workspace: UserWorkspace;
   registered: boolean;
-  attemptStatus?: string;
+  attempt?: UserWorkspaceRoundAttempt;
   previousComplete: boolean;
 }) {
-  if (attemptStatus === "completed" || attemptStatus === "auto_completed") {
+  if (attempt?.status === "completed" || attempt?.status === "auto_completed") {
     return (
       <Badge
         variant="outline"
@@ -408,6 +426,27 @@ function RoundAction({
       >
         Completed
       </Badge>
+    );
+  }
+  const placementStatus = attempt?.placementReadinessHandoff?.status;
+  if (
+    round.type === "interview" &&
+    attempt?.status === "active" &&
+    ["started", "processing"].includes(placementStatus || "")
+  ) {
+    return (
+      <div className="max-w-56 space-y-1 text-right">
+        <Badge
+          variant="outline"
+          className="border-amber-400/30 bg-amber-400/10 text-amber-100"
+        >
+          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+          Report processing
+        </Badge>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Your full report will appear here within five minutes.
+        </p>
+      </div>
     );
   }
   if (
@@ -424,7 +463,13 @@ function RoundAction({
         <Link
           to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/rounds/${encodeURIComponent(round.id)}`}
         >
-          {attemptStatus === "active" ? "Continue" : "Start"}
+          {round.type === "interview" && placementStatus === "failed"
+            ? "Retry interview"
+            : attempt?.status === "active"
+              ? round.type === "interview"
+                ? "Retry launch"
+                : "Continue"
+              : "Start"}
         </Link>
       </Button>
     );
@@ -451,7 +496,7 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = async (cursor?: string | null) => {
+  const load = useCallback(async (cursor?: string | null) => {
     setLoading(true);
     try {
       const qs = new URLSearchParams({ limit: "20" });
@@ -470,11 +515,11 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceCode]);
 
   useEffect(() => {
     void load(null);
-  }, [workspaceCode]);
+  }, [load]);
 
   return (
     <Card className="workspace-dashboard-panel">

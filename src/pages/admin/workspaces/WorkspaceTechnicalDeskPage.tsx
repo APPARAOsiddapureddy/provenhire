@@ -10,7 +10,9 @@ import { api } from "@/lib/api";
 type WorkflowJob = { id: string; userId: string; interviewId?: string | null; status: string; currentStep: string; attempts: number; maxAttempts: number; lastError?: string | null; updatedAt: string };
 type Incident = { id: string; userId: string; module: string; issueCode: string; severity: string; status: string; summary: string; detail?: unknown; lastSeenAt: string };
 type Candidate = { id: string; name?: string | null; email: string };
-type Desk = { jobs: WorkflowJob[]; incidents: Incident[]; candidates: Candidate[]; generatedAt: string };
+type PlacementHandoff = { id: string; userId: string; status: string; placementSessionId?: string | null; lastError?: string | null; updatedAt: string; artifact?: { id: string; receivedAt: string; reportHash: string } | null };
+type AuditEvent = { id: string; eventType: string; actorUserId?: string | null; targetUserId?: string | null; targetEmail?: string | null; detail?: unknown; createdAt: string };
+type Desk = { jobs: WorkflowJob[]; incidents: Incident[]; candidates: Candidate[]; placementHandoffs: PlacementHandoff[]; configuration: { placementReadinessWebUrl?: string | null; customDomainReady: boolean; handoffSecretConfigured: boolean; webhookSecretConfigured: boolean; openRouterConfigured: boolean }; auditEvents: AuditEvent[]; generatedAt: string };
 
 export default function WorkspaceTechnicalDeskPage() {
   const { id = "" } = useParams<{ id: string }>();
@@ -35,13 +37,20 @@ export default function WorkspaceTechnicalDeskPage() {
           { id: "preview-riya", name: "Riya Menon", email: "riya.preview@provenhire.local" },
           { id: "preview-praveen", name: "Praveen Rao", email: "praveen.preview@provenhire.local" },
         ],
+        placementHandoffs: [],
+        auditEvents: [],
+        configuration: { placementReadinessWebUrl: "http://localhost:3000", customDomainReady: false, handoffSecretConfigured: true, webhookSecretConfigured: true, openRouterConfigured: true },
       });
       return;
     }
     if (!id) return;
     try {
       setError("");
-      setDesk(await api.get<Desk>(`/api/workspaces/${id}/technical-desk`));
+      const [technical, audit] = await Promise.all([
+        api.get<Omit<Desk, "auditEvents">>(`/api/workspaces/${id}/technical-desk`),
+        api.get<{ events: AuditEvent[] }>(`/api/workspaces/${id}/audit-trail`),
+      ]);
+      setDesk({ ...technical, auditEvents: audit.events });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load the technical desk.");
     }
@@ -107,6 +116,16 @@ export default function WorkspaceTechnicalDeskPage() {
             </section>
 
             <section className="space-y-3">
+              <h2 className="text-xl font-semibold">Integration configuration</h2>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <Card><CardHeader><CardDescription>Placement web URL</CardDescription><CardTitle className="break-all text-sm">{desk.configuration.placementReadinessWebUrl || "Missing"}</CardTitle></CardHeader></Card>
+                <Card><CardHeader><CardDescription>Handoff secret</CardDescription><CardTitle className="text-lg">{desk.configuration.handoffSecretConfigured ? "Configured" : "Missing"}</CardTitle></CardHeader></Card>
+                <Card><CardHeader><CardDescription>Webhook secret</CardDescription><CardTitle className="text-lg">{desk.configuration.webhookSecretConfigured ? "Configured" : "Missing"}</CardTitle></CardHeader></Card>
+                <Card><CardHeader><CardDescription>Report model</CardDescription><CardTitle className="text-lg">{desk.configuration.openRouterConfigured ? "Configured" : "Missing"}</CardTitle></CardHeader></Card>
+              </div>
+            </section>
+
+            <section className="space-y-3">
               <h2 className="text-xl font-semibold">Issues requiring attention</h2>
               {!openIncidents.length ? <Card><CardContent className="flex items-center gap-3 p-5 text-sm"><CheckCircle2 className="h-5 w-5 text-emerald-600" />No unresolved assessment-pipeline incidents.</CardContent></Card> : openIncidents.map((incident) => (
                 <Card key={incident.id} className={incident.severity === "critical" ? "border-rose-400" : "border-amber-300"}>
@@ -121,6 +140,18 @@ export default function WorkspaceTechnicalDeskPage() {
               {desk.jobs.map((job) => (
                 <Card key={job.id}><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><Badge>{job.status}</Badge><span className="font-semibold">{job.currentStep.replaceAll("_", " ")}</span></div><p className="mt-2 text-xs text-muted-foreground">{candidateLabel(job.userId)} · attempt {job.attempts}/{job.maxAttempts} · {new Date(job.updatedAt).toLocaleString()}</p>{job.interviewId ? <p className="mt-1 font-mono text-xs text-muted-foreground">Interview {job.interviewId}</p> : null}{job.lastError ? <p className="mt-2 max-w-4xl text-sm text-rose-700">{job.lastError}</p> : null}</div>{["blocked", "retry"].includes(job.status) ? <Button size="sm" variant="outline" disabled={busy === job.id} onClick={() => void retry(job.id)}><RotateCcw className="mr-2 h-4 w-4" />Retry pipeline</Button> : null}</CardContent></Card>
               ))}
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-xl font-semibold">Placement handoffs</h2>
+              {!desk.placementHandoffs.length ? <Card><CardContent className="p-5 text-sm text-muted-foreground">No Placement Readiness handoffs yet.</CardContent></Card> : desk.placementHandoffs.map((handoff) => (
+                <Card key={handoff.id}><CardContent className="p-5"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{handoff.status}</Badge><span className="font-mono text-xs">{handoff.id}</span>{handoff.artifact ? <Badge className="bg-emerald-600">artifact ready</Badge> : null}</div><p className="mt-2 text-sm text-muted-foreground">{candidateLabel(handoff.userId)} · {new Date(handoff.updatedAt).toLocaleString()}</p>{handoff.placementSessionId ? <p className="mt-1 font-mono text-xs text-muted-foreground">Session {handoff.placementSessionId}</p> : null}{handoff.lastError ? <p className="mt-2 text-sm text-rose-700">{handoff.lastError}</p> : null}</CardContent></Card>
+              ))}
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-xl font-semibold">Workspace audit trail</h2>
+              {!desk.auditEvents.length ? <Card><CardContent className="p-5 text-sm text-muted-foreground">No recorded lifecycle or membership events yet.</CardContent></Card> : <Card><CardContent className="divide-y p-0">{desk.auditEvents.map((event) => <div key={event.id} className="p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{event.eventType.replaceAll(".", " ")}</span><span className="text-xs text-muted-foreground">{new Date(event.createdAt).toLocaleString()}</span></div><p className="mt-1 text-xs text-muted-foreground">Target {event.targetEmail || event.targetUserId || "workspace"} · Actor {event.actorUserId || "system"}</p></div>)}</CardContent></Card>}
             </section>
           </>
         )}

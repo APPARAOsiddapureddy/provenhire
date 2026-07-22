@@ -62,6 +62,14 @@ export type UserWorkspaceRoundAttempt = {
     submittedAt?: string | null;
     finalizedAt?: string | null;
   } | null;
+  placementReadinessHandoff?: {
+    status: string;
+    placementSessionId?: string | null;
+    lastError?: string | null;
+    expiresAt: string;
+    updatedAt: string;
+    artifact?: { id: string; receivedAt: string } | null;
+  } | null;
 };
 
 export type UserWorkspaceRegistration = {

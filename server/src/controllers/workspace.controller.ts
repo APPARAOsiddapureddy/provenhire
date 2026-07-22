@@ -7,6 +7,7 @@ import {
   archiveWorkspace,
   createWorkspace,
   deleteWorkspace,
+  endWorkspace,
   getSqlTaskAvailability,
   getWorkspace,
   listWorkspaces,
@@ -245,6 +246,21 @@ export async function startWorkspaceController(
 ) {
   try {
     const workspace = await startWorkspace(
+      creatorFromRequest(req),
+      req.params.id,
+    );
+    return res.json({ workspace });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function endWorkspaceController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    const workspace = await endWorkspace(
       creatorFromRequest(req),
       req.params.id,
     );

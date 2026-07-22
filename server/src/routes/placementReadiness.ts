@@ -8,6 +8,7 @@ import { canReadPlacementArtifact, verifyPlacementCallback } from "../services/p
 
 export const placementReadinessRouter = Router();
 const TOKEN_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_PLACEMENT_WEB_URL = "https://provenhire-placement-ag-ui.vercel.app";
 
 function secret(name: "PLACEMENT_HANDOFF_SHARED_SECRET" | "PLACEMENT_WEBHOOK_SECRET") {
   const value = process.env[name]?.trim();
@@ -29,10 +30,41 @@ function asJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function placementWebUrl() {
-  const value = process.env.PLACEMENT_READINESS_WEB_URL?.trim().replace(/\/$/, "");
-  if (!value) throw new Error("PLACEMENT_READINESS_WEB_URL is required.");
-  return value;
+export function resolvePlacementWebUrl(config: NodeJS.ProcessEnv = process.env) {
+  const configured = config.PLACEMENT_READINESS_WEB_URL?.trim().replace(/\/$/, "");
+  const customDomainReady = config.PLACEMENT_READINESS_CUSTOM_DOMAIN_READY === "true";
+  const value =
+    configured &&
+    !(configured === "https://placement.provenhire.in" && !customDomainReady)
+      ? configured
+      : config.PLACEMENT_READINESS_FALLBACK_WEB_URL?.trim().replace(/\/$/, "") ||
+        DEFAULT_PLACEMENT_WEB_URL;
+  const parsed = new URL(value);
+  if (config.NODE_ENV === "production" && parsed.protocol !== "https:") {
+    throw new Error("PLACEMENT_READINESS_WEB_URL must use HTTPS in production.");
+  }
+  return parsed.toString().replace(/\/$/, "");
+}
+
+export function resolveExistingPlacementLaunch(input: {
+  handoffId: string;
+  status: string;
+  placementSessionId: string | null;
+  expiresAt: Date;
+  webUrl?: string;
+}) {
+  if (
+    !input.placementSessionId ||
+    !["started", "processing", "failed"].includes(input.status)
+  ) return null;
+  const webUrl = input.webUrl ?? resolvePlacementWebUrl();
+  return {
+    handoff_id: input.handoffId,
+    launch_url: `${webUrl}/interview-room/${encodeURIComponent(input.placementSessionId)}`,
+    expires_at: input.expiresAt.toISOString(),
+    resumed: true,
+    status: input.status,
+  };
 }
 
 const launchSchema = z.object({ workspace_attempt_id: z.string().uuid() });
@@ -59,6 +91,25 @@ placementReadinessRouter.post(
     if (attempt.workspace.status !== "started" || attempt.workspace.endAt.getTime() <= Date.now()) {
       return res.status(409).json({ error: "This Placement workspace is not currently active." });
     }
+
+    const existingHandoff = await prisma.placementReadinessHandoff.findUnique({
+      where: { workspaceRoundAttemptId: attempt.id },
+      select: {
+        id: true,
+        status: true,
+        placementSessionId: true,
+        expiresAt: true,
+      },
+    });
+    const resumeLaunch = existingHandoff
+      ? resolveExistingPlacementLaunch({
+          handoffId: existingHandoff.id,
+          status: existingHandoff.status,
+          placementSessionId: existingHandoff.placementSessionId,
+          expiresAt: existingHandoff.expiresAt,
+        })
+      : null;
+    if (resumeLaunch) return res.json(resumeLaunch);
 
     const profile = attempt.user.jobSeekerProfile;
     const resume = attempt.user.provenHireResume;
@@ -111,8 +162,58 @@ placementReadinessRouter.post(
     });
     return res.status(201).json({
       handoff_id: handoff.id,
-      launch_url: `${placementWebUrl()}/launch?token=${encodeURIComponent(opaqueToken)}`,
+      launch_url: `${resolvePlacementWebUrl()}/launch?token=${encodeURIComponent(opaqueToken)}`,
       expires_at: expiresAt.toISOString(),
+    });
+  },
+);
+
+placementReadinessRouter.get(
+  "/attempts/:attemptId/status",
+  requireAuth,
+  async (req: AuthedRequest, res) => {
+    const attempt = await prisma.workspaceRoundAttempt.findFirst({
+      where: { id: req.params.attemptId },
+      select: {
+        id: true,
+        userId: true,
+        workspaceId: true,
+        status: true,
+        workspace: { select: { ownerUserId: true } },
+        placementReadinessHandoff: {
+          select: {
+            status: true,
+            placementSessionId: true,
+            lastError: true,
+            expiresAt: true,
+            updatedAt: true,
+            artifact: { select: { id: true, receivedAt: true } },
+          },
+        },
+      },
+    });
+    if (!attempt) return res.status(404).json({ error: "Workspace attempt not found." });
+    if (!canReadPlacementArtifact({
+      requesterId: req.user!.id,
+      requesterRole: req.user!.role,
+      candidateId: attempt.userId,
+      workspaceOwnerUserId: attempt.workspace.ownerUserId,
+    })) return res.status(403).json({ error: "Forbidden" });
+    const handoff = attempt.placementReadinessHandoff;
+    return res.json({
+      attempt_status: attempt.status,
+      report_status: handoff?.artifact
+        ? "ready"
+        : handoff?.status === "failed"
+          ? "failed"
+          : ["started", "processing"].includes(handoff?.status || "")
+            ? "processing"
+            : handoff?.status || "not_started",
+      placement_session_id: handoff?.placementSessionId ?? null,
+      last_error: handoff?.lastError ?? null,
+      expires_at: handoff?.expiresAt?.toISOString() ?? null,
+      updated_at: handoff?.updatedAt?.toISOString() ?? null,
+      artifact_received_at: handoff?.artifact?.receivedAt.toISOString() ?? null,
     });
   },
 );
@@ -229,6 +330,43 @@ placementReadinessRouter.post("/callbacks", async (req, res) => {
           completedAt: new Date(event.occurred_at),
         },
       });
+      await tx.assessmentWorkflowJob.upsert({
+        where: {
+          workspaceId_userId_jobKind_interviewId: {
+            workspaceId: handoff.workspaceId,
+            userId: handoff.userId,
+            jobKind: "candidate_report_pipeline",
+            interviewId: event.placement_session_id,
+          },
+        },
+        create: {
+          workspaceId: handoff.workspaceId,
+          userId: handoff.userId,
+          interviewId: event.placement_session_id,
+          status: "pending",
+          currentStep: "queued_after_placement_readiness",
+          context: asJson({
+            source: "placement_readiness",
+            handoffId: handoff.id,
+            placementSessionId: event.placement_session_id,
+          }),
+        },
+        update: {
+          status: "pending",
+          currentStep: "queued_after_placement_readiness",
+          attempts: 0,
+          nextAttemptAt: new Date(),
+          lockedAt: null,
+          lockedBy: null,
+          lastError: null,
+          completedAt: null,
+          context: asJson({
+            source: "placement_readiness",
+            handoffId: handoff.id,
+            placementSessionId: event.placement_session_id,
+          }),
+        },
+      });
     } else if (event.event_type === "placement.report.failed") {
       await tx.placementReadinessHandoff.update({
         where: { id: handoff.id },
@@ -236,6 +374,15 @@ placementReadinessRouter.post("/callbacks", async (req, res) => {
       });
     }
     });
+    console.info(JSON.stringify({
+      level: "info",
+      event: "placement_callback_ingested",
+      eventId: event.event_id,
+      eventType: event.event_type,
+      handoffId: handoff.id,
+      attemptId: handoff.workspaceRoundAttemptId,
+      placementSessionId: event.placement_session_id,
+    }));
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return res.json({ ok: true, duplicate: true });
