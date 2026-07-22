@@ -380,6 +380,62 @@ export function assertEditorialAssessmentReport(result: unknown): void {
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(headerValue: string): number | null {
+  const seconds = Number(headerValue);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1_000);
+  const dateMs = Date.parse(headerValue);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
+}
+
+/**
+ * The report workflow now runs several candidates' report pipelines
+ * concurrently (see assessmentWorkflow.service.ts), and each pipeline is up to
+ * four sequential raw fetch() calls to OpenRouter/Cerebras with no SDK-level
+ * retry underneath them. A transient 429/5xx or network blip under that
+ * concurrency would otherwise fail the whole candidate's report immediately
+ * rather than backing off and trying again within the same attempt.
+ */
+async function fetchWithRetry(url: string, init: RequestInit, maxAttempts = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (response.ok || (response.status !== 429 && response.status < 500) || attempt === maxAttempts) {
+        return response;
+      }
+      const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after") ?? "");
+      const backoffMs = retryAfterMs ?? Math.min(8_000, 500 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 250);
+      console.warn(JSON.stringify({
+        level: "warn",
+        event: "report_agent_llm_call_retrying",
+        url,
+        status: response.status,
+        attempt,
+        backoffMs,
+      }));
+      await sleep(backoffMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts) throw error;
+      const backoffMs = Math.min(8_000, 500 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 250);
+      console.warn(JSON.stringify({
+        level: "warn",
+        event: "report_agent_llm_call_network_retry",
+        url,
+        attempt,
+        backoffMs,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      await sleep(backoffMs);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Report model call exhausted retries.");
+}
+
 export async function callReportGenerationChain(
   kind: AssessmentReportKind,
   evidence: unknown,
@@ -388,7 +444,7 @@ export async function callReportGenerationChain(
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new WorkspaceServiceError("Report agent unavailable: configure OPENROUTER_API_KEY on the ProvenHire server.", 503);
   const citationCatalog = assessmentCitationCatalog(evidence);
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetchWithRetry("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Reports" },
     signal: AbortSignal.timeout(120_000),
@@ -450,7 +506,7 @@ export async function callReportGenerationChain(
     attemptRequest.max_tokens = attemptIndex === 0 ? 10_000 : 6000;
     if (useCerebrasCritic) attemptRequest.reasoning_effort = effort;
     else attemptRequest.reasoning = { effort, exclude: true };
-    const criticResponse = await fetch(useCerebrasCritic
+    const criticResponse = await fetchWithRetry(useCerebrasCritic
       ? "https://api.cerebras.ai/v1/chat/completions"
       : "https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -489,7 +545,7 @@ export async function callReportGenerationChain(
   let revisionUsage: Record<string, unknown> = {};
   let revisionCost = 0;
   if (!critique.approved) {
-    const revisionResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const revisionResponse = await fetchWithRetry("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Report Revision" },
       signal: AbortSignal.timeout(120_000),
