@@ -31,6 +31,7 @@ import VerifiedBenefitsBanner from "@/components/VerifiedBenefitsBanner";
 import DashboardShell from "@/components/DashboardShell";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface Job {
@@ -140,16 +141,19 @@ const Jobs = () => {
     enabled: isJobSeekerDashboardView,
     isVerified,
   });
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
   const jobSeekerSidebarSections = useMemo(
     () =>
       buildJobSeekerSidebarSections({
         activeItem: "jobs",
         isVerified,
+        hasWorkspace,
+        workspaceName,
         onDashboardSection: (section: JobSeekerDashboardSection) => {
           navigate("/dashboard/jobseeker", { state: { section } });
         },
       }),
-    [isVerified, navigate]
+    [isVerified, navigate, hasWorkspace, workspaceName]
   );
 
   const deriveCertificationFromStages = (

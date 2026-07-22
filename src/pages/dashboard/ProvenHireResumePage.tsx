@@ -25,6 +25,7 @@ import {
 import DashboardShell from "@/components/DashboardShell";
 import { jobSeekerShellUser } from "@/utils/jobSeekerIdentity";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface VerifiedSkill {
@@ -228,9 +229,12 @@ export default function ProvenHireResumePage() {
   const openDashboardSection = (section: JobSeekerDashboardSection) => {
     navigate("/dashboard/jobseeker", { state: { section } });
   };
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
   const sidebarSections = buildJobSeekerSidebarSections({
     activeItem: "resume",
     isVerified: resume ? resume.certificationLevel !== "L0" : false,
+    hasWorkspace,
+    workspaceName,
     onDashboardSection: openDashboardSection,
   });
 

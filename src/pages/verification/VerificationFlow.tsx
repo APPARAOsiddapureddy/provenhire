@@ -32,6 +32,7 @@ import { stopInterviewAudioOutput } from "@/lib/interviewTts";
 import DashboardShell from "@/components/DashboardShell";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 import {
   normalizeTechnicalStageOrderForDisplay,
   technicalStageOrderFallback,
@@ -117,8 +118,11 @@ const VerificationFlow = () => {
   const [pipelineOrderFromApi, setPipelineOrderFromApi] = useState<string[]>(() => technicalStagesForTier("fresher"));
   const stageOrder = pipelineOrderFromApi;
   const LOAD_TIMEOUT_MS = 30000;
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
   const sidebarSections = buildJobSeekerSidebarSections({
     activeItem: "verification",
+    hasWorkspace,
+    workspaceName,
     onDashboardSection: (section: JobSeekerDashboardSection) => {
       navigate("/dashboard/jobseeker", { state: { section } });
     },
