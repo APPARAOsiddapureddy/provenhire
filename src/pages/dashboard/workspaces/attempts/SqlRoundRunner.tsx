@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Database, Loader2, PanelLeftClose, PanelLeftOpen, Play, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -130,19 +130,20 @@ export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId }: 
   const [tasksOpen, setTasksOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
   const [submitConfirm, setSubmitConfirm] = useState<"task" | "final" | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await api.get<SqlSnapshot>("/api/session/sql/" + encodeURIComponent(sessionId));
     setSnapshot(res);
     setDrafts(res.drafts ?? {});
     const idx = res.session.currentTaskId ? res.tasks.findIndex((task) => task.id === res.session.currentTaskId) : 0;
     setActiveIndex(idx >= 0 ? idx : 0);
-  };
+  }, [sessionId]);
 
   useEffect(() => {
     void load().catch((error) => toast.error(error instanceof Error ? error.message : "Failed to load SQL session"));
-  }, [sessionId]);
+  }, [load]);
 
   const current = snapshot?.tasks[activeIndex] ?? null;
+  const currentId = current?.id;
   const currentQuery = current ? drafts[current.id] ?? starterSql(current) : "";
   const isFinalized = snapshot?.workspaceAttempt.status === "completed" || snapshot?.workspaceAttempt.status === "auto_completed";
   const completedTasks = useMemo(() => Object.keys(snapshot?.officialSubmissions ?? {}).length, [snapshot?.officialSubmissions]);
@@ -156,15 +157,15 @@ export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId }: 
   };
 
   useEffect(() => {
-    if (!current || isFinalized || isCurrentSubmitted) return;
+    if (!currentId || isFinalized || isCurrentSubmitted) return;
     const timer = window.setTimeout(() => {
       api.patch("/api/session/sql/" + encodeURIComponent(sessionId), {
-        currentTaskId: current.id,
-        draft: { taskId: current.id, query: currentQuery },
+        currentTaskId: currentId,
+        draft: { taskId: currentId, query: currentQuery },
       }).catch(() => {});
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [current?.id, currentQuery, isFinalized, isCurrentSubmitted, sessionId]);
+  }, [currentId, currentQuery, isFinalized, isCurrentSubmitted, sessionId]);
 
   const moveTo = async (index: number) => {
     if (!snapshot?.tasks[index]) return;
