@@ -470,7 +470,7 @@ export async function listWorkspaceTechnicalDesk(workspaceId: string) {
   const effectivePlacementWebUrl =
     configuredUrl === "https://placement.provenhire.in" && !customDomainReady
       ? process.env.PLACEMENT_READINESS_FALLBACK_WEB_URL?.trim() ||
-        "https://provenhire-placement-ag-ui.vercel.app"
+        "https://provenhireplacement.vercel.app"
       : configuredUrl;
   return {
     jobs,
