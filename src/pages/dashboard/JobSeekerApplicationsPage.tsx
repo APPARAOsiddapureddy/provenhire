@@ -11,6 +11,7 @@ import DashboardShell from "@/components/DashboardShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function getStatusBadge(status: string) {
@@ -50,6 +51,7 @@ export default function JobSeekerApplicationsPage() {
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { shellUser } = useJobSeekerShellIdentity();
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
 
   useEffect(() => {
     if (!user) return;
@@ -62,6 +64,8 @@ export default function JobSeekerApplicationsPage() {
 
   const sidebarSections = buildJobSeekerSidebarSections({
     activeItem: "applications",
+    hasWorkspace,
+    workspaceName,
     onDashboardSection: (section: JobSeekerDashboardSection) => {
       navigate("/dashboard/jobseeker", { state: { section } });
     },

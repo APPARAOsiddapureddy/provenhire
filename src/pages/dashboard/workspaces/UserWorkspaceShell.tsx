@@ -3,12 +3,16 @@ import { useNavigate } from "react-router-dom";
 import DashboardShell from "@/components/DashboardShell";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 
 export default function UserWorkspaceShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { shellUser } = useJobSeekerShellIdentity();
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
   const sidebarSections = buildJobSeekerSidebarSections({
     activeItem: "workspaces",
+    hasWorkspace,
+    workspaceName,
     onDashboardSection: (section: JobSeekerDashboardSection) => {
       navigate("/dashboard/jobseeker", { state: { section } });
     },

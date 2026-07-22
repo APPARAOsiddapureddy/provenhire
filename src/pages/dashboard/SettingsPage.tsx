@@ -14,6 +14,7 @@ import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@
 import { buildRecruiterSidebarSections } from "@/utils/recruiterSidebar";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 
 export default function SettingsPage() {
   const { user, userRole } = useAuth();
@@ -23,6 +24,7 @@ export default function SettingsPage() {
     enabled: userRole === "jobseeker",
     isVerified,
   });
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
 
   const dashboardPath =
     userRole === "recruiter"
@@ -36,6 +38,8 @@ export default function SettingsPage() {
       ? buildJobSeekerSidebarSections({
           activeItem: "settings",
           isVerified,
+          hasWorkspace,
+          workspaceName,
           onDashboardSection: (section: JobSeekerDashboardSection) => {
             navigate("/dashboard/jobseeker", { state: { section } });
           },

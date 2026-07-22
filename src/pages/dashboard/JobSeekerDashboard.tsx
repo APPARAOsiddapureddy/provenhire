@@ -16,6 +16,7 @@ import ReferAFriend from "@/components/ReferAFriend";
 import VerificationGateDialog from "@/components/VerificationGateDialog";
 import JobTitleModal from "@/components/JobTitleModal";
 import { useVerificationGate } from "@/hooks/useVerificationGate";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 import { Skeleton } from "@/components/ui/skeleton";
 import { preloadVerificationFlow } from "@/preloads";
 import DashboardShell from "@/components/DashboardShell";
@@ -666,9 +667,12 @@ const JobSeekerDashboard = () => {
         : dashboardSection === "resume"
           ? "resume"
           : "applications";
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
   const sidebarSections = buildJobSeekerSidebarSections({
     activeItem: activeSidebarItem,
     isVerified,
+    hasWorkspace,
+    workspaceName,
     onDashboardSection: setDashboardSection,
   });
 
