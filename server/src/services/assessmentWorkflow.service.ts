@@ -5,12 +5,37 @@ import { prisma } from "../config/prisma.js";
 import { generateAssessmentReport } from "./assessmentReportAgent.service.js";
 import { WorkspaceServiceError } from "./workspace.service.js";
 
-const WORKER_INTERVAL_MS = Math.max(
+// Idle poll interval used by a lane once it finds no claimable job - avoids
+// hot-polling the DB. A lane skips this delay entirely while there is a
+// backlog, so this only affects latency once the queue is already empty.
+const IDLE_POLL_INTERVAL_MS = Math.max(
   2_000,
   Number(process.env.ASSESSMENT_WORKFLOW_INTERVAL_MS || 5_000),
 );
-let workerTimer: ReturnType<typeof setInterval> | null = null;
-let sweepRunning = false;
+const RECONCILE_INTERVAL_MS = 10_000;
+
+function readIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+// Each lane is one candidate's report pipeline in flight at a time (evidence
+// synthesis -> OpenRouter/Cerebras report agent call -> persistence). This is
+// a direct multiplier on concurrent LLM calls, so raise it only alongside
+// verified headroom on the model provider's rate limit.
+const REPORT_WORKFLOW_CONCURRENCY = readIntEnv("ASSESSMENT_WORKFLOW_CONCURRENCY", 8);
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function jitter(baseMs: number) {
+  return baseMs + Math.floor(Math.random() * 250);
+}
+
+let workersStarted = false;
 
 function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
@@ -411,11 +436,10 @@ async function failJob(job: NonNullable<Awaited<ReturnType<typeof claimJob>>>, e
   });
 }
 
+/** Claims and processes a single job, if one is available. Kept for the manual
+ * retry path and tests; the running worker uses parallel lanes below. */
 export async function runAssessmentWorkflowSweep() {
-  if (sweepRunning) return;
-  sweepRunning = true;
   try {
-    await reconcilePlacementArtifactJobs();
     const job = await claimJob();
     if (!job) return;
     try {
@@ -432,16 +456,96 @@ export async function runAssessmentWorkflowSweep() {
         timestamp: new Date().toISOString(),
       }),
     );
-  } finally {
-    sweepRunning = false;
   }
 }
 
+/**
+ * Runs N independent report-workflow lanes concurrently instead of one job at
+ * a time. Safe to parallelize as-is: claimJob claims its job with an atomic
+ * conditional update (findFirst + updateMany guarded on status/count), so
+ * concurrent lanes either claim distinct jobs or lose the race harmlessly and
+ * try again - no double-processing, no new locking logic required.
+ *
+ * Concurrency is bounded, not unbounded "one lane per candidate at any size",
+ * because the real ceiling past this point is the model provider's own rate
+ * limit, not our code - firing hundreds of parallel report calls just converts
+ * an orderly backlog into synchronized failures for everyone. Tune
+ * ASSESSMENT_WORKFLOW_CONCURRENCY against whatever headroom is confirmed on
+ * that account.
+ */
 export function startAssessmentWorkflowWorker() {
-  if (workerTimer) return;
-  void runAssessmentWorkflowSweep();
-  workerTimer = setInterval(() => void runAssessmentWorkflowSweep(), WORKER_INTERVAL_MS);
-  workerTimer.unref?.();
+  if (workersStarted) return;
+  workersStarted = true;
+
+  const reconciliationLoop = async () => {
+    for (;;) {
+      try {
+        await reconcilePlacementArtifactJobs();
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "assessment_workflow_reconciliation_failed",
+            error: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }
+      await sleep(jitter(RECONCILE_INTERVAL_MS));
+    }
+  };
+
+  const workerLane = async (lane: number) => {
+    for (;;) {
+      let job: Awaited<ReturnType<typeof claimJob>> = null;
+      try {
+        job = await claimJob();
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "assessment_workflow_claim_failed",
+            lane,
+            error: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }
+      if (!job) {
+        await sleep(jitter(IDLE_POLL_INTERVAL_MS));
+        continue;
+      }
+      try {
+        await processJob(job);
+      } catch (error) {
+        await failJob(job, error).catch((failError) => {
+          console.error(
+            JSON.stringify({
+              level: "error",
+              message: "assessment_workflow_fail_job_failed",
+              lane,
+              jobId: job.id,
+              error: failError instanceof Error ? failError.message : String(failError),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        });
+      }
+    }
+  };
+
+  void reconciliationLoop();
+  for (let lane = 0; lane < REPORT_WORKFLOW_CONCURRENCY; lane += 1) {
+    void workerLane(lane);
+  }
+
+  console.info(
+    JSON.stringify({
+      level: "info",
+      message: "assessment_workflow_workers_started",
+      concurrency: REPORT_WORKFLOW_CONCURRENCY,
+    }),
+  );
 }
 
 export async function listWorkspaceTechnicalDesk(workspaceId: string) {
