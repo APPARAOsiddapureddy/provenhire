@@ -48,7 +48,13 @@ import {
   workspaceId as localWorkspaceId,
 } from "./WorkspaceLocalPreviewPage";
 
-type ModuleKey = "overview" | "aptitude" | "dsa" | "sql" | "interview";
+type ModuleKey =
+  | "overview"
+  | "aptitude"
+  | "dsa"
+  | "sql"
+  | "interview"
+  | "antigravity";
 type Json = Record<string, unknown>;
 
 const asRecord = (value: unknown): Json =>
@@ -2563,6 +2569,7 @@ export default function WorkspaceCandidateReportsPage() {
     "dsa",
     "sql",
     "interview",
+    "antigravity",
   ].includes(requested || "")
     ? requested!
     : "overview";
@@ -2736,6 +2743,7 @@ export default function WorkspaceCandidateReportsPage() {
       { key: "dsa", label: "DSA report", icon: Code2 },
       { key: "sql", label: "SQL report", icon: Database },
       { key: "interview", label: "Placement interview", icon: RadioTower },
+      { key: "antigravity", label: "Antigravity report", icon: RadioTower },
     ];
 
   return (
@@ -2821,7 +2829,7 @@ export default function WorkspaceCandidateReportsPage() {
           </section>
         ) : null}
         <nav
-          className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-2 lg:grid-cols-5"
+          className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-2 lg:grid-cols-6"
           aria-label="Candidate report modules"
         >
           {modules.map(({ key, label, icon: Icon }) => (
@@ -2852,6 +2860,8 @@ export default function WorkspaceCandidateReportsPage() {
             <CandidateDsaReport dossier={dossier} />
           ) : module === "sql" ? (
             <SqlReport dossier={dossier} audience="candidate" />
+          ) : module === "antigravity" ? (
+            <AntigravityReport dossier={dossier} audience="candidate" />
           ) : (
             <PlacementReadinessReport dossier={dossier} audience="candidate" />
           )
@@ -2873,6 +2883,8 @@ export default function WorkspaceCandidateReportsPage() {
           />
         ) : module === "sql" ? (
           <SqlReport dossier={dossier} />
+        ) : module === "antigravity" ? (
+          <AntigravityReport dossier={dossier} />
         ) : (
           <PlacementReadinessReport dossier={dossier} />
         )}
