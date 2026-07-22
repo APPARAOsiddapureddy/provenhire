@@ -368,10 +368,37 @@ placementReadinessRouter.post("/callbacks", async (req, res) => {
         },
       });
     } else if (event.event_type === "placement.report.failed") {
+      const integrityInvalidated = event.failure_reason?.startsWith("integrity_violation:") === true;
       await tx.placementReadinessHandoff.update({
         where: { id: handoff.id },
         data: { status: "failed", failedAt: new Date(event.occurred_at), lastError: event.failure_reason || "Placement report failed." },
       });
+      if (integrityInvalidated) {
+        await tx.workspaceRoundAttempt.updateMany({
+          where: { id: handoff.workspaceRoundAttemptId, status: "active" },
+          data: {
+            status: "discarded",
+            score: 0,
+            percentageScore: 0,
+            weightedScore: 0,
+            completedAt: new Date(event.occurred_at),
+          },
+        });
+        await tx.workspaceAuditEvent.create({
+          data: {
+            workspaceId: handoff.workspaceId,
+            actorUserId: handoff.userId,
+            targetUserId: handoff.userId,
+            eventType: "workspace_attempt_proctoring_invalidated",
+            detail: asJson({
+              workspaceRoundAttemptId: handoff.workspaceRoundAttemptId,
+              placementSessionId: event.placement_session_id,
+              failureReason: event.failure_reason,
+              source: "placement_readiness_callback",
+            }),
+          },
+        });
+      }
     }
     });
     console.info(JSON.stringify({

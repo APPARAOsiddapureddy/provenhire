@@ -120,7 +120,7 @@ function SqlConsolePanel({ result, message }: { result: SqlRunResult | null; mes
   );
 }
 
-export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspaceCode: string; sessionId: string }) {
+export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId }: { workspaceCode: string; attemptId: string; sessionId: string }) {
   const [snapshot, setSnapshot] = useState<SqlSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -229,7 +229,7 @@ export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspace
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} title="SQL Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="sql" title="SQL Round" subtitle="Loading session" secondsRemaining={null}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -240,6 +240,9 @@ export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspace
   return (
     <RoundAttemptShell
       workspaceCode={workspaceCode}
+      attemptId={attemptId}
+      sessionId={sessionId}
+      testType="sql"
       title={snapshot.workspaceAttempt.round.name}
       subtitle={"Task " + (activeIndex + 1) + " of " + snapshot.tasks.length}
       secondsRemaining={snapshot.session.secondsRemaining}

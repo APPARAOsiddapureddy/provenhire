@@ -37,7 +37,7 @@ type McqSnapshot = {
   } | null;
 };
 
-export default function McqRoundRunner({ workspaceCode, sessionId }: { workspaceCode: string; sessionId: string }) {
+export default function McqRoundRunner({ workspaceCode, attemptId, sessionId }: { workspaceCode: string; attemptId: string; sessionId: string }) {
   const [snapshot, setSnapshot] = useState<McqSnapshot | null>(null);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [activeIndex, setActiveIndex] = useState(0);
@@ -101,7 +101,7 @@ export default function McqRoundRunner({ workspaceCode, sessionId }: { workspace
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} title="MCQ Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="aptitude" title="MCQ Round" subtitle="Loading session" secondsRemaining={null}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -112,6 +112,9 @@ export default function McqRoundRunner({ workspaceCode, sessionId }: { workspace
   return (
     <RoundAttemptShell
       workspaceCode={workspaceCode}
+      attemptId={attemptId}
+      sessionId={sessionId}
+      testType="aptitude"
       title={snapshot.workspaceAttempt?.round.name ?? "MCQ Round"}
       subtitle={`Question ${activeIndex + 1} of ${snapshot.questions.length}`}
       secondsRemaining={snapshot.session.secondsRemaining}

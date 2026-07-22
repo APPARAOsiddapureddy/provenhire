@@ -57,7 +57,7 @@ interface UseProctoringRiskMonitorOptions {
   enabled: boolean;
   candidateId?: string;
   testId: string;
-  testType: "aptitude" | "dsa" | "ai_interview" | "non_tech_assignment" | "system_design" | "data_system_design";
+  testType: "aptitude" | "dsa" | "sql" | "ai_interview" | "non_tech_assignment" | "system_design" | "data_system_design";
   cameraStream?: MediaStream | null;
   microphoneStream?: MediaStream | null;
   tabSwitchDetectionEnabled?: boolean;
