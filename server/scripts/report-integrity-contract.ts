@@ -233,9 +233,9 @@ assert.equal(
 assert.equal(
   canonicalizeAssessmentCitation(
     "/dsa/submissions/0/code :: def solve(values):\n return sorted(values)",
-    { dsa: { submissions: [{ code: "def solve(values):\n    return sorted(values)" }] } },
+    { dsa: { submissions: [{ code: "def solve(values):\\n    return sorted(values)\\n" }] } },
   ),
-  "/dsa/submissions/0/code :: def solve(values):\n    return sorted(values)",
+  "/dsa/submissions/0/code :: def solve(values):\\n    return sorted(values)\\n",
 );
 const repairedGrounding = canonicalizeAssessmentReportCitations(
   {

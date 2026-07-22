@@ -242,7 +242,13 @@ function excerptMatches(actual: string, excerpt: string) {
   // copied source snippets. Treat whitespace-only changes as equivalent, then
   // canonicalize the stored citation back to the exact persisted scalar.
   const normalize = (value: string) =>
-    value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+    value
+      .trim()
+      // Some historical submissions persisted escaped line-break markers
+      // ("\\n") while providers render them as real line breaks.
+      .replace(/\\[nrt]/g, " ")
+      .replace(/\s+/g, " ")
+      .toLocaleLowerCase();
   const normalizedActual = normalize(actual);
   const normalizedExcerpt = normalize(excerpt);
   return normalizedActual === normalizedExcerpt || normalizedActual.includes(normalizedExcerpt);
