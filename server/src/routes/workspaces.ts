@@ -17,15 +17,19 @@ import {
 import {
   importAllowedWorkspaceEmailsController,
   addAllowedWorkspaceEmailsController,
+  addWorkspaceMemberController,
   getWorkspaceCandidateDossierController,
   generateWorkspaceCandidateReportController,
   listWorkspaceRegistrationsController,
   listAllowedWorkspaceEmailsController,
   listWorkspaceAuditTrailController,
+  listWorkspaceMembersController,
   recordWorkspaceCandidateDecisionController,
+  removeWorkspaceMemberController,
   removeWorkspaceRegistrationController,
   restoreWorkspaceRegistrationController,
   revokeAllowedWorkspaceEmailController,
+  transferWorkspaceOwnershipController,
 } from "../controllers/workspaceRegistration.controller.js";
 import { requireAuth } from "../middleware/auth.js";
 import { allowWorkspaceCreator } from "../middleware/workspace.js";
@@ -103,6 +107,13 @@ workspacesRouter.delete(
   revokeAllowedWorkspaceEmailController,
 );
 workspacesRouter.get("/:id/audit-trail", listWorkspaceAuditTrailController);
+workspacesRouter.get("/:id/members", listWorkspaceMembersController);
+workspacesRouter.post("/:id/members", addWorkspaceMemberController);
+workspacesRouter.delete("/:id/members/:userId", removeWorkspaceMemberController);
+workspacesRouter.post(
+  "/:id/transfer-ownership",
+  transferWorkspaceOwnershipController,
+);
 
 workspacesRouter.use(allowWorkspaceCreator(WORKSPACE_CREATOR_ROLES));
 

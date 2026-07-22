@@ -240,6 +240,25 @@ function validateRounds(
       );
     }
   }
+
+  // Candidate/admin reports and report generation (AssessmentReportGeneration,
+  // the unified synthesizer, and every report page) are keyed by round *type*
+  // (aptitude/dsa/sql/interview), not by individual round id. Two rounds of the
+  // same type would silently share one report slot and one would appear to
+  // "disappear." Block that configuration until the report layer is reworked
+  // to key by round identity instead of module type.
+  const typeCounts = new Map<string, number>();
+  for (const round of rounds) {
+    typeCounts.set(round.type, (typeCounts.get(round.type) ?? 0) + 1);
+  }
+  const duplicated = [...typeCounts.entries()].filter(([, count]) => count > 1);
+  if (duplicated.length) {
+    throw new WorkspaceServiceError(
+      `Only one round of each type is currently supported per workspace. Remove the extra ${duplicated
+        .map(([type, count]) => `${type} (${count})`)
+        .join(", ")} round${duplicated.length === 1 && duplicated[0][1] === 2 ? "" : "s"}.`,
+    );
+  }
 }
 
 export async function createWorkspace(
@@ -250,23 +269,36 @@ export async function createWorkspace(
   const ownership = await resolveOwnership(creator);
   const code = await generateWorkspaceCode(input.organization, input.startAt);
 
-  const workspace = await prisma.workspace.create({
-    data: {
-      ...ownership,
-      name: input.name,
-      organization: input.organization,
-      targetRole: input.targetRole,
-      hiringRubric: {
-        schemaVersion: "workspace_hiring_rubric_v1",
-        responsibilities: input.responsibilities,
-        decisionPolicy: "named_human_review_required",
+  const workspace = await prisma.$transaction(async (tx) => {
+    const created = await tx.workspace.create({
+      data: {
+        ...ownership,
+        name: input.name,
+        organization: input.organization,
+        targetRole: input.targetRole,
+        hiringRubric: {
+          schemaVersion: "workspace_hiring_rubric_v1",
+          responsibilities: input.responsibilities,
+          decisionPolicy: "named_human_review_required",
+        },
+        code,
+        startAt: input.startAt,
+        endAt: input.endAt,
+        totalRounds: input.totalRounds,
+        accessMode: input.accessMode ?? "public",
       },
-      code,
-      startAt: input.startAt,
-      endAt: input.endAt,
-      totalRounds: input.totalRounds,
-      accessMode: input.accessMode ?? "public",
-    },
+    });
+    // Bootstrap the creator as an explicit 'owner' member so workspace access
+    // control can consistently check WorkspaceMember rather than only
+    // Workspace.ownerUserId once other members/reviewers are added.
+    await tx.workspaceMember.create({
+      data: {
+        workspaceId: created.id,
+        userId: ownership.ownerUserId,
+        role: "owner",
+      },
+    });
+    return created;
   });
   await recordWorkspaceAuditEvent({
     workspaceId: workspace.id,
