@@ -8,7 +8,7 @@ import { canReadPlacementArtifact, verifyPlacementCallback } from "../services/p
 
 export const placementReadinessRouter = Router();
 const TOKEN_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_PLACEMENT_WEB_URL = "https://provenhire-placement-ag-ui.vercel.app";
+const DEFAULT_PLACEMENT_WEB_URL = "https://provenhireplacement.vercel.app";
 
 function secret(name: "PLACEMENT_HANDOFF_SHARED_SECRET" | "PLACEMENT_WEBHOOK_SECRET") {
   const value = process.env[name]?.trim();

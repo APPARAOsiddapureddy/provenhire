@@ -34,7 +34,7 @@ assert.equal(
     NODE_ENV: "production",
     PLACEMENT_READINESS_WEB_URL: "https://placement.provenhire.in",
   }),
-  "https://provenhire-placement-ag-ui.vercel.app",
+  "https://provenhireplacement.vercel.app",
 );
 assert.equal(
   resolvePlacementWebUrl({
