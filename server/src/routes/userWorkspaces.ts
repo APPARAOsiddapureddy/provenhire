@@ -23,6 +23,7 @@ userWorkspacesRouter.get(
 );
 userWorkspacesRouter.get(
   "/code/:code/leaderboard",
+  requireAuth,
   getUserWorkspaceLeaderboardController,
 );
 userWorkspacesRouter.get(

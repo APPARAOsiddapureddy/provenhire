@@ -226,6 +226,11 @@ export type WorkspaceCandidateDossier = {
         timeTakenSeconds: number;
         timeLimitSeconds: number;
         questionReview: unknown[];
+        categories?: Array<{
+          name: string;
+          questions: number;
+          score: number;
+        }>;
       } | null;
     };
     sql: {
@@ -359,6 +364,7 @@ export type SqlTaskAvailability = {
     Hard: number;
   };
   missingHiddenTests: number;
+  belowRecommendedCoverage: number;
 };
 
 export type AllowlistImportSummary = {

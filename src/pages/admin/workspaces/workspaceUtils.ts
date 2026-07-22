@@ -106,12 +106,12 @@ export function defaultRound(order: number): WorkspaceRoundDraft {
     name: `Round ${order}`,
     type: "mcq",
     questionType: "random",
-    questionCount: "10",
+    questionCount: "20",
     timeLimitMins: "30",
     scoreWeightage: "100",
-    easyCount: "4",
-    mediumCount: "4",
-    hardCount: "2",
+    easyCount: "8",
+    mediumCount: "8",
+    hardCount: "4",
   };
 }
 
@@ -258,11 +258,25 @@ export function validateRounds(
 export function canArchive(
   workspace?: Pick<Workspace, "status"> | null,
 ): boolean {
-  return (
-    !!workspace &&
-    workspace.status !== "archived" &&
-    workspace.status !== "draft"
-  );
+  return !!workspace && ["published", "ended"].includes(workspace.status);
+}
+
+export function canStart(
+  workspace?: Pick<Workspace, "status"> | null,
+): boolean {
+  return !!workspace && workspace.status === "published";
+}
+
+export function canDelete(
+  workspace?: Pick<Workspace, "status"> | null,
+): boolean {
+  return !!workspace && workspace.status === "draft";
+}
+
+export function canEnd(
+  workspace?: Pick<Workspace, "status"> | null,
+): boolean {
+  return !!workspace && workspace.status === "started";
 }
 
 export function canEditDraft(

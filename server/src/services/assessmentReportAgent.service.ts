@@ -6,7 +6,7 @@ import { WorkspaceServiceError } from "./workspace.service.js";
 import { getWorkspaceCandidateDossier, type WorkspaceActor } from "./workspaceRegistration.service.js";
 import { assessmentEvidenceFor, assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 
-export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v4_grounded_citations";
+export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v5_evidence_editorial";
 export const REPORT_AGENT_MODEL = process.env.REPORT_AGENT_MODEL?.trim() || "google/gemini-2.5-flash";
 export const REPORT_UNIFIED_ESCALATION_MODEL = process.env.REPORT_UNIFIED_ESCALATION_MODEL?.trim() || "google/gemini-3.1-pro-preview";
 export const REPORT_UNIFIED_ESCALATION_ENABLED = process.env.REPORT_UNIFIED_ESCALATION_ENABLED?.trim().toLowerCase() !== "false";
@@ -85,12 +85,12 @@ const citation = z.object({
 });
 
 export const dsaAgentReportSchema = z.object({
-  schemaVersion: z.literal("dsa_reasoning_report_v2"),
-  executiveRead: z.string().min(1),
+  schemaVersion: z.literal("dsa_reasoning_report_v3"),
+  executiveRead: citation,
   evidenceStatus: z.enum(["complete", "partial", "insufficient_evidence"]),
-  algorithmicReasoning: z.string().min(1),
-  implementationQuality: z.string().min(1),
-  correctnessBoundary: z.string().min(1),
+  algorithmicReasoning: citation,
+  implementationQuality: citation,
+  correctnessBoundary: citation,
   verifiedStrengths: z.array(citation),
   failureAndRiskAnalysis: z.array(citation),
   problemReads: z.array(z.object({
@@ -101,16 +101,17 @@ export const dsaAgentReportSchema = z.object({
     codeQuality: z.string().min(1),
     edgeCaseRead: z.string().min(1),
     followUpReasoning: z.string().min(1),
+    evidence: z.array(z.string().min(1)).min(1),
   })),
   recommendedPanelProbes: z.array(z.string()),
   evidenceLimits: z.array(z.string()),
 });
 
 export const unifiedAgentReportSchema = z.object({
-  schemaVersion: z.literal("unified_reasoning_report_v2"),
+  schemaVersion: z.literal("unified_reasoning_report_v3"),
   evidenceStatus: z.enum(["complete", "partial", "insufficient_evidence"]),
-  executiveRead: z.string().min(1),
-  crossModuleThesis: z.string().min(1),
+  executiveRead: citation,
+  crossModuleThesis: citation,
   reinforcingSignals: z.array(citation),
   contradictions: z.array(citation),
   riskRegister: z.array(z.object({
@@ -138,12 +139,12 @@ export function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknow
   if (kind === "dsa") return {
     type: "object", additionalProperties: false,
     properties: {
-      schemaVersion: { type: "string", enum: ["dsa_reasoning_report_v2"] },
-      executiveRead: { type: "string" }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] },
-      algorithmicReasoning: { type: "string" }, implementationQuality: { type: "string" }, correctnessBoundary: { type: "string" },
+      schemaVersion: { type: "string", enum: ["dsa_reasoning_report_v3"] },
+      executiveRead: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] },
+      algorithmicReasoning: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] }, implementationQuality: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] }, correctnessBoundary: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] },
       verifiedStrengths: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
       failureAndRiskAnalysis: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
-      problemReads: { type: "array", items: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, correctness: { type: "string" }, approach: { type: "string" }, complexity: { type: "string" }, codeQuality: { type: "string" }, edgeCaseRead: { type: "string" }, followUpReasoning: { type: "string" } }, required: ["title", "correctness", "approach", "complexity", "codeQuality", "edgeCaseRead", "followUpReasoning"] } },
+      problemReads: { type: "array", items: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, correctness: { type: "string" }, approach: { type: "string" }, complexity: { type: "string" }, codeQuality: { type: "string" }, edgeCaseRead: { type: "string" }, followUpReasoning: { type: "string" }, evidence: { type: "array", items: { type: "string" } } }, required: ["title", "correctness", "approach", "complexity", "codeQuality", "edgeCaseRead", "followUpReasoning", "evidence"] } },
       recommendedPanelProbes: { type: "array", items: { type: "string" } }, evidenceLimits: { type: "array", items: { type: "string" } },
     },
     required: ["schemaVersion", "executiveRead", "evidenceStatus", "algorithmicReasoning", "implementationQuality", "correctnessBoundary", "verifiedStrengths", "failureAndRiskAnalysis", "problemReads", "recommendedPanelProbes", "evidenceLimits"],
@@ -151,7 +152,7 @@ export function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknow
   return {
     type: "object", additionalProperties: false,
     properties: {
-      schemaVersion: { type: "string", enum: ["unified_reasoning_report_v2"] }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] }, executiveRead: { type: "string" }, crossModuleThesis: { type: "string" },
+      schemaVersion: { type: "string", enum: ["unified_reasoning_report_v3"] }, evidenceStatus: { type: "string", enum: ["complete", "partial", "insufficient_evidence"] }, executiveRead: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] }, crossModuleThesis: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] },
       reinforcingSignals: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } }, contradictions: { type: "array", items: { type: "object", additionalProperties: false, properties: citationProperties, required: ["claim", "evidence", "support"] } },
       riskRegister: { type: "array", items: { type: "object", additionalProperties: false, properties: { risk: { type: "string" }, severity: { type: "string", enum: ["high", "medium", "low"] }, evidence: { type: "array", items: { type: "string" } }, resolution: { type: "string" } }, required: ["risk", "severity", "evidence", "resolution"] } },
       panelDecisionGuide: { type: "array", items: { type: "string" } }, evidenceLimits: { type: "array", items: { type: "string" } },
@@ -161,8 +162,18 @@ export function jsonSchemaFor(kind: AssessmentReportKind): Record<string, unknow
 }
 
 export function systemPrompt(kind: AssessmentReportKind): string {
-  const schemaVersion = kind === "dsa" ? "dsa_reasoning_report_v2" : "unified_reasoning_report_v2";
-  const shared = `You are a senior assessment-evidence analyst. Produce an evidence interpretation from the supplied persisted evidence only. Set schemaVersion exactly to ${schemaVersion}. You do not recommend advance, hold, hire, or reject, and you do not calculate role readiness. Never invent a score, test, answer, behavior, responsibility, or claim. Distinguish directly recorded facts from derived interpretation. Every evidence citation MUST use the exact format /pointer/from/root :: exact source excerpt, for example /dsa/score :: 88. Use RFC 6901 slash-separated paths beginning at the supplied JSON root. The word "json" is not a path segment, and bracket notation such as problems[0] is invalid. Point to one scalar source value and copy that scalar verbatim after ::; do not paraphrase the excerpt and do not cite an object or array. Treat missing evidence as a limit, not as a negative fact. Avoid generic praise and avoid repeating raw metrics without interpretation.`;
+  const schemaVersion = kind === "dsa" ? "dsa_reasoning_report_v3" : "unified_reasoning_report_v3";
+  const shared = `You are a senior assessment-evidence analyst and exacting technical editor. Produce an advisory evidence interpretation from the supplied persisted evidence only. Set schemaVersion exactly to ${schemaVersion}. You do not recommend advance, hold, hire, or reject, and you do not calculate role readiness. Never invent a score, test, answer, behavior, responsibility, or claim. Distinguish directly recorded facts from derived interpretation. Every evidence citation MUST use the exact format /pointer/from/root :: exact source excerpt, for example /dsa/score :: 88. Use RFC 6901 slash-separated paths beginning at the supplied JSON root. The word "json" is not a path segment, and bracket notation such as problems[0] is invalid. Point to one scalar source value and copy that scalar verbatim after ::; do not paraphrase the excerpt and do not cite an object or array. Treat missing evidence as a limit, not as a negative fact.
+
+Editorial rules:
+- Write for a busy candidate or hiring reviewer. Lead with the material finding, then the evidence boundary, then the next evidence-gathering action.
+- Every material sentence must do at least one job: interpret cited evidence, identify a contradiction, state a limit, or prescribe a measurable next check.
+- Do not restate a score unless you explain what the retained evidence does and does not establish.
+- Do not infer a strength from a score alone. A strength needs behavioral, answer-level, source-level, or judge-level evidence.
+- Make each recommended action executable. Name the artifact or test to produce and the success condition.
+- Use short, literal sentences. Remove throat-clearing, motivational filler, inflated adjectives, generic praise, and recruiter slogans.
+- Do not use em dashes, rhetorical questions, fake quotations, or stock phrases such as holistic, robust, leverage, seamless, strong candidate, demonstrates strong, or overall performance.
+- Do not expose private chain-of-thought. Return only concise conclusions and their traceable evidence.`;
   return kind === "dsa"
     ? `${shared}\nAnalyze algorithmic reasoning, executable correctness, source quality, edge cases, complexity claims, and follow-up reasoning. Passing tests are bounded evidence, not proof of universal correctness or optimality.`
     : `${shared}\nSynthesize every configured assessment module in the evidence (Aptitude, coding/DSA, SQL, and Placement Readiness interview where present) without averaging away contradictions. Explain what independently reinforces, what conflicts, which evidence remains missing, and the smallest panel action that resolves each material uncertainty.`;
@@ -328,6 +339,36 @@ export function assertGroundedAssessmentReport(
     );
 }
 
+const FORBIDDEN_REPORT_PROSE =
+  /\b(?:holistic|robust|leverage|seamless|world-class|strong candidate|demonstrates strong|overall performance)\b/i;
+
+export function assertEditorialAssessmentReport(result: unknown): void {
+  const violations: string[] = [];
+  const visit = (value: unknown, path = "") => {
+    if (typeof value === "string") {
+      if (value.includes("—")) violations.push(`${path}: em dash`);
+      const phrase = value.match(FORBIDDEN_REPORT_PROSE)?.[0];
+      if (phrase) violations.push(`${path}: forbidden stock phrase "${phrase}"`);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}/${index}`));
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (key === "evidence") continue;
+      visit(item, `${path}/${key}`);
+    }
+  };
+  visit(result);
+  if (violations.length) {
+    throw new Error(
+      `Report rejected by editorial quality gate: ${violations.slice(0, 5).join(" | ")}`,
+    );
+  }
+}
+
 export async function callReportGenerationChain(
   kind: AssessmentReportKind,
   evidence: unknown,
@@ -379,7 +420,7 @@ export async function callReportGenerationChain(
       required: ["approved", "issues", "requiredChanges"],
     } } },
     messages: [
-      { role: "system", content: "You are the independent quality judge for an employment-assessment report. Do not reveal chain-of-thought. Return only the structured verdict. Reject unsupported claims, fake precision, unresolved citations, score averaging that hides contradictions, hiring recommendations, vague AI prose, or failure to state evidence limits." },
+      { role: "system", content: "You are the independent quality judge for an employment-assessment report. Do not reveal chain-of-thought. Return only the structured verdict. Reject unsupported claims, fake precision, unresolved citations, score averaging that hides contradictions, hiring recommendations, vague AI prose, generic praise, score restatement without interpretation, unmeasurable next steps, forbidden stock phrases, or failure to state evidence limits." },
       { role: "user", content: `Persisted evidence:\n${JSON.stringify(evidence)}\n\nDraft report:\n${JSON.stringify(parsed)}` },
     ],
   };
@@ -419,7 +460,20 @@ export async function callReportGenerationChain(
     if (criticContent) break;
   }
   if (!criticContent) throw new Error("Report critic exhausted its reasoning budget without returning a verdict.");
-  const critique = z.object({ approved: z.boolean(), issues: z.array(z.string()), requiredChanges: z.array(z.string()) }).parse(JSON.parse(criticContent.replace(/^```json\s*|\s*```$/g, "")));
+  let critique = z.object({ approved: z.boolean(), issues: z.array(z.string()), requiredChanges: z.array(z.string()) }).parse(JSON.parse(criticContent.replace(/^```json\s*|\s*```$/g, "")));
+  try {
+    assertEditorialAssessmentReport(parsed);
+  } catch (error) {
+    const issue = error instanceof Error ? error.message : "Editorial quality gate failed.";
+    critique = {
+      approved: false,
+      issues: [...critique.issues, issue],
+      requiredChanges: [
+        ...critique.requiredChanges,
+        "Rewrite the flagged prose using short, literal, evidence-led language.",
+      ],
+    };
+  }
 
   let revisionUsage: Record<string, unknown> = {};
   let revisionCost = 0;
@@ -453,6 +507,7 @@ export async function callReportGenerationChain(
     revisionUsage = revisionBody.usage ?? {};
     revisionCost = Number(revisionBody.usage?.cost ?? 0) || 0;
   }
+  assertEditorialAssessmentReport(parsed);
   return {
     result: parsed,
     usage: {
@@ -490,7 +545,17 @@ export async function generateAssessmentReport(actor: WorkspaceActor, workspaceI
   });
   try {
     const output = await callReportGenerationChain(kind, evidence, route);
-    return await prisma.assessmentReportGeneration.update({ where: { id: generation.id }, data: { status: "complete", result: output.result as unknown as Prisma.InputJsonValue, usage: output.usage as Prisma.InputJsonValue, estimatedCostUsd: output.estimatedCostUsd, completedAt: new Date() } });
+    return await prisma.assessmentReportGeneration.update({
+      where: { id: generation.id },
+      data: {
+        status: "complete",
+        result: output.result as unknown as Prisma.InputJsonValue,
+        usage: output.usage as Prisma.InputJsonValue,
+        estimatedCostUsd: output.estimatedCostUsd,
+        error: null,
+        completedAt: new Date(),
+      },
+    });
   } catch (error) {
     await prisma.assessmentReportGeneration.update({ where: { id: generation.id }, data: { status: "error", error: error instanceof Error ? error.message : String(error), completedAt: new Date() } });
     throw error;

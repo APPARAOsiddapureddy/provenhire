@@ -14,7 +14,7 @@ import {
   restoreWorkspaceRegistration,
   revokeAllowedWorkspaceEmail,
 } from "../services/workspaceRegistration.service.js";
-import { generateAssessmentReport } from "../services/assessmentReportAgent.service.js";
+import { enqueueManualAssessmentReportWorkflow } from "../services/assessmentWorkflow.service.js";
 
 type UploadedCsvFile = {
   buffer: Buffer;
@@ -54,14 +54,32 @@ export async function generateWorkspaceCandidateReportController(
   if (!parsed.success)
     return res.status(400).json({ error: "kind must be dsa or unified" });
   try {
-    const generation = await generateAssessmentReport(
+    const dossier = await getWorkspaceCandidateDossier(
       actorFromRequest(req),
       req.params.id,
       req.params.userId,
-      parsed.data.kind,
-      Boolean(parsed.data.force),
     );
-    return res.json({ generation });
+    if (dossier.synthesis.decisionStatus !== "human_review_required")
+      throw new WorkspaceServiceError(
+        "Report generation is blocked until every source module has complete, auditable evidence.",
+        409,
+      );
+    const job = await enqueueManualAssessmentReportWorkflow({
+      workspaceId: req.params.id,
+      userId: req.params.userId,
+      kind: parsed.data.kind,
+      force: Boolean(parsed.data.force),
+    });
+    return res.status(202).json({
+      queued: true,
+      job: {
+        id: job.id,
+        kind: parsed.data.kind,
+        status: job.status,
+        currentStep: job.currentStep,
+        queuedAt: job.updatedAt,
+      },
+    });
   } catch (error) {
     return sendError(res, error);
   }

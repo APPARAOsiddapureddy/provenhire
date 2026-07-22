@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import RoundAttemptShell from "./RoundAttemptShell";
+import RoundCompletionReceipt from "./RoundCompletionReceipt";
+import type { ProctoringState } from "@/components/ProctoringSetupGate";
 
 type McqQuestion = {
   id: string;
@@ -37,7 +39,7 @@ type McqSnapshot = {
   } | null;
 };
 
-export default function McqRoundRunner({ workspaceCode, attemptId, sessionId }: { workspaceCode: string; attemptId: string; sessionId: string }) {
+export default function McqRoundRunner({ workspaceCode, attemptId, sessionId, initialProctoringState }: { workspaceCode: string; attemptId: string; sessionId: string; initialProctoringState?: ProctoringState | null }) {
   const [snapshot, setSnapshot] = useState<McqSnapshot | null>(null);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [activeIndex, setActiveIndex] = useState(0);
@@ -101,7 +103,7 @@ export default function McqRoundRunner({ workspaceCode, attemptId, sessionId }: 
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="aptitude" title="MCQ Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="aptitude" title="MCQ Round" subtitle="Loading session" secondsRemaining={null} initialProctoringState={initialProctoringState}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -120,13 +122,14 @@ export default function McqRoundRunner({ workspaceCode, attemptId, sessionId }: 
       secondsRemaining={snapshot.session.secondsRemaining}
       onExpired={() => void submit(true)}
       isFinalized={isFinalized}
+      initialProctoringState={initialProctoringState}
     >
       {isFinalized ? (
-        <Card className="border-emerald-400/30 bg-emerald-400/10">
-          <CardContent className="p-5 text-emerald-100">
-            Submitted. Score: {snapshot.workspaceAttempt?.percentageScore ?? 0}% · Weighted: {snapshot.workspaceAttempt?.weightedScore ?? 0}
-          </CardContent>
-        </Card>
+        <RoundCompletionReceipt
+          workspaceCode={workspaceCode}
+          score={snapshot.workspaceAttempt?.percentageScore ?? 0}
+          reportModule="aptitude"
+        />
       ) : null}
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-4">

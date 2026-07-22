@@ -481,9 +481,9 @@ const VerificationFlow = () => {
             {!testStageStarted.domain_fundamentals ? (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="pt-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Aptitude + Domain Fundamentals</h3>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Next step: Domain Fundamentals</h3>
                   <p className="text-muted-foreground mb-4">
-                    25 MCQs (aptitude plus role-domain knowledge for your subtrack). You have 35 minutes. Score at least
+                    15 role-specific MCQs for your subtrack. You have 20 minutes. Score at least
                     60% to pass. Retakes are free with a 24-hour cooldown.
                   </p>
                   <div className="flex flex-wrap gap-3">

@@ -57,6 +57,7 @@ export async function getUserWorkspaceLeaderboardController(
 
   try {
     const leaderboard = await getWorkspaceLeaderboardByCode(
+      actorFromRequest(req),
       req.params.code,
       parsed.data,
     );

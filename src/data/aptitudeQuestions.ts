@@ -37,7 +37,7 @@ const getRandomFromArray = <T>(arr: T[], count: number): T[] => {
   return shuffled.slice(0, count);
 };
 
-// Generate test with 15 questions: logical/aptitude only
+// Legacy client-side helper kept aligned with the canonical 20-question aptitude round.
 export const generateTestQuestions = (difficulty: "Easy" | "Hard"): AptitudeQuestion[] => {
   const difficultyKey = difficulty.toLowerCase();
 
@@ -52,14 +52,14 @@ export const generateTestQuestions = (difficulty: "Easy" | "Hard"): AptitudeQues
     return isLogical && section.includes(difficultyKey);
   });
 
-  const allSelected = getRandomFromArray(logicalQuestions, 15);
+  const allSelected = getRandomFromArray(logicalQuestions, 20);
   
-  // If we don't have 15 questions, fill with any available questions
-  if (allSelected.length < 15) {
+  // If we don't have 20 questions, fill with any available questions.
+  if (allSelected.length < 20) {
     const remaining = aptitudeQuestions.filter(q => 
       q.section.toLowerCase().includes(difficultyKey) && !allSelected.includes(q)
     );
-    const needed = 15 - allSelected.length;
+    const needed = 20 - allSelected.length;
     allSelected.push(...getRandomFromArray(remaining, needed));
   }
 

@@ -786,8 +786,8 @@ function registrationWithAttemptsSelect() {
 }
 
 export async function listMyWorkspaceRegistrations(actor: WorkspaceActor) {
-  if (actor.role !== "jobseeker") {
-    throw new WorkspaceServiceError("Job seeker access required.", 403);
+  if (!["jobseeker", "admin"].includes(actor.role)) {
+    throw new WorkspaceServiceError("Workspace access required.", 403);
   }
 
   return prisma.workspaceRegistration.findMany({
@@ -841,9 +841,13 @@ export async function getWorkspaceWithMyRegistrationByCode(
 }
 
 export async function getWorkspaceLeaderboardByCode(
+  actor: WorkspaceActor,
   codeInput: string,
   params: { limit: number; cursor?: string | null },
 ) {
+  if (!["jobseeker", "admin"].includes(actor.role)) {
+    throw new WorkspaceServiceError("Workspace access required.", 403);
+  }
   const code = normalizeWorkspaceCode(codeInput);
   const row = await prisma.workspace.findUnique({
     where: { code },
@@ -866,6 +870,21 @@ export async function getWorkspaceLeaderboardByCode(
     !["published", "started", "ended"].includes(workspace.status)
   ) {
     throw new WorkspaceServiceError("Workspace not found.", 404);
+  }
+
+  if (actor.role === "jobseeker") {
+    const viewerRegistration = await prisma.workspaceRegistration.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: workspace.id, userId: actor.id },
+      },
+      select: { status: true },
+    });
+    if (viewerRegistration?.status !== "registered") {
+      throw new WorkspaceServiceError(
+        "Join this assessment before viewing cohort results.",
+        403,
+      );
+    }
   }
 
   const limit = Math.min(Math.max(params.limit, 1), 100);
@@ -920,9 +939,18 @@ export async function getWorkspaceLeaderboardByCode(
     workspace,
     leaderboard: pageRows.map((leaderboardRow) => ({
       rank: Number(leaderboardRow.rank),
-      userId: leaderboardRow.userId,
-      name: leaderboardRow.name,
-      email: leaderboardRow.email,
+      ...(actor.role === "admin"
+        ? {
+            userId: leaderboardRow.userId,
+            name: leaderboardRow.name,
+            email: leaderboardRow.email,
+          }
+        : {
+            candidateLabel:
+              leaderboardRow.userId === actor.id
+                ? "You"
+                : `Candidate ${String(Number(leaderboardRow.rank)).padStart(2, "0")}`,
+          }),
       totalScore: Number(leaderboardRow.totalScore),
       completedRounds: Number(leaderboardRow.completedRounds),
       lastCompletedAt: leaderboardRow.lastCompletedAt?.toISOString() ?? null,
@@ -1323,6 +1351,61 @@ export async function getWorkspaceCandidateDossier(
           !Array.isArray(workspaceMcqSession.answers)
             ? (workspaceMcqSession.answers as Record<string, unknown>)
             : {};
+        const questionReview = questions.map((raw, index) => {
+          const question =
+            raw && typeof raw === "object" && !Array.isArray(raw)
+              ? (raw as Record<string, unknown>)
+              : {};
+          const id = String(question.id ?? index);
+          const selectedAnswer =
+            typeof answers[id] === "string" ? String(answers[id]) : "";
+          const correctAnswer =
+            typeof answerKey[id] === "string" ? String(answerKey[id]) : "";
+          return {
+            id,
+            question: String(
+              question.question ?? "Question text was not retained.",
+            ),
+            options: Array.isArray(question.options)
+              ? question.options.map(String)
+              : [],
+            selectedAnswer: selectedAnswer || null,
+            correctAnswer,
+            outcome: !selectedAnswer
+              ? "skipped"
+              : selectedAnswer.trim().toLowerCase() ===
+                  correctAnswer.trim().toLowerCase()
+                ? "correct"
+                : "incorrect",
+            marks: Number(question.marks ?? 1),
+            domain:
+              typeof question.domain === "string" && question.domain.trim()
+                ? question.domain.trim()
+                : null,
+            difficulty:
+              typeof question.difficulty === "string" &&
+              question.difficulty.trim()
+                ? question.difficulty.trim()
+                : null,
+          };
+        });
+        const categoryLedger = new Map<
+          string,
+          { correctMarks: number; totalMarks: number; questions: number }
+        >();
+        for (const item of questionReview) {
+          if (!item.domain) continue;
+          const current = categoryLedger.get(item.domain) ?? {
+            correctMarks: 0,
+            totalMarks: 0,
+            questions: 0,
+          };
+          current.totalMarks += Math.max(0, item.marks);
+          current.questions += 1;
+          if (item.outcome === "correct")
+            current.correctMarks += Math.max(0, item.marks);
+          categoryLedger.set(item.domain, current);
+        }
         return {
           sessionId: workspaceMcqSession.id,
           score: workspaceAptitudeAttempt?.percentageScore ?? null,
@@ -1353,35 +1436,18 @@ export async function getWorkspaceCandidateDossier(
                 1000,
             ),
           ),
-          questionReview: questions.map((raw, index) => {
-            const question =
-              raw && typeof raw === "object" && !Array.isArray(raw)
-                ? (raw as Record<string, unknown>)
-                : {};
-            const id = String(question.id ?? index);
-            const selectedAnswer =
-              typeof answers[id] === "string" ? String(answers[id]) : "";
-            const correctAnswer =
-              typeof answerKey[id] === "string" ? String(answerKey[id]) : "";
-            return {
-              id,
-              question: String(
-                question.question ?? "Question text was not retained.",
-              ),
-              options: Array.isArray(question.options)
-                ? question.options.map(String)
-                : [],
-              selectedAnswer: selectedAnswer || null,
-              correctAnswer,
-              outcome: !selectedAnswer
-                ? "skipped"
-                : selectedAnswer.trim().toLowerCase() ===
-                    correctAnswer.trim().toLowerCase()
-                  ? "correct"
-                  : "incorrect",
-              marks: Number(question.marks ?? 1),
-            };
-          }),
+          questionReview,
+          categories: Array.from(categoryLedger.entries()).map(
+            ([name, category]) => ({
+              name,
+              questions: category.questions,
+              score: category.totalMarks
+                ? Math.round(
+                    (category.correctMarks / category.totalMarks) * 100,
+                  )
+                : 0,
+            }),
+          ),
         };
       })()
     : null;

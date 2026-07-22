@@ -70,7 +70,7 @@ export function buildJobSeekerSidebarSections({
           icon: <ListChecks className="w-[18px] h-[18px]" />,
         },
         {
-          label: "Workspaces",
+          label: "Assessments",
           to: "/dashboard/jobseeker/workspaces",
           active: activeItem === "workspaces",
           icon: <ClipboardList className="w-[18px] h-[18px]" />,

@@ -715,7 +715,11 @@ export async function sendWorkspaceInvitationEmail(params: {
         paragraph(`${params.organization} invited you to join ${params.workspaceName} on ProvenHire.`),
         paragraph(`Workspace code: ${params.code}`),
         paragraph(`Starts: ${formatDateTime(params.startsAt)}`),
-        button("Open Workspaces", appLink("/dashboard/jobseeker/workspaces")),
+        paragraph("Sign in or create a Job Seeker account with this invited email address. We will return you to the assessment after sign-in."),
+        button(
+          "Review invitation",
+          appLink(`/dashboard/jobseeker/workspaces/${encodeURIComponent(params.code)}`),
+        ),
       ].join("")
     ),
   });

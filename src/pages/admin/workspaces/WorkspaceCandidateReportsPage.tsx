@@ -66,6 +66,12 @@ const asList = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : [];
 const strings = (value: unknown): string[] =>
   asList(value).map(String).filter(Boolean);
+const narrativeClaim = (value: unknown, fallback = "") => {
+  if (typeof value === "string") return value;
+  return String(asRecord(value).claim || fallback);
+};
+const narrativeEvidence = (value: unknown) =>
+  strings(asRecord(value).evidence);
 const numeric = (value: unknown, fallback = 0) =>
   Number.isFinite(Number(value)) ? Number(value) : fallback;
 const evidenceComplete = (
@@ -104,13 +110,59 @@ function Metric({
   detail: string;
 }) {
   return (
-    <div className="rounded-xl border bg-background p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+    <div className="rounded-lg border bg-background p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <p className="text-xl font-bold tabular-nums">{value}</p>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
     </div>
+  );
+}
+
+function EvidenceItems({
+  items,
+  empty = "No evidence recorded.",
+}: {
+  items: string[];
+  empty?: string;
+}) {
+  if (!items.length) {
+    return <p className="text-sm leading-6 text-muted-foreground">{empty}</p>;
+  }
+  return (
+    <ul className="space-y-2 text-sm">
+      {items.map((item, index) => (
+        <li key={`${index}-${item}`} className="flex gap-2 leading-6">
+          <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CitationList({ items }: { items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <details className="mt-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer font-medium">
+        {items.length} evidence source{items.length === 1 ? "" : "s"}
+      </summary>
+      <ul className="mt-2 space-y-2">
+        {items.map((item) => {
+          const separator = item.indexOf(" :: ");
+          const pointer = separator > 0 ? item.slice(0, separator) : item;
+          const excerpt = separator > 0 ? item.slice(separator + 4) : "";
+          return (
+            <li key={item} className="rounded-md bg-muted/50 p-2 leading-5">
+              <code className="break-all">{pointer}</code>
+              {excerpt ? <span className="mt-1 block">Recorded value: {excerpt}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
 
@@ -129,18 +181,7 @@ function EvidenceList({
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        {items.length ? (
-          <ul className="space-y-3 text-sm">
-            {items.map((item, index) => (
-              <li key={`${index}-${item}`} className="flex gap-2 leading-6">
-                <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">{empty}</p>
-        )}
+        <EvidenceItems items={items} empty={empty} />
       </CardContent>
     </Card>
   );
@@ -187,6 +228,11 @@ type AgentGeneration = NonNullable<
   NonNullable<WorkspaceCandidateDossier["agentReports"]>["dsa"]
 >;
 
+type QueuedReport = {
+  kind: "dsa" | "unified";
+  baselineCompletedAt: string | null;
+};
+
 type ReportAudience = "admin" | "candidate";
 
 function AdminDecisionBanner({
@@ -210,14 +256,14 @@ function AdminDecisionBanner({
     kind === "unified" ? true : evidenceComplete(dossier, kind);
   const decision =
     kind === "unified"
-      ? synthesis?.recommendation || "INSUFFICIENT EVIDENCE"
+      ? titleize((synthesis?.recommendation || "insufficient evidence").toLowerCase())
       : score == null
-        ? "ASSESSMENT EVIDENCE UNAVAILABLE"
+        ? "Assessment evidence unavailable"
         : !moduleComplete
-          ? "PARTIAL EVIDENCE — DECISION USE BLOCKED"
+          ? "Partial evidence. Decision use blocked"
         : kind === "aptitude"
-          ? "OBJECTIVE SIGNAL RECORDED"
-          : "CODING EVIDENCE RECORDED";
+          ? "Objective signal recorded"
+          : "Coding evidence recorded";
   const aptitudeAnswers = asRecord(
     dossier.modules.aptitude.workspaceEvidence ??
       dossier.modules.aptitude.latest?.answers,
@@ -240,15 +286,15 @@ function AdminDecisionBanner({
   const proofs =
     kind === "aptitude"
       ? [
-          `${score ?? "—"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
-          `${String(aptitudeAnswers.correct ?? "—")} correct responses`,
+          `${score ?? "Not available"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
+          `${String(aptitudeAnswers.correct ?? "Not available")} correct responses`,
           aptitudeReview.length === aptitudeTotal && aptitudeTotal > 0
             ? `All ${aptitudeTotal} question records retained`
             : `${aptitudeReview.length}/${aptitudeTotal || "?"} question records retained`,
         ]
       : kind === "dsa"
         ? [
-            `${score ?? "—"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
+            `${score ?? "Not available"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
             `${fullyPassed}/${dsaSubmissions.length} submissions passed every retained test`,
             moduleComplete
               ? "Problem, source, and test evidence are reproducible below"
@@ -269,15 +315,15 @@ function AdminDecisionBanner({
         ? "This module is one input to a human review. It does not independently approve or reject the candidate."
         : "A score exists, but the retained source is incomplete. Do not use this module in a hiring decision until the missing evidence is recovered or the assessment is rerun.";
   return (
-    <Card className="overflow-hidden border-slate-800 shadow-lg">
-      <CardContent className="bg-slate-950 p-6 text-white md:p-8">
+    <Card className="border-slate-700/60 bg-slate-950">
+      <CardContent className="p-6 text-white md:p-8">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-300">
+          <p className="text-sm font-medium text-slate-300">
             {kind === "unified"
               ? "Decision-support status"
               : `${kind} assessment status`}
           </p>
-          <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">
+          <h2 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">
             {decision}
           </h2>
           <p className="mt-3 max-w-4xl text-sm leading-7 text-slate-200">
@@ -290,8 +336,8 @@ function AdminDecisionBanner({
               key={proof}
               className="rounded-lg border border-white/15 bg-white/[0.06] p-3"
             >
-              <p className="text-xs font-bold text-violet-300">
-                EVIDENCE {index + 1}
+              <p className="text-sm font-semibold text-violet-300">
+                Evidence {index + 1}
               </p>
               <p className="mt-1 text-sm leading-6 text-slate-100">{proof}</p>
             </div>
@@ -321,6 +367,8 @@ function AgentReasoningReport({
     result.failureAndRiskAnalysis ?? result.contradictions,
   ).map(asRecord);
   const role = asRecord(result.roleReadiness ?? result.roleFit);
+  const executiveRead = result.executiveRead;
+  const thesis = result.crossModuleThesis || result.algorithmicReasoning;
   if (!report)
     return (
       <Card className="border-dashed border-primary/40">
@@ -350,20 +398,20 @@ function AgentReasoningReport({
       </Card>
     );
   return (
-    <Card className="overflow-hidden border-indigo-300 shadow-sm">
-      <CardHeader className="bg-gradient-to-r from-indigo-950 via-slate-950 to-violet-950 text-white">
+    <Card className="border-indigo-400/40">
+      <CardHeader className="border-b bg-indigo-950/35">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardDescription className="text-indigo-200">
-              AI evidence interpretation · advisory, persisted, source-hashed
+            <CardDescription>
+              Advisory interpretation of persisted, source-hashed evidence
             </CardDescription>
             <CardTitle className="mt-2 flex items-center gap-2 text-2xl">
-              <Sparkles className="h-6 w-6 text-violet-300" />
+              <FileSearch className="h-6 w-6 text-indigo-400" />
               {title}
             </CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            <Badge className="bg-white/10 text-white hover:bg-white/10">
+            <Badge variant="outline">
               Requires human review
             </Badge>
             {onGenerate ? (
@@ -386,42 +434,34 @@ function AgentReasoningReport({
       </CardHeader>
       <CardContent className="space-y-6 p-6">
         <section>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-700">
-            Evidence interpretation
-          </p>
+          <h3 className="text-base font-semibold">Evidence interpretation</h3>
           <p className="mt-3 text-base leading-8">
-            {String(result.executiveRead || "No executive read was returned.")}
+            {narrativeClaim(executiveRead, "No executive read was returned.")}
           </p>
+          <CitationList items={narrativeEvidence(executiveRead)} />
           <p className="mt-3 text-xs leading-5 text-muted-foreground">
             This narrative cannot create missing evidence, assign a hiring
             outcome, or replace a named reviewer applying the employer rubric.
           </p>
         </section>
-        {result.crossModuleThesis || result.algorithmicReasoning ? (
+        {thesis ? (
           <section className="rounded-xl bg-indigo-50 p-4">
             <p className="font-semibold text-indigo-950">Reasoning thesis</p>
             <p className="mt-2 text-sm leading-7 text-indigo-950/80">
-              {String(result.crossModuleThesis || result.algorithmicReasoning)}
+              {narrativeClaim(thesis)}
             </p>
+            <CitationList items={narrativeEvidence(thesis)} />
           </section>
         ) : null}
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                Evidence-backed strengths
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+        <div className="grid gap-6 border-y py-5 lg:grid-cols-2">
+          <section>
+            <h3 className="mb-3 text-base font-semibold">Evidence-backed strengths</h3>
+            <div className="space-y-3">
               {strengths.length ? (
                 strengths.map((item, index) => (
-                  <div key={index} className="rounded-lg border p-3">
+                  <div key={index} className="border-b pb-3 last:border-b-0 last:pb-0">
                     <p className="font-medium">{String(item.claim)}</p>
-                    <ul className="mt-2 list-inside list-disc text-xs leading-5 text-muted-foreground">
-                      {strings(item.evidence).map((evidence) => (
-                        <li key={evidence}>{evidence}</li>
-                      ))}
-                    </ul>
+                    <CitationList items={strings(item.evidence)} />
                   </div>
                 ))
               ) : (
@@ -429,24 +469,16 @@ function AgentReasoningReport({
                   No verified strength claim returned.
                 </p>
               )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                Contradictions and risks
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+            </div>
+          </section>
+          <section>
+            <h3 className="mb-3 text-base font-semibold">Contradictions and risks</h3>
+            <div className="space-y-3">
               {concerns.length ? (
                 concerns.map((item, index) => (
-                  <div key={index} className="rounded-lg border p-3">
+                  <div key={index} className="border-b pb-3 last:border-b-0 last:pb-0">
                     <p className="font-medium">{String(item.claim)}</p>
-                    <ul className="mt-2 list-inside list-disc text-xs leading-5 text-muted-foreground">
-                      {strings(item.evidence).map((evidence) => (
-                        <li key={evidence}>{evidence}</li>
-                      ))}
-                    </ul>
+                    <CitationList items={strings(item.evidence)} />
                   </div>
                 ))
               ) : (
@@ -454,23 +486,23 @@ function AgentReasoningReport({
                   No material contradiction returned.
                 </p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <EvidenceList
-            title="Ready now"
-            items={strings(role.readyFor ?? role.readyNow)}
-          />
-          <EvidenceList
-            title="Conditional / support"
-            items={strings(role.needsSupportFor ?? role.conditional)}
-          />
-          <EvidenceList
-            title="Not yet proven"
-            items={strings(role.avoidUntilVerified ?? role.notYetProven)}
-          />
-        </div>
+        {Object.keys(role).length ? (
+          <div className="grid gap-6 md:grid-cols-3">
+            {[
+              ["Ready now", strings(role.readyFor ?? role.readyNow)],
+              ["Conditional support", strings(role.needsSupportFor ?? role.conditional)],
+              ["Not yet proven", strings(role.avoidUntilVerified ?? role.notYetProven)],
+            ].map(([label, items]) => (
+              <section key={String(label)}>
+                <h3 className="mb-3 text-sm font-semibold">{String(label)}</h3>
+                <EvidenceItems items={items as string[]} />
+              </section>
+            ))}
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-x-5 gap-y-1 border-t pt-4 text-xs text-muted-foreground">
           <span>Model: {report.model}</span>
           <span>
@@ -532,7 +564,8 @@ function HumanDecisionPanel({
   );
   const gatesReady =
     dossier.synthesis?.integrity?.status === "verified" &&
-    dossier.synthesis.completedModules === 3 &&
+    dossier.synthesis.completedModules ===
+      dossier.synthesis.requiredModules.length &&
     dossier.synthesis.decisionStatus === "human_review_required" &&
     responsibilities.length >= 3;
   const complete =
@@ -956,7 +989,7 @@ function AptitudeReport({ dossier }: { dossier: WorkspaceCandidateDossier }) {
               detail="Unattempted questions"
             />
           </div>
-          <div className="rounded-xl border-l-4 border-l-primary bg-muted/40 p-4">
+          <div className="rounded-xl border bg-muted/40 p-4">
             <p className="font-semibold">Reasoning interpretation</p>
             <p className="mt-2 text-sm leading-7">
               {!ledgerComplete
@@ -1246,7 +1279,7 @@ function DsaReport({
               detail="Official submission language"
             />
           </div>
-          <div className="rounded-xl border-l-4 border-l-primary bg-muted/40 p-4">
+          <div className="rounded-xl border bg-muted/40 p-4">
             <p className="font-semibold">Implementation interpretation</p>
             <p className="mt-2 text-sm leading-7">
               {totalTests && totalPassed === totalTests
@@ -1503,23 +1536,21 @@ function CandidateFeedbackHeader({
   scoreLabel?: string;
 }) {
   return (
-    <Card className="overflow-hidden border-emerald-300">
-      <CardContent className="bg-gradient-to-br from-emerald-950 via-teal-950 to-slate-950 p-6 text-white md:p-8">
+    <Card className="border-emerald-700/40 bg-emerald-950/30">
+      <CardContent className="p-6 md:p-8">
         <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-center">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">
-              Candidate feedback · learning and improvement
+            <p className="text-sm font-medium text-emerald-300">
+              Your feedback
             </p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight">{title}</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-emerald-50/90">
+            <h2 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{title}</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-foreground/80">
               {summary}
             </p>
           </div>
-          <div className="rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-center">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">
-              {scoreLabel}
-            </p>
-            <p className="mt-1 text-4xl font-black">{score}</p>
+          <div className="rounded-lg border border-emerald-700/40 bg-background/40 px-5 py-4 md:min-w-44">
+            <p className="text-sm text-muted-foreground">{scoreLabel}</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{score}</p>
           </div>
         </div>
       </CardContent>
@@ -1535,67 +1566,66 @@ function CandidateOverview({
   const synthesis = dossier.synthesis;
   const result = asRecord(dossier.agentReports?.unified?.result);
   const role = asRecord(result.roleFit);
+  const unifiedRead = narrativeClaim(result.executiveRead);
+  const unifiedThesis = narrativeClaim(result.crossModuleThesis);
   const requiredModules = synthesis?.requiredModules ?? ["aptitude", "dsa", "interview"];
   const completeEvidenceCount = requiredModules.filter(
     (key) => synthesis?.evidenceCompleteness?.byModule?.[key] === true,
   ).length;
-  const strengths =
-    synthesis?.decisionStatus === "human_review_required"
-      ? synthesis.verifiedStrengths
-      : [];
+  const strengths = synthesis?.verifiedStrengths ?? [];
   const risks = synthesis?.scopedRisks ?? [];
+  const practiceActions = (synthesis?.nextActions ?? []).filter(Boolean).slice(0, 3);
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
         title="Your complete assessment feedback"
-        score={`${completeEvidenceCount}/${requiredModules.length} evidence complete`}
-        summary="This coaching view keeps every configured assessment result separate. It shows what the retained evidence supports and converts remaining gaps into practice deliverables; it does not calculate or reveal an employer hiring outcome."
+        score={`${completeEvidenceCount} of ${requiredModules.length} results ready`}
+        summary="Open each completed round to see your score, detailed feedback, and the next practice action."
       />
       {synthesis?.integrity?.status === "blocked" ? (
         <Card className="border-rose-300 bg-rose-50">
           <CardContent className="p-5 text-sm leading-7 text-rose-900">
-            This feedback cannot be treated as candidate-specific until the
-            report binding is corrected: {synthesis.integrity.issues.join(" ")}
+            We are verifying that this feedback belongs to your assessment. Your results are saved and no action is required right now. If this message remains, contact the organizer.
           </CardContent>
         </Card>
       ) : null}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Aptitude · /100 scale"
+          label="Aptitude score"
           value={synthesis?.evidenceBasis.aptitudeScore ?? "—"}
           detail={
             synthesis?.evidenceCompleteness?.aptitude
-              ? "Complete question evidence retained"
-              : "Stored result; complete question evidence unavailable"
+              ? "Question review is ready"
+              : "Your score is ready; detailed question review is not available"
           }
         />
         <Metric
-          label="DSA · /100 scale"
+          label="Coding score"
           value={synthesis?.evidenceBasis.dsaScore ?? "—"}
           detail={
             synthesis?.evidenceCompleteness?.dsa
-              ? "Reproducible source and judge evidence retained"
-              : "Stored result; at least one correctness concern is not reproducible"
+              ? "Code and test feedback is ready"
+              : "Your score is ready; detailed test feedback is not available"
           }
         />
         {requiredModules.includes("sql") ? (
           <Metric
-            label="SQL · /100 scale"
+            label="SQL score"
             value={synthesis?.evidenceBasis.sqlScore ?? "—"}
             detail={
               synthesis?.evidenceCompleteness?.sql
-                ? "Query and judge evidence retained"
-                : "SQL evidence is incomplete"
+                ? "Query and test feedback is ready"
+                : "Detailed SQL feedback is still being prepared"
             }
           />
         ) : null}
         <Metric
-          label="Interview · /100 scale"
+          label="AI interview score"
           value={synthesis?.evidenceBasis.interviewScore ?? synthesis?.evidenceBasis.antigravityScore ?? "—"}
           detail={
-            synthesis?.evidenceCompleteness?.antigravity
-              ? "Complete bound interview evidence retained"
-              : "Interview evidence is incomplete"
+            evidenceComplete(dossier, "interview")
+              ? "Detailed interview feedback is ready"
+              : "Interview feedback is still being prepared"
           }
         />
       </div>
@@ -1611,6 +1641,33 @@ function CandidateOverview({
           empty="No material improvement area was recorded."
         />
       </div>
+      {unifiedRead || unifiedThesis ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>How your results connect</CardTitle>
+            <CardDescription>
+              A source-linked interpretation across completed rounds. It is
+              coaching guidance, not a hiring decision.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {unifiedRead ? (
+              <section>
+                <h3 className="text-sm font-semibold">Cross-round read</h3>
+                <p className="mt-2 text-sm leading-7">{unifiedRead}</p>
+                <CitationList items={narrativeEvidence(result.executiveRead)} />
+              </section>
+            ) : null}
+            {unifiedThesis ? (
+              <section className="border-t pt-4">
+                <h3 className="text-sm font-semibold">Main evidence boundary</h3>
+                <p className="mt-2 text-sm leading-7">{unifiedThesis}</p>
+                <CitationList items={narrativeEvidence(result.crossModuleThesis)} />
+              </section>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
       {synthesis?.decisionStatus === "human_review_required" &&
       (synthesis.roleRubric?.responsibilities.length ?? 0) >= 3 ? (
         <Card>
@@ -1621,48 +1678,46 @@ function CandidateOverview({
               the missing evidence.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <EvidenceList
-              title="Ready to demonstrate"
-              items={strings(role.readyNow)}
-            />
-            <EvidenceList
-              title="Build with guidance"
-              items={strings(role.conditional)}
-            />
-            <EvidenceList
-              title="Not yet proven"
-              items={strings(role.notYetProven)}
-            />
+          <CardContent className="grid gap-6 md:grid-cols-3">
+            {[
+              ["Ready to demonstrate", strings(role.readyNow)],
+              ["Build with guidance", strings(role.conditional)],
+              ["Not yet proven", strings(role.notYetProven)],
+            ].map(([label, items]) => (
+              <section key={String(label)}>
+                <h4 className="mb-3 text-sm font-semibold">{String(label)}</h4>
+                <EvidenceItems items={items as string[]} />
+              </section>
+            ))}
           </CardContent>
         </Card>
       ) : null}
       <Card>
         <CardHeader>
-          <CardTitle>30-day improvement plan</CardTitle>
+          <CardTitle>Priority practice plan</CardTitle>
+          <CardDescription>
+            These actions come from your completed rounds. Finish one, record
+            the result, then move to the next.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          {[
-            [
-              "Week 1",
-              risks[0]
-                ? `Deliverable: write a one-page failure timeline for “${risks[0]}” naming the invariant, failure point, recovery action, and verification test.`
-                : "Deliverable: choose the weakest retained module and write the missing mechanism, failure case, and verification test.",
-            ],
-            [
-              "Week 2",
-              "Deliverable: implement the smallest runnable example that proves the mechanism under failure. Success means the failure is reproduced first and the new automated test passes after the fix.",
-            ],
-            [
-              "Weeks 3–4",
-              "Deliverable: record two three-minute mock answers using context, invariant, mechanism, trade-off, failure boundary, and personal ownership. Ask a reviewer to identify any unsupported claim.",
-            ],
-          ].map(([period, action]) => (
-            <div key={period} className="rounded-xl border p-4">
-              <Badge variant="outline">{period}</Badge>
-              <p className="mt-3 text-sm leading-6">{action}</p>
-            </div>
-          ))}
+        <CardContent>
+          <ol className="divide-y rounded-lg border">
+            {(practiceActions.length
+              ? practiceActions
+              : risks.slice(0, 3).map((risk) => `Resolve this retained gap: ${risk}`)
+            ).map((action, index) => (
+              <li key={`${index}-${action}`} className="flex gap-4 p-4 text-sm leading-6">
+                <span className="font-semibold text-primary">{index + 1}</span>
+                <span>{action}</span>
+              </li>
+            ))}
+          </ol>
+          {!practiceActions.length && !risks.length ? (
+            <p className="text-sm leading-6 text-muted-foreground">
+              No evidence-backed practice action is available yet. Open each
+              completed round for its specific feedback.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
     </div>
@@ -1698,6 +1753,12 @@ function CandidateAptitudeReport({
   const attempted = Math.max(0, total - skipped);
   const accuracy = attempted ? Math.round((correct / attempted) * 100) : 0;
   const ledgerComplete = total > 0 && review.length === total;
+  const evidenceConfidence =
+    ledgerComplete && total >= 20
+      ? "High"
+      : ledgerComplete && total >= 15
+        ? "Moderate"
+        : "Limited";
   const timeLimitMinutes = numeric(answers.timeLimitSeconds)
     ? Math.round(numeric(answers.timeLimitSeconds) / 60)
     : null;
@@ -1732,17 +1793,19 @@ function CandidateAptitudeReport({
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
-        title="Your Aptitude feedback"
-        score={score == null ? "—" : `${ledgerComplete ? "" : "Stored "}${score}/100`}
+        title="Your aptitude feedback"
+        score={score == null ? "—" : `${score}/100`}
         summary={
           !ledgerComplete
-            ? `Only ${review.length}/${total || "?"} question records are available. Use the retained mistakes for practice, but do not treat the headline score or domain ranking as fully auditable.`
+            ? `Detailed feedback is available for ${review.length} of ${total || "the"} questions. Use the available mistakes for practice; category rankings will appear once the full question history is available.`
+            : total < 15
+              ? `This was a ${total}-question diagnostic, not the standard 20-question ProvenHire aptitude round. The feedback is useful for practice, but the score has limited reliability.`
             : accuracy >= 85
             ? "Your reasoning accuracy is a strength. Your next improvement comes from understanding the exact wrong or skipped patterns, not from repeating the entire syllabus."
             : "Your score shows a usable baseline, but your next practice cycle should target the error patterns and time-allocation choices below."
         }
       />
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
           label={ledgerComplete ? "Accuracy" : "Accuracy status"}
           value={ledgerComplete ? `${accuracy}%` : "Withheld"}
@@ -1750,6 +1813,17 @@ function CandidateAptitudeReport({
             ledgerComplete
               ? `${correct} correct across ${attempted} attempts`
               : "Complete answer history is unavailable"
+          }
+        />
+        <Metric
+          label="Feedback confidence"
+          value={evidenceConfidence}
+          detail={
+            !ledgerComplete
+              ? `${review.length}/${total || "?"} question records are available`
+              : total >= 20
+              ? `${total} questions, aligned with the standard aptitude baseline`
+              : `${total} questions, below the standard 20-question baseline`
           }
         />
         <Metric
@@ -1775,7 +1849,7 @@ function CandidateAptitudeReport({
         <CardHeader>
           <CardTitle>Where you are strongest</CardTitle>
           <CardDescription>
-            Domains are ranked by your persisted performance—not generic advice.
+            Your strongest categories, based on this assessment.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1896,6 +1970,17 @@ function CandidateDsaReport({
         results: asList(asRecord(submission.results).results).map(asRecord),
       }))
     : asList(answers.problems).map(asRecord);
+  const smallestRetainedSuite = problems.length
+    ? Math.min(
+        ...problems.map((problem) => numeric(problem.testCasesTotal)),
+      )
+    : 0;
+  const testCoverage =
+    problems.length >= 2 && smallestRetainedSuite >= 8
+      ? "High"
+      : problems.length >= 2 && smallestRetainedSuite >= 6
+        ? "Moderate"
+        : "Limited";
   const probes = strings(
     result.candidatePracticePrompts ?? result.recommendedPanelProbes,
   );
@@ -1907,16 +1992,23 @@ function CandidateDsaReport({
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
-        title="Your DSA feedback"
+        title="Your coding feedback"
         score={score == null ? "—" : `${score}/100`}
         summary={
           !complete
-            ? "A stored result exists, but at least one correctness concern cannot be reproduced from the retained source. The report therefore limits coaching to facts you can inspect."
+            ? "Your score is saved, but some detailed solution data is unavailable. The coaching below is limited to feedback we can verify from your submission."
+            : testCoverage === "Limited"
+              ? `This score is based on ${problems.length} problem${problems.length === 1 ? "" : "s"}. Use it as a practice signal, and continue testing your solutions against additional edge cases.`
             : score != null && score >= 80
             ? "Your implementation signal is strong. The goal now is to close the difference between passing the retained tests and proving that your solution remains correct under edge cases, concurrency, and failure."
             : "Your implementation baseline is developing. Use the problem feedback below to separate algorithm selection, correctness, and code-quality improvements."
         }
       />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric label="Problems assessed" value={problems.length} detail="Official submitted solutions" />
+        <Metric label="Smallest test suite" value={smallestRetainedSuite} detail="Judge cases retained for one problem" />
+        <Metric label="Evidence confidence" value={testCoverage} detail="High confidence requires at least two problems and eight cases per problem" />
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -1927,9 +2019,7 @@ function CandidateDsaReport({
               strengths.map((item, index) => (
                 <div key={index} className="rounded-lg border p-3">
                   <p className="font-medium">{String(item.claim)}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Evidence: {strings(item.evidence).join(" · ")}
-                  </p>
+                  <CitationList items={strings(item.evidence)} />
                 </div>
               ))
             ) : (
@@ -1948,9 +2038,7 @@ function CandidateDsaReport({
               risks.map((item, index) => (
                 <div key={index} className="rounded-lg border p-3">
                   <p className="font-medium">{String(item.claim)}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Why: {strings(item.evidence).join(" · ")}
-                  </p>
+                  <CitationList items={strings(item.evidence)} />
                 </div>
               ))
             ) : (
@@ -1999,8 +2087,7 @@ function CandidateDsaReport({
                   <strong>Your approach:</strong>{" "}
                   {String(
                     problem.approach ||
-                      problem.description ||
-                      "The problem statement was not retained.",
+                      "An explicit approach explanation was not retained. Inspect your submitted source and write the invariant and complexity before your next attempt.",
                   )}
                 </p>
                 <p className="mt-2 text-sm leading-6">
@@ -2080,7 +2167,17 @@ function AntigravityReport({
   audience?: ReportAudience;
 }) {
   const latest = dossier.modules.antigravity.latest;
-  if (!latest) return <MissingModule name="Antigravity" />;
+  if (!latest)
+    return (
+      <MissingModule
+        name={audience === "candidate" ? "AI interview" : "Antigravity"}
+        message={
+          audience === "candidate"
+            ? "Complete the AI interview to unlock detailed feedback."
+            : undefined
+        }
+      />
+    );
   const report = asRecord(latest.report);
   const coverage = asRecord(report.coverage_portrait);
   const domain = asRecord(coverage.primary_domain);
@@ -2126,6 +2223,16 @@ function AntigravityReport({
     ? `${baseUrl}/report-preview/${encodeURIComponent(previewCaseId)}?view=candidate`
     : `${baseUrl}/report/${encodeURIComponent(latest.antigravitySessionId)}/candidate${accessQuery}`;
   if (dossier.synthesis?.integrity?.status === "blocked") {
+    if (audience === "candidate") {
+      return (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="p-6 text-amber-950">
+            <h2 className="font-semibold">We are verifying this interview report</h2>
+            <p className="mt-2 text-sm leading-7">We cannot show the feedback until we confirm that it belongs to your interview. Your interview is saved, and no action is required right now. If this message remains, contact the organizer.</p>
+          </CardContent>
+        </Card>
+      );
+    }
     return (
       <Card className="border-rose-400 bg-rose-50">
         <CardHeader>
@@ -2161,24 +2268,21 @@ function AntigravityReport({
     return (
       <div className="space-y-5">
         <CandidateFeedbackHeader
-          title="Your Antigravity interview reflection"
+          title="Your AI interview feedback"
           score={
             latest.overallScore == null ? "—" : `${latest.overallScore}/10`
           }
-          summary="Your full reflection is a separate coaching experience. It explains what you proved, what remained unproven, how your answers behaved under pressure, and what to practice before your next interview."
+          summary="See what your answers demonstrated, where they lacked detail, how you communicated under pressure, and what to practice before your next interview."
           scoreLabel="Recorded interview result"
         />
         <Card className="overflow-hidden border-emerald-300">
           <CardContent className="grid gap-6 p-6 md:grid-cols-[1fr_auto] md:items-center md:p-8">
             <div>
               <h3 className="text-2xl font-bold">
-                Continue to your complete candidate report
+                View detailed interview feedback
               </h3>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground">
-                Open the reflection workspace for your personal mirror, concept
-                map, interview communication feedback, evidence gaps, and 30-day
-                practice plan. Employer decision labels are not part of this
-                coaching view.
+                Open your detailed feedback for answer-by-answer review, communication guidance, knowledge gaps, and a practical 30-day improvement plan.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {[
@@ -2448,21 +2552,46 @@ function SqlReport({
         }
       />
     );
+  const smallestRetainedSuite = evidence.submissions.length
+    ? Math.min(...evidence.submissions.map((submission) => submission.totalCount))
+    : 0;
+  const testCoverage =
+    evidence.submissions.length >= 2 && smallestRetainedSuite >= 6
+      ? "High"
+      : evidence.submissions.length >= 2 && smallestRetainedSuite >= 3
+        ? "Moderate"
+        : "Limited";
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
-        title={audience === "candidate" ? "Your SQL assessment" : "SQL evidence report"}
+        title={audience === "candidate" ? "Your SQL feedback" : "SQL evidence report"}
         score={`${evidence.score ?? "—"}/100`}
-        summary="A query-by-query view of the retained SQL work. Passing judge cases is bounded execution evidence; it is not a claim that every schema or production edge case was tested."
+        summary={
+          audience === "candidate"
+            ? testCoverage === "Limited"
+              ? "Use the query feedback below for practice, and test your solutions against more schemas and edge cases."
+              : "Review each submitted query, the tests it passed, and the areas to practice next."
+            : testCoverage === "Limited"
+              ? `This SQL result covers ${evidence.submissions.length} task${evidence.submissions.length === 1 ? "" : "s"}, with as few as ${smallestRetainedSuite} retained judge cases per task. Use the query feedback for coaching, but do not treat the score as broad schema and edge-case coverage.`
+              : "A query-by-query view of the retained SQL work. Passing judge cases is bounded execution evidence; it is not a claim that every schema or production edge case was tested."
+        }
       />
-      <div className="grid gap-4 md:grid-cols-3">
-        <Metric label="Score" value={evidence.score ?? "—"} detail="Canonical /100 workspace result" />
-        <Metric label="Tasks passed" value={`${evidence.passedCount ?? "—"}/${evidence.totalCount ?? evidence.submissions.length}`} detail="Official persisted task outcomes" />
-        <Metric label="Time used" value={`${Math.round(evidence.timeTakenSeconds / 60)} min`} detail="From session start to finalization" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Score" value={evidence.score ?? "—"} detail={audience === "candidate" ? "Out of 100" : "Canonical /100 workspace result"} />
+        <Metric label="Tests passed" value={`${evidence.passedCount ?? "—"}/${evidence.totalCount ?? "—"}`} detail={audience === "candidate" ? "Across your submitted queries" : "Aggregate persisted judge outcomes, not task count"} />
+        <Metric label={audience === "candidate" ? "Feedback confidence" : "Evidence confidence"} value={testCoverage} detail={audience === "candidate" ? `${evidence.submissions.length} submitted task${evidence.submissions.length === 1 ? "" : "s"}` : `${evidence.submissions.length} task${evidence.submissions.length === 1 ? "" : "s"}; smallest retained suite: ${smallestRetainedSuite} cases`} />
+        <Metric label="Time used" value={`${Math.round(evidence.timeTakenSeconds / 60)} min`} detail={audience === "candidate" ? "Total time in this round" : "From session start to finalization"} />
       </div>
       <div className="space-y-4">
         {evidence.submissions.map((submission, index) => {
           const task = asRecord(submission.task);
+          const passedAllRetainedCases =
+            submission.totalCount > 0 &&
+            submission.passedCount === submission.totalCount;
+          const taskEvidenceLabel =
+            submission.totalCount >= 6
+              ? audience === "candidate" ? "Broader test coverage" : "Broader sample"
+              : audience === "candidate" ? "Limited test coverage" : "Limited sample";
           return (
             <Card key={submission.id}>
               <CardHeader>
@@ -2479,8 +2608,33 @@ function SqlReport({
                   <p className="text-sm leading-6 text-muted-foreground">{String(task.description || task.prompt)}</p>
                 ) : null}
                 <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Submitted query</p>
+                  <p className="mb-2 text-sm font-semibold">Submitted query</p>
                   <pre className="overflow-x-auto rounded-lg bg-slate-950 p-4 text-xs leading-6 text-slate-100"><code>{submission.query}</code></pre>
+                </div>
+                <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
+                  <section>
+                    <h4 className="text-sm font-semibold">{audience === "candidate" ? "Test result" : "What the judge established"}</h4>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {passedAllRetainedCases
+                        ? audience === "candidate"
+                          ? `Your query passed all ${submission.totalCount} automated tests for this task.`
+                          : `Your query matched all ${submission.totalCount} retained cases. This confirms the expected output for this suite only.`
+                        : audience === "candidate"
+                          ? `Your query passed ${submission.passedCount} of ${submission.totalCount} automated tests. At least one test produced a different result.`
+                          : `Your query matched ${submission.passedCount} of ${submission.totalCount} retained cases. At least one retained dataset produced a different result.`}
+                    </p>
+                  </section>
+                  <section>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold">{audience === "candidate" ? "Next practice step" : "Next verification"}</h4>
+                      <Badge variant="outline">{taskEvidenceLabel}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {passedAllRetainedCases
+                        ? "Create one new dataset with nulls, duplicate join keys, ties, or empty groups where the schema permits them. The query should still return the columns and ordering required by the task."
+                        : "Re-read the required columns, grouping, filters, tie handling, and final ordering. Change one clause at a time, then rerun until every visible case matches."}
+                    </p>
+                  </section>
                 </div>
                 {audience === "admin" && submission.results ? (
                   <details className="rounded-lg border p-3">
@@ -2518,7 +2672,7 @@ function PlacementReadinessReport({
       <Card className="border-amber-300 bg-amber-50">
         <CardContent className="flex items-start gap-3 p-6 text-amber-950">
           <Loader2 className="mt-0.5 h-5 w-5 animate-spin" />
-          <div><p className="font-semibold">Placement report is being generated</p><p className="mt-1 text-sm">The interview is safely stored. The detailed report should appear here within five minutes after the durable finalization callback arrives.</p></div>
+          <div><p className="font-semibold">Preparing your interview feedback</p><p className="mt-1 text-sm">Your interview is saved. Detailed feedback is usually ready within five minutes. You can safely return to your assessment and check again later.</p></div>
         </CardContent>
       </Card>
     ) : status === "failed" ? (
@@ -2526,11 +2680,9 @@ function PlacementReadinessReport({
         <CardContent className="flex items-start gap-3 p-6 text-rose-950">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
-            <p className="font-semibold">Placement report needs attention</p>
+            <p className="font-semibold">We could not prepare your feedback yet</p>
             <p className="mt-1 text-sm leading-6">
-              Your interview attempt is preserved, but the report could not be
-              finalized. Return to the workspace to retry the interview launch
-              or contact the workspace organizer.
+              Your interview is saved, and you do not need to retake it. Check again later or contact the organizer if this message remains.
             </p>
           </div>
         </CardContent>
@@ -2549,17 +2701,53 @@ function PlacementReadinessReport({
   const ownership = asRecord(report.projectOwnershipRead);
   const questions = asList(report.questionReviews).map(asRecord);
   const dimensions = asRecord(scorecard.dimensionScores);
+  const coverage = asRecord(report.coverageSummary);
+  const testedSlots = strings(coverage.testedSlots);
+  const lightlyTestedSlots = strings(coverage.lightlyTestedSlots);
+  const testedDimensions = strings(coverage.testedDimensions);
+  const interviewConfidence =
+    testedSlots.length >= 6 && testedDimensions.length >= 4
+      ? "High"
+      : testedSlots.length >= 3 && testedDimensions.length >= 2
+        ? "Moderate"
+        : "Limited";
+  const readinessDetail =
+    interviewConfidence === "Limited"
+      ? "Readiness band withheld until coverage improves"
+      : titleize(String(scorecard.readinessBand || "readiness band unavailable"));
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
-        title={audience === "candidate" ? "Your Placement Readiness interview" : "Placement Readiness evidence report"}
+        title={audience === "candidate" ? "Your AI interview feedback" : "Placement Readiness evidence report"}
         score={`${latest.score ?? scorecard.overallScore ?? "—"}/100`}
-        summary={String(verdict.summary || scorecard.reasoningSummary || "The persisted interview artifact is ready for review.")}
+        summary={
+          interviewConfidence === "Limited"
+            ? `This is a preliminary coaching read. Only ${testedSlots.length} interview slots were fully tested, so the score and dimensions must not be treated as a complete readiness classification.`
+            : String(
+                verdict.summary ||
+                  scorecard.reasoningSummary ||
+                  (audience === "candidate"
+                    ? "Your detailed interview feedback is ready."
+                    : "The persisted interview artifact is ready for review."),
+              )
+        }
       />
-      <div className="grid gap-4 md:grid-cols-3">
-        <Metric label="Overall score" value={latest.score ?? numeric(scorecard.overallScore, 0)} detail={titleize(String(scorecard.readinessBand || "readiness band unavailable"))} />
-        <Metric label="Questions reviewed" value={questions.length} detail="Question-level evidence retained" />
-        <Metric label="Validation" value={asRecord(report.validationSummary).validationPassed === true ? "Passed" : "Review"} detail={`Session ${latest.sessionId}`} />
+      {interviewConfidence === "Limited" ? (
+        <Card className="border-amber-300 bg-amber-50 text-amber-950">
+          <CardContent className="flex items-start gap-3 p-5">
+            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-semibold">Coverage is too thin for a readiness label</p>
+              <p className="mt-1 text-sm leading-6">The detailed observations remain visible for coaching. Complete more structured slots before using the scorecard as a readiness signal.</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Overall score" value={latest.score ?? numeric(scorecard.overallScore, 0)} detail={readinessDetail} />
+        <Metric label="Fully tested slots" value={testedSlots.length} detail={`${lightlyTestedSlots.length} additional slots were lightly tested`} />
+        <Metric label={audience === "candidate" ? "Feedback confidence" : "Evidence confidence"} value={interviewConfidence} detail={String(coverage.confidenceNote || (audience === "candidate" ? "Based on the topics covered in your interview" : "Coverage note was not retained"))} />
+        <Metric label="Validation" value={asRecord(report.validationSummary).validationPassed === true ? "Passed" : "Review"} detail={audience === "candidate" ? "Feedback quality check" : `Session ${latest.sessionId}`} />
       </div>
       <Card><CardHeader><CardTitle className="text-base">Readiness dimensions</CardTitle></CardHeader><CardContent><ScoreBreakdown values={dimensions} /></CardContent></Card>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -2578,7 +2766,16 @@ function PlacementReadinessReport({
               <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{String(question.slotLabel || `Question ${index + 1}`)}</p><Badge variant="outline">{titleize(String(question.answerBand || "unrated"))}</Badge></div>
               <p className="mt-2 text-sm leading-6">{String(question.questionText || "Question text unavailable")}</p>
               <p className="mt-2 text-sm text-muted-foreground">{String(question.answerSummary || "")}</p>
-              <div className="mt-3 grid gap-3 md:grid-cols-2"><EvidenceList title="Demonstrated" items={strings(question.whatWasGood)} /><EvidenceList title="Stronger answer" items={strings(question.strongerAnswerWouldInclude)} /></div>
+              <div className="mt-4 grid gap-5 border-t pt-4 md:grid-cols-2">
+                <section>
+                  <h4 className="mb-2 text-sm font-semibold">Demonstrated</h4>
+                  <EvidenceItems items={strings(question.whatWasGood)} />
+                </section>
+                <section>
+                  <h4 className="mb-2 text-sm font-semibold">Stronger answer</h4>
+                  <EvidenceItems items={strings(question.strongerAnswerWouldInclude)} />
+                </section>
+              </div>
             </div>
           )) : <p className="text-sm text-muted-foreground">No question-level review was retained.</p>}
         </CardContent>
@@ -2640,12 +2837,15 @@ export default function WorkspaceCandidateReportsPage() {
   );
   const [error, setError] = useState("");
   const [generationError, setGenerationError] = useState("");
+  const [generationNotice, setGenerationNotice] = useState("");
+  const [queuedReport, setQueuedReport] = useState<QueuedReport | null>(null);
   const [decisionError, setDecisionError] = useState("");
   const [recordingDecision, setRecordingDecision] = useState(false);
   const [generatingReport, setGeneratingReport] = useState<
     "dsa" | "unified" | null
   >(null);
   const local = import.meta.env.DEV && (!id || id === localWorkspaceId);
+  const candidateExperience = selfService || (local && audience === "candidate");
 
   useEffect(() => {
     if (selfService && code) {
@@ -2716,27 +2916,82 @@ export default function WorkspaceCandidateReportsPage() {
     return () => window.clearInterval(timer);
   }, [code, waitingForPlacementReport]);
 
+  useEffect(() => {
+    if (!queuedReport || local || !id || !userId) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const response = await api.get<{ dossier: WorkspaceCandidateDossier }>(
+          `/api/workspaces/${id}/registrations/${userId}/dossier`,
+        );
+        if (cancelled) return;
+        setDossier(response.dossier);
+        const completedAt =
+          response.dossier.agentReports?.[queuedReport.kind]?.completedAt ??
+          null;
+        if (
+          completedAt &&
+          completedAt !== queuedReport.baselineCompletedAt
+        ) {
+          setQueuedReport(null);
+          setGenerationNotice(
+            `${queuedReport.kind === "dsa" ? "DSA" : "Unified"} reasoning report is ready.`,
+          );
+        }
+      } catch {
+        // The durable job continues if one polling request fails.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    const deadline = window.setTimeout(() => {
+      if (cancelled) return;
+      setQueuedReport(null);
+      setGenerationNotice(
+        "The report is still processing. You can leave this page and return to the workspace within five minutes.",
+      );
+    }, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.clearTimeout(deadline);
+    };
+  }, [id, local, queuedReport, userId]);
+
   async function generateReport(kind: "dsa" | "unified") {
     if (local || !id || !userId) return;
     setGeneratingReport(kind);
     setGenerationError("");
+    setGenerationNotice("");
     try {
-      const response = await api.post<{ generation: AgentGeneration }>(
+      const baselineCompletedAt =
+        dossier?.agentReports?.[kind]?.completedAt ?? null;
+      const response = await api.post<{
+        generation?: AgentGeneration;
+        queued?: boolean;
+      }>(
         `/api/workspaces/${id}/registrations/${userId}/reports/generate`,
         { kind, force: true },
       );
-      setDossier((current) =>
-        current
-          ? {
-              ...current,
-              agentReports: {
-                dsa: current.agentReports?.dsa ?? null,
-                unified: current.agentReports?.unified ?? null,
-                [kind]: response.generation,
-              },
-            }
-          : current,
-      );
+      if (response.generation) {
+        setDossier((current) =>
+          current
+            ? {
+                ...current,
+                agentReports: {
+                  dsa: current.agentReports?.dsa ?? null,
+                  unified: current.agentReports?.unified ?? null,
+                  [kind]: response.generation!,
+                },
+              }
+            : current,
+        );
+      } else if (response.queued) {
+        setQueuedReport({ kind, baselineCompletedAt });
+        setGenerationNotice(
+          "Report generation has started in the background. You can leave this page; the report will appear in this workspace within five minutes.",
+        );
+      }
     } catch (reason) {
       setGenerationError(
         reason instanceof Error ? reason.message : "Report generation failed",
@@ -2823,12 +3078,12 @@ export default function WorkspaceCandidateReportsPage() {
   );
   const modules: Array<{ key: ModuleKey; label: string; icon: typeof Target }> =
     [
-      { key: "overview", label: selfService ? "All feedback" : "Unified reasoning", icon: Target },
+      { key: "overview", label: audience === "candidate" ? "Overview" : "Review summary", icon: Target },
       ...(configuredModules.has("aptitude") || dossier.modules.aptitude.workspaceEvidence
         ? [{ key: "aptitude" as const, label: "Aptitude", icon: BrainCircuit }]
         : []),
       ...(configuredModules.has("dsa") || dossier.modules.dsa.workspaceEvidence
-        ? [{ key: "dsa" as const, label: "Coding / DSA", icon: Code2 }]
+        ? [{ key: "dsa" as const, label: "Coding", icon: Code2 }]
         : []),
       ...(configuredModules.has("sql") || dossier.modules.sql.workspaceEvidence
         ? [{ key: "sql" as const, label: "SQL", icon: Database }]
@@ -2836,28 +3091,45 @@ export default function WorkspaceCandidateReportsPage() {
       ...(configuredModules.has("interview") ||
       dossier.modules.interview.latest ||
       dossier.modules.interview.legacyAntigravity
-        ? [{ key: "interview" as const, label: "Placement interview", icon: RadioTower }]
+        ? [{ key: "interview" as const, label: "AI interview", icon: RadioTower }]
         : []),
-      ...(!selfService && dossier.modules.antigravity.latest
+      ...(audience === "admin" && dossier.modules.antigravity.latest
         ? [{ key: "antigravity" as const, label: "Antigravity archive", icon: RadioTower }]
         : []),
     ];
   const module = modules.some((item) => item.key === requestedModule)
     ? requestedModule
     : "overview";
+  const requiredResultCount =
+    dossier.synthesis?.requiredModules?.length || configuredModules.size;
+  const auditableResultCount = Array.from(configuredModules).filter((key) =>
+    key === "aptitude" || key === "dsa" || key === "sql" || key === "interview"
+      ? evidenceComplete(dossier, key)
+      : false,
+  ).length;
 
   const reportContent = (
       <div
         className={
-          selfService
+          candidateExperience
             ? "workspace-dashboard-page workspace-report-page space-y-5"
             : "mx-auto min-w-0 max-w-7xl space-y-5"
         }
       >
         {local ? (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Local preview mode: this uses production-shaped dossier data without
-            authentication or database writes.
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              {candidateExperience
+                ? "Candidate preview: this is the same navigation and wording a signed-in candidate sees."
+                : "Local preview: production-shaped data without authentication or database writes."}
+            </span>
+            {candidateExperience && !selfService ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to={`${baseHref}?module=${module}&audience=admin`}>
+                  Return to reviewer view
+                </Link>
+              </Button>
+            ) : null}
           </div>
         ) : null}
         {decisionError ? (
@@ -2867,7 +3139,7 @@ export default function WorkspaceCandidateReportsPage() {
         ) : null}
         <header
           className={
-            selfService
+            candidateExperience
               ? "dashboard-hero-card p-5 md:p-7"
               : "rounded-xl border bg-background p-5 shadow-sm md:p-7"
           }
@@ -2875,30 +3147,31 @@ export default function WorkspaceCandidateReportsPage() {
           <Button asChild variant="ghost" size="sm" className="mb-4 -ml-3">
             <Link to={backHref}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to workspace
+              Back to assessment
             </Link>
           </Button>
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                {selfService ? "Workspace assessment center" : "Candidate assessment dossier"}
+              <p className="text-sm font-medium text-primary">
+                {candidateExperience ? "Results and feedback" : "Candidate review"}
               </p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
-                {selfService ? "My assessment reports" : candidateName}
+                {candidateExperience ? "Your assessment results" : candidateName}
               </h1>
               <p className="mt-2 break-words text-muted-foreground">
-                {selfService ? `Workspace ${code} · ` : `${dossier.candidate.email} · `}
+                {candidateExperience
+                  ? `${code ? `Assessment code ${code} · ` : ""}`
+                  : `${dossier.candidate.email} · `}
                 {dossier.synthesis?.roleRubric?.targetRole ||
                   "Employer target role not recorded"}
               </p>
             </div>
             <Badge variant="outline" className="px-3 py-1.5">
-              {dossier.synthesis?.completedModules ?? 0}/
-              {dossier.synthesis?.requiredModules?.length ?? 3} modules complete
+              {auditableResultCount}/{requiredResultCount} detailed results ready
             </Badge>
           </div>
         </header>
-        {!selfService ? (
+        {!candidateExperience ? (
           <section
             className="grid gap-3 rounded-xl border bg-background p-3 md:grid-cols-2"
             aria-label="Report audience"
@@ -2962,6 +3235,19 @@ export default function WorkspaceCandidateReportsPage() {
             {generationError}
           </div>
         ) : null}
+        {generationNotice ? (
+          <div
+            className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-950"
+            role="status"
+          >
+            {queuedReport ? (
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 inline h-4 w-4" />
+            )}
+            {generationNotice}
+          </div>
+        ) : null}
         {audience === "candidate" ? (
           module === "overview" ? (
             <CandidateOverview dossier={dossier} />
@@ -2979,7 +3265,10 @@ export default function WorkspaceCandidateReportsPage() {
         ) : module === "overview" ? (
           <Overview
             dossier={dossier}
-            generating={generatingReport === "unified"}
+            generating={
+              generatingReport === "unified" ||
+              queuedReport?.kind === "unified"
+            }
             onGenerate={local ? undefined : () => generateReport("unified")}
             onRecordDecision={local ? undefined : recordDecision}
             recordingDecision={recordingDecision}
@@ -2989,7 +3278,9 @@ export default function WorkspaceCandidateReportsPage() {
         ) : module === "dsa" ? (
           <DsaReport
             dossier={dossier}
-            generating={generatingReport === "dsa"}
+            generating={
+              generatingReport === "dsa" || queuedReport?.kind === "dsa"
+            }
             onGenerate={local ? undefined : () => generateReport("dsa")}
           />
         ) : module === "sql" ? (
@@ -3001,7 +3292,7 @@ export default function WorkspaceCandidateReportsPage() {
         )}
       </div>
   );
-  return selfService ? (
+  return candidateExperience ? (
     <UserWorkspaceShell>{reportContent}</UserWorkspaceShell>
   ) : (
     <main className="min-h-screen bg-muted/30 px-4 py-6 md:px-8">

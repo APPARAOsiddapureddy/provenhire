@@ -175,6 +175,60 @@ export async function enqueueCandidateReportWorkflow(input: {
   return job;
 }
 
+export async function enqueueManualAssessmentReportWorkflow(input: {
+  workspaceId: string;
+  userId: string;
+  kind: "dsa" | "unified";
+  force?: boolean;
+}) {
+  const jobKind = "manual_report_generation";
+  const interviewId = `manual:${input.kind}`;
+  const unique = {
+    workspaceId_userId_jobKind_interviewId: {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      jobKind,
+      interviewId,
+    },
+  } as const;
+  const existing = await prisma.assessmentWorkflowJob.findUnique({
+    where: unique,
+  });
+  if (existing && ["pending", "running", "retry"].includes(existing.status))
+    return existing;
+  if (existing?.status === "complete" && !input.force) return existing;
+
+  const jobData = {
+    status: "pending",
+    currentStep: "manual_report_queued",
+    attempts: 0,
+    nextAttemptAt: new Date(),
+    lockedAt: null,
+    lockedBy: null,
+    lastError: null,
+    completedAt: null,
+    context: json({
+      source: "workspace_report_button",
+      requestedKind: input.kind,
+      force: Boolean(input.force),
+    }),
+  };
+  return existing
+    ? prisma.assessmentWorkflowJob.update({
+        where: { id: existing.id },
+        data: jobData,
+      })
+    : prisma.assessmentWorkflowJob.create({
+        data: {
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          interviewId,
+          jobKind,
+          ...jobData,
+        },
+      });
+}
+
 async function claimJob() {
   const staleBefore = new Date(Date.now() - 5 * 60_000);
   const candidate = await prisma.assessmentWorkflowJob.findFirst({
@@ -259,6 +313,41 @@ async function processJob(job: NonNullable<Awaited<ReturnType<typeof claimJob>>>
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace no longer exists.", 404);
   const actor = { id: workspace.ownerUser.id, role: workspace.ownerUser.role };
+
+  const context =
+    job.context && typeof job.context === "object" && !Array.isArray(job.context)
+      ? (job.context as Record<string, unknown>)
+      : {};
+  const requestedKind =
+    job.jobKind === "manual_report_generation" &&
+    (context.requestedKind === "dsa" || context.requestedKind === "unified")
+      ? context.requestedKind
+      : null;
+  if (requestedKind) {
+    await prisma.assessmentWorkflowJob.update({
+      where: { id: job.id },
+      data: { currentStep: `generating_${requestedKind}_report` },
+    });
+    await generateAssessmentReport(
+      actor,
+      job.workspaceId,
+      job.userId,
+      requestedKind,
+      context.force === true,
+    );
+    await prisma.assessmentWorkflowJob.update({
+      where: { id: job.id },
+      data: {
+        status: "complete",
+        currentStep: "complete",
+        completedAt: new Date(),
+        lockedAt: null,
+        lockedBy: null,
+        lastError: null,
+      },
+    });
+    return;
+  }
 
   if (workspace.rounds.some((round) => round.type === "coding")) {
     await prisma.assessmentWorkflowJob.update({

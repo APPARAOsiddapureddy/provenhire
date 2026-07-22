@@ -18,6 +18,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supportedLanguages, type ProgrammingLanguage } from "@/data/dsaRoundConfig";
 import RoundAttemptShell from "./RoundAttemptShell";
+import RoundCompletionReceipt from "./RoundCompletionReceipt";
+import type { ProctoringState } from "@/components/ProctoringSetupGate";
 
 type DsaQuestion = {
   id: string;
@@ -145,7 +147,7 @@ function DsaConsolePanel({ result, message }: { result: RunTestResult | null; me
   );
 }
 
-export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId }: { workspaceCode: string; attemptId: string; sessionId: string }) {
+export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId, initialProctoringState }: { workspaceCode: string; attemptId: string; sessionId: string; initialProctoringState?: ProctoringState | null }) {
   const [snapshot, setSnapshot] = useState<DsaSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [language, setLanguage] = useState<ProgrammingLanguage>("python");
@@ -311,7 +313,7 @@ export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId }: 
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="dsa" title="DSA Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="dsa" title="DSA Round" subtitle="Loading session" secondsRemaining={null} initialProctoringState={initialProctoringState}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -329,17 +331,18 @@ export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId }: 
       subtitle={`Problem ${activeIndex + 1} of ${snapshot.questions.length}`}
       secondsRemaining={snapshot.session.secondsRemaining}
       isFinalized={isFinalized}
+      initialProctoringState={initialProctoringState}
       onExpired={() => {
         toast.info("DSA time expired. Finalizing saved work.");
         void load();
       }}
     >
       {isFinalized ? (
-        <Card className="border-emerald-400/30 bg-emerald-400/10">
-          <CardContent className="p-5 text-emerald-100">
-            Submitted. Score: {snapshot.workspaceAttempt.percentageScore ?? 0}% · Weighted: {snapshot.workspaceAttempt.weightedScore ?? 0}
-          </CardContent>
-        </Card>
+        <RoundCompletionReceipt
+          workspaceCode={workspaceCode}
+          score={snapshot.workspaceAttempt.percentageScore ?? 0}
+          reportModule="coding"
+        />
       ) : null}
 
       <AlertDialog

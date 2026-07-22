@@ -74,6 +74,7 @@ export function sanitizePlacementReportForCandidate(value: unknown) {
   const scorecard = record(report.scorecard);
   const verdict = record(report.readinessVerdict);
   const validation = record(report.validationSummary);
+  const coverage = record(report.coverageSummary);
   const delivery = record(report.deliveryRead);
   const ownership = record(report.projectOwnershipRead);
   const questionReviews = Array.isArray(report.questionReviews)
@@ -106,6 +107,16 @@ export function sanitizePlacementReportForCandidate(value: unknown) {
     validationSummary: {
       validationPassed: validation.validationPassed === true,
     },
+    coverageSummary: {
+      testedSlots: stringArray(coverage.testedSlots),
+      lightlyTestedSlots: stringArray(coverage.lightlyTestedSlots),
+      testedDimensions: stringArray(coverage.testedDimensions),
+      lightlyTestedDimensions: stringArray(
+        coverage.lightlyTestedDimensions,
+      ),
+      untestedDimensions: stringArray(coverage.untestedDimensions),
+      confidenceNote: optionalString(coverage.confidenceNote),
+    },
     strongestConvertingSignals: stringArray(report.strongestConvertingSignals),
     avoidableRejectionRisks: stringArray(report.avoidableRejectionRisks),
     deliveryRead: {
@@ -130,6 +141,22 @@ export function sanitizeAssessmentGenerationForCandidate(
   if (!Object.keys(generation).length) return null;
   const result = record(generation.result);
 
+  const candidateCitation = (citationValue: unknown) => {
+    if (typeof citationValue === "string") return citationValue;
+    const item = record(citationValue);
+    const claim = optionalString(item.claim);
+    if (!claim) return null;
+    return {
+      claim,
+      evidence: stringArray(item.evidence),
+      support: optionalString(item.support),
+    };
+  };
+  const candidateCitations = (citationValues: unknown) =>
+    (Array.isArray(citationValues) ? citationValues : [])
+      .map(candidateCitation)
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
   const safeResult =
     kind === "dsa"
       ? {
@@ -146,6 +173,10 @@ export function sanitizeAssessmentGenerationForCandidate(
             : [],
         }
       : {
+          executiveRead: candidateCitation(result.executiveRead),
+          crossModuleThesis: candidateCitation(result.crossModuleThesis),
+          reinforcingSignals: candidateCitations(result.reinforcingSignals),
+          contradictions: candidateCitations(result.contradictions),
           roleFit: record(result.roleFit),
           evidenceLimits: stringArray(result.evidenceLimits),
         };

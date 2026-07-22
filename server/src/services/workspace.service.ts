@@ -53,7 +53,10 @@ export type SqlTaskAvailability = {
   total: number;
   byDifficulty: Record<"Easy" | "Medium" | "Hard", number>;
   missingHiddenTests: number;
+  belowRecommendedCoverage: number;
 };
+
+const MIN_RECOMMENDED_SQL_TEST_CASES = 6;
 
 const SQL_ELIGIBLE_TASK_WHERE: Prisma.DataRoundTaskWhereInput = {
   taskType: "sql",
@@ -323,11 +326,13 @@ export async function getSqlTaskAvailability(
 ): Promise<SqlTaskAvailability> {
   if (creator.role !== "admin")
     throw new WorkspaceServiceError("Workspace creator access required.", 403);
-  const [eligibleRows, missingHiddenTests] = await Promise.all([
-    prisma.dataRoundTask.groupBy({
-      by: ["difficulty"],
+  const [eligibleTasks, missingHiddenTests] = await Promise.all([
+    prisma.dataRoundTask.findMany({
       where: SQL_ELIGIBLE_TASK_WHERE,
-      _count: { _all: true },
+      select: {
+        difficulty: true,
+        _count: { select: { testCases: true } },
+      },
     }),
     prisma.dataRoundTask.count({
       where: {
@@ -338,18 +343,21 @@ export async function getSqlTaskAvailability(
     }),
   ]);
   const byDifficulty = emptySqlDifficultyCounts();
-  for (const row of eligibleRows) {
+  for (const row of eligibleTasks) {
     if (
       row.difficulty === "Easy" ||
       row.difficulty === "Medium" ||
       row.difficulty === "Hard"
     ) {
-      byDifficulty[row.difficulty] = row._count._all;
+      byDifficulty[row.difficulty] += 1;
     }
   }
   return {
     byDifficulty,
     missingHiddenTests,
+    belowRecommendedCoverage: eligibleTasks.filter(
+      (task) => task._count.testCases < MIN_RECOMMENDED_SQL_TEST_CASES,
+    ).length,
     total: byDifficulty.Easy + byDifficulty.Medium + byDifficulty.Hard,
   };
 }

@@ -4,12 +4,15 @@ import {
   CANDIDATE_FORBIDDEN_REPORT_KEYS,
   sanitizeAntigravityReportForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
+  sanitizeAssessmentGenerationForCandidate,
   sanitizePlacementReportForCandidate,
 } from "../src/services/candidateDossierSanitizer.js";
 import {
+  assertEditorialAssessmentReport,
   assertGroundedAssessmentReport,
   canonicalizeAssessmentCitation,
   canonicalizeAssessmentReportCitations,
+  systemPrompt,
 } from "../src/services/assessmentReportAgent.service.js";
 import { buildCandidateAssessmentSynthesis } from "../src/services/workspaceRegistration.service.js";
 
@@ -90,6 +93,15 @@ const candidatePlacement = sanitizePlacementReportForCandidate({
     summary: "Ready for a focused follow-up.",
     hiringRecommendation: "ADVANCE",
   },
+  coverageSummary: {
+    testedSlots: ["ownership", "debugging", "tradeoffs"],
+    lightlyTestedSlots: ["communication"],
+    testedDimensions: ["projectOwnership", "technicalDepth"],
+    lightlyTestedDimensions: ["communication"],
+    untestedDimensions: ["pressureHandling"],
+    confidenceNote: "Useful but not comprehensive coverage.",
+    recruiterOnlyCoverageNote: "Do not expose this note.",
+  },
   strongestConvertingSignals: ["Explained a concrete trade-off."],
   avoidableRejectionRisks: ["Needs a clearer recovery invariant."],
   questionReviews: [
@@ -113,6 +125,41 @@ assert.equal(placementJson.includes("recruiterNote"), false);
 assert.equal(placementJson.includes("transcript"), false);
 assert.equal(placementJson.includes("telemetrySummary"), false);
 assert.equal(placementJson.includes("Explained a concrete trade-off."), true);
+assert.equal(placementJson.includes("Useful but not comprehensive coverage."), true);
+assert.equal(placementJson.includes("recruiterOnlyCoverageNote"), false);
+
+const candidateUnified = sanitizeAssessmentGenerationForCandidate(
+  {
+    id: "generation-1",
+    reportKind: "unified",
+    promptVersion: "v5",
+    model: "model",
+    completedAt: "2026-07-23T00:00:00.000Z",
+    sourceHash: "hash",
+    result: {
+      executiveRead: {
+        claim: "Coding and SQL evidence agree on implementation accuracy.",
+        evidence: ["/dsa/score :: 88", "/sql/score :: 90"],
+        support: "derived",
+      },
+      crossModuleThesis: {
+        claim: "The remaining uncertainty is production failure handling.",
+        evidence: ["/interview/risk :: recovery invariant"],
+        support: "limited",
+      },
+      reinforcingSignals: [],
+      contradictions: [],
+      riskRegister: [{ recruiterOnly: true }],
+      panelDecisionGuide: ["Recruiter-only action"],
+      evidenceLimits: ["Only two coding tasks were retained."],
+    },
+  },
+  "unified",
+);
+const candidateUnifiedJson = JSON.stringify(candidateUnified);
+assert.equal(candidateUnifiedJson.includes("Coding and SQL evidence"), true);
+assert.equal(candidateUnifiedJson.includes("recruiterOnly"), false);
+assert.equal(candidateUnifiedJson.includes("Recruiter-only action"), false);
 
 const groundedEvidence = { modules: { dsa: { score: 88 } } };
 assert.doesNotThrow(() =>
@@ -143,6 +190,25 @@ assert.throws(() =>
     groundedEvidence,
   ),
 );
+
+assert.doesNotThrow(() =>
+  assertEditorialAssessmentReport({
+    executiveRead: {
+      claim: "The retained judge suite supports a bounded correctness claim.",
+      evidence: ["/modules/dsa/score :: 88"],
+      support: "direct",
+    },
+  }),
+);
+assert.throws(
+  () =>
+    assertEditorialAssessmentReport({
+      executiveRead: "This robust candidate demonstrates strong performance — overall.",
+    }),
+  /editorial quality gate/,
+);
+assert.match(systemPrompt("unified"), /unified_reasoning_report_v3/);
+assert.match(systemPrompt("dsa"), /measurable next check/i);
 
 const placementEvidence = {
   interview: {
@@ -225,4 +291,4 @@ assert.equal(complete.decisionStatus, "human_review_required");
 assert.equal(complete.recommendation, "HUMAN REVIEW REQUIRED");
 assert.equal(complete.evidenceBasis.antigravityVerdict, null);
 
-console.log("report integrity contract: 8/8 passed");
+console.log("report integrity contract: all checks passed");

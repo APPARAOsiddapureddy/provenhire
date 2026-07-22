@@ -33,6 +33,9 @@
     "test:report-integrity": "tsx scripts/report-integrity-contract.ts",
     "test:report-routing": "tsx scripts/report-model-routing-contract.ts",
     "test:placement-contract": "tsx scripts/placement-readiness-contract.ts",
+    "test:workspace-aptitude": "tsx scripts/workspace-aptitude-contract.ts",
+    "audit:assessment-banks": "tsx scripts/assessment-bank-quality-audit.ts",
+    "audit:assessment-banks:strict": "tsx scripts/assessment-bank-quality-audit.ts --strict",
     "seed:interview-bank": "tsx prisma/seeds/interviewQuestionBank.seed.ts",
     "clear-test-users": "tsx prisma/clear-test-users.ts"
   },

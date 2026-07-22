@@ -52,7 +52,7 @@ export default function WorkspaceTechnicalDeskPage() {
       ]);
       setDesk({ ...technical, auditEvents: audit.events });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not load the technical desk.");
+      setError(reason instanceof Error ? reason.message : "Could not load operations and delivery status.");
     }
   }, [id, local]);
 
@@ -99,24 +99,24 @@ export default function WorkspaceTechnicalDeskPage() {
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <Button asChild variant="outline" size="sm"><Link to={local ? "/local-preview/workspace" : `/admin/workspaces/${id}`}><ArrowLeft className="mr-2 h-4 w-4" />Workspace</Link></Button>
-            <h1 className="mt-5 text-3xl font-bold tracking-tight">Assessment technical desk</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">Backend-only workflow health for interview finalization, Postgres delivery, evidence coverage, telemetry reconciliation, and automatic DSA/unified report generation.</p>
+            <Button asChild variant="outline" size="sm"><Link to={local ? "/local-preview/workspace" : `/admin/workspaces/${id}`}><ArrowLeft className="mr-2 h-4 w-4" />Back to assessment</Link></Button>
+            <h1 className="mt-5 text-3xl font-bold tracking-tight">Operations &amp; delivery</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">Monitor report generation, interview delivery, candidate-impacting issues, and the assessment audit trail.</p>
           </div>
           <Button variant="outline" onClick={() => void load()}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>
         </div>
 
         {error ? <Card className="border-rose-300"><CardContent className="p-4 text-rose-800">{error}</CardContent></Card> : null}
-        {!desk ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading backend workflow state…</div> : (
+        {!desk ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading operations status…</div> : (
           <>
             <section className="grid gap-4 sm:grid-cols-3">
               <Card><CardHeader><CardDescription>Open incidents</CardDescription><CardTitle className="text-3xl">{openIncidents.length}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Running or queued</CardDescription><CardTitle className="text-3xl">{desk.jobs.filter((job) => ["pending", "retry", "running"].includes(job.status)).length}</CardTitle></CardHeader></Card>
-              <Card><CardHeader><CardDescription>Completed pipelines</CardDescription><CardTitle className="text-3xl">{desk.jobs.filter((job) => job.status === "complete").length}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Reports in progress</CardDescription><CardTitle className="text-3xl">{desk.jobs.filter((job) => ["pending", "retry", "running"].includes(job.status)).length}</CardTitle></CardHeader></Card>
+              <Card><CardHeader><CardDescription>Reports completed</CardDescription><CardTitle className="text-3xl">{desk.jobs.filter((job) => job.status === "complete").length}</CardTitle></CardHeader></Card>
             </section>
 
             <section className="space-y-3">
-              <h2 className="text-xl font-semibold">Integration configuration</h2>
+              <h2 className="text-xl font-semibold">Service readiness</h2>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <Card><CardHeader><CardDescription>Placement web URL</CardDescription><CardTitle className="break-all text-sm">{desk.configuration.placementReadinessWebUrl || "Missing"}</CardTitle></CardHeader></Card>
                 <Card><CardHeader><CardDescription>Handoff secret</CardDescription><CardTitle className="text-lg">{desk.configuration.handoffSecretConfigured ? "Configured" : "Missing"}</CardTitle></CardHeader></Card>
@@ -136,21 +136,21 @@ export default function WorkspaceTechnicalDeskPage() {
             </section>
 
             <section className="space-y-3">
-              <h2 className="text-xl font-semibold">Automatic report workflows</h2>
+              <h2 className="text-xl font-semibold">Report generation</h2>
               {desk.jobs.map((job) => (
-                <Card key={job.id}><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><Badge>{job.status}</Badge><span className="font-semibold">{job.currentStep.replaceAll("_", " ")}</span></div><p className="mt-2 text-xs text-muted-foreground">{candidateLabel(job.userId)} · attempt {job.attempts}/{job.maxAttempts} · {new Date(job.updatedAt).toLocaleString()}</p>{job.interviewId ? <p className="mt-1 font-mono text-xs text-muted-foreground">Interview {job.interviewId}</p> : null}{job.lastError ? <p className="mt-2 max-w-4xl text-sm text-rose-700">{job.lastError}</p> : null}</div>{["blocked", "retry"].includes(job.status) ? <Button size="sm" variant="outline" disabled={busy === job.id} onClick={() => void retry(job.id)}><RotateCcw className="mr-2 h-4 w-4" />Retry pipeline</Button> : null}</CardContent></Card>
+                <Card key={job.id}><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><Badge>{job.status}</Badge><span className="font-semibold">{job.currentStep.replaceAll("_", " ")}</span></div><p className="mt-2 text-xs text-muted-foreground">{candidateLabel(job.userId)} · generation attempt {job.attempts}/{job.maxAttempts} · {new Date(job.updatedAt).toLocaleString()}</p>{job.interviewId ? <p className="mt-1 font-mono text-xs text-muted-foreground">Interview {job.interviewId}</p> : null}{job.lastError ? <p className="mt-2 max-w-4xl text-sm text-rose-700">{job.lastError}</p> : null}</div>{["blocked", "retry"].includes(job.status) ? <Button size="sm" variant="outline" disabled={busy === job.id} onClick={() => void retry(job.id)}><RotateCcw className="mr-2 h-4 w-4" />Retry report</Button> : null}</CardContent></Card>
               ))}
             </section>
 
             <section className="space-y-3">
-              <h2 className="text-xl font-semibold">Placement handoffs</h2>
-              {!desk.placementHandoffs.length ? <Card><CardContent className="p-5 text-sm text-muted-foreground">No Placement Readiness handoffs yet.</CardContent></Card> : desk.placementHandoffs.map((handoff) => (
-                <Card key={handoff.id}><CardContent className="p-5"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{handoff.status}</Badge><span className="font-mono text-xs">{handoff.id}</span>{handoff.artifact ? <Badge className="bg-emerald-600">artifact ready</Badge> : null}</div><p className="mt-2 text-sm text-muted-foreground">{candidateLabel(handoff.userId)} · {new Date(handoff.updatedAt).toLocaleString()}</p>{handoff.placementSessionId ? <p className="mt-1 font-mono text-xs text-muted-foreground">Session {handoff.placementSessionId}</p> : null}{handoff.lastError ? <p className="mt-2 text-sm text-rose-700">{handoff.lastError}</p> : null}</CardContent></Card>
+              <h2 className="text-xl font-semibold">AI interview delivery</h2>
+              {!desk.placementHandoffs.length ? <Card><CardContent className="p-5 text-sm text-muted-foreground">No AI interviews have been launched yet.</CardContent></Card> : desk.placementHandoffs.map((handoff) => (
+                <Card key={handoff.id}><CardContent className="p-5"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{handoff.status}</Badge>{handoff.artifact ? <Badge className="bg-emerald-600">feedback ready</Badge> : null}</div><p className="mt-2 text-sm text-muted-foreground">{candidateLabel(handoff.userId)} · {new Date(handoff.updatedAt).toLocaleString()}</p>{handoff.lastError ? <p className="mt-2 text-sm text-rose-700">{handoff.lastError}</p> : null}</CardContent></Card>
               ))}
             </section>
 
             <section className="space-y-3">
-              <h2 className="text-xl font-semibold">Workspace audit trail</h2>
+              <h2 className="text-xl font-semibold">Assessment activity</h2>
               {!desk.auditEvents.length ? <Card><CardContent className="p-5 text-sm text-muted-foreground">No recorded lifecycle or membership events yet.</CardContent></Card> : <Card><CardContent className="divide-y p-0">{desk.auditEvents.map((event) => <div key={event.id} className="p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{event.eventType.replaceAll(".", " ")}</span><span className="text-xs text-muted-foreground">{new Date(event.createdAt).toLocaleString()}</span></div><p className="mt-1 text-xs text-muted-foreground">Target {event.targetEmail || event.targetUserId || "workspace"} · Actor {event.actorUserId || "system"}</p></div>)}</CardContent></Card>}
             </section>
           </>

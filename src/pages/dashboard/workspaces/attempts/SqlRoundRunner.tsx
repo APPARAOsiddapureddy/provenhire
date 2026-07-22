@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import RoundAttemptShell from "./RoundAttemptShell";
+import RoundCompletionReceipt from "./RoundCompletionReceipt";
+import type { ProctoringState } from "@/components/ProctoringSetupGate";
 
 type SqlTask = {
   id: string;
@@ -120,7 +122,7 @@ function SqlConsolePanel({ result, message }: { result: SqlRunResult | null; mes
   );
 }
 
-export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId }: { workspaceCode: string; attemptId: string; sessionId: string }) {
+export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId, initialProctoringState }: { workspaceCode: string; attemptId: string; sessionId: string; initialProctoringState?: ProctoringState | null }) {
   const [snapshot, setSnapshot] = useState<SqlSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -230,7 +232,7 @@ export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId }: 
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="sql" title="SQL Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="sql" title="SQL Round" subtitle="Loading session" secondsRemaining={null} initialProctoringState={initialProctoringState}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -248,17 +250,18 @@ export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId }: 
       subtitle={"Task " + (activeIndex + 1) + " of " + snapshot.tasks.length}
       secondsRemaining={snapshot.session.secondsRemaining}
       isFinalized={isFinalized}
+      initialProctoringState={initialProctoringState}
       onExpired={() => {
         toast.info("SQL time expired. Finalizing saved work.");
         void load();
       }}
     >
       {isFinalized ? (
-        <Card className="border-emerald-400/30 bg-emerald-400/10">
-          <CardContent className="p-5 text-emerald-100">
-            Submitted. Score: {snapshot.workspaceAttempt.percentageScore ?? 0}% - Weighted: {snapshot.workspaceAttempt.weightedScore ?? 0}
-          </CardContent>
-        </Card>
+        <RoundCompletionReceipt
+          workspaceCode={workspaceCode}
+          score={snapshot.workspaceAttempt.percentageScore ?? 0}
+          reportModule="sql"
+        />
       ) : (
         <div className="flex flex-col gap-3 rounded-lg border border-[var(--dash-navy-border)] bg-white/[0.03] p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-[var(--dash-text-muted)]">

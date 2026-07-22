@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
+import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -104,11 +105,11 @@ export function WorkspaceDetailsStep({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle className="text-base sm:text-lg">
-              Workspace Details
+              Assessment details
             </CardTitle>
             <CardDescription>
-              Save the hiring event basics first. The backend generates the
-              workspace code.
+              Set the role, schedule, and candidate access. An invitation code
+              is created automatically.
             </CardDescription>
           </div>
           {workspaceCode && (
@@ -121,7 +122,7 @@ export function WorkspaceDetailsStep({
       <CardContent className="space-y-5 p-4 sm:p-6 pt-0">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="workspace-name">Workspace name</Label>
+            <Label htmlFor="workspace-name">Assessment name</Label>
             <Input
               id="workspace-name"
               value={value.name}
@@ -158,14 +159,13 @@ export function WorkspaceDetailsStep({
             placeholder="Senior Backend Engineer"
           />
           <p className="text-xs text-muted-foreground">
-            This employer-owned role—not the candidate profile—governs report
-            calibration.
+            Reports and recommendations will be evaluated against this role.
           </p>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="workspace-responsibilities">
-            Employer-approved responsibilities
+            Role responsibilities
           </Label>
           <Textarea
             id="workspace-responsibilities"
@@ -180,8 +180,8 @@ export function WorkspaceDetailsStep({
             }
           />
           <p className="text-xs text-muted-foreground">
-            Add 3–12 concrete responsibilities. Reviewers must apply these to
-            evidence before recording a decision.
+            Add 3–12 concrete responsibilities, one per line. These become the
+            criteria reviewers use when making a decision.
           </p>
         </div>
 
@@ -253,7 +253,7 @@ export function WorkspaceDetailsStep({
         {validation && <p className="text-sm text-destructive">{validation}</p>}
         {locked && (
           <p className="text-sm text-muted-foreground">
-            Published workspace details cannot be edited.
+            Published assessment details cannot be edited.
           </p>
         )}
 
@@ -557,6 +557,14 @@ export function RoundConfigStep({
                       excluded until hidden tests are added.
                     </div>
                   ) : null}
+                  {sqlAvailability?.belowRecommendedCoverage ? (
+                    <div className="mt-1 text-amber-500">
+                      {sqlAvailability.belowRecommendedCoverage} eligible SQL
+                      task{sqlAvailability.belowRecommendedCoverage === 1 ? " has" : "s have"}{" "}
+                      fewer than six judge cases. Candidate reports will label
+                      those results as limited evidence.
+                    </div>
+                  ) : null}
                   {sqlAvailabilityError ? (
                     <div className="mt-1 text-muted-foreground">
                       Could not load SQL bank counts.
@@ -570,7 +578,7 @@ export function RoundConfigStep({
               )}
               {locked && (
                 <p className="text-sm text-muted-foreground">
-                  Published workspace rounds cannot be edited.
+                  Published assessment rounds cannot be edited.
                 </p>
               )}
 
@@ -644,16 +652,16 @@ export function WorkspaceReviewStep({
   const payloadRounds = roundsToPayload(rounds);
   const roundsError = validateRounds(rounds, totalRounds);
   const checks = [
-    { label: "Workspace details saved", ok: !detailsError },
+    { label: "Assessment details saved", ok: !detailsError },
     {
-      label: "Employer role rubric configured",
+      label: "Role criteria configured",
       ok:
         !!workspace.targetRole &&
         (workspace.hiringRubric?.responsibilities?.length ?? 0) >= 3,
     },
     { label: "All rounds configured", ok: !roundsError },
     {
-      label: "Score weightage totals 100",
+      label: "Round weights total 100%",
       ok:
         (payloadRounds ?? []).reduce(
           (sum, round) => sum + round.scoreWeightage,
@@ -661,7 +669,7 @@ export function WorkspaceReviewStep({
         ) === 100,
     },
     {
-      label: "Difficulty splits match question counts",
+      label: "Question mix matches each round total",
       ok:
         !!payloadRounds &&
         payloadRounds.every(
@@ -678,10 +686,10 @@ export function WorkspaceReviewStep({
       <Card>
         <CardHeader className="p-4 sm:p-6">
           <CardTitle className="text-base sm:text-lg">
-            Review Workspace
+            Review assessment
           </CardTitle>
           <CardDescription>
-            Confirm the setup before publishing the workspace.
+            Confirm what candidates will receive before publishing.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 p-4 sm:p-6 pt-0">
@@ -689,7 +697,7 @@ export function WorkspaceReviewStep({
             <SummaryItem label="Name" value={workspace.name} />
             <SummaryItem label="Organization" value={workspace.organization} />
             <SummaryItem label="Target role" value={workspace.targetRole} />
-            <SummaryItem label="Workspace code" value={workspace.code} mono />
+            <SummaryItem label="Invitation code" value={workspace.code} mono />
             <SummaryItem
               label="Access mode"
               value={
@@ -765,7 +773,7 @@ export function WorkspaceReviewStep({
               ) : (
                 <CheckCircle2 className="h-4 w-4 mr-2" />
               )}
-              Create Workspace
+              Publish assessment
             </Button>
           </div>
         </CardContent>
@@ -875,7 +883,7 @@ export function AllowedEmailsUploader({
       );
       setSummary(res.summary);
       await loadInvitations();
-      toast.success("Allowed emails imported.");
+      toast.success("Candidate emails imported.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "CSV import failed");
     } finally {
@@ -889,10 +897,11 @@ export function AllowedEmailsUploader({
       <CardHeader className="p-4">
         <CardTitle className="text-sm flex items-center gap-2">
           <FileSpreadsheet className="h-4 w-4 text-primary" />
-          Invite-only allowlist
+          Candidate invitations
         </CardTitle>
         <CardDescription>
-          Upload a CSV with an email column before sharing this workspace code.
+          Add the email addresses that may join this assessment, or upload a CSV
+          with an email column.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-0 space-y-3">
@@ -950,7 +959,7 @@ export function AllowedEmailsUploader({
             <div className="divide-y">
               {invitations.map((invitation) => (
                 <div key={invitation.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                  <div className="min-w-0"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">Invited {formatDateTime(invitation.createdAt)}</p></div>
+                  <div className="min-w-0"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">Added {formatDateTime(invitation.createdAt)}</p></div>
                   <Button type="button" size="sm" variant="ghost" disabled={readonly} onClick={() => void revoke(invitation)} aria-label={`Revoke invitation for ${invitation.email}`}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               ))}
@@ -998,6 +1007,7 @@ export function WorkspaceRegistrationsTable({
   const [dossierLoadingUserId, setDossierLoadingUserId] = useState<
     string | null
   >(null);
+  const [pendingRemoval, setPendingRemoval] = useState<WorkspaceRegistration | null>(null);
 
   const fetchRegistrations = useCallback(async () => {
     if (preview) {
@@ -1051,7 +1061,8 @@ export function WorkspaceRegistrationsTable({
     try {
       if (action === "remove") {
         await api.del(`/api/workspaces/${workspaceId}/registrations/${userId}`);
-        toast.success("User removed from workspace.");
+        toast.success("Candidate removed from this assessment.");
+        setPendingRemoval(null);
       } else {
         await api.post(
           `/api/workspaces/${workspaceId}/registrations/${userId}/restore`,
@@ -1075,10 +1086,10 @@ export function WorkspaceRegistrationsTable({
         <div className="flex items-center justify-between gap-3">
           <div>
             <CardTitle className="text-base sm:text-lg">
-              Registrations
+              Candidates
             </CardTitle>
             <CardDescription>
-              Registered and removed users for this workspace.
+              People who joined this assessment, including removed candidates.
             </CardDescription>
           </div>
           <Button
@@ -1095,14 +1106,82 @@ export function WorkspaceRegistrationsTable({
       <CardContent className="p-4 sm:p-6 pt-0">
         {loading ? (
           <div className="py-10 text-center text-muted-foreground">
-            Loading registrations...
+            Loading candidates…
           </div>
         ) : registrations.length === 0 ? (
           <div className="py-10 text-center text-muted-foreground">
-            No registrations yet.
+            No candidates have joined yet.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="space-y-3 md:hidden">
+            {registrations.map((registration) => {
+              const name =
+                registration.user?.jobSeekerProfile?.fullName ||
+                registration.user?.name ||
+                "Candidate";
+              return (
+                <div key={registration.id} className="rounded-xl border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold">{name}</p>
+                      <p className="mt-1 break-all text-sm text-muted-foreground">
+                        {registration.user?.email ?? "Email unavailable"}
+                      </p>
+                    </div>
+                    <Badge variant={registration.status === "registered" ? "default" : "destructive"}>
+                      {registration.status === "registered" ? "Active" : "Removed"}
+                    </Badge>
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Joined {formatDateTime(registration.registeredAt)}
+                  </p>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <Button asChild size="sm" className="col-span-2">
+                      <Link
+                        to={
+                          workspaceId === "local-preview-workspace"
+                            ? `/local-preview/workspace/candidates/${registration.userId}/reports`
+                            : `/admin/workspaces/${workspaceId}/candidates/${registration.userId}/reports`
+                        }
+                      >
+                        <FileText className="mr-2 h-4 w-4" />
+                        View results
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={dossierLoadingUserId === registration.userId}
+                      onClick={() => openDossier(registration.userId)}
+                    >
+                      Summary
+                    </Button>
+                    {registration.status === "registered" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={readonly || busyUserId === registration.userId}
+                        onClick={() => setPendingRemoval(registration)}
+                      >
+                        Remove
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={readonly || busyUserId === registration.userId}
+                        onClick={() => updateStatus(registration.userId, "restore")}
+                      >
+                        Restore
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <Table className="min-w-[780px]">
               <TableHeader>
                 <TableRow>
@@ -1148,7 +1227,7 @@ export function WorkspaceRegistrationsTable({
                               }
                             >
                               <FileText className="h-4 w-4 mr-2" />
-                              Full reports
+                              View results
                             </Link>
                           </Button>
                           <Button
@@ -1164,7 +1243,7 @@ export function WorkspaceRegistrationsTable({
                             ) : (
                               <FileText className="h-4 w-4 mr-2" />
                             )}
-                            Quick view
+                            Summary
                           </Button>
                           {registration.status === "registered" ? (
                             <Button
@@ -1173,9 +1252,7 @@ export function WorkspaceRegistrationsTable({
                               disabled={
                                 readonly || busyUserId === registration.userId
                               }
-                              onClick={() =>
-                                updateStatus(registration.userId, "remove")
-                              }
+                              onClick={() => setPendingRemoval(registration)}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
                               Remove
@@ -1203,12 +1280,32 @@ export function WorkspaceRegistrationsTable({
               </TableBody>
             </Table>
           </div>
+          </>
         )}
       </CardContent>
       <CandidateDossierDialog
         dossier={dossier}
         onOpenChange={(open) => {
           if (!open) setDossier(null);
+        }}
+      />
+      <WorkspaceConfirmDialog
+        open={Boolean(pendingRemoval)}
+        title="Remove this candidate?"
+        description="The candidate will lose access to this assessment. Existing results will be preserved, and you can restore access later."
+        confirmLabel="Remove candidate"
+        cancelLabel="Keep candidate"
+        variant="destructive"
+        loading={Boolean(
+          pendingRemoval && busyUserId === pendingRemoval.userId,
+        )}
+        onOpenChange={(open) => {
+          if (!open && !busyUserId) setPendingRemoval(null);
+        }}
+        onConfirm={() => {
+          if (pendingRemoval) {
+            void updateStatus(pendingRemoval.userId, "remove");
+          }
         }}
       />
     </Card>
@@ -1226,7 +1323,7 @@ function CandidateDossierDialog({
   const summary = String(
     report.recruiter_summary ||
       report.summary ||
-      "No Antigravity report has been received yet.",
+      "AI interview feedback is not available yet.",
   );
   const strengths = Array.isArray(report.strengths)
     ? report.strengths.map(String)
@@ -1243,11 +1340,10 @@ function CandidateDossierDialog({
             {dossier?.candidate.jobSeekerProfile?.fullName ||
               dossier?.candidate.name ||
               "Candidate"}{" "}
-            · assessment dossier
+            · candidate summary
           </DialogTitle>
           <DialogDescription>
-            Aptitude, DSA, and Antigravity evidence from the ProvenHire Postgres
-            record.
+            Aptitude, coding, SQL, and AI interview results in one place.
           </DialogDescription>
         </DialogHeader>
         {dossier ? (
@@ -1263,7 +1359,7 @@ function CandidateDossierDialog({
                     ? formatDateTime(
                         dossier.modules.aptitude.latest.completedAt,
                       )
-                    : "No persisted result"
+                    : "Not completed"
                 }
               />
               <ReportMetric
@@ -1272,16 +1368,16 @@ function CandidateDossierDialog({
                 detail={
                   dossier.modules.dsa.latest
                     ? formatDateTime(dossier.modules.dsa.latest.completedAt)
-                    : "No persisted result"
+                    : "Not completed"
                 }
               />
               <ReportMetric
-                label="Antigravity"
+                label="AI interview"
                 value={latestAg?.overallScore ?? "Not completed"}
                 detail={
                   latestAg
-                    ? `${latestAg.hireRecommendation || "No verdict"} · ${latestAg._count.telemetryEvents} telemetry facts`
-                    : "No persisted report"
+                    ? `${latestAg.hireRecommendation || "Recommendation pending"} · ${latestAg._count.telemetryEvents} integrity events`
+                    : "Feedback pending"
                 }
               />
             </div>
@@ -1289,10 +1385,10 @@ function CandidateDossierDialog({
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  Workspace round record
+                  Round progress
                 </CardTitle>
                 <CardDescription>
-                  Scores persisted by the workspace attempt pipeline.
+                  Completion status and scores for each configured round.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
@@ -1314,7 +1410,7 @@ function CandidateDossierDialog({
                   ))
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    No workspace attempts yet.
+                    No rounds attempted yet.
                   </p>
                 )}
               </CardContent>
@@ -1323,12 +1419,12 @@ function CandidateDossierDialog({
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  Antigravity recruiter report
+                  AI interview feedback
                 </CardTitle>
                 <CardDescription>
                   {latestAg
-                    ? `${latestAg.schemaVersion} · session ${latestAg.antigravitySessionId}`
-                    : "Awaiting report delivery"}
+                    ? `Received ${formatDateTime(latestAg.receivedAt)}`
+                    : "Feedback is still being prepared"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1350,7 +1446,7 @@ function CandidateDossierDialog({
                     <ReportMetric
                       label="Confidence"
                       value={latestAg.confidenceScore ?? "—"}
-                      detail="Evaluator confidence"
+                      detail="Confidence in the evaluation"
                     />
                     <ReportMetric
                       label="Evidence turns"
@@ -1359,12 +1455,12 @@ function CandidateDossierDialog({
                           ? latestAg.transcript.length
                           : 0
                       }
-                      detail="Question/answer interactions"
+                      detail="Questions with recorded evidence"
                     />
                     <ReportMetric
                       label="Received"
                       value={formatDateTime(latestAg.receivedAt)}
-                      detail="Durable ingestion time"
+                      detail="When feedback became available"
                     />
                   </div>
                 ) : null}
@@ -1471,7 +1567,7 @@ export function WorkspaceLeaderboardPreview({
           Leaderboard Preview
         </CardTitle>
         <CardDescription>
-          Public ranking preview for this workspace.
+          Preview the ranking candidates can see for this assessment.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 sm:p-6 pt-0">
@@ -1560,7 +1656,7 @@ export function WorkspaceOverviewCard({ workspace }: { workspace: Workspace }) {
       </CardHeader>
       <CardContent className="p-4 sm:p-6 pt-0">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <SummaryItem label="Code" value={workspace.code} mono />
+          <SummaryItem label="Invitation code" value={workspace.code} mono />
           <SummaryItem
             label="Access"
             value={
@@ -1587,7 +1683,7 @@ export function WorkspaceRoundsTable({ rounds }: { rounds: WorkspaceRound[] }) {
           Rounds
         </CardTitle>
         <CardDescription>
-          Published configuration for each workspace round.
+          The published order, format, duration, and scoring weight for each round.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 sm:p-6 pt-0">
@@ -1754,10 +1850,10 @@ export function WorkspaceTabs({
           </TabsTrigger>
           <TabsTrigger value="registrations" className="shrink-0">
             <Users className="h-3 w-3 mr-1" />
-            Registrations
+            Candidates
           </TabsTrigger>
           <TabsTrigger value="allowlist" className="shrink-0">
-            Allowlist
+            Invitations
           </TabsTrigger>
           <TabsTrigger value="leaderboard" className="shrink-0">
             <BarChart3 className="h-3 w-3 mr-1" />
@@ -1784,10 +1880,9 @@ export function WorkspaceTabs({
         ) : (
           <Card>
             <CardHeader className="p-4 sm:p-6">
-              <CardTitle className="text-base sm:text-lg">Allowlist</CardTitle>
+              <CardTitle className="text-base sm:text-lg">Candidate invitations</CardTitle>
               <CardDescription>
-                This workspace is public, so candidates can join with the
-                workspace code.
+                This assessment is open to anyone with its invitation code, so a separate invite list is not needed.
               </CardDescription>
             </CardHeader>
           </Card>

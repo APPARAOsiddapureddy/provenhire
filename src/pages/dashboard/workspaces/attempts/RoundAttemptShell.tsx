@@ -35,6 +35,7 @@ export default function RoundAttemptShell({
   secondsRemaining,
   onExpired,
   isFinalized = false,
+  initialProctoringState = null,
   children,
 }: {
   workspaceCode: string;
@@ -46,6 +47,7 @@ export default function RoundAttemptShell({
   secondsRemaining: number | null;
   onExpired?: () => void;
   isFinalized?: boolean;
+  initialProctoringState?: ProctoringState | null;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -56,7 +58,7 @@ export default function RoundAttemptShell({
     refetch: refetchFlags,
     getMode,
   } = useFeatureFlags();
-  const [proctoringState, setProctoringState] = useState<ProctoringState | null>(null);
+  const [proctoringState, setProctoringState] = useState<ProctoringState | null>(initialProctoringState);
   const [remaining, setRemaining] = useState(secondsRemaining);
   const [isFullScreen, setIsFullScreen] = useState(() => typeof document !== "undefined" && !!document.fullscreenElement);
   const [integrityTerminated, setIntegrityTerminated] = useState(false);
@@ -64,6 +66,13 @@ export default function RoundAttemptShell({
   const proctorVideoRef = useRef<HTMLVideoElement | null>(null);
   const cleanedUpRef = useRef(false);
   const terminationRef = useRef(false);
+
+  useEffect(() => {
+    if (!initialProctoringState) return;
+    cleanedUpRef.current = false;
+    proctoringRef.current = initialProctoringState;
+    setProctoringState(initialProctoringState);
+  }, [initialProctoringState]);
 
   const stopProctoring = useCallback(() => {
     if (cleanedUpRef.current) return;
@@ -262,6 +271,7 @@ export default function RoundAttemptShell({
             testName={title}
             enableScreenShare={false}
             requireFullscreen={flagEnabled("fullscreen_required")}
+            tabSwitchMode={tabSwitchMode}
             skipSetup={
               !flagEnabled("camera_required") &&
               !flagEnabled("screen_recording_enabled") &&
@@ -331,7 +341,7 @@ export default function RoundAttemptShell({
             </div>
           </div>
         ) : null}
-        {!isFinalized && !isFullScreen ? (
+        {!isFinalized && flagEnabled("fullscreen_required") && !isFullScreen ? (
           <div className="workspace-fullscreen-lock">
             <div className="workspace-fullscreen-lock__panel">
               <div className="workspace-fullscreen-lock__icon">

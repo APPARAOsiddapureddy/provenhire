@@ -86,9 +86,7 @@ export type UserWorkspaceRegistration = {
 
 export type UserWorkspaceLeaderboardRow = {
   rank: number;
-  userId: string;
-  name: string | null;
-  email: string;
+  candidateLabel: string;
   totalScore: number;
   completedRounds: number;
   lastCompletedAt: string | null;

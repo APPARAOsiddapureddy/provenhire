@@ -75,7 +75,7 @@ export default function WorkspaceDetailPage() {
   const copyCode = async () => {
     if (!workspace) return;
     await navigator.clipboard?.writeText(workspace.code);
-    toast.success("Workspace code copied.");
+    toast.success("Invitation code copied.");
   };
 
   const endWorkspace = async () => {
@@ -161,7 +161,7 @@ export default function WorkspaceDetailPage() {
             <div className="flex items-center gap-3 min-w-0">
               <Button variant="outline" size="sm" onClick={() => navigate("/admin/workspaces")}>
                 <ArrowLeft className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Workspaces</span>
+                <span className="hidden sm:inline">Assessments</span>
               </Button>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -177,7 +177,7 @@ export default function WorkspaceDetailPage() {
               <Button asChild variant="outline" size="sm">
                 <Link to={`/admin/workspaces/${workspace.id}/technical-desk`}>
                   <Activity className="mr-2 h-4 w-4" />
-                  Technical desk
+                  Operations &amp; delivery
                 </Link>
               </Button>
               {canEditDraft(workspace) && (
@@ -209,7 +209,7 @@ export default function WorkspaceDetailPage() {
         {workspace.status === "archived" && (
           <Card className="border-destructive/30">
             <CardContent className="p-4 text-sm text-muted-foreground">
-              This workspace is archived. Registration management is locked and candidate-facing lookup is hidden.
+              This assessment is archived. Candidate management is locked and the assessment is no longer discoverable.
             </CardContent>
           </Card>
         )}

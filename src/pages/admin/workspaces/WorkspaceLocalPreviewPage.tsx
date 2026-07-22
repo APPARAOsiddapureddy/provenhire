@@ -798,7 +798,7 @@ const rounds = [
   },
   {
     icon: Code2,
-    name: "DSA round",
+    name: "Coding round",
     detail: "2 coding tasks · 60 minutes",
     state: "Unlocked",
   },
@@ -810,8 +810,8 @@ const rounds = [
   },
   {
     icon: RadioTower,
-    name: "Placement Readiness interview",
-    detail: "Adaptive voice interview · durable report",
+    name: "AI interview",
+    detail: "Adaptive voice interview · feedback within five minutes",
     state: "Unlocked",
   },
 ];
@@ -825,11 +825,11 @@ export default function WorkspaceLocalPreviewPage() {
             <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
               <p className="font-semibold">
-                Local preview mode — authentication and round locks are bypassed
+                Design preview
               </p>
               <p className="mt-1 text-sm text-amber-800">
-                This route and its fixture data only exist when Vite runs in
-                development mode. Production builds redirect it away.
+                Review the assessment, candidate list, and report experience
+                using representative data. No production records are changed.
               </p>
             </div>
           </div>
@@ -839,13 +839,13 @@ export default function WorkspaceLocalPreviewPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                ProvenHire workspace preview
+                Assessment overview
               </p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
                 Backend Engineering Hiring Sprint
               </h1>
               <p className="mt-2 text-muted-foreground">
-                ProvenHire · LOCAL-DEMO · Candidate assessment pipeline
+                ProvenHire · LOCAL-DEMO · 4 rounds
               </p>
             </div>
             <Badge className="bg-emerald-600">All rounds open</Badge>
@@ -854,7 +854,7 @@ export default function WorkspaceLocalPreviewPage() {
 
         <section
           className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
-          aria-label="Unlocked assessment rounds"
+          aria-label="Assessment rounds"
         >
           {rounds.map(({ icon: Icon, name, detail, state }) => (
             <Card key={name}>
@@ -874,8 +874,7 @@ export default function WorkspaceLocalPreviewPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground">
-                  Result persists into the unified candidate dossier shown
-                  below.
+                  Scores and feedback appear in each candidate's results.
                 </p>
               </CardContent>
             </Card>

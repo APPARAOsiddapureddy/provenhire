@@ -32,6 +32,8 @@ interface ProctoringSetupGateProps {
   skipSetup?: boolean;
   /** Require successful browser fullscreen before the assessment can begin. */
   requireFullscreen?: boolean;
+  /** Whether tab switching is disabled, monitored, or strictly enforced. */
+  tabSwitchMode?: "OFF" | "MONITOR" | "STRICT";
 }
 
 const ProctoringSetupGate = ({
@@ -42,6 +44,7 @@ const ProctoringSetupGate = ({
   isRetry = false,
   skipSetup = false,
   requireFullscreen = true,
+  tabSwitchMode = "STRICT",
 }: ProctoringSetupGateProps) => {
   const [state, setState] = useState<ProctoringState>({
     screenShare: "pending",
@@ -194,13 +197,6 @@ const ProctoringSetupGate = ({
     }
     await requestCameraAndMic();
   };
-
-  // On retry, auto-request permissions so browser may reuse recently granted access (avoids repeated prompts)
-  useEffect(() => {
-    if (isRetry && (state.camera === "pending" || state.microphone === "pending")) {
-      requestAll();
-    }
-  }, [isRetry]);
 
   const canProceed =
     state.camera === "granted" &&
@@ -417,8 +413,9 @@ const ProctoringSetupGate = ({
           <div className="grid gap-2 text-sm text-[var(--dash-text-muted)]">
             <p>✓ Camera access required</p>
             <p>✓ Microphone access required</p>
-            <p>✓ Fullscreen required</p>
-            <p>✓ No tab switching allowed</p>
+            {requireFullscreen ? <p>✓ Fullscreen required</p> : null}
+            {tabSwitchMode === "STRICT" ? <p>✓ Repeated tab switching can end the attempt</p> : null}
+            {tabSwitchMode === "MONITOR" ? <p>✓ Tab switches are recorded for review</p> : null}
             {enableScreenShare && <p>✓ Screen sharing required</p>}
           </div>
           <p className="text-xs text-[var(--dash-text-muted)]">
