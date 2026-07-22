@@ -238,8 +238,13 @@ function citationParts(reference: string) {
 }
 
 function excerptMatches(actual: string, excerpt: string) {
-  const normalizedActual = actual.trim().toLocaleLowerCase();
-  const normalizedExcerpt = excerpt.trim().toLocaleLowerCase();
+  // Structured-output providers can normalize indentation and line endings in
+  // copied source snippets. Treat whitespace-only changes as equivalent, then
+  // canonicalize the stored citation back to the exact persisted scalar.
+  const normalize = (value: string) =>
+    value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  const normalizedActual = normalize(actual);
+  const normalizedExcerpt = normalize(excerpt);
   return normalizedActual === normalizedExcerpt || normalizedActual.includes(normalizedExcerpt);
 }
 

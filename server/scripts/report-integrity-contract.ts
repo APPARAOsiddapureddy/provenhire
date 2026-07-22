@@ -230,6 +230,13 @@ assert.equal(
   ),
   "/interview/latest/report/scorecard/recurringStrengths/0 :: Project ownership",
 );
+assert.equal(
+  canonicalizeAssessmentCitation(
+    "/dsa/submissions/0/code :: def solve(values):\n return sorted(values)",
+    { dsa: { submissions: [{ code: "def solve(values):\n    return sorted(values)" }] } },
+  ),
+  "/dsa/submissions/0/code :: def solve(values):\n    return sorted(values)",
+);
 const repairedGrounding = canonicalizeAssessmentReportCitations(
   {
     reinforcingSignals: [{
