@@ -145,7 +145,7 @@ function DsaConsolePanel({ result, message }: { result: RunTestResult | null; me
   );
 }
 
-export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspaceCode: string; sessionId: string }) {
+export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId }: { workspaceCode: string; attemptId: string; sessionId: string }) {
   const [snapshot, setSnapshot] = useState<DsaSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [language, setLanguage] = useState<ProgrammingLanguage>("python");
@@ -310,7 +310,7 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} title="DSA Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="dsa" title="DSA Round" subtitle="Loading session" secondsRemaining={null}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -321,6 +321,9 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
   return (
     <RoundAttemptShell
       workspaceCode={workspaceCode}
+      attemptId={attemptId}
+      sessionId={sessionId}
+      testType="dsa"
       title={snapshot.workspaceAttempt.round.name}
       subtitle={`Problem ${activeIndex + 1} of ${snapshot.questions.length}`}
       secondsRemaining={snapshot.session.secondsRemaining}

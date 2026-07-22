@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { PageLoaderFullScreen } from "@/components/PageLoader";
 import type { WorkspaceCandidateDossier } from "./types";
+import UserWorkspaceShell from "../../dashboard/workspaces/UserWorkspaceShell";
 import {
   preview,
   workspaceId as localWorkspaceId,
@@ -1675,6 +1676,14 @@ function CandidateAptitudeReport({
 }) {
   const latest = dossier.modules.aptitude.latest;
   const workspace = dossier.modules.aptitude.workspaceEvidence;
+  if (!latest && !workspace) {
+    return (
+      <MissingModule
+        name="Aptitude"
+        message="Complete the aptitude round to unlock your question-by-question feedback."
+      />
+    );
+  }
   const answers = workspace ? asRecord(workspace) : asRecord(latest?.answers);
   const score = workspace?.score ?? latest?.score ?? null;
   const review = asList(answers.questionReview).map(asRecord);
@@ -1857,6 +1866,14 @@ function CandidateDsaReport({
 }) {
   const latest = dossier.modules.dsa.latest;
   const workspace = dossier.modules.dsa.workspaceEvidence;
+  if (!latest && !workspace) {
+    return (
+      <MissingModule
+        name="Coding / DSA"
+        message="Complete the coding round to unlock your problem-by-problem report."
+      />
+    );
+  }
   const answers = asRecord(latest?.answers);
   const result = asRecord(dossier.agentReports?.dsa?.result);
   const score = workspace?.score ?? latest?.score ?? null;
@@ -2420,7 +2437,17 @@ function SqlReport({
   audience?: ReportAudience;
 }) {
   const evidence = dossier.modules.sql?.workspaceEvidence;
-  if (!evidence) return <MissingModule name="SQL" />;
+  if (!evidence)
+    return (
+      <MissingModule
+        name="SQL"
+        message={
+          audience === "candidate"
+            ? "Complete the SQL round to unlock your query-by-query report."
+            : undefined
+        }
+      />
+    );
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
@@ -2482,6 +2509,9 @@ function PlacementReadinessReport({
     return <AntigravityReport dossier={dossier} audience={audience} />;
   }
   const latest = interviewModule.latest;
+  if (!latest && interviewModule.legacyAntigravity) {
+    return <AntigravityReport dossier={dossier} audience={audience} />;
+  }
   if (!latest) {
     const status = interviewModule.status;
     return status === "started" || status === "processing" ? (
@@ -2491,7 +2521,26 @@ function PlacementReadinessReport({
           <div><p className="font-semibold">Placement report is being generated</p><p className="mt-1 text-sm">The interview is safely stored. The detailed report should appear here within five minutes after the durable finalization callback arrives.</p></div>
         </CardContent>
       </Card>
-    ) : <MissingModule name="Placement Readiness" />;
+    ) : status === "failed" ? (
+      <Card className="border-rose-300 bg-rose-50">
+        <CardContent className="flex items-start gap-3 p-6 text-rose-950">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">Placement report needs attention</p>
+            <p className="mt-1 text-sm leading-6">
+              Your interview attempt is preserved, but the report could not be
+              finalized. Return to the workspace to retry the interview launch
+              or contact the workspace organizer.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    ) : (
+      <MissingModule
+        name="Placement Readiness"
+        message="Complete the interview to unlock your detailed readiness report."
+      />
+    );
   }
   const report = asRecord(latest.report);
   const scorecard = asRecord(report.scorecard);
@@ -2539,7 +2588,13 @@ function PlacementReadinessReport({
   );
 }
 
-function MissingModule({ name }: { name: string }) {
+function MissingModule({
+  name,
+  message,
+}: {
+  name: string;
+  message?: string;
+}) {
   return (
     <Card>
       <CardContent className="flex items-start gap-3 p-6">
@@ -2547,7 +2602,8 @@ function MissingModule({ name }: { name: string }) {
         <div>
           <p className="font-semibold">{name} report unavailable</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            This candidate has no persisted completed result for this module.
+            {message ||
+              "This candidate has no persisted completed result for this module."}
           </p>
         </div>
       </CardContent>
@@ -2563,7 +2619,7 @@ export default function WorkspaceCandidateReportsPage() {
   }>();
   const [searchParams] = useSearchParams();
   const requested = searchParams.get("module") as ModuleKey | null;
-  const module: ModuleKey = [
+  const requestedModule: ModuleKey = [
     "overview",
     "aptitude",
     "dsa",
@@ -2717,15 +2773,33 @@ export default function WorkspaceCandidateReportsPage() {
       "Candidate",
     [dossier],
   );
-  if (!dossier && !error) return <PageLoaderFullScreen />;
-  if (!dossier)
+  if (!dossier && !error) {
+    if (!selfService) return <PageLoaderFullScreen />;
     return (
-      <main className="min-h-screen bg-muted/30 p-8">
-        <Card className="mx-auto max-w-xl">
-          <CardContent className="p-6 text-rose-700">{error}</CardContent>
-        </Card>
-      </main>
+      <UserWorkspaceShell>
+        <div className="workspace-dashboard-page flex min-h-[420px] items-center justify-center">
+          <div className="flex items-center gap-3 text-[var(--dash-text-muted)]">
+            <Loader2 className="h-7 w-7 animate-spin text-[var(--dash-gold)]" />
+            Loading your assessment reports…
+          </div>
+        </div>
+      </UserWorkspaceShell>
     );
+  }
+  if (!dossier) {
+    const errorCard = (
+      <div className={selfService ? "workspace-dashboard-page" : "p-8"}>
+        <Card className="mx-auto max-w-xl border-rose-300 bg-rose-50">
+          <CardContent className="p-6 text-rose-950">{error}</CardContent>
+        </Card>
+      </div>
+    );
+    return selfService ? (
+      <UserWorkspaceShell>{errorCard}</UserWorkspaceShell>
+    ) : (
+      <main className="min-h-screen bg-muted/30">{errorCard}</main>
+    );
+  }
   const backHref = selfService
     ? `/dashboard/jobseeker/workspaces/${encodeURIComponent(code || "")}`
     : local
@@ -2736,19 +2810,50 @@ export default function WorkspaceCandidateReportsPage() {
     : local
       ? `/local-preview/workspace/candidates/${userId}/reports`
       : `/admin/workspaces/${id}/candidates/${userId}/reports`;
+  const configuredModules = new Set(
+    dossier.synthesis?.requiredModules ??
+      dossier.registration.roundAttempts.map((attempt) =>
+        ({
+          mcq: "aptitude",
+          coding: "dsa",
+          sql: "sql",
+          interview: "interview",
+        })[attempt.roundType],
+      ),
+  );
   const modules: Array<{ key: ModuleKey; label: string; icon: typeof Target }> =
     [
-      { key: "overview", label: "Unified reasoning", icon: Target },
-      { key: "aptitude", label: "Aptitude report", icon: BrainCircuit },
-      { key: "dsa", label: "DSA report", icon: Code2 },
-      { key: "sql", label: "SQL report", icon: Database },
-      { key: "interview", label: "Placement interview", icon: RadioTower },
-      { key: "antigravity", label: "Antigravity report", icon: RadioTower },
+      { key: "overview", label: selfService ? "All feedback" : "Unified reasoning", icon: Target },
+      ...(configuredModules.has("aptitude") || dossier.modules.aptitude.workspaceEvidence
+        ? [{ key: "aptitude" as const, label: "Aptitude", icon: BrainCircuit }]
+        : []),
+      ...(configuredModules.has("dsa") || dossier.modules.dsa.workspaceEvidence
+        ? [{ key: "dsa" as const, label: "Coding / DSA", icon: Code2 }]
+        : []),
+      ...(configuredModules.has("sql") || dossier.modules.sql.workspaceEvidence
+        ? [{ key: "sql" as const, label: "SQL", icon: Database }]
+        : []),
+      ...(configuredModules.has("interview") ||
+      dossier.modules.interview.latest ||
+      dossier.modules.interview.legacyAntigravity
+        ? [{ key: "interview" as const, label: "Placement interview", icon: RadioTower }]
+        : []),
+      ...(!selfService && dossier.modules.antigravity.latest
+        ? [{ key: "antigravity" as const, label: "Antigravity archive", icon: RadioTower }]
+        : []),
     ];
+  const module = modules.some((item) => item.key === requestedModule)
+    ? requestedModule
+    : "overview";
 
-  return (
-    <main className="min-h-screen bg-muted/30 px-4 py-6 md:px-8">
-      <div className="mx-auto min-w-0 max-w-7xl space-y-5">
+  const reportContent = (
+      <div
+        className={
+          selfService
+            ? "workspace-dashboard-page workspace-report-page space-y-5"
+            : "mx-auto min-w-0 max-w-7xl space-y-5"
+        }
+      >
         {local ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Local preview mode: this uses production-shaped dossier data without
@@ -2760,7 +2865,13 @@ export default function WorkspaceCandidateReportsPage() {
             {decisionError}
           </div>
         ) : null}
-        <header className="rounded-xl border bg-background p-5 shadow-sm md:p-7">
+        <header
+          className={
+            selfService
+              ? "dashboard-hero-card p-5 md:p-7"
+              : "rounded-xl border bg-background p-5 shadow-sm md:p-7"
+          }
+        >
           <Button asChild variant="ghost" size="sm" className="mb-4 -ml-3">
             <Link to={backHref}>
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -2770,13 +2881,13 @@ export default function WorkspaceCandidateReportsPage() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                Candidate assessment dossier
+                {selfService ? "Workspace assessment center" : "Candidate assessment dossier"}
               </p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
-                {candidateName}
+                {selfService ? "My assessment reports" : candidateName}
               </h1>
               <p className="mt-2 break-words text-muted-foreground">
-                {dossier.candidate.email} ·{" "}
+                {selfService ? `Workspace ${code} · ` : `${dossier.candidate.email} · `}
                 {dossier.synthesis?.roleRubric?.targetRole ||
                   "Employer target role not recorded"}
               </p>
@@ -2829,7 +2940,7 @@ export default function WorkspaceCandidateReportsPage() {
           </section>
         ) : null}
         <nav
-          className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-2 lg:grid-cols-6"
+          className="flex flex-wrap gap-2 rounded-xl border bg-background p-2"
           aria-label="Candidate report modules"
         >
           {modules.map(({ key, label, icon: Icon }) => (
@@ -2837,7 +2948,7 @@ export default function WorkspaceCandidateReportsPage() {
               key={key}
               asChild
               variant={module === key ? "default" : "ghost"}
-              className="min-w-0 justify-start whitespace-normal"
+              className="min-w-[10rem] flex-1 justify-start whitespace-normal"
             >
               <Link to={`${baseHref}?module=${key}&audience=${audience}`}>
                 <Icon className="mr-2 h-4 w-4" />
@@ -2889,6 +3000,12 @@ export default function WorkspaceCandidateReportsPage() {
           <PlacementReadinessReport dossier={dossier} />
         )}
       </div>
+  );
+  return selfService ? (
+    <UserWorkspaceShell>{reportContent}</UserWorkspaceShell>
+  ) : (
+    <main className="min-h-screen bg-muted/30 px-4 py-6 md:px-8">
+      {reportContent}
     </main>
   );
 }

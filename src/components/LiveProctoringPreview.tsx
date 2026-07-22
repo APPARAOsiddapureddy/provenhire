@@ -51,8 +51,6 @@ const LiveProctoringPreview = forwardRef<HTMLVideoElement | null, LiveProctoring
     }
   }, [cameraStream]);
 
-  if (!cameraStream) return null;
-
   useEffect(() => {
     if (!isFixedOverlay) return;
     try {
@@ -136,6 +134,11 @@ const LiveProctoringPreview = forwardRef<HTMLVideoElement | null, LiveProctoring
     isFixedOverlay && overlayPos
       ? { left: overlayPos.x, top: overlayPos.y, right: "auto", transform: "none" as const }
       : defaultStyle;
+
+  // Keep every hook above this guard. The stream is intentionally null during
+  // setup, so returning before the remaining hooks would change hook order when
+  // proctoring starts.
+  if (!cameraStream) return null;
 
   return (
     <div

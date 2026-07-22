@@ -55,6 +55,73 @@ export function sanitizeAntigravityReportForCandidate(value: unknown) {
   };
 }
 
+function numericRecord(value: unknown): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(record(value)).flatMap(([key, raw]) => {
+      const parsed = optionalNumber(raw);
+      return parsed == null ? [] : [[key, parsed]];
+    }),
+  );
+}
+
+/**
+ * Placement Readiness artifacts can contain reviewer-only fields alongside
+ * candidate coaching. Build the candidate payload from an allowlist so adding
+ * a new recruiter field upstream can never expose it here by accident.
+ */
+export function sanitizePlacementReportForCandidate(value: unknown) {
+  const report = record(value);
+  const scorecard = record(report.scorecard);
+  const verdict = record(report.readinessVerdict);
+  const validation = record(report.validationSummary);
+  const delivery = record(report.deliveryRead);
+  const ownership = record(report.projectOwnershipRead);
+  const questionReviews = Array.isArray(report.questionReviews)
+    ? report.questionReviews.map((raw) => {
+        const question = record(raw);
+        return {
+          slotId: optionalString(question.slotId),
+          slotLabel: optionalString(question.slotLabel),
+          answerBand: optionalString(question.answerBand),
+          questionText: optionalString(question.questionText),
+          answerSummary: optionalString(question.answerSummary),
+          whatWasGood: stringArray(question.whatWasGood),
+          strongerAnswerWouldInclude: stringArray(
+            question.strongerAnswerWouldInclude,
+          ),
+        };
+      })
+    : [];
+
+  return {
+    scorecard: {
+      overallScore: optionalNumber(scorecard.overallScore),
+      readinessBand: optionalString(scorecard.readinessBand),
+      reasoningSummary: optionalString(scorecard.reasoningSummary),
+      dimensionScores: numericRecord(scorecard.dimensionScores),
+    },
+    readinessVerdict: {
+      summary: optionalString(verdict.summary),
+    },
+    validationSummary: {
+      validationPassed: validation.validationPassed === true,
+    },
+    strongestConvertingSignals: stringArray(report.strongestConvertingSignals),
+    avoidableRejectionRisks: stringArray(report.avoidableRejectionRisks),
+    deliveryRead: {
+      summary: optionalString(delivery.summary),
+      pressureHandlingSignal: optionalString(delivery.pressureHandlingSignal),
+    },
+    projectOwnershipRead: {
+      summary: optionalString(ownership.summary),
+      authenticitySignal: optionalString(ownership.authenticitySignal),
+    },
+    questionReviews,
+    sevenDayPlan: stringArray(report.sevenDayPlan),
+    thirtyDayPlan: stringArray(report.thirtyDayPlan),
+  };
+}
+
 export function sanitizeAssessmentGenerationForCandidate(
   value: unknown,
   kind: "dsa" | "unified",

@@ -16,6 +16,7 @@ import {
   sanitizeAntigravityReportForCandidate,
   sanitizeAssessmentGenerationForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
+  sanitizePlacementReportForCandidate,
 } from "./candidateDossierSanitizer.js";
 import { assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 import { createAntigravityReportAccessToken } from "./antigravityReportAccess.service.js";
@@ -1713,6 +1714,14 @@ export async function getWorkspaceCandidateDossier(
         ),
       }
     : null;
+  const candidatePlacementReport = managerPlacementReport
+    ? {
+        ...managerPlacementReport,
+        report: sanitizePlacementReportForCandidate(
+          managerPlacementReport.report,
+        ),
+      }
+    : null;
 
   return {
     ...dossier,
@@ -1765,7 +1774,11 @@ export async function getWorkspaceCandidateDossier(
             }
           : null,
       },
-      interview: dossier.modules.interview,
+      interview: {
+        ...dossier.modules.interview,
+        latest: candidatePlacementReport,
+        legacyAntigravity: candidateAntigravityReport,
+      },
       antigravity: {
         latest: candidateAntigravityReport,
         history: [],

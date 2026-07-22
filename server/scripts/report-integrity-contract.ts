@@ -4,6 +4,7 @@ import {
   CANDIDATE_FORBIDDEN_REPORT_KEYS,
   sanitizeAntigravityReportForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
+  sanitizePlacementReportForCandidate,
 } from "../src/services/candidateDossierSanitizer.js";
 import {
   assertGroundedAssessmentReport,
@@ -76,6 +77,42 @@ const dsaJson = JSON.stringify(candidateDsa);
 assert.equal(dsaJson.includes("secret hidden input"), false);
 assert.equal(dsaJson.includes("secret expected"), false);
 assert.equal(dsaJson.includes("public"), true);
+
+const candidatePlacement = sanitizePlacementReportForCandidate({
+  scorecard: {
+    overallScore: 82,
+    readinessBand: "interview ready",
+    reasoningSummary: "Clear, evidence-backed answers.",
+    dimensionScores: { communication: 84, technicalDepth: 79 },
+    privateDecisionScore: 0.91,
+  },
+  readinessVerdict: {
+    summary: "Ready for a focused follow-up.",
+    hiringRecommendation: "ADVANCE",
+  },
+  strongestConvertingSignals: ["Explained a concrete trade-off."],
+  avoidableRejectionRisks: ["Needs a clearer recovery invariant."],
+  questionReviews: [
+    {
+      slotId: "q1",
+      questionText: "How do you recover after a crash?",
+      answerBand: "partial",
+      whatWasGood: ["Named idempotency."],
+      strongerAnswerWouldInclude: ["Bind write and acknowledgement."],
+      recruiterNote: "Do not expose this note.",
+    },
+  ],
+  sevenDayPlan: ["Practice one recovery design."],
+  hireRecommendation: "ADVANCE",
+  transcript: [{ private: true }],
+  telemetrySummary: { private: true },
+});
+const placementJson = JSON.stringify(candidatePlacement);
+assert.equal(placementJson.includes("ADVANCE"), false);
+assert.equal(placementJson.includes("recruiterNote"), false);
+assert.equal(placementJson.includes("transcript"), false);
+assert.equal(placementJson.includes("telemetrySummary"), false);
+assert.equal(placementJson.includes("Explained a concrete trade-off."), true);
 
 const groundedEvidence = { modules: { dsa: { score: 88 } } };
 assert.doesNotThrow(() =>
@@ -188,4 +225,4 @@ assert.equal(complete.decisionStatus, "human_review_required");
 assert.equal(complete.recommendation, "HUMAN REVIEW REQUIRED");
 assert.equal(complete.evidenceBasis.antigravityVerdict, null);
 
-console.log("report integrity contract: 7/7 passed");
+console.log("report integrity contract: 8/8 passed");

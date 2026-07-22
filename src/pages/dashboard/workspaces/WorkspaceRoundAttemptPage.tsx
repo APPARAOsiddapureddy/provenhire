@@ -92,6 +92,7 @@ export default function WorkspaceRoundAttemptPage() {
     return (
       <McqRoundRunner
         workspaceCode={workspaceCode}
+        attemptId={attempt.attemptId}
         sessionId={attempt.sessionId}
       />
     );
@@ -100,6 +101,7 @@ export default function WorkspaceRoundAttemptPage() {
     return (
       <DsaRoundRunner
         workspaceCode={workspaceCode}
+        attemptId={attempt.attemptId}
         sessionId={attempt.sessionId}
       />
     );
@@ -108,6 +110,7 @@ export default function WorkspaceRoundAttemptPage() {
     return (
       <SqlRoundRunner
         workspaceCode={workspaceCode}
+        attemptId={attempt.attemptId}
         sessionId={attempt.sessionId}
       />
     );

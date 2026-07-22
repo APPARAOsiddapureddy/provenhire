@@ -23,9 +23,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  BarChart3,
+  CheckCircle2,
   ClipboardList,
   Loader2,
   Lock,
+  ShieldAlert,
   Trophy,
   Users,
 } from "lucide-react";
@@ -346,14 +349,15 @@ function WorkspaceRounds({
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <Table className="min-w-[760px]">
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Round</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Questions</TableHead>
                 <TableHead>Time</TableHead>
-                <TableHead>Score</TableHead>
+                <TableHead>Weight</TableHead>
+                <TableHead>Result</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -380,11 +384,32 @@ function WorkspaceRounds({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{round.type}</Badge>
+                      <Badge variant="outline">
+                        {{
+                          mcq: "Aptitude",
+                          coding: "Coding / DSA",
+                          sql: "SQL",
+                          interview: "AI interview",
+                        }[round.type]}
+                      </Badge>
                     </TableCell>
                     <TableCell>{round.questionCount}</TableCell>
                     <TableCell>{round.timeLimitMins} min</TableCell>
                     <TableCell>{round.scoreWeightage}%</TableCell>
+                    <TableCell>
+                      {attempt?.status === "completed" ||
+                      attempt?.status === "auto_completed" ? (
+                        <span className="font-semibold text-emerald-200">
+                          {attempt.percentageScore ?? attempt.score ?? "—"}/100
+                        </span>
+                      ) : attempt?.status === "active" ? (
+                        <span className="text-amber-200">In progress</span>
+                      ) : attempt?.status === "discarded" ? (
+                        <span className="font-medium text-red-200">Invalidated</span>
+                      ) : (
+                        <span className="text-[var(--dash-text-muted)]">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <RoundAction
                         round={round}
@@ -418,14 +443,39 @@ function RoundAction({
   attempt?: UserWorkspaceRoundAttempt;
   previousComplete: boolean;
 }) {
-  if (attempt?.status === "completed" || attempt?.status === "auto_completed") {
+  if (attempt?.status === "discarded") {
     return (
-      <Badge
-        variant="outline"
-        className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
-      >
-        Completed
-      </Badge>
+      <div className="flex items-center justify-end gap-2 text-red-200">
+        <ShieldAlert className="h-4 w-4" />
+        <span className="text-sm font-medium">Integrity review required</span>
+      </div>
+    );
+  }
+  if (attempt?.status === "completed" || attempt?.status === "auto_completed") {
+    const module = {
+      mcq: "aptitude",
+      coding: "dsa",
+      sql: "sql",
+      interview: "interview",
+    }[round.type];
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <Badge
+          variant="outline"
+          className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+        >
+          <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+          Completed
+        </Badge>
+        <Button size="sm" variant="outline" asChild>
+          <Link
+            to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/reports?module=${module}`}
+          >
+            <BarChart3 className="mr-2 h-4 w-4" />
+            View report
+          </Link>
+        </Button>
+      </div>
     );
   }
   const placementStatus = attempt?.placementReadinessHandoff?.status;

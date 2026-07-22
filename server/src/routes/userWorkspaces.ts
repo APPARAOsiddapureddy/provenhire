@@ -9,6 +9,7 @@ import {
   startUserWorkspaceRoundController,
 } from "../controllers/userWorkspace.controller.js";
 import { requireAuth, requireJobSeeker } from "../middleware/auth.js";
+import { invalidateWorkspaceRoundAttemptController } from "../controllers/workspaceAttempt.controller.js";
 
 export const userWorkspacesRouter = Router();
 
@@ -48,4 +49,10 @@ userWorkspacesRouter.post(
   requireAuth,
   requireJobSeeker,
   startUserWorkspaceRoundController,
+);
+userWorkspacesRouter.post(
+  "/attempts/:attemptId/invalidate",
+  requireAuth,
+  requireJobSeeker,
+  invalidateWorkspaceRoundAttemptController,
 );
