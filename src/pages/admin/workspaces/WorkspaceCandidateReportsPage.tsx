@@ -2057,12 +2057,24 @@ function AntigravityReport({
   const isLocalPreviewCandidate =
     import.meta.env.DEV &&
     dossier.candidate.email.endsWith("@provenhire.local");
+  const defaultPublicAntigravityUrl = import.meta.env.DEV
+    ? "http://localhost:3000"
+    : "https://antigravity-gz2r.vercel.app";
+  const configuredPublicAntigravityUrl = String(
+    import.meta.env.VITE_ANTIGRAVITY_PUBLIC_URL || "",
+  ).trim();
+  const publicAntigravityUrl =
+    import.meta.env.PROD &&
+    /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::|\/|$)/i.test(
+      configuredPublicAntigravityUrl,
+    )
+      ? defaultPublicAntigravityUrl
+      : configuredPublicAntigravityUrl || defaultPublicAntigravityUrl;
   const baseUrl = String(
     isLocalPreviewCandidate
       ? import.meta.env.VITE_ANTIGRAVITY_LOCAL_PREVIEW_URL ||
           "http://localhost:3001"
-      : import.meta.env.VITE_ANTIGRAVITY_PUBLIC_URL ||
-          "http://localhost:3000",
+      : publicAntigravityUrl,
   ).replace(/\/$/, "");
   const previewCaseId = String(report.preview_replay_case_id || "");
   const reportAccessToken = latest.reportAccessToken || "";
