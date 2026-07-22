@@ -6,7 +6,7 @@ import { WorkspaceServiceError } from "./workspace.service.js";
 import { getWorkspaceCandidateDossier, type WorkspaceActor } from "./workspaceRegistration.service.js";
 import { assessmentEvidenceFor, assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 
-export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v3_grounded_routing";
+export const REPORT_AGENT_PROMPT_VERSION = "assessment_report_agents_v4_grounded_citations";
 export const REPORT_AGENT_MODEL = process.env.REPORT_AGENT_MODEL?.trim() || "google/gemini-2.5-flash";
 export const REPORT_UNIFIED_ESCALATION_MODEL = process.env.REPORT_UNIFIED_ESCALATION_MODEL?.trim() || "google/gemini-3.1-pro-preview";
 export const REPORT_UNIFIED_ESCALATION_ENABLED = process.env.REPORT_UNIFIED_ESCALATION_ENABLED?.trim().toLowerCase() !== "false";
@@ -185,6 +185,115 @@ function resolveJsonPointer(root: unknown, pointer: string): unknown {
     }, root);
 }
 
+function scalarEvidenceText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean" || value === null) return String(value);
+  return null;
+}
+
+function encodeJsonPointerPart(value: string): string {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+function collectEvidenceScalars(
+  value: unknown,
+  pointer = "",
+  rows: Array<{ pointer: string; value: string }> = [],
+) {
+  const scalar = scalarEvidenceText(value);
+  if (scalar !== null && pointer) {
+    rows.push({ pointer, value: scalar });
+    return rows;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      collectEvidenceScalars(item, `${pointer}/${index}`, rows));
+    return rows;
+  }
+  if (value && typeof value === "object") {
+    Object.entries(value as Record<string, unknown>).forEach(([key, item]) =>
+      collectEvidenceScalars(item, `${pointer}/${encodeJsonPointerPart(key)}`, rows));
+  }
+  return rows;
+}
+
+function citationParts(reference: string) {
+  const separator = reference.indexOf(" :: ");
+  if (separator <= 0) return null;
+  const pointer = reference.slice(0, separator).trim();
+  const excerpt = reference.slice(separator + 4).trim();
+  return pointer.startsWith("/") && excerpt ? { pointer, excerpt } : null;
+}
+
+function excerptMatches(actual: string, excerpt: string) {
+  const normalizedActual = actual.trim().toLocaleLowerCase();
+  const normalizedExcerpt = excerpt.trim().toLocaleLowerCase();
+  return normalizedActual === normalizedExcerpt || normalizedActual.includes(normalizedExcerpt);
+}
+
+function knownCitationPointerRepairs(pointer: string) {
+  const candidates = [pointer];
+  if (/\/interview\/latest\/report\/(recurringStrengths|recurringWeaknesses)\//.test(pointer)) {
+    candidates.push(pointer.replace("/interview/latest/report/", "/interview/latest/report/scorecard/"));
+  }
+  return candidates;
+}
+
+export function canonicalizeAssessmentCitation(
+  reference: string,
+  evidence: unknown,
+): string | null {
+  const parsed = citationParts(reference);
+  if (!parsed) return null;
+  for (const pointer of knownCitationPointerRepairs(parsed.pointer)) {
+    const source = scalarEvidenceText(resolveJsonPointer(evidence, pointer));
+    if (source !== null && excerptMatches(source, parsed.excerpt))
+      return `${pointer} :: ${source}`;
+  }
+
+  const requestedParts = parsed.pointer.split("/").filter(Boolean);
+  const requestedSuffix = requestedParts.slice(-2).join("/");
+  const matches = collectEvidenceScalars(evidence)
+    .filter((row) => excerptMatches(row.value, parsed.excerpt))
+    .map((row) => ({
+      ...row,
+      suffixMatch: row.pointer.split("/").filter(Boolean).slice(-2).join("/") === requestedSuffix,
+    }));
+  const suffixMatches = matches.filter((row) => row.suffixMatch);
+  const candidates = suffixMatches.length ? suffixMatches : matches;
+  if (candidates.length !== 1) return null;
+  return `${candidates[0].pointer} :: ${candidates[0].value}`;
+}
+
+export function canonicalizeAssessmentReportCitations(
+  result: unknown,
+  evidence: unknown,
+): unknown {
+  if (Array.isArray(result))
+    return result.map((item) => canonicalizeAssessmentReportCitations(item, evidence));
+  if (!result || typeof result !== "object") return result;
+  return Object.fromEntries(
+    Object.entries(result as Record<string, unknown>).map(([key, value]) => {
+      if (key === "evidence" && Array.isArray(value)) {
+        return [
+          key,
+          value.map((reference) =>
+            canonicalizeAssessmentCitation(String(reference), evidence) ?? String(reference)),
+        ];
+      }
+      return [key, canonicalizeAssessmentReportCitations(value, evidence)];
+    }),
+  );
+}
+
+export function assessmentCitationCatalog(evidence: unknown, limit = 320) {
+  return collectEvidenceScalars(evidence)
+    .filter((row) => row.value.trim().length > 0 && row.value.length <= 500)
+    .slice(0, limit)
+    .map((row) => `${row.pointer} :: ${row.value}`);
+}
+
 export function assertGroundedAssessmentReport(
   result: unknown,
   evidence: unknown,
@@ -210,8 +319,8 @@ export function assertGroundedAssessmentReport(
     const pointer = reference.slice(0, separator).trim();
     const excerpt = reference.slice(separator + 4).trim();
     if (!excerpt) return true;
-    const source = resolveJsonPointer(evidence, pointer);
-    return source === undefined || !JSON.stringify(source).includes(excerpt);
+    const source = scalarEvidenceText(resolveJsonPointer(evidence, pointer));
+    return source === null || source !== excerpt;
   });
   if (invalid.length)
     throw new Error(
@@ -226,6 +335,7 @@ export async function callReportGenerationChain(
 ) {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new WorkspaceServiceError("Report agent unavailable: configure OPENROUTER_API_KEY on the ProvenHire server.", 503);
+  const citationCatalog = assessmentCitationCatalog(evidence);
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://provenhire.in", "X-Title": "ProvenHire Assessment Reports" },
@@ -237,14 +347,17 @@ export async function callReportGenerationChain(
       reasoning: { effort: "high", exclude: true },
       provider: { require_parameters: true },
       response_format: { type: "json_schema", json_schema: { name: `${kind}_assessment_report`, strict: true, schema: jsonSchemaFor(kind) } },
-      messages: [{ role: "system", content: systemPrompt(kind) }, { role: "user", content: `Persisted evidence JSON:\n${JSON.stringify(evidence)}` }],
+      messages: [{ role: "system", content: systemPrompt(kind) }, { role: "user", content: `Persisted evidence JSON:\n${JSON.stringify(evidence)}\n\nCanonical scalar citation catalog (copy citations exactly from this list):\n${citationCatalog.join("\n")}` }],
     }),
   });
   const body = await response.json() as { error?: { message?: string }; choices?: Array<{ message?: { content?: string } }>; usage?: Record<string, unknown> & { cost?: number } };
   if (!response.ok) throw new Error(body.error?.message || `OpenRouter report generation failed (${response.status})`);
   const content = body.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("Report model returned an empty response.");
-  let parsed = schemaFor(kind).parse(JSON.parse(content.replace(/^```json\s*|\s*```$/g, "")));
+  let parsed = schemaFor(kind).parse(canonicalizeAssessmentReportCitations(
+    JSON.parse(content.replace(/^```json\s*|\s*```$/g, "")),
+    evidence,
+  ));
   assertGroundedAssessmentReport(parsed, evidence);
 
   const useCerebrasCritic =
@@ -332,7 +445,10 @@ export async function callReportGenerationChain(
     if (!revisionResponse.ok) throw new Error(revisionBody.error?.message || `Report revision failed (${revisionResponse.status})`);
     const revisionContent = revisionBody.choices?.[0]?.message?.content?.trim();
     if (!revisionContent) throw new Error("Report revision returned an empty response.");
-    parsed = schemaFor(kind).parse(JSON.parse(revisionContent.replace(/^```json\s*|\s*```$/g, "")));
+    parsed = schemaFor(kind).parse(canonicalizeAssessmentReportCitations(
+      JSON.parse(revisionContent.replace(/^```json\s*|\s*```$/g, "")),
+      evidence,
+    ));
     assertGroundedAssessmentReport(parsed, evidence);
     revisionUsage = revisionBody.usage ?? {};
     revisionCost = Number(revisionBody.usage?.cost ?? 0) || 0;

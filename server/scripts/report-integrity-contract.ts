@@ -5,7 +5,11 @@ import {
   sanitizeAntigravityReportForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
 } from "../src/services/candidateDossierSanitizer.js";
-import { assertGroundedAssessmentReport } from "../src/services/assessmentReportAgent.service.js";
+import {
+  assertGroundedAssessmentReport,
+  canonicalizeAssessmentCitation,
+  canonicalizeAssessmentReportCitations,
+} from "../src/services/assessmentReportAgent.service.js";
 import { buildCandidateAssessmentSynthesis } from "../src/services/workspaceRegistration.service.js";
 
 const candidateArtifact = sanitizeAntigravityReportForCandidate({
@@ -103,6 +107,43 @@ assert.throws(() =>
   ),
 );
 
+const placementEvidence = {
+  interview: {
+    latest: {
+      report: {
+        scorecard: {
+          recurringStrengths: ["Project ownership"],
+          recurringWeaknesses: ["Programming logic"],
+        },
+        questionReviews: [{ answerBand: "Good" }],
+      },
+    },
+  },
+};
+assert.equal(
+  canonicalizeAssessmentCitation(
+    "/interview/latest/report/recurringStrengths/0 :: project ownership",
+    placementEvidence,
+  ),
+  "/interview/latest/report/scorecard/recurringStrengths/0 :: Project ownership",
+);
+const repairedGrounding = canonicalizeAssessmentReportCitations(
+  {
+    reinforcingSignals: [{
+      claim: "Grounded placement signal",
+      evidence: [
+        "/interview/latest/report/recurringStrengths/0 :: project ownership",
+        "/interview/latest/report/questionReviews/0/answerBand :: good",
+      ],
+      support: "direct",
+    }],
+  },
+  placementEvidence,
+);
+assert.doesNotThrow(() =>
+  assertGroundedAssessmentReport(repairedGrounding, placementEvidence),
+);
+
 const partial = buildCandidateAssessmentSynthesis({
   aptitude: { score: 91 },
   dsa: { score: 88 },
@@ -147,4 +188,4 @@ assert.equal(complete.decisionStatus, "human_review_required");
 assert.equal(complete.recommendation, "HUMAN REVIEW REQUIRED");
 assert.equal(complete.evidenceBasis.antigravityVerdict, null);
 
-console.log("report integrity contract: 5/5 passed");
+console.log("report integrity contract: 7/7 passed");
