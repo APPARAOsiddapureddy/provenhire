@@ -210,19 +210,63 @@ async function claimJob() {
   return prisma.assessmentWorkflowJob.findUnique({ where: { id: candidate.id } });
 }
 
+async function reconcilePlacementArtifactJobs() {
+  const artifacts = await prisma.placementReadinessArtifact.findMany({
+    orderBy: { receivedAt: "desc" },
+    take: 250,
+    select: {
+      workspaceId: true,
+      userId: true,
+      placementSessionId: true,
+      handoffId: true,
+    },
+  });
+  if (!artifacts.length) return 0;
+  const result = await prisma.assessmentWorkflowJob.createMany({
+    data: artifacts.map((artifact) => ({
+      workspaceId: artifact.workspaceId,
+      userId: artifact.userId,
+      interviewId: artifact.placementSessionId,
+      jobKind: "candidate_report_pipeline",
+      status: "pending",
+      currentStep: "reconciled_after_placement_readiness",
+      context: json({
+        source: "placement_readiness_reconciliation",
+        handoffId: artifact.handoffId,
+        placementSessionId: artifact.placementSessionId,
+      }),
+    })),
+    skipDuplicates: true,
+  });
+  if (result.count > 0) {
+    console.info(JSON.stringify({
+      level: "info",
+      message: "placement_report_jobs_reconciled",
+      count: result.count,
+      timestamp: new Date().toISOString(),
+    }));
+  }
+  return result.count;
+}
+
 async function processJob(job: NonNullable<Awaited<ReturnType<typeof claimJob>>>) {
   const workspace = await prisma.workspace.findUnique({
     where: { id: job.workspaceId },
-    select: { ownerUser: { select: { id: true, role: true } } },
+    select: {
+      ownerUser: { select: { id: true, role: true } },
+      rounds: { select: { type: true } },
+    },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace no longer exists.", 404);
   const actor = { id: workspace.ownerUser.id, role: workspace.ownerUser.role };
 
-  await prisma.assessmentWorkflowJob.update({
-    where: { id: job.id },
-    data: { currentStep: "generating_dsa_report" },
-  });
-  await generateAssessmentReport(actor, job.workspaceId, job.userId, "dsa", false);
+  if (workspace.rounds.some((round) => round.type === "coding")) {
+    await prisma.assessmentWorkflowJob.update({
+      where: { id: job.id },
+      data: { currentStep: "generating_dsa_report" },
+    });
+    await generateAssessmentReport(actor, job.workspaceId, job.userId, "dsa", false);
+  }
   await prisma.assessmentWorkflowJob.update({
     where: { id: job.id },
     data: { currentStep: "generating_unified_report" },
@@ -282,6 +326,7 @@ export async function runAssessmentWorkflowSweep() {
   if (sweepRunning) return;
   sweepRunning = true;
   try {
+    await reconcilePlacementArtifactJobs();
     const job = await claimJob();
     if (!job) return;
     try {
@@ -311,7 +356,8 @@ export function startAssessmentWorkflowWorker() {
 }
 
 export async function listWorkspaceTechnicalDesk(workspaceId: string) {
-  const interviewAttempts = await prisma.workspaceRoundAttempt.findMany({
+  const [interviewAttempts, placementHandoffs] = await Promise.all([
+    prisma.workspaceRoundAttempt.findMany({
     where: { workspaceId, roundType: "interview" },
     select: {
       userId: true,
@@ -328,10 +374,18 @@ export async function listWorkspaceTechnicalDesk(workspaceId: string) {
     },
     orderBy: { startedAt: "desc" },
     take: 500,
-  });
+    }),
+    prisma.placementReadinessHandoff.findMany({
+      where: { workspaceId },
+      orderBy: { updatedAt: "desc" },
+      take: 500,
+      include: { artifact: { select: { id: true, receivedAt: true, reportHash: true } } },
+    }),
+  ]);
   const staleBefore = Date.now() - 30 * 60_000;
   await Promise.all(
-    interviewAttempts.flatMap((attempt) => {
+    [
+      ...interviewAttempts.flatMap((attempt) => {
       const handoff = attempt.interview?.antigravityHandoff;
       if (!handoff) return [];
       if (
@@ -360,7 +414,37 @@ export async function listWorkspaceTechnicalDesk(workspaceId: string) {
         ];
       }
       return [];
-    }),
+      }),
+      ...placementHandoffs.flatMap((handoff) => {
+        const ageMs = Date.now() - handoff.updatedAt.getTime();
+        const stale =
+          (["created", "launched"].includes(handoff.status) && ageMs > 15 * 60_000) ||
+          (["started", "processing"].includes(handoff.status) && ageMs > 30 * 60_000);
+        if (!stale || handoff.artifact) return [];
+        return [
+          upsertAssessmentIncident({
+            dedupeKey: `${handoff.id}:placement_readiness:stale_handoff`,
+            workspaceId,
+            userId: handoff.userId,
+            interviewId: handoff.placementSessionId,
+            handoffId: handoff.id,
+            module: "placement_readiness",
+            issueCode: "stale_handoff",
+            severity: handoff.status === "started" ? "critical" : "high",
+            summary:
+              handoff.status === "started"
+                ? "Placement Readiness started but no report artifact arrived within 30 minutes."
+                : "Placement Readiness launch was created but the external interview did not start.",
+            detail: {
+              handoffStatus: handoff.status,
+              placementSessionId: handoff.placementSessionId,
+              lastUpdatedAt: handoff.updatedAt,
+              lastError: handoff.lastError,
+            },
+          }),
+        ];
+      }),
+    ],
   );
   const [jobs, incidents] = await Promise.all([
     prisma.assessmentWorkflowJob.findMany({
@@ -381,7 +465,28 @@ export async function listWorkspaceTechnicalDesk(workspaceId: string) {
         select: { id: true, name: true, email: true },
       })
     : [];
-  return { jobs, incidents, interviewAttempts, candidates, generatedAt: new Date().toISOString() };
+  const configuredUrl = process.env.PLACEMENT_READINESS_WEB_URL?.trim() || null;
+  const customDomainReady = process.env.PLACEMENT_READINESS_CUSTOM_DOMAIN_READY === "true";
+  const effectivePlacementWebUrl =
+    configuredUrl === "https://placement.provenhire.in" && !customDomainReady
+      ? process.env.PLACEMENT_READINESS_FALLBACK_WEB_URL?.trim() ||
+        "https://provenhire-placement-ag-ui.vercel.app"
+      : configuredUrl;
+  return {
+    jobs,
+    incidents,
+    interviewAttempts,
+    placementHandoffs,
+    candidates,
+    configuration: {
+      placementReadinessWebUrl: effectivePlacementWebUrl,
+      customDomainReady,
+      handoffSecretConfigured: Boolean(process.env.PLACEMENT_HANDOFF_SHARED_SECRET?.trim()),
+      webhookSecretConfigured: Boolean(process.env.PLACEMENT_WEBHOOK_SECRET?.trim()),
+      openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+    },
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 export async function retryAssessmentWorkflowJob(workspaceId: string, jobId: string) {

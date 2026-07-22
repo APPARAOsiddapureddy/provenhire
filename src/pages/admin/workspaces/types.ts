@@ -83,7 +83,7 @@ export type WorkspaceRegistration = {
 };
 
 export type WorkspaceCandidateDossier = {
-  schemaVersion: "workspace_candidate_dossier_v1";
+  schemaVersion: string;
   workspaceId: string;
   candidate: NonNullable<WorkspaceRegistration["user"]>;
   registration: {
@@ -100,6 +100,7 @@ export type WorkspaceCandidateDossier = {
       completedAt?: string | null;
       dsaRoundSessionId?: string | null;
       mcqSessionId?: string | null;
+      sqlSessionId?: string | null;
       workspaceRound: {
         id: string;
         order: number;
@@ -119,6 +120,10 @@ export type WorkspaceCandidateDossier = {
       | "insufficient_evidence"
       | "human_review_required";
     completedModules: number;
+    requiredModules?: Array<"aptitude" | "dsa" | "sql" | "interview">;
+    completedModuleKeys?: Array<"aptitude" | "dsa" | "sql" | "interview">;
+    readyModuleKeys?: Array<"aptitude" | "dsa" | "sql" | "interview">;
+    missingModuleKeys?: Array<"aptitude" | "dsa" | "sql" | "interview">;
     overallRead: string;
     crossModuleSignals: string[];
     contradictions: string[];
@@ -128,12 +133,15 @@ export type WorkspaceCandidateDossier = {
     evidenceBasis: {
       aptitudeScore: number | null;
       dsaScore: number | null;
+      sqlScore?: number | null;
+      interviewScore?: number | null;
       antigravityScore: number | null;
       antigravityVerdict: string | null;
       scoreSpread: number;
       aptitudeEvidenceComplete?: boolean;
       dsaEvidenceComplete?: boolean;
       antigravityEvidenceComplete?: boolean;
+      moduleScores?: Record<string, number | null>;
     };
     integrity?: {
       status: "blocked" | "verified";
@@ -156,6 +164,9 @@ export type WorkspaceCandidateDossier = {
       aptitude: boolean;
       dsa: boolean;
       antigravity: boolean;
+      sql?: boolean;
+      interview?: boolean;
+      byModule?: Record<string, boolean>;
       issues: string[];
     };
   };
@@ -216,6 +227,46 @@ export type WorkspaceCandidateDossier = {
         timeLimitSeconds: number;
         questionReview: unknown[];
       } | null;
+    };
+    sql: {
+      latest: null;
+      history: unknown[];
+      workspaceEvidence?: {
+        attemptId: string;
+        sessionId: string;
+        score?: number | null;
+        completedAt?: string | null;
+        passedCount?: number | null;
+        totalCount?: number | null;
+        timeTakenSeconds: number;
+        submissions: Array<{
+          id: string;
+          taskId: string;
+          query: string;
+          passedCount: number;
+          totalCount: number;
+          score: number;
+          results?: unknown;
+          submittedAt: string;
+          task?: Record<string, unknown> | null;
+        }>;
+      } | null;
+    };
+    interview: {
+      latest: {
+        source: "placement_readiness";
+        id: string;
+        sessionId: string;
+        schemaVersion: string;
+        reportHash: string;
+        score?: number | null;
+        report: Record<string, unknown>;
+        receivedAt: string;
+        handoffStatus: string;
+      } | null;
+      status: string;
+      lastError?: string | null;
+      legacyAntigravity?: WorkspaceCandidateDossier["modules"]["antigravity"]["latest"];
     };
     dsa: {
       latest: {
@@ -320,6 +371,13 @@ export type AllowlistImportSummary = {
   inserted: number;
   alreadyPresent: number;
   invalidSamples: string[];
+};
+
+export type WorkspaceInvitation = {
+  id: string;
+  workspaceId: string;
+  email: string;
+  createdAt: string;
 };
 
 export type WorkspaceDetailsDraft = {

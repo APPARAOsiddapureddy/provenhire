@@ -19,6 +19,7 @@ import {
 } from "./candidateDossierSanitizer.js";
 import { assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 import { createAntigravityReportAccessToken } from "./antigravityReportAccess.service.js";
+import { listWorkspaceAuditEvents, recordWorkspaceAuditEvent } from "./workspaceAudit.service.js";
 
 export type WorkspaceActor = {
   id: string;
@@ -327,6 +328,149 @@ export function buildCandidateAssessmentSynthesis(input: {
   };
 }
 
+type ConfiguredAssessmentModule = "aptitude" | "dsa" | "sql" | "interview";
+
+export function buildConfiguredCandidateAssessmentSynthesis(input: {
+  configuredModules: ConfiguredAssessmentModule[];
+  aptitude: { score?: number | null } | null;
+  dsa: { score?: number | null } | null;
+  sql: { score?: number | null } | null;
+  interview: {
+    score?: number | null;
+    report?: unknown;
+    artifactRole?: string | null;
+  } | null;
+  targetRole?: string | null;
+  roleResponsibilities?: string[];
+  workspaceInterviewLinked?: boolean;
+  evidenceComplete: Record<ConfiguredAssessmentModule, boolean>;
+}) {
+  const requiredModules = [...new Set(input.configuredModules)];
+  const interviewScore = scorePercent(input.interview?.score, "percent");
+  const base = buildCandidateAssessmentSynthesis({
+    aptitude: input.aptitude,
+    dsa: input.dsa,
+    antigravity: input.interview
+      ? {
+          overallScore: interviewScore === null ? null : interviewScore / 10,
+          report: input.interview.report,
+          interview: { jobRole: input.interview.artifactRole },
+        }
+      : null,
+    targetRole: input.targetRole,
+    roleResponsibilities: input.roleResponsibilities,
+    workspaceInterviewLinked: input.workspaceInterviewLinked,
+    aptitudeEvidenceComplete: input.evidenceComplete.aptitude,
+    dsaEvidenceComplete: input.evidenceComplete.dsa,
+    antigravityEvidenceComplete: input.evidenceComplete.interview,
+  });
+  const scores: Record<ConfiguredAssessmentModule, number | null> = {
+    aptitude: scorePercent(input.aptitude?.score, "percent"),
+    dsa: scorePercent(input.dsa?.score, "percent"),
+    sql: scorePercent(input.sql?.score, "percent"),
+    interview: interviewScore,
+  };
+  const completedModuleKeys = requiredModules.filter(
+    (module) => scores[module] !== null,
+  );
+  const readyModuleKeys = requiredModules.filter(
+    (module) => scores[module] !== null && input.evidenceComplete[module],
+  );
+  const missingModuleKeys = requiredModules.filter(
+    (module) => !readyModuleKeys.includes(module),
+  );
+  const readyScores = readyModuleKeys.map((module) => scores[module]!).filter(Number.isFinite);
+  const spread = readyScores.length > 1
+    ? Math.max(...readyScores) - Math.min(...readyScores)
+    : 0;
+  const integrityBlocked = base.integrity.status === "blocked";
+  const decisionStatus = integrityBlocked
+    ? "blocked_integrity"
+    : missingModuleKeys.length
+      ? "insufficient_evidence"
+      : "human_review_required";
+  const label = (module: ConfiguredAssessmentModule) =>
+    ({ aptitude: "Aptitude", dsa: "Coding", sql: "SQL", interview: "Placement interview" })[module];
+  const evidenceIssues = missingModuleKeys.map((module) =>
+    scores[module] === null
+      ? `${label(module)} has no completed result.`
+      : `${label(module)} has a result but its complete auditable evidence is not retained.`,
+  );
+  const contradictions = base.contradictions.filter(
+    (item) => !item.startsWith("Cross-module comparison is withheld"),
+  );
+  if (
+    readyModuleKeys.includes("dsa") &&
+    readyModuleKeys.includes("sql") &&
+    scores.dsa !== null &&
+    scores.sql !== null &&
+    Math.abs(scores.dsa - scores.sql) >= 15
+  ) {
+    contradictions.push(
+      scores.dsa > scores.sql
+        ? "General coding execution materially exceeds SQL execution; validate relational modeling, joins, aggregation, and query debugging."
+        : "SQL execution materially exceeds general coding execution; validate algorithm design and implementation outside the data layer.",
+    );
+  }
+  if (missingModuleKeys.length) {
+    contradictions.push(
+      "Cross-module comparison is withheld until every configured round has complete, auditable evidence.",
+    );
+  } else if (!contradictions.length) {
+    contradictions.push(
+      "No material cross-module contradiction was detected at the current evidence threshold.",
+    );
+  }
+  const moduleGate = base.decisionGates.find((gate) => gate.key === "module_evidence");
+  if (moduleGate) {
+    moduleGate.status = missingModuleKeys.length ? "incomplete" : "ready";
+    moduleGate.detail = missingModuleKeys.length
+      ? `${readyModuleKeys.length}/${requiredModules.length} configured modules have complete evidence. ${evidenceIssues.join(" ")}`
+      : `All ${requiredModules.length} configured modules have complete, auditable evidence for human review.`;
+  }
+  return {
+    ...base,
+    schemaVersion: "candidate_assessment_synthesis_v3_configured_rounds",
+    recommendation: integrityBlocked
+      ? "DECISION BLOCKED — EVIDENCE BINDING FAILED"
+      : missingModuleKeys.length
+        ? "INSUFFICIENT EVIDENCE"
+        : "HUMAN REVIEW REQUIRED",
+    decisionStatus,
+    completedModules: completedModuleKeys.length,
+    requiredModules,
+    completedModuleKeys,
+    readyModuleKeys,
+    missingModuleKeys,
+    overallRead: integrityBlocked
+      ? base.overallRead
+      : missingModuleKeys.length
+        ? `The dossier is not decision-ready. ${evidenceIssues.join(" ")}`
+        : `All ${requiredModules.length} configured module results are available. Their ${Math.round(spread * 10) / 10}-point spread is evidence to investigate, not a number to average away. A human reviewer must apply the employer-approved role rubric.`,
+    contradictions,
+    evidenceBasis: {
+      ...base.evidenceBasis,
+      aptitudeScore: scores.aptitude,
+      dsaScore: scores.dsa,
+      sqlScore: scores.sql,
+      interviewScore: scores.interview,
+      antigravityScore: scores.interview,
+      scoreSpread: Math.round(spread * 10) / 10,
+      moduleScores: scores,
+    },
+    evidenceCompleteness: {
+      ...base.evidenceCompleteness,
+      aptitude: input.evidenceComplete.aptitude,
+      dsa: input.evidenceComplete.dsa,
+      sql: input.evidenceComplete.sql,
+      interview: input.evidenceComplete.interview,
+      antigravity: input.evidenceComplete.interview,
+      byModule: input.evidenceComplete,
+      issues: evidenceIssues,
+    },
+  };
+}
+
 type LeaderboardCursor = {
   totalScore: number;
   completedRounds: number;
@@ -625,6 +769,16 @@ function registrationWithAttemptsSelect() {
             finalizedAt: true,
           },
         },
+        placementReadinessHandoff: {
+          select: {
+            status: true,
+            placementSessionId: true,
+            lastError: true,
+            expiresAt: true,
+            updatedAt: true,
+            artifact: { select: { id: true, receivedAt: true } },
+          },
+        },
       },
     },
   };
@@ -905,6 +1059,10 @@ export async function listWorkspaceRegistrations(
         select: {
           targetRole: true,
           hiringRubric: true,
+          rounds: {
+            orderBy: { order: "asc" },
+            select: { id: true, order: true, name: true, type: true },
+          },
         },
       },
     },
@@ -965,6 +1123,10 @@ export async function getWorkspaceCandidateDossier(
         select: {
           targetRole: true,
           hiringRubric: true,
+          rounds: {
+            orderBy: { order: "asc" },
+            select: { id: true, order: true, name: true, type: true },
+          },
         },
       },
       roundAttempts: {
@@ -977,6 +1139,26 @@ export async function getWorkspaceCandidateDossier(
               name: true,
               type: true,
               scoreWeightage: true,
+            },
+          },
+          placementReadinessHandoff: {
+            select: {
+              id: true,
+              status: true,
+              placementSessionId: true,
+              lastError: true,
+              launchPayload: true,
+              updatedAt: true,
+              artifact: {
+                select: {
+                  id: true,
+                  schemaVersion: true,
+                  reportHash: true,
+                  placementSessionId: true,
+                  artifact: true,
+                  receivedAt: true,
+                },
+              },
             },
           },
         },
@@ -1002,11 +1184,19 @@ export async function getWorkspaceCandidateDossier(
         (right.completedAt?.getTime() ?? 0) -
         (left.completedAt?.getTime() ?? 0),
     )[0];
+  const workspaceSqlAttempt = [...registration.roundAttempts]
+    .filter((attempt) => attempt.roundType === "sql" && attempt.sqlSessionId)
+    .sort(
+      (left, right) =>
+        (right.completedAt?.getTime() ?? 0) -
+        (left.completedAt?.getTime() ?? 0),
+    )[0];
 
   const [
     antigravityReports,
     workspaceDsaSubmissions,
     workspaceMcqSession,
+    workspaceSqlSession,
     reportGenerations,
   ] = await Promise.all([
     prisma.antigravityReport.findMany({
@@ -1065,6 +1255,36 @@ export async function getWorkspaceCandidateDossier(
             correctCount: true,
             incorrectCount: true,
             skippedCount: true,
+          },
+        })
+      : Promise.resolve(null),
+    workspaceSqlAttempt?.sqlSessionId
+      ? prisma.workspaceSqlSession.findUnique({
+          where: { id: workspaceSqlAttempt.sqlSessionId },
+          select: {
+            id: true,
+            tasks: true,
+            startTime: true,
+            endTime: true,
+            submittedAt: true,
+            finalizedAt: true,
+            score: true,
+            passedCount: true,
+            totalCount: true,
+            submissions: {
+              where: { isOfficial: true },
+              orderBy: { submittedAt: "asc" },
+              select: {
+                id: true,
+                taskId: true,
+                query: true,
+                passedCount: true,
+                totalCount: true,
+                score: true,
+                results: true,
+                submittedAt: true,
+              },
+            },
           },
         })
       : Promise.resolve(null),
@@ -1249,6 +1469,53 @@ export async function getWorkspaceCandidateDossier(
         );
       }),
   );
+  const sqlTasks: Record<string, unknown>[] = Array.isArray(workspaceSqlSession?.tasks)
+    ? workspaceSqlSession.tasks.flatMap((task) =>
+        task && typeof task === "object" && !Array.isArray(task)
+          ? [task as Record<string, unknown>]
+          : [],
+      )
+    : [];
+  const sqlTaskById = new Map(
+    sqlTasks.map((task, index) => [String(task.id ?? index), task]),
+  );
+  const workspaceSqlEvidence = workspaceSqlAttempt?.sqlSessionId && workspaceSqlSession
+    ? {
+        attemptId: workspaceSqlAttempt.id,
+        sessionId: workspaceSqlSession.id,
+        score: workspaceSqlAttempt.percentageScore ?? workspaceSqlAttempt.score,
+        completedAt: workspaceSqlAttempt.completedAt ?? workspaceSqlSession.finalizedAt,
+        passedCount: workspaceSqlSession.passedCount,
+        totalCount: workspaceSqlSession.totalCount,
+        timeTakenSeconds: Math.max(
+          0,
+          Math.round(
+            ((workspaceSqlSession.finalizedAt ??
+              workspaceSqlSession.submittedAt ??
+              workspaceSqlSession.endTime).getTime() -
+              workspaceSqlSession.startTime.getTime()) /
+              1000,
+          ),
+        ),
+        submissions: workspaceSqlSession.submissions.map((submission) => ({
+          ...submission,
+          task: sqlTaskById.get(submission.taskId) ?? null,
+        })),
+      }
+    : null;
+  const sqlEvidenceComplete = Boolean(
+    workspaceSqlEvidence?.submissions.length &&
+      workspaceSqlEvidence.submissions.length === sqlTasks.length &&
+      workspaceSqlEvidence.submissions.every((submission) => {
+        const rows = retainedJudgeRows(submission.results);
+        return Boolean(
+          submission.task &&
+            submission.query.trim() &&
+            submission.totalCount > 0 &&
+            rows.length > 0,
+        );
+      }),
+  );
   const targetRole = registration.workspace.targetRole;
   const hiringRubric =
     registration.workspace.hiringRubric &&
@@ -1260,9 +1527,7 @@ export async function getWorkspaceCandidateDossier(
     ? hiringRubric.responsibilities.map(String).filter(Boolean)
     : [];
   const workspaceInterviewAttempt = registration.roundAttempts.find(
-    (attempt) =>
-      attempt.roundType === "interview" &&
-      ["completed", "auto_completed"].includes(attempt.status),
+    (attempt) => attempt.roundType === "interview",
   );
   const boundAntigravityReport = workspaceInterviewAttempt?.interviewId
     ? (antigravityReports.find(
@@ -1280,26 +1545,87 @@ export async function getWorkspaceCandidateDossier(
         ),
       }
     : null;
-  const workspaceInterviewLinked = Boolean(
-    workspaceInterviewAttempt?.interviewId && boundAntigravityReport,
-  );
   const antigravityEvidenceComplete = Boolean(
     boundAntigravityReport?.evidencePacket &&
       Array.isArray(boundAntigravityReport.transcript) &&
       boundAntigravityReport.transcript.length > 0,
   );
-  const synthesis = buildCandidateAssessmentSynthesis({
+  const placementHandoff = workspaceInterviewAttempt?.placementReadinessHandoff ?? null;
+  const placementArtifact = placementHandoff?.artifact ?? null;
+  const placementArtifactBody =
+    placementArtifact?.artifact &&
+    typeof placementArtifact.artifact === "object" &&
+    !Array.isArray(placementArtifact.artifact)
+      ? (placementArtifact.artifact as Record<string, unknown>)
+      : null;
+  const placementLaunchPayload =
+    placementHandoff?.launchPayload &&
+    typeof placementHandoff.launchPayload === "object" &&
+    !Array.isArray(placementHandoff.launchPayload)
+      ? (placementHandoff.launchPayload as Record<string, unknown>)
+      : {};
+  const placementScore = placementArtifact
+    ? workspaceInterviewAttempt?.percentageScore ??
+      workspaceInterviewAttempt?.score ??
+      Number(
+        (placementArtifactBody?.scorecard as Record<string, unknown> | undefined)
+          ?.overallScore,
+      )
+    : null;
+  const managerPlacementReport = placementArtifact
+    ? {
+        source: "placement_readiness" as const,
+        id: placementArtifact.id,
+        sessionId: placementArtifact.placementSessionId,
+        schemaVersion: placementArtifact.schemaVersion,
+        reportHash: placementArtifact.reportHash,
+        score: Number.isFinite(Number(placementScore)) ? Number(placementScore) : null,
+        report: placementArtifactBody ?? {},
+        receivedAt: placementArtifact.receivedAt,
+        handoffStatus: placementHandoff?.status ?? "completed",
+      }
+    : null;
+  const workspaceInterviewLinked = Boolean(
+    managerPlacementReport ||
+      (workspaceInterviewAttempt?.interviewId && boundAntigravityReport),
+  );
+  const interviewEvidenceComplete = managerPlacementReport
+    ? Boolean(managerPlacementReport.sessionId && Object.keys(managerPlacementReport.report).length)
+    : antigravityEvidenceComplete;
+  const configuredModules = registration.workspace.rounds.map((round) =>
+    ({ mcq: "aptitude", coding: "dsa", sql: "sql", interview: "interview" })[
+      round.type
+    ] as ConfiguredAssessmentModule,
+  );
+  const synthesis = buildConfiguredCandidateAssessmentSynthesis({
+    configuredModules,
     aptitude: workspaceAptitudeEvidence
       ? { score: workspaceAptitudeEvidence.score }
       : null,
     dsa: workspaceDsaEvidence ? { score: workspaceDsaEvidence.score } : null,
-    antigravity: matchingAntigravityReport,
+    sql: workspaceSqlEvidence ? { score: workspaceSqlEvidence.score } : null,
+    interview: managerPlacementReport
+      ? {
+          score: managerPlacementReport.score,
+          report: managerPlacementReport.report,
+          artifactRole: String(placementLaunchPayload.target_role || targetRole),
+        }
+      : matchingAntigravityReport
+        ? {
+            score: scorePercent(matchingAntigravityReport.overallScore, "ten"),
+            report: matchingAntigravityReport.report,
+            artifactRole: matchingAntigravityReport.interview?.jobRole,
+          }
+        : null,
     targetRole,
     roleResponsibilities,
     workspaceInterviewLinked,
-    aptitudeEvidenceComplete,
-    dsaEvidenceComplete,
-    antigravityEvidenceComplete,
+    evidenceComplete: {
+      aptitude: aptitudeEvidenceComplete,
+      dsa: dsaEvidenceComplete,
+      sql: sqlEvidenceComplete,
+      interview: interviewEvidenceComplete,
+    },
   });
   const recordedDecision = await prisma.workspaceCandidateDecision.findUnique({
     where: {
@@ -1311,7 +1637,7 @@ export async function getWorkspaceCandidateDossier(
   });
 
   const dossier = {
-    schemaVersion: "workspace_candidate_dossier_v1",
+    schemaVersion: "workspace_candidate_dossier_v2_configured_rounds",
     workspaceId,
     candidate: registration.user,
     registration: {
@@ -1342,6 +1668,17 @@ export async function getWorkspaceCandidateDossier(
         latest: null,
         history: [],
         workspaceEvidence: workspaceDsaEvidence,
+      },
+      sql: {
+        latest: null,
+        history: [],
+        workspaceEvidence: workspaceSqlEvidence,
+      },
+      interview: {
+        latest: managerPlacementReport,
+        status: placementHandoff?.status ?? (managerAntigravityReport ? "completed" : "not_started"),
+        lastError: placementHandoff?.lastError ?? null,
+        legacyAntigravity: managerAntigravityReport,
       },
       antigravity: {
         latest: managerAntigravityReport,
@@ -1416,6 +1753,19 @@ export async function getWorkspaceCandidateDossier(
             )
           : null,
       },
+      sql: {
+        latest: null,
+        history: [],
+        workspaceEvidence: dossier.modules.sql.workspaceEvidence
+          ? {
+              ...dossier.modules.sql.workspaceEvidence,
+              submissions: dossier.modules.sql.workspaceEvidence.submissions.map(
+                ({ results: _results, ...submission }) => submission,
+              ),
+            }
+          : null,
+      },
+      interview: dossier.modules.interview,
       antigravity: {
         latest: candidateAntigravityReport,
         history: [],
@@ -1465,9 +1815,11 @@ export async function recordWorkspaceCandidateDecision(
       409,
     );
   }
-  if (dossier.synthesis.completedModules !== 3) {
+  if (
+    dossier.synthesis.completedModules !== dossier.synthesis.requiredModules.length
+  ) {
     throw new WorkspaceServiceError(
-      "Decision recording requires all three assessment modules.",
+      "Decision recording requires every configured assessment module.",
       409,
     );
   }
@@ -1520,6 +1872,14 @@ export async function recordWorkspaceCandidateDecision(
       score: attempt.percentageScore ?? attempt.score ?? null,
       completedAt: attempt.completedAt ?? null,
     })),
+    interview: dossier.modules.interview.latest
+      ? {
+          source: dossier.modules.interview.latest.source,
+          id: dossier.modules.interview.latest.id,
+          sessionId: dossier.modules.interview.latest.sessionId,
+          reportHash: dossier.modules.interview.latest.reportHash,
+        }
+      : null,
     antigravity: dossier.modules.antigravity.latest
       ? {
           id: dossier.modules.antigravity.latest.id,
@@ -1601,6 +1961,13 @@ export async function removeWorkspaceRegistration(
   await discardActiveWorkspaceRegistrationMcqAttempts(workspaceId, userId);
   await discardActiveWorkspaceRegistrationDsaAttempts(workspaceId, userId);
   await discardActiveWorkspaceRegistrationSqlAttempts(workspaceId, userId);
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    actorUserId: actor.id,
+    eventType: "registration.removed",
+    targetUserId: userId,
+    detail: { registrationId: registration.id, removedAt: registration.removedAt },
+  });
   if (registration.removedAt) {
     const details = await prisma.workspaceRegistration.findUnique({
       where: { id: registration.id },
@@ -1639,7 +2006,7 @@ export async function restoreWorkspaceRegistration(
   userId: string,
 ) {
   await assertCanManageWorkspace(actor, workspaceId);
-  return prisma.$transaction(async (tx) => {
+  const registration = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`workspace_registration:${workspaceId}:${userId}`}))`;
     const existing = await tx.workspaceRegistration.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
@@ -1658,6 +2025,122 @@ export async function restoreWorkspaceRegistration(
       },
     });
   });
+  await recordWorkspaceAuditEvent({
+    workspaceId,
+    actorUserId: actor.id,
+    eventType: "registration.restored",
+    targetUserId: userId,
+    detail: { registrationId: registration.id, restoredAt: registration.restoredAt },
+  });
+  return registration;
+}
+
+export async function listAllowedWorkspaceEmails(
+  actor: WorkspaceActor,
+  workspaceId: string,
+) {
+  await assertCanManageWorkspace(actor, workspaceId);
+  return prisma.workspaceAllowedEmail.findMany({
+    where: { workspaceId },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function listWorkspaceAuditTrail(
+  actor: WorkspaceActor,
+  workspaceId: string,
+) {
+  await assertCanManageWorkspace(actor, workspaceId);
+  return listWorkspaceAuditEvents(workspaceId);
+}
+
+export async function addAllowedWorkspaceEmails(input: {
+  actor: WorkspaceActor;
+  workspaceId: string;
+  emails: string[];
+}) {
+  await assertCanManageWorkspace(input.actor, input.workspaceId);
+  const normalized = [...new Set(input.emails.map(normalizeEmail))];
+  const invalid = normalized.filter((email) => !isValidEmail(email));
+  if (invalid.length) {
+    throw new WorkspaceServiceError(
+      `Invalid invitation email${invalid.length === 1 ? "" : "s"}: ${invalid.slice(0, 5).join(", ")}`,
+      400,
+    );
+  }
+  if (!normalized.length) {
+    throw new WorkspaceServiceError("At least one invitation email is required.", 400);
+  }
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: input.workspaceId },
+    select: { name: true, organization: true, code: true, startAt: true, accessMode: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  if (workspace.accessMode !== "invite_only") {
+    throw new WorkspaceServiceError("Invitations are only used by invite-only workspaces.", 409);
+  }
+  const existing = await prisma.workspaceAllowedEmail.findMany({
+    where: { workspaceId: input.workspaceId, email: { in: normalized } },
+    select: { email: true },
+  });
+  const existingSet = new Set(existing.map((row) => row.email));
+  const added = normalized.filter((email) => !existingSet.has(email));
+  if (added.length) {
+    await prisma.workspaceAllowedEmail.createMany({
+      data: added.map((email) => ({ workspaceId: input.workspaceId, email })),
+      skipDuplicates: true,
+    });
+  }
+  await Promise.all(
+    added.map(async (email) => {
+      await recordWorkspaceAuditEvent({
+        workspaceId: input.workspaceId,
+        actorUserId: input.actor.id,
+        eventType: "invitation.created",
+        targetEmail: email,
+      });
+      await sendWorkspaceInvitationEmail({
+        to: email,
+        workspaceName: workspace.name,
+        organization: workspace.organization,
+        code: workspace.code,
+        startsAt: workspace.startAt,
+        eventKey: `workspace-invitation:${input.workspaceId}:${email}`,
+      }).catch((error) => {
+        console.warn("[workspace/invitation] email failed", {
+          workspaceId: input.workspaceId,
+          email,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }),
+  );
+  return {
+    requested: normalized.length,
+    added: added.length,
+    alreadyPresent: existing.length,
+    invitations: await listAllowedWorkspaceEmails(input.actor, input.workspaceId),
+  };
+}
+
+export async function revokeAllowedWorkspaceEmail(input: {
+  actor: WorkspaceActor;
+  workspaceId: string;
+  invitationId: string;
+}) {
+  await assertCanManageWorkspace(input.actor, input.workspaceId);
+  const invitation = await prisma.workspaceAllowedEmail.findFirst({
+    where: { id: input.invitationId, workspaceId: input.workspaceId },
+  });
+  if (!invitation) throw new WorkspaceServiceError("Invitation not found.", 404);
+  await prisma.workspaceAllowedEmail.delete({ where: { id: invitation.id } });
+  await recordWorkspaceAuditEvent({
+    workspaceId: input.workspaceId,
+    actorUserId: input.actor.id,
+    eventType: "invitation.revoked",
+    targetEmail: invitation.email,
+  });
+  return { ok: true, revokedInvitationId: invitation.id };
 }
 
 export async function importAllowedWorkspaceEmailsFromCsv(params: {
@@ -1734,6 +2217,15 @@ export async function importAllowedWorkspaceEmailsFromCsv(params: {
         });
       }
     }
+  }
+
+  if (inserted > 0) {
+    await recordWorkspaceAuditEvent({
+      workspaceId: workspace.id,
+      actorUserId: params.actor.id,
+      eventType: "invitation.csv_imported",
+      detail: { inserted, parsed: rawEmails.length, invalid, duplicatesInFile },
+    });
   }
 
   return {

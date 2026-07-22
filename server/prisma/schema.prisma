@@ -1218,6 +1218,22 @@ model AssessmentPipelineIncident {
   @@index([interviewId])
 }
 
+/// Immutable operator audit trail for workspace lifecycle, invitations, and membership.
+model WorkspaceAuditEvent {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  actorUserId  String?
+  eventType    String
+  targetUserId String?
+  targetEmail  String?
+  detail       Json?
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([eventType, createdAt])
+}
+
 /// After AI interview submission: admin approves/rejects before human expert stage + payment gate.
 model AdminReviewQueue {
   id            String    @id @default(uuid())

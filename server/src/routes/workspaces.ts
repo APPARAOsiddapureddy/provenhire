@@ -4,6 +4,7 @@ import multer from "multer";
 import {
   createWorkspaceController,
   deleteWorkspaceController,
+  endWorkspaceController,
   getWorkspaceController,
   getWorkspaceSqlTaskAvailabilityController,
   listWorkspacesController,
@@ -15,12 +16,16 @@ import {
 } from "../controllers/workspace.controller.js";
 import {
   importAllowedWorkspaceEmailsController,
+  addAllowedWorkspaceEmailsController,
   getWorkspaceCandidateDossierController,
   generateWorkspaceCandidateReportController,
   listWorkspaceRegistrationsController,
+  listAllowedWorkspaceEmailsController,
+  listWorkspaceAuditTrailController,
   recordWorkspaceCandidateDecisionController,
   removeWorkspaceRegistrationController,
   restoreWorkspaceRegistrationController,
+  revokeAllowedWorkspaceEmailController,
 } from "../controllers/workspaceRegistration.controller.js";
 import { requireAuth } from "../middleware/auth.js";
 import { allowWorkspaceCreator } from "../middleware/workspace.js";
@@ -91,6 +96,13 @@ workspacesRouter.post(
   uploadWorkspaceAllowedEmailsCsv,
   importAllowedWorkspaceEmailsController,
 );
+workspacesRouter.get("/:id/allowed-emails", listAllowedWorkspaceEmailsController);
+workspacesRouter.post("/:id/allowed-emails", addAllowedWorkspaceEmailsController);
+workspacesRouter.delete(
+  "/:id/allowed-emails/:invitationId",
+  revokeAllowedWorkspaceEmailController,
+);
+workspacesRouter.get("/:id/audit-trail", listWorkspaceAuditTrailController);
 
 workspacesRouter.use(allowWorkspaceCreator(WORKSPACE_CREATOR_ROLES));
 
@@ -128,5 +140,6 @@ workspacesRouter.put("/:id/rounds", replaceWorkspaceRoundsController);
 
 workspacesRouter.post("/:id/publish", publishWorkspaceController);
 workspacesRouter.post("/:id/start", startWorkspaceController);
+workspacesRouter.post("/:id/end", endWorkspaceController);
 workspacesRouter.patch("/:id/status", updateWorkspaceStatusController);
 workspacesRouter.delete("/:id", deleteWorkspaceController);

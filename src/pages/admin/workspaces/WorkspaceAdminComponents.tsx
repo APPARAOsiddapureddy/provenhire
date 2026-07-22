@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +51,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Square,
   Trash2,
   Upload,
   Users,
@@ -62,6 +63,7 @@ import type {
   WorkspaceCandidateDossier,
   WorkspaceDetailsDraft,
   WorkspaceLeaderboardResponse,
+  WorkspaceInvitation,
   WorkspaceRegistration,
   WorkspaceRound,
   WorkspaceRoundDraft,
@@ -750,7 +752,7 @@ export function WorkspaceReviewStep({
           </div>
 
           {workspace.accessMode === "invite_only" && (
-            <AllowedEmailsUploader workspaceCode={workspace.code} />
+            <AllowedEmailsUploader workspaceId={workspace.id} workspaceCode={workspace.code} />
           )}
 
           <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -794,13 +796,67 @@ function SummaryItem({
 }
 
 export function AllowedEmailsUploader({
+  workspaceId,
   workspaceCode,
+  readonly = false,
 }: {
+  workspaceId: string;
   workspaceCode: string;
+  readonly?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [summary, setSummary] = useState<AllowlistImportSummary | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const loadInvitations = useCallback(async () => {
+    try {
+      const response = await api.get<{ invitations: WorkspaceInvitation[] }>(
+        `/api/workspaces/${workspaceId}/allowed-emails`,
+      );
+      setInvitations(response.invitations ?? []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load invitations");
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    void loadInvitations();
+  }, [loadInvitations]);
+
+  const invite = async () => {
+    const emails = emailDraft
+      .split(/[\s,;]+/)
+      .map((email) => email.trim())
+      .filter(Boolean);
+    if (!emails.length) return;
+    setInviting(true);
+    try {
+      const response = await api.post<{ invitations: WorkspaceInvitation[]; added: number }>(
+        `/api/workspaces/${workspaceId}/allowed-emails`,
+        { emails },
+      );
+      setInvitations(response.invitations);
+      setEmailDraft("");
+      toast.success(`${response.added} invitation${response.added === 1 ? "" : "s"} added.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not add invitations");
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const revoke = async (invitation: WorkspaceInvitation) => {
+    try {
+      await api.del(`/api/workspaces/${workspaceId}/allowed-emails/${invitation.id}`);
+      setInvitations((current) => current.filter((item) => item.id !== invitation.id));
+      toast.success(`Invitation revoked for ${invitation.email}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not revoke invitation");
+    }
+  };
 
   const upload = async (file?: File | null) => {
     if (!file) return;
@@ -818,6 +874,7 @@ export function AllowedEmailsUploader({
         form,
       );
       setSummary(res.summary);
+      await loadInvitations();
       toast.success("Allowed emails imported.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "CSV import failed");
@@ -839,18 +896,36 @@ export function AllowedEmailsUploader({
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-0 space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={emailDraft}
+            onChange={(event) => setEmailDraft(event.target.value)}
+            placeholder="candidate@example.com, second@example.com"
+            disabled={readonly || inviting}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void invite();
+              }
+            }}
+          />
+          <Button type="button" onClick={() => void invite()} disabled={readonly || inviting || !emailDraft.trim()}>
+            {inviting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Add invitation
+          </Button>
+        </div>
         <div className="flex flex-col sm:flex-row gap-2">
           <Input
             ref={inputRef}
             type="file"
             accept=".csv,text/csv"
             onChange={(event) => upload(event.target.files?.[0])}
-            disabled={uploading}
+            disabled={readonly || uploading}
           />
           <Button
             type="button"
             variant="outline"
-            disabled={uploading}
+            disabled={readonly || uploading}
             onClick={() => inputRef.current?.click()}
           >
             {uploading ? (
@@ -870,6 +945,20 @@ export function AllowedEmailsUploader({
             <SummaryMini label="Invalid" value={summary.invalid} />
           </div>
         )}
+        <div className="rounded-lg border">
+          {invitations.length ? (
+            <div className="divide-y">
+              {invitations.map((invitation) => (
+                <div key={invitation.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">Invited {formatDateTime(invitation.createdAt)}</p></div>
+                  <Button type="button" size="sm" variant="ghost" disabled={readonly} onClick={() => void revoke(invitation)} aria-label={`Revoke invitation for ${invitation.email}`}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="p-3 text-sm text-muted-foreground">No invitation emails yet.</p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -910,7 +999,7 @@ export function WorkspaceRegistrationsTable({
     string | null
   >(null);
 
-  const fetchRegistrations = async () => {
+  const fetchRegistrations = useCallback(async () => {
     if (preview) {
       setRegistrations(preview.registrations);
       setLoading(false);
@@ -929,7 +1018,7 @@ export function WorkspaceRegistrationsTable({
     } finally {
       setLoading(false);
     }
-  };
+  }, [preview, workspaceId]);
 
   const openDossier = async (userId: string) => {
     if (preview) {
@@ -955,7 +1044,7 @@ export function WorkspaceRegistrationsTable({
 
   useEffect(() => {
     void fetchRegistrations();
-  }, [workspaceId, preview]);
+  }, [fetchRegistrations]);
 
   const updateStatus = async (userId: string, action: "remove" | "restore") => {
     setBusyUserId(userId);
@@ -1347,8 +1436,9 @@ export function WorkspaceLeaderboardPreview({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const fetchPage = async (cursor?: string | null) => {
-    cursor ? setLoadingMore(true) : setLoading(true);
+  const fetchPage = useCallback(async (cursor?: string | null) => {
+    if (cursor) setLoadingMore(true);
+    else setLoading(true);
     try {
       const qs = new URLSearchParams({ limit: "10" });
       if (cursor) qs.set("cursor", cursor);
@@ -1367,11 +1457,11 @@ export function WorkspaceLeaderboardPreview({
       setLoading(false);
       setLoadingMore(false);
     }
-  };
+  }, [workspaceCode]);
 
   useEffect(() => {
     void fetchPage(null);
-  }, [workspaceCode]);
+  }, [fetchPage]);
 
   return (
     <Card>
@@ -1569,6 +1659,8 @@ export function WorkspaceActionBar({
   onDelete,
   deleting,
   onCopyCode,
+  onEnd,
+  ending,
 }: {
   workspace: Workspace;
   onStart?: () => void;
@@ -1578,6 +1670,8 @@ export function WorkspaceActionBar({
   onDelete?: () => void;
   deleting?: boolean;
   onCopyCode?: () => void;
+  onEnd?: () => void;
+  ending?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -1600,7 +1694,13 @@ export function WorkspaceActionBar({
           <span className="hidden sm:inline">Start</span>
         </Button>
       )}
-      {workspace.status !== "draft" && workspace.status !== "archived" && (
+      {workspace.status === "started" && (
+        <Button variant="outline" size="sm" onClick={onEnd} disabled={ending}>
+          {ending ? <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" /> : <Square className="h-4 w-4 sm:mr-2" />}
+          <span className="hidden sm:inline">End</span>
+        </Button>
+      )}
+      {["published", "ended"].includes(workspace.status) && (
         <Button
           variant="destructive"
           size="sm"
@@ -1615,7 +1715,7 @@ export function WorkspaceActionBar({
           <span className="hidden sm:inline">Archive</span>
         </Button>
       )}
-      {workspace.status !== "started" && (
+      {workspace.status === "draft" && (
         <Button
           variant="destructive"
           size="sm"
@@ -1680,7 +1780,7 @@ export function WorkspaceTabs({
       </TabsContent>
       <TabsContent value="allowlist">
         {workspace.accessMode === "invite_only" ? (
-          <AllowedEmailsUploader workspaceCode={workspace.code} />
+          <AllowedEmailsUploader workspaceId={workspace.id} workspaceCode={workspace.code} readonly={readonly} />
         ) : (
           <Card>
             <CardHeader className="p-4 sm:p-6">

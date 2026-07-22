@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock3,
   Code2,
+  Database,
   ExternalLink,
   FileSearch,
   GraduationCap,
@@ -47,7 +48,7 @@ import {
   workspaceId as localWorkspaceId,
 } from "./WorkspaceLocalPreviewPage";
 
-type ModuleKey = "overview" | "aptitude" | "dsa" | "antigravity";
+type ModuleKey = "overview" | "aptitude" | "dsa" | "sql" | "interview";
 type Json = Record<string, unknown>;
 
 const asRecord = (value: unknown): Json =>
@@ -62,8 +63,11 @@ const numeric = (value: unknown, fallback = 0) =>
   Number.isFinite(Number(value)) ? Number(value) : fallback;
 const evidenceComplete = (
   dossier: WorkspaceCandidateDossier,
-  module: "aptitude" | "dsa" | "antigravity",
-) => dossier.synthesis?.evidenceCompleteness?.[module] === true;
+  module: "aptitude" | "dsa" | "sql" | "interview" | "antigravity",
+) =>
+  dossier.synthesis?.evidenceCompleteness?.byModule?.[
+    module === "antigravity" ? "interview" : module
+  ] === true || dossier.synthesis?.evidenceCompleteness?.[module] === true;
 const interviewEvidenceState = (
   latest: WorkspaceCandidateDossier["modules"]["antigravity"]["latest"],
 ) => {
@@ -576,8 +580,8 @@ function HumanDecisionPanel({
         {!gatesReady ? (
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             Decision entry remains locked until evidence binding, complete
-            auditable source data for all three modules, and the employer role
-            rubric are ready.
+            auditable source data for every configured module, and the employer
+            role rubric are ready.
           </div>
         ) : (
           <>
@@ -778,7 +782,7 @@ function Overview({
         onRecord={onRecordDecision}
         recording={recordingDecision}
       />
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
           label="Aptitude evidence"
           value={
@@ -791,6 +795,14 @@ function Overview({
           value={synthesis.evidenceCompleteness?.dsa ? "Complete" : "Partial"}
           detail={`Stored module result: ${synthesis.evidenceBasis.dsaScore ?? "—"}/100`}
         />
+        {(synthesis.requiredModules?.includes("sql") ||
+          synthesis.evidenceBasis.sqlScore != null) ? (
+          <Metric
+            label="SQL evidence"
+            value={synthesis.evidenceCompleteness?.sql ? "Complete" : "Partial"}
+            detail={`Stored module result: ${synthesis.evidenceBasis.sqlScore ?? "—"}/100`}
+          />
+        ) : null}
         <Metric
           label="Interview evidence"
           value={
@@ -798,7 +810,7 @@ function Overview({
               ? "Complete"
               : "Partial"
           }
-          detail={`Recorded interview result: ${synthesis.evidenceBasis.antigravityScore == null ? "—" : `${synthesis.evidenceBasis.antigravityScore / 10}/10`}`}
+          detail={`Recorded interview result: ${synthesis.evidenceBasis.interviewScore ?? synthesis.evidenceBasis.antigravityScore ?? "—"}/100`}
         />
       </div>
       <Card>
@@ -822,7 +834,7 @@ function Overview({
               ],
               [
                 "Pressure-tested transfer",
-                "Antigravity probes ownership, mechanisms, failure boundaries, and production judgment.",
+                "The configured interview probes ownership, mechanisms, failure boundaries, and production judgment.",
               ],
             ].map(([label, detail], index) => (
               <div key={label} className="rounded-xl border p-4">
@@ -1516,14 +1528,10 @@ function CandidateOverview({
   const synthesis = dossier.synthesis;
   const result = asRecord(dossier.agentReports?.unified?.result);
   const role = asRecord(result.roleFit);
-  const completeEvidenceCount = synthesis?.evidenceCompleteness
-    ? ["aptitude", "dsa", "antigravity"].filter(
-        (key) =>
-          synthesis.evidenceCompleteness?.[
-            key as "aptitude" | "dsa" | "antigravity"
-          ],
-      ).length
-    : 0;
+  const requiredModules = synthesis?.requiredModules ?? ["aptitude", "dsa", "interview"];
+  const completeEvidenceCount = requiredModules.filter(
+    (key) => synthesis?.evidenceCompleteness?.byModule?.[key] === true,
+  ).length;
   const strengths =
     synthesis?.decisionStatus === "human_review_required"
       ? synthesis.verifiedStrengths
@@ -1533,8 +1541,8 @@ function CandidateOverview({
     <div className="space-y-5">
       <CandidateFeedbackHeader
         title="Your complete assessment feedback"
-        score={`${completeEvidenceCount}/3 evidence complete`}
-        summary="This coaching view keeps the three assessment results separate. It shows what the retained evidence supports and converts remaining gaps into practice deliverables; it does not calculate or reveal an employer hiring outcome."
+        score={`${completeEvidenceCount}/${requiredModules.length} evidence complete`}
+        summary="This coaching view keeps every configured assessment result separate. It shows what the retained evidence supports and converts remaining gaps into practice deliverables; it does not calculate or reveal an employer hiring outcome."
       />
       {synthesis?.integrity?.status === "blocked" ? (
         <Card className="border-rose-300 bg-rose-50">
@@ -1544,7 +1552,7 @@ function CandidateOverview({
           </CardContent>
         </Card>
       ) : null}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
           label="Aptitude · /100 scale"
           value={synthesis?.evidenceBasis.aptitudeScore ?? "—"}
@@ -1563,13 +1571,20 @@ function CandidateOverview({
               : "Stored result; at least one correctness concern is not reproducible"
           }
         />
+        {requiredModules.includes("sql") ? (
+          <Metric
+            label="SQL · /100 scale"
+            value={synthesis?.evidenceBasis.sqlScore ?? "—"}
+            detail={
+              synthesis?.evidenceCompleteness?.sql
+                ? "Query and judge evidence retained"
+                : "SQL evidence is incomplete"
+            }
+          />
+        ) : null}
         <Metric
-          label="Interview · /10 scale"
-          value={
-            synthesis?.evidenceBasis.antigravityScore == null
-              ? "—"
-              : synthesis.evidenceBasis.antigravityScore / 10
-          }
+          label="Interview · /100 scale"
+          value={synthesis?.evidenceBasis.interviewScore ?? synthesis?.evidenceBasis.antigravityScore ?? "—"}
           detail={
             synthesis?.evidenceCompleteness?.antigravity
               ? "Complete bound interview evidence retained"
@@ -2391,6 +2406,133 @@ function AntigravityReport({
   );
 }
 
+function SqlReport({
+  dossier,
+  audience = "admin",
+}: {
+  dossier: WorkspaceCandidateDossier;
+  audience?: ReportAudience;
+}) {
+  const evidence = dossier.modules.sql?.workspaceEvidence;
+  if (!evidence) return <MissingModule name="SQL" />;
+  return (
+    <div className="space-y-5">
+      <CandidateFeedbackHeader
+        title={audience === "candidate" ? "Your SQL assessment" : "SQL evidence report"}
+        score={`${evidence.score ?? "—"}/100`}
+        summary="A query-by-query view of the retained SQL work. Passing judge cases is bounded execution evidence; it is not a claim that every schema or production edge case was tested."
+      />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric label="Score" value={evidence.score ?? "—"} detail="Canonical /100 workspace result" />
+        <Metric label="Tasks passed" value={`${evidence.passedCount ?? "—"}/${evidence.totalCount ?? evidence.submissions.length}`} detail="Official persisted task outcomes" />
+        <Metric label="Time used" value={`${Math.round(evidence.timeTakenSeconds / 60)} min`} detail="From session start to finalization" />
+      </div>
+      <div className="space-y-4">
+        {evidence.submissions.map((submission, index) => {
+          const task = asRecord(submission.task);
+          return (
+            <Card key={submission.id}>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardDescription>SQL task {index + 1} · {titleize(String(task.difficulty || "difficulty not recorded"))}</CardDescription>
+                    <CardTitle className="mt-1 text-lg">{String(task.title || task.name || submission.taskId)}</CardTitle>
+                  </div>
+                  <Badge variant="outline">{submission.passedCount}/{submission.totalCount} cases · {submission.score}/100</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {task.description || task.prompt ? (
+                  <p className="text-sm leading-6 text-muted-foreground">{String(task.description || task.prompt)}</p>
+                ) : null}
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Submitted query</p>
+                  <pre className="overflow-x-auto rounded-lg bg-slate-950 p-4 text-xs leading-6 text-slate-100"><code>{submission.query}</code></pre>
+                </div>
+                {audience === "admin" && submission.results ? (
+                  <details className="rounded-lg border p-3">
+                    <summary className="cursor-pointer text-sm font-semibold">Retained judge diagnostics</summary>
+                    <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(submission.results, null, 2)}</pre>
+                  </details>
+                ) : null}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PlacementReadinessReport({
+  dossier,
+  audience = "admin",
+}: {
+  dossier: WorkspaceCandidateDossier;
+  audience?: ReportAudience;
+}) {
+  const interviewModule = dossier.modules.interview;
+  if (!interviewModule) {
+    return <AntigravityReport dossier={dossier} audience={audience} />;
+  }
+  const latest = interviewModule.latest;
+  if (!latest) {
+    const status = interviewModule.status;
+    return status === "started" || status === "processing" ? (
+      <Card className="border-amber-300 bg-amber-50">
+        <CardContent className="flex items-start gap-3 p-6 text-amber-950">
+          <Loader2 className="mt-0.5 h-5 w-5 animate-spin" />
+          <div><p className="font-semibold">Placement report is being generated</p><p className="mt-1 text-sm">The interview is safely stored. The detailed report should appear here within five minutes after the durable finalization callback arrives.</p></div>
+        </CardContent>
+      </Card>
+    ) : <MissingModule name="Placement Readiness" />;
+  }
+  const report = asRecord(latest.report);
+  const scorecard = asRecord(report.scorecard);
+  const verdict = asRecord(report.readinessVerdict);
+  const delivery = asRecord(report.deliveryRead);
+  const ownership = asRecord(report.projectOwnershipRead);
+  const questions = asList(report.questionReviews).map(asRecord);
+  const dimensions = asRecord(scorecard.dimensionScores);
+  return (
+    <div className="space-y-5">
+      <CandidateFeedbackHeader
+        title={audience === "candidate" ? "Your Placement Readiness interview" : "Placement Readiness evidence report"}
+        score={`${latest.score ?? scorecard.overallScore ?? "—"}/100`}
+        summary={String(verdict.summary || scorecard.reasoningSummary || "The persisted interview artifact is ready for review.")}
+      />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric label="Overall score" value={latest.score ?? numeric(scorecard.overallScore, 0)} detail={titleize(String(scorecard.readinessBand || "readiness band unavailable"))} />
+        <Metric label="Questions reviewed" value={questions.length} detail="Question-level evidence retained" />
+        <Metric label="Validation" value={asRecord(report.validationSummary).validationPassed === true ? "Passed" : "Review"} detail={`Session ${latest.sessionId}`} />
+      </div>
+      <Card><CardHeader><CardTitle className="text-base">Readiness dimensions</CardTitle></CardHeader><CardContent><ScoreBreakdown values={dimensions} /></CardContent></Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <EvidenceList title="Strongest converting signals" items={strings(report.strongestConvertingSignals)} />
+        <EvidenceList title={audience === "candidate" ? "Priority improvements" : "Avoidable rejection risks"} items={strings(report.avoidableRejectionRisks)} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card><CardHeader><CardTitle className="text-base">Communication and delivery</CardTitle></CardHeader><CardContent className="space-y-3 text-sm leading-6"><p>{String(delivery.summary || "No delivery summary retained.")}</p><p className="text-muted-foreground">{String(delivery.pressureHandlingSignal || "")}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-base">Project ownership</CardTitle></CardHeader><CardContent className="space-y-3 text-sm leading-6"><p>{String(ownership.summary || "No ownership summary retained.")}</p><p className="text-muted-foreground">{String(ownership.authenticitySignal || "")}</p></CardContent></Card>
+      </div>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Question-by-question review</CardTitle><CardDescription>What was demonstrated, what was missing, and what a stronger answer would include.</CardDescription></CardHeader>
+        <CardContent className="space-y-4">
+          {questions.length ? questions.map((question, index) => (
+            <div key={String(question.slotId || index)} className="rounded-xl border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{String(question.slotLabel || `Question ${index + 1}`)}</p><Badge variant="outline">{titleize(String(question.answerBand || "unrated"))}</Badge></div>
+              <p className="mt-2 text-sm leading-6">{String(question.questionText || "Question text unavailable")}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{String(question.answerSummary || "")}</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2"><EvidenceList title="Demonstrated" items={strings(question.whatWasGood)} /><EvidenceList title="Stronger answer" items={strings(question.strongerAnswerWouldInclude)} /></div>
+            </div>
+          )) : <p className="text-sm text-muted-foreground">No question-level review was retained.</p>}
+        </CardContent>
+      </Card>
+      <div className="grid gap-4 lg:grid-cols-2"><EvidenceList title="7-day plan" items={strings(report.sevenDayPlan)} /><EvidenceList title="30-day plan" items={strings(report.thirtyDayPlan)} /></div>
+    </div>
+  );
+}
+
 function MissingModule({ name }: { name: string }) {
   return (
     <Card>
@@ -2419,7 +2561,8 @@ export default function WorkspaceCandidateReportsPage() {
     "overview",
     "aptitude",
     "dsa",
-    "antigravity",
+    "sql",
+    "interview",
   ].includes(requested || "")
     ? requested!
     : "overview";
@@ -2482,6 +2625,33 @@ export default function WorkspaceCandidateReportsPage() {
         ),
       );
   }, [id, userId, local, selfService, code]);
+
+  const waitingForPlacementReport = Boolean(
+    selfService &&
+      code &&
+      !dossier?.modules.interview?.latest &&
+      ["started", "processing"].includes(
+        dossier?.modules.interview?.status || "",
+      ),
+  );
+
+  useEffect(() => {
+    if (!waitingForPlacementReport || !code) return;
+    const timer = window.setInterval(() => {
+      void api
+        .get<{ dossier: WorkspaceCandidateDossier }>(
+          `/api/user/workspaces/code/${encodeURIComponent(code)}/my-dossier`,
+        )
+        .then((response) => {
+          setDossier(response.dossier);
+          setError("");
+        })
+        .catch(() => {
+          // Keep the persisted report-processing state visible during transient polling errors.
+        });
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [code, waitingForPlacementReport]);
 
   async function generateReport(kind: "dsa" | "unified") {
     if (local || !id || !userId) return;
@@ -2564,12 +2734,13 @@ export default function WorkspaceCandidateReportsPage() {
       { key: "overview", label: "Unified reasoning", icon: Target },
       { key: "aptitude", label: "Aptitude report", icon: BrainCircuit },
       { key: "dsa", label: "DSA report", icon: Code2 },
-      { key: "antigravity", label: "Antigravity report", icon: RadioTower },
+      { key: "sql", label: "SQL report", icon: Database },
+      { key: "interview", label: "Placement interview", icon: RadioTower },
     ];
 
   return (
     <main className="min-h-screen bg-muted/30 px-4 py-6 md:px-8">
-      <div className="mx-auto max-w-7xl space-y-5">
+      <div className="mx-auto min-w-0 max-w-7xl space-y-5">
         {local ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Local preview mode: this uses production-shaped dossier data without
@@ -2596,14 +2767,15 @@ export default function WorkspaceCandidateReportsPage() {
               <h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
                 {candidateName}
               </h1>
-              <p className="mt-2 text-muted-foreground">
+              <p className="mt-2 break-words text-muted-foreground">
                 {dossier.candidate.email} ·{" "}
                 {dossier.synthesis?.roleRubric?.targetRole ||
                   "Employer target role not recorded"}
               </p>
             </div>
             <Badge variant="outline" className="px-3 py-1.5">
-              {dossier.synthesis?.completedModules ?? 0}/3 modules complete
+              {dossier.synthesis?.completedModules ?? 0}/
+              {dossier.synthesis?.requiredModules?.length ?? 3} modules complete
             </Badge>
           </div>
         </header>
@@ -2616,11 +2788,11 @@ export default function WorkspaceCandidateReportsPage() {
               asChild
               size="lg"
               variant={audience === "admin" ? "default" : "outline"}
-              className="h-auto justify-start py-4"
+              className="h-auto min-w-0 justify-start whitespace-normal py-4"
             >
               <Link to={`${baseHref}?module=${module}&audience=admin`}>
                 <BriefcaseBusiness className="mr-3 h-5 w-5" />
-                <span className="text-left">
+                <span className="min-w-0 text-left">
                   <span className="block font-bold">Reviewer evidence</span>
                   <span className="block text-xs font-normal opacity-80">
                     Evidence gates, contradictions, risk, and panel action
@@ -2632,11 +2804,11 @@ export default function WorkspaceCandidateReportsPage() {
               asChild
               size="lg"
               variant={audience === "candidate" ? "default" : "outline"}
-              className="h-auto justify-start py-4"
+              className="h-auto min-w-0 justify-start whitespace-normal py-4"
             >
               <Link to={`${baseHref}?module=${module}&audience=candidate`}>
                 <GraduationCap className="mr-3 h-5 w-5" />
-                <span className="text-left">
+                <span className="min-w-0 text-left">
                   <span className="block font-bold">
                     Preview candidate feedback
                   </span>
@@ -2649,7 +2821,7 @@ export default function WorkspaceCandidateReportsPage() {
           </section>
         ) : null}
         <nav
-          className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-2 lg:grid-cols-4"
+          className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-2 lg:grid-cols-5"
           aria-label="Candidate report modules"
         >
           {modules.map(({ key, label, icon: Icon }) => (
@@ -2657,7 +2829,7 @@ export default function WorkspaceCandidateReportsPage() {
               key={key}
               asChild
               variant={module === key ? "default" : "ghost"}
-              className="justify-start"
+              className="min-w-0 justify-start whitespace-normal"
             >
               <Link to={`${baseHref}?module=${key}&audience=${audience}`}>
                 <Icon className="mr-2 h-4 w-4" />
@@ -2678,8 +2850,10 @@ export default function WorkspaceCandidateReportsPage() {
             <CandidateAptitudeReport dossier={dossier} />
           ) : module === "dsa" ? (
             <CandidateDsaReport dossier={dossier} />
+          ) : module === "sql" ? (
+            <SqlReport dossier={dossier} audience="candidate" />
           ) : (
-            <AntigravityReport dossier={dossier} audience="candidate" />
+            <PlacementReadinessReport dossier={dossier} audience="candidate" />
           )
         ) : module === "overview" ? (
           <Overview
@@ -2697,8 +2871,10 @@ export default function WorkspaceCandidateReportsPage() {
             generating={generatingReport === "dsa"}
             onGenerate={local ? undefined : () => generateReport("dsa")}
           />
+        ) : module === "sql" ? (
+          <SqlReport dossier={dossier} />
         ) : (
-          <AntigravityReport dossier={dossier} />
+          <PlacementReadinessReport dossier={dossier} />
         )}
       </div>
     </main>

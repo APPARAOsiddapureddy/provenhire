@@ -2,7 +2,23 @@ import { createHash } from "node:crypto";
 
 export type AssessmentEvidenceKind = "dsa" | "unified";
 
-export function assessmentEvidenceFor(kind: AssessmentEvidenceKind, dossier: any) {
+type AssessmentEvidenceDossier = {
+  candidate: unknown;
+  registration: unknown;
+  synthesis: unknown;
+  modules: {
+    aptitude: unknown;
+    dsa: unknown;
+    sql: unknown;
+    interview: unknown;
+    antigravity?: { latest?: unknown };
+  };
+};
+
+export function assessmentEvidenceFor(
+  kind: AssessmentEvidenceKind,
+  dossier: AssessmentEvidenceDossier,
+) {
   const base = {
     candidate: dossier.candidate,
     registration: dossier.registration,
@@ -13,20 +29,17 @@ export function assessmentEvidenceFor(kind: AssessmentEvidenceKind, dossier: any
     ...base,
     aptitude: dossier.modules.aptitude,
     dsa: dossier.modules.dsa,
-    antigravity: dossier.modules.antigravity.latest
-      ? {
-          overallScore: dossier.modules.antigravity.latest.overallScore,
-          report: dossier.modules.antigravity.latest.report,
-          evidencePacket:
-            "evidencePacket" in dossier.modules.antigravity.latest
-              ? dossier.modules.antigravity.latest.evidencePacket
-              : null,
-        }
-      : null,
+    sql: dossier.modules.sql,
+    interview: dossier.modules.interview,
+    // Retained for old completed records and prompt compatibility during rollout.
+    antigravity: dossier.modules.antigravity?.latest ?? null,
   };
 }
 
-export function assessmentEvidenceHash(kind: AssessmentEvidenceKind, dossier: any) {
+export function assessmentEvidenceHash(
+  kind: AssessmentEvidenceKind,
+  dossier: AssessmentEvidenceDossier,
+) {
   return createHash("sha256")
     .update(JSON.stringify(assessmentEvidenceFor(kind, dossier)))
     .digest("hex");

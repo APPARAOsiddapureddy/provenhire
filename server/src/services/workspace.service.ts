@@ -5,6 +5,7 @@ import { createWorkspaceMcqQuestionSet } from "../data/aptitude-loader.js";
 import { finalizeActiveWorkspaceMcqAttempts } from "./mcqAutoFinalize.service.js";
 import { finalizeActiveWorkspaceDsaAttempts } from "./workspaceDsaFinalize.service.js";
 import { finalizeActiveWorkspaceSqlAttempts } from "./workspaceSqlFinalize.service.js";
+import { recordWorkspaceAuditEvent } from "./workspaceAudit.service.js";
 
 export const MAX_WORKSPACE_ROUNDS = 5;
 
@@ -246,7 +247,7 @@ export async function createWorkspace(
   const ownership = await resolveOwnership(creator);
   const code = await generateWorkspaceCode(input.organization, input.startAt);
 
-  return prisma.workspace.create({
+  const workspace = await prisma.workspace.create({
     data: {
       ...ownership,
       name: input.name,
@@ -264,6 +265,13 @@ export async function createWorkspace(
       accessMode: input.accessMode ?? "public",
     },
   });
+  await recordWorkspaceAuditEvent({
+    workspaceId: workspace.id,
+    actorUserId: creator.id,
+    eventType: "workspace.created",
+    detail: { code: workspace.code, accessMode: workspace.accessMode },
+  });
+  return workspace;
 }
 
 export async function listWorkspaces(
@@ -427,7 +435,7 @@ export async function replaceWorkspaceRounds(
   }
   validateRounds(rounds, workspace.totalRounds);
 
-  return prisma.$transaction(async (tx) => {
+  const published = await prisma.$transaction(async (tx) => {
     for (const round of rounds) {
       if (round.type === "sql")
         await validateSqlRoundAvailability(tx, round, true);
@@ -455,6 +463,13 @@ export async function replaceWorkspaceRounds(
       orderBy: { order: "asc" },
     });
   });
+  await recordWorkspaceAuditEvent({
+    workspaceId: workspace.id,
+    actorUserId: creator.id,
+    eventType: "workspace.published",
+    detail: { code: workspace.code },
+  });
+  return published;
 }
 
 async function validateSqlRoundAvailability(
@@ -624,10 +639,44 @@ export async function startWorkspace(
     );
   }
 
-  return prisma.workspace.update({
+  const started = await prisma.workspace.update({
     where: { id: workspace.id },
     data: { status: "started" },
   });
+  await recordWorkspaceAuditEvent({
+    workspaceId: workspace.id,
+    actorUserId: creator.id,
+    eventType: "workspace.started",
+  });
+  return started;
+}
+
+export async function endWorkspace(
+  creator: WorkspaceCreator,
+  workspaceId: string,
+) {
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, ...ownerWhere(creator) },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  if (workspace.status === "ended") return workspace;
+  if (workspace.status !== "started") {
+    throw new WorkspaceServiceError("Only a started workspace can be ended.", 409);
+  }
+  const ended = await prisma.workspace.update({
+    where: { id: workspace.id },
+    data: { status: "ended", endAt: new Date() },
+  });
+  await finalizeActiveWorkspaceMcqAttempts(workspace.id);
+  await finalizeActiveWorkspaceDsaAttempts(workspace.id);
+  await finalizeActiveWorkspaceSqlAttempts(workspace.id);
+  await recordWorkspaceAuditEvent({
+    workspaceId: workspace.id,
+    actorUserId: creator.id,
+    eventType: "workspace.ended",
+    detail: { endedAt: ended.endAt },
+  });
+  return ended;
 }
 
 export async function archiveWorkspace(
@@ -639,6 +688,18 @@ export async function archiveWorkspace(
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status === "archived") return workspace;
+  if (workspace.status === "started") {
+    throw new WorkspaceServiceError(
+      "End the active workspace before archiving it so in-flight attempts are finalized explicitly.",
+      409,
+    );
+  }
+  if (!["published", "ended"].includes(workspace.status)) {
+    throw new WorkspaceServiceError(
+      "Only a published or ended workspace can be archived.",
+      409,
+    );
+  }
 
   const archived = await prisma.workspace.update({
     where: { id: workspace.id },
@@ -647,6 +708,12 @@ export async function archiveWorkspace(
   await finalizeActiveWorkspaceMcqAttempts(workspace.id);
   await finalizeActiveWorkspaceDsaAttempts(workspace.id);
   await finalizeActiveWorkspaceSqlAttempts(workspace.id);
+  await recordWorkspaceAuditEvent({
+    workspaceId: workspace.id,
+    actorUserId: creator.id,
+    eventType: "workspace.archived",
+    detail: { previousStatus: workspace.status },
+  });
   return archived;
 }
 
@@ -657,16 +724,31 @@ export async function deleteWorkspace(
   await syncWorkspaceLifecycle(workspaceId);
   const workspace = await prisma.workspace.findFirst({
     where: { id: workspaceId, ...ownerWhere(creator) },
-    select: { id: true, status: true },
+    select: {
+      id: true,
+      status: true,
+      _count: { select: { registrations: true, roundAttempts: true } },
+    },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
-  if (workspace.status === "started") {
+  if (workspace.status !== "draft") {
     throw new WorkspaceServiceError(
-      "Currently active workspaces cannot be deleted.",
+      "Only draft workspaces can be deleted. End or archive published workspaces to preserve candidate evidence.",
+      409,
+    );
+  }
+  if (workspace._count.registrations > 0 || workspace._count.roundAttempts > 0) {
+    throw new WorkspaceServiceError(
+      "This draft has registrations or assessment attempts and cannot be deleted.",
       409,
     );
   }
 
+  await recordWorkspaceAuditEvent({
+    workspaceId: workspace.id,
+    actorUserId: creator.id,
+    eventType: "workspace.deleted",
+  });
   await prisma.workspace.delete({ where: { id: workspace.id } });
   return { ok: true, deletedWorkspaceId: workspace.id };
 }

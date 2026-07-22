@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import type { Workspace } from "./types";
 import { WorkspaceActionBar, WorkspaceTabs } from "./WorkspaceAdminComponents";
 import { canEditDraft, statusBadgeClass, statusLabel } from "./workspaceUtils";
 
-type WorkspaceConfirmAction = "archive" | "start" | "delete";
+type WorkspaceConfirmAction = "archive" | "start" | "end" | "delete";
 
 export default function WorkspaceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,9 +21,10 @@ export default function WorkspaceDetailPage() {
   const [archiving, setArchiving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [ending, setEnding] = useState(false);
   const [confirmAction, setConfirmAction] = useState<WorkspaceConfirmAction | null>(null);
 
-  const fetchWorkspace = async () => {
+  const fetchWorkspace = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
@@ -35,11 +36,11 @@ export default function WorkspaceDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
 
   useEffect(() => {
     void fetchWorkspace();
-  }, [id]);
+  }, [fetchWorkspace]);
 
   const archiveWorkspace = async () => {
     if (!workspace) return;
@@ -75,6 +76,21 @@ export default function WorkspaceDetailPage() {
     if (!workspace) return;
     await navigator.clipboard?.writeText(workspace.code);
     toast.success("Workspace code copied.");
+  };
+
+  const endWorkspace = async () => {
+    if (!workspace) return;
+    setEnding(true);
+    try {
+      const res = await api.post<{ workspace: Workspace }>(`/api/workspaces/${workspace.id}/end`, {});
+      setWorkspace(res.workspace);
+      toast.success("Workspace ended. Existing evidence and reports were preserved.");
+      setConfirmAction(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "End workspace failed");
+    } finally {
+      setEnding(false);
+    }
   };
 
   const deleteWorkspace = async () => {
@@ -117,6 +133,14 @@ export default function WorkspaceDetailPage() {
           variant: "default" as const,
           loading: starting,
           onConfirm: startWorkspace,
+        },
+        end: {
+          title: `End ${workspace.name}?`,
+          description: "New round starts will close immediately. Active local rounds will be finalized and all evidence will be preserved.",
+          confirmLabel: "Yes, End Workspace",
+          variant: "destructive" as const,
+          loading: ending,
+          onConfirm: endWorkspace,
         },
         delete: {
           title: `Delete ${workspace.name}?`,
@@ -168,6 +192,8 @@ export default function WorkspaceDetailPage() {
                 workspace={workspace}
                 onStart={() => setConfirmAction("start")}
                 starting={starting}
+                onEnd={() => setConfirmAction("end")}
+                ending={ending}
                 onArchive={() => setConfirmAction("archive")}
                 archiving={archiving}
                 onDelete={() => setConfirmAction("delete")}

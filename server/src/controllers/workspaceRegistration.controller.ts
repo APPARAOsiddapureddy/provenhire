@@ -4,11 +4,15 @@ import type { AuthedRequest } from "../middleware/auth.js";
 import { WorkspaceServiceError } from "../services/workspace.service.js";
 import {
   importAllowedWorkspaceEmailsFromCsv,
+  addAllowedWorkspaceEmails,
   getWorkspaceCandidateDossier,
+  listAllowedWorkspaceEmails,
+  listWorkspaceAuditTrail,
   listWorkspaceRegistrations,
   recordWorkspaceCandidateDecision,
   removeWorkspaceRegistration,
   restoreWorkspaceRegistration,
+  revokeAllowedWorkspaceEmail,
 } from "../services/workspaceRegistration.service.js";
 import { generateAssessmentReport } from "../services/assessmentReportAgent.service.js";
 
@@ -196,6 +200,71 @@ export async function importAllowedWorkspaceEmailsController(
       csvBuffer: req.file.buffer,
     });
     return res.json({ summary });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function listAllowedWorkspaceEmailsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      invitations: await listAllowedWorkspaceEmails(
+        actorFromRequest(req),
+        req.params.id,
+      ),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function addAllowedWorkspaceEmailsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z.object({
+    emails: z.array(z.string().trim().min(3).max(320)).min(1).max(200),
+  }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide between 1 and 200 invitation emails." });
+  }
+  try {
+    return res.status(201).json(await addAllowedWorkspaceEmails({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      emails: parsed.data.emails,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function revokeAllowedWorkspaceEmailController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json(await revokeAllowedWorkspaceEmail({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      invitationId: req.params.invitationId,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function listWorkspaceAuditTrailController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      events: await listWorkspaceAuditTrail(actorFromRequest(req), req.params.id),
+    });
   } catch (error) {
     return sendError(res, error);
   }
