@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -45,7 +45,7 @@ export default function McqRoundRunner({ workspaceCode, attemptId, sessionId }: 
   const [submitting, setSubmitting] = useState(false);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await api.get<McqSnapshot>(`/api/session/mcq/${encodeURIComponent(sessionId)}`);
     setSnapshot(res);
     setSelected(res.answers ?? {});
@@ -53,11 +53,11 @@ export default function McqRoundRunner({ workspaceCode, attemptId, sessionId }: 
       ? res.questions.findIndex((question) => question.id === res.session.currentQuestionId)
       : 0;
     setActiveIndex(idx >= 0 ? idx : 0);
-  };
+  }, [sessionId]);
 
   useEffect(() => {
     void load().catch((error) => toast.error(error instanceof Error ? error.message : "Failed to load MCQ session"));
-  }, [sessionId]);
+  }, [load]);
 
   const current = snapshot?.questions[activeIndex] ?? null;
   const isFinalized = snapshot?.session.status === "submitted" || snapshot?.session.status === "auto_submitted";

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, PanelLeftClose, PanelLeftOpen, Play, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -158,7 +158,7 @@ export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId }: 
   const [problemsOpen, setProblemsOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
   const [submitConfirm, setSubmitConfirm] = useState<"question" | "final" | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await api.get<DsaSnapshot>(`/api/session/dsa/${encodeURIComponent(sessionId)}`);
     setSnapshot(res);
     setCodeByQuestion(res.codeDrafts ?? {});
@@ -170,13 +170,14 @@ export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId }: 
       const firstUnanswered = res.activeFollowUp.followUps.findIndex((question) => !answers[question.followUpQuestionId]);
       setFollowUpIndex(firstUnanswered >= 0 ? firstUnanswered : 0);
     }
-  };
+  }, [sessionId]);
 
   useEffect(() => {
     void load().catch((error) => toast.error(error instanceof Error ? error.message : "Failed to load DSA session"));
-  }, [sessionId]);
+  }, [load]);
 
   const current = snapshot?.questions[activeIndex] ?? null;
+  const currentId = current?.id;
   const currentCode = current ? codeByQuestion[current.id]?.[language] ?? starterFor(current, language) : "";
   const isFinalized = snapshot?.workspaceAttempt.status === "completed" || snapshot?.workspaceAttempt.status === "auto_completed";
   const activeFollowUp = snapshot?.activeFollowUp ?? null;
@@ -206,22 +207,22 @@ export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId }: 
     }));
   };
 
-  const saveCode = async () => {
-    if (!current || isFinalized) return;
+  const saveCode = useCallback(async () => {
+    if (!currentId || isFinalized) return;
     await api.put(`/api/session/dsa/${encodeURIComponent(sessionId)}/code`, {
-      questionId: current.id,
+      questionId: currentId,
       language,
       code: currentCode,
     });
-  };
+  }, [currentCode, currentId, isFinalized, language, sessionId]);
 
   useEffect(() => {
-    if (!current || isFinalized) return;
+    if (!currentId || isFinalized) return;
     const timer = window.setTimeout(() => {
       saveCode().catch(() => {});
     }, 2500);
     return () => window.clearTimeout(timer);
-  }, [current?.id, currentCode, language, isFinalized]);
+  }, [currentId, isFinalized, saveCode]);
 
   const moveTo = async (index: number) => {
     if (!snapshot?.questions[index]) return;
