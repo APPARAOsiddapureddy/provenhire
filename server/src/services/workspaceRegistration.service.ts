@@ -610,6 +610,24 @@ function publicWorkspaceSelect() {
   };
 }
 
+const WORKSPACE_MANAGER_MEMBER_ROLES = ["owner", "manager"] as const;
+
+async function getActiveWorkspaceMemberRole(
+  workspaceId: string,
+  userId: string,
+): Promise<"owner" | "manager" | "reviewer" | null> {
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { role: true, removedAt: true },
+  });
+  if (!membership || membership.removedAt) return null;
+  return membership.role;
+}
+
+/// Owner/legacy-owner or an active 'owner'/'manager' WorkspaceMember can fully
+/// manage a workspace (candidates, invitations, reports, rounds). Platform
+/// admins can always manage any workspace. 'reviewer' members are read-only
+/// and must use assertCanReviewWorkspace instead.
 async function assertCanManageWorkspace(
   actor: WorkspaceActor,
   workspaceId: string,
@@ -619,13 +637,20 @@ async function assertCanManageWorkspace(
     select: { id: true, ownerUserId: true },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
-  if (actor.role !== "admin" && workspace.ownerUserId !== actor.id) {
-    throw new WorkspaceServiceError(
-      "Not authorized to manage this workspace.",
-      403,
-    );
+  if (actor.role === "admin" || workspace.ownerUserId === actor.id) {
+    return workspace;
   }
-  return workspace;
+  const memberRole = await getActiveWorkspaceMemberRole(workspaceId, actor.id);
+  if (
+    memberRole &&
+    (WORKSPACE_MANAGER_MEMBER_ROLES as readonly string[]).includes(memberRole)
+  ) {
+    return workspace;
+  }
+  throw new WorkspaceServiceError(
+    "Not authorized to manage this workspace.",
+    403,
+  );
 }
 
 async function assertCanManageWorkspaceByCode(
@@ -638,13 +663,41 @@ async function assertCanManageWorkspaceByCode(
     select: { id: true, code: true, ownerUserId: true },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
-  if (actor.role !== "admin" && workspace.ownerUserId !== actor.id) {
-    throw new WorkspaceServiceError(
-      "Not authorized to manage this workspace.",
-      403,
-    );
+  if (actor.role === "admin" || workspace.ownerUserId === actor.id) {
+    return workspace;
   }
-  return workspace;
+  const memberRole = await getActiveWorkspaceMemberRole(workspace.id, actor.id);
+  if (
+    memberRole &&
+    (WORKSPACE_MANAGER_MEMBER_ROLES as readonly string[]).includes(memberRole)
+  ) {
+    return workspace;
+  }
+  throw new WorkspaceServiceError(
+    "Not authorized to manage this workspace.",
+    403,
+  );
+}
+
+/// Read-only access: manager/owner roles above, plus 'reviewer' members.
+async function assertCanReviewWorkspace(
+  actor: WorkspaceActor,
+  workspaceId: string,
+) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true, ownerUserId: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  if (actor.role === "admin" || workspace.ownerUserId === actor.id) {
+    return workspace;
+  }
+  const memberRole = await getActiveWorkspaceMemberRole(workspaceId, actor.id);
+  if (memberRole) return workspace;
+  throw new WorkspaceServiceError(
+    "Not authorized to view this workspace.",
+    403,
+  );
 }
 
 function parseCsvRows(csv: string): string[][] {
@@ -1019,6 +1072,7 @@ export async function joinWorkspaceByCode(
     });
     if (!user) throw new WorkspaceServiceError("User not found.", 404);
 
+    let acceptedInvitationId: string | null = null;
     if (workspace.accessMode === "invite_only") {
       const allowed = await tx.workspaceAllowedEmail.findUnique({
         where: {
@@ -1035,15 +1089,23 @@ export async function joinWorkspaceByCode(
           403,
         );
       }
+      acceptedInvitationId = allowed.id;
     }
 
     try {
-      return await tx.workspaceRegistration.create({
+      const registration = await tx.workspaceRegistration.create({
         data: {
           workspaceId,
           userId: actor.id,
         },
       });
+      if (acceptedInvitationId) {
+        await tx.workspaceAllowedEmail.update({
+          where: { id: acceptedInvitationId },
+          data: { deliveryStatus: "accepted", acceptedAt: new Date() },
+        });
+      }
+      return registration;
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -2114,6 +2176,247 @@ export async function restoreWorkspaceRegistration(
   return registration;
 }
 
+export async function listWorkspaceMembers(
+  actor: WorkspaceActor,
+  workspaceId: string,
+) {
+  await assertCanReviewWorkspace(actor, workspaceId);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { ownerUserId: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+
+  const members = await prisma.workspaceMember.findMany({
+    where: { workspaceId, removedAt: null },
+    orderBy: { createdAt: "asc" },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  });
+
+  return members.map((member) => ({
+    id: member.id,
+    userId: member.userId,
+    name: member.user.name,
+    email: member.user.email,
+    role: member.role,
+    isPrimaryOwner: member.userId === workspace.ownerUserId,
+    createdAt: member.createdAt,
+  }));
+}
+
+export async function addWorkspaceMember(input: {
+  actor: WorkspaceActor;
+  workspaceId: string;
+  email: string;
+  role: "owner" | "manager" | "reviewer";
+}) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: input.workspaceId },
+    select: { id: true, ownerUserId: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+
+  // Only the primary owner or another active 'owner' member may add members or
+  // grant the 'owner' role; managers may not escalate themselves or others.
+  const isPrimaryOwner = workspace.ownerUserId === input.actor.id;
+  const actorMemberRole = isPrimaryOwner
+    ? "owner"
+    : await getActiveWorkspaceMemberRole(input.workspaceId, input.actor.id);
+  const actorIsPlatformAdmin = input.actor.role === "admin";
+  if (!actorIsPlatformAdmin && actorMemberRole !== "owner") {
+    throw new WorkspaceServiceError(
+      "Only a workspace owner can add or manage members.",
+      403,
+    );
+  }
+
+  const email = normalizeEmail(input.email);
+  if (!isValidEmail(email)) {
+    throw new WorkspaceServiceError("Invalid member email.", 400);
+  }
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, role: true },
+  });
+  if (!user) {
+    throw new WorkspaceServiceError(
+      "No ProvenHire account exists for that email yet. The person must sign up first.",
+      404,
+    );
+  }
+  if (!["recruiter", "admin"].includes(user.role)) {
+    throw new WorkspaceServiceError(
+      "Only recruiter or admin accounts can be added as workspace members.",
+      400,
+    );
+  }
+
+  const member = await prisma.workspaceMember.upsert({
+    where: {
+      workspaceId_userId: { workspaceId: input.workspaceId, userId: user.id },
+    },
+    create: {
+      workspaceId: input.workspaceId,
+      userId: user.id,
+      role: input.role,
+      invitedByUserId: input.actor.id,
+    },
+    update: {
+      role: input.role,
+      removedAt: null,
+      removedByUserId: null,
+    },
+  });
+
+  await recordWorkspaceAuditEvent({
+    workspaceId: input.workspaceId,
+    actorUserId: input.actor.id,
+    eventType: "member.added",
+    targetUserId: user.id,
+    targetEmail: email,
+    detail: { role: input.role },
+  });
+
+  return listWorkspaceMembers(input.actor, input.workspaceId);
+}
+
+export async function removeWorkspaceMember(input: {
+  actor: WorkspaceActor;
+  workspaceId: string;
+  memberUserId: string;
+}) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: input.workspaceId },
+    select: { id: true, ownerUserId: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+
+  const isPrimaryOwner = workspace.ownerUserId === input.actor.id;
+  const actorMemberRole = isPrimaryOwner
+    ? "owner"
+    : await getActiveWorkspaceMemberRole(input.workspaceId, input.actor.id);
+  if (input.actor.role !== "admin" && actorMemberRole !== "owner") {
+    throw new WorkspaceServiceError(
+      "Only a workspace owner can remove members.",
+      403,
+    );
+  }
+  if (workspace.ownerUserId === input.memberUserId) {
+    throw new WorkspaceServiceError(
+      "The primary owner cannot be removed. Transfer ownership first.",
+      409,
+    );
+  }
+
+  const membership = await prisma.workspaceMember.findUnique({
+    where: {
+      workspaceId_userId: {
+        workspaceId: input.workspaceId,
+        userId: input.memberUserId,
+      },
+    },
+  });
+  if (!membership || membership.removedAt) {
+    throw new WorkspaceServiceError("Workspace member not found.", 404);
+  }
+
+  await prisma.workspaceMember.update({
+    where: { id: membership.id },
+    data: { removedAt: new Date(), removedByUserId: input.actor.id },
+  });
+
+  await recordWorkspaceAuditEvent({
+    workspaceId: input.workspaceId,
+    actorUserId: input.actor.id,
+    eventType: "member.removed",
+    targetUserId: input.memberUserId,
+  });
+
+  return listWorkspaceMembers(input.actor, input.workspaceId);
+}
+
+export async function transferWorkspaceOwnership(input: {
+  actor: WorkspaceActor;
+  workspaceId: string;
+  newOwnerUserId: string;
+}) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: input.workspaceId },
+    select: { id: true, ownerUserId: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+
+  if (input.actor.role !== "admin" && workspace.ownerUserId !== input.actor.id) {
+    throw new WorkspaceServiceError(
+      "Only the current owner can transfer ownership.",
+      403,
+    );
+  }
+  if (workspace.ownerUserId === input.newOwnerUserId) {
+    return listWorkspaceMembers(input.actor, input.workspaceId);
+  }
+
+  const newOwner = await prisma.user.findUnique({
+    where: { id: input.newOwnerUserId },
+    select: { id: true, role: true },
+  });
+  if (!newOwner || !["recruiter", "admin"].includes(newOwner.role)) {
+    throw new WorkspaceServiceError(
+      "The new owner must be an existing recruiter or admin account.",
+      400,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workspace.update({
+      where: { id: input.workspaceId },
+      data: { ownerUserId: input.newOwnerUserId },
+    });
+    await tx.workspaceMember.upsert({
+      where: {
+        workspaceId_userId: {
+          workspaceId: input.workspaceId,
+          userId: input.newOwnerUserId,
+        },
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        userId: input.newOwnerUserId,
+        role: "owner",
+        invitedByUserId: input.actor.id,
+      },
+      update: { role: "owner", removedAt: null, removedByUserId: null },
+    });
+    // The previous owner keeps management access as a 'manager' rather than
+    // being silently locked out of a workspace they built.
+    await tx.workspaceMember.upsert({
+      where: {
+        workspaceId_userId: {
+          workspaceId: input.workspaceId,
+          userId: workspace.ownerUserId,
+        },
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        userId: workspace.ownerUserId,
+        role: "manager",
+        invitedByUserId: input.actor.id,
+      },
+      update: { role: "manager" },
+    });
+  });
+
+  await recordWorkspaceAuditEvent({
+    workspaceId: input.workspaceId,
+    actorUserId: input.actor.id,
+    eventType: "ownership.transferred",
+    targetUserId: input.newOwnerUserId,
+    detail: { previousOwnerUserId: workspace.ownerUserId },
+  });
+
+  return listWorkspaceMembers(input.actor, input.workspaceId);
+}
+
 export async function listAllowedWorkspaceEmails(
   actor: WorkspaceActor,
   workspaceId: string,
@@ -2131,6 +2434,41 @@ export async function listWorkspaceAuditTrail(
 ) {
   await assertCanManageWorkspace(actor, workspaceId);
   return listWorkspaceAuditEvents(workspaceId);
+}
+
+async function deliverWorkspaceInvitationEmail(params: {
+  workspaceId: string;
+  email: string;
+  workspaceName: string;
+  organization: string;
+  code: string;
+  startAt: Date;
+}) {
+  try {
+    await sendWorkspaceInvitationEmail({
+      to: params.email,
+      workspaceName: params.workspaceName,
+      organization: params.organization,
+      code: params.code,
+      startsAt: params.startAt,
+      eventKey: `workspace-invitation:${params.workspaceId}:${params.email}`,
+    });
+    await prisma.workspaceAllowedEmail.updateMany({
+      where: { workspaceId: params.workspaceId, email: params.email },
+      data: { deliveryStatus: "sent", sentAt: new Date(), deliveryError: null },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[workspace/invitation] email failed", {
+      workspaceId: params.workspaceId,
+      email: params.email,
+      error: message,
+    });
+    await prisma.workspaceAllowedEmail.updateMany({
+      where: { workspaceId: params.workspaceId, email: params.email },
+      data: { deliveryStatus: "failed", deliveryError: message.slice(0, 500) },
+    });
+  }
 }
 
 export async function addAllowedWorkspaceEmails(input: {
@@ -2178,19 +2516,13 @@ export async function addAllowedWorkspaceEmails(input: {
         eventType: "invitation.created",
         targetEmail: email,
       });
-      await sendWorkspaceInvitationEmail({
-        to: email,
+      await deliverWorkspaceInvitationEmail({
+        workspaceId: input.workspaceId,
+        email,
         workspaceName: workspace.name,
         organization: workspace.organization,
         code: workspace.code,
-        startsAt: workspace.startAt,
-        eventKey: `workspace-invitation:${input.workspaceId}:${email}`,
-      }).catch((error) => {
-        console.warn("[workspace/invitation] email failed", {
-          workspaceId: input.workspaceId,
-          email,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        startAt: workspace.startAt,
       });
     }),
   );
@@ -2281,18 +2613,13 @@ export async function importAllowedWorkspaceEmailsFromCsv(params: {
     });
     if (workspaceDetails) {
       for (const email of newEmails) {
-        void sendWorkspaceInvitationEmail({
-          to: email,
+        void deliverWorkspaceInvitationEmail({
+          workspaceId: workspace.id,
+          email,
           workspaceName: workspaceDetails.name,
           organization: workspaceDetails.organization,
           code: workspaceDetails.code,
-          startsAt: workspaceDetails.startAt,
-          eventKey: `workspace-invitation:${workspace.id}:${email}`,
-        }).catch((err) => {
-          console.warn(
-            "[workspace/allowed-emails/import] invitation email failed:",
-            err instanceof Error ? err.message : err,
-          );
+          startAt: workspaceDetails.startAt,
         });
       }
     }

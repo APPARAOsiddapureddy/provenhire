@@ -39,12 +39,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Archive,
   BarChart3,
   CheckCircle2,
   ClipboardList,
   Copy,
+  Crown,
+  Eye,
   FileSpreadsheet,
   FileText,
   Loader2,
@@ -52,8 +55,10 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Shield,
   Square,
   Trash2,
+  UserPlus,
   Upload,
   Users,
 } from "lucide-react";
@@ -65,6 +70,8 @@ import type {
   WorkspaceDetailsDraft,
   WorkspaceLeaderboardResponse,
   WorkspaceInvitation,
+  WorkspaceMember,
+  WorkspaceMemberRole,
   WorkspaceRegistration,
   WorkspaceRound,
   WorkspaceRoundDraft,
@@ -959,13 +966,235 @@ export function AllowedEmailsUploader({
             <div className="divide-y">
               {invitations.map((invitation) => (
                 <div key={invitation.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                  <div className="min-w-0"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">Added {formatDateTime(invitation.createdAt)}</p></div>
-                  <Button type="button" size="sm" variant="ghost" disabled={readonly} onClick={() => void revoke(invitation)} aria-label={`Revoke invitation for ${invitation.email}`}><Trash2 className="h-4 w-4" /></Button>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{invitation.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Added {formatDateTime(invitation.createdAt)}
+                      {invitation.deliveryStatus === "failed" && invitation.deliveryError
+                        ? ` — ${invitation.deliveryError}`
+                        : null}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <InvitationDeliveryBadge invitation={invitation} />
+                    <Button type="button" size="sm" variant="ghost" disabled={readonly} onClick={() => void revoke(invitation)} aria-label={`Revoke invitation for ${invitation.email}`}><Trash2 className="h-4 w-4" /></Button>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
             <p className="p-3 text-sm text-muted-foreground">No invitation emails yet.</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InvitationDeliveryBadge({ invitation }: { invitation: WorkspaceInvitation }) {
+  switch (invitation.deliveryStatus) {
+    case "accepted":
+      return <Badge variant="default">Joined</Badge>;
+    case "sent":
+      return <Badge variant="outline">Sent</Badge>;
+    case "failed":
+      return <Badge variant="destructive">Delivery failed</Badge>;
+    case "pending":
+    default:
+      return <Badge variant="secondary">Pending</Badge>;
+  }
+}
+
+const MEMBER_ROLE_ICON: Record<WorkspaceMemberRole, typeof Crown> = {
+  owner: Crown,
+  manager: Shield,
+  reviewer: Eye,
+};
+
+const MEMBER_ROLE_LABEL: Record<WorkspaceMemberRole, string> = {
+  owner: "Owner",
+  manager: "Manager",
+  reviewer: "Reviewer (read-only)",
+};
+
+export function WorkspaceMembersManager({
+  workspaceId,
+  currentUserId,
+  readonly = false,
+}: {
+  workspaceId: string;
+  currentUserId?: string | null;
+  readonly?: boolean;
+}) {
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<WorkspaceMemberRole>("manager");
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadMembers = useCallback(async () => {
+    try {
+      const response = await api.get<{ members: WorkspaceMember[] }>(
+        `/api/workspaces/${workspaceId}/members`,
+      );
+      setMembers(response.members ?? []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load workspace members");
+    } finally {
+      setLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    void loadMembers();
+  }, [loadMembers]);
+
+  const viewerIsOwner = useMemo(
+    () => members.some((member) => member.userId === currentUserId && member.role === "owner"),
+    [members, currentUserId],
+  );
+
+  const addMember = async () => {
+    const email = inviteEmail.trim();
+    if (!email) return;
+    setSubmitting(true);
+    try {
+      const response = await api.post<{ members: WorkspaceMember[] }>(
+        `/api/workspaces/${workspaceId}/members`,
+        { email, role: inviteRole },
+      );
+      setMembers(response.members);
+      setInviteEmail("");
+      toast.success(`${email} added as ${MEMBER_ROLE_LABEL[inviteRole].toLowerCase()}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not add member");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const removeMember = async (member: WorkspaceMember) => {
+    try {
+      const response = await api.del<{ members: WorkspaceMember[] }>(
+        `/api/workspaces/${workspaceId}/members/${member.userId}`,
+      );
+      setMembers(response.members);
+      toast.success(`${member.email} removed from this workspace.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove member");
+    }
+  };
+
+  const transferOwnership = async (member: WorkspaceMember) => {
+    try {
+      const response = await api.post<{ members: WorkspaceMember[] }>(
+        `/api/workspaces/${workspaceId}/transfer-ownership`,
+        { newOwnerUserId: member.userId },
+      );
+      setMembers(response.members);
+      toast.success(`Ownership transferred to ${member.email}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not transfer ownership");
+    }
+  };
+
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="p-4">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Users className="h-4 w-4 text-primary" />
+          Workspace members
+        </CardTitle>
+        <CardDescription>
+          Recruiters or admins with access to manage this workspace. Reviewers can
+          view candidates and reports but cannot make changes.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-4 pt-0 space-y-3">
+        {!readonly && viewerIsOwner && (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="recruiter@example.com"
+              disabled={submitting}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void addMember();
+                }
+              }}
+            />
+            <Select value={inviteRole} onValueChange={(value) => setInviteRole(value as WorkspaceMemberRole)}>
+              <SelectTrigger className="sm:w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manager">Manager</SelectItem>
+                <SelectItem value="reviewer">Reviewer</SelectItem>
+                <SelectItem value="owner">Owner</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button type="button" onClick={() => void addMember()} disabled={submitting || !inviteEmail.trim()}>
+              {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
+              Add member
+            </Button>
+          </div>
+        )}
+        <div className="rounded-lg border">
+          {loading ? (
+            <p className="p-3 text-sm text-muted-foreground">Loading members…</p>
+          ) : members.length ? (
+            <div className="divide-y">
+              {members.map((member) => {
+                const RoleIcon = MEMBER_ROLE_ICON[member.role];
+                return (
+                  <div key={member.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0 flex items-center gap-2">
+                      <RoleIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {member.name || member.email}
+                          {member.userId === currentUserId ? " (you)" : ""}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={member.role === "owner" ? "default" : "outline"}>
+                        {MEMBER_ROLE_LABEL[member.role]}
+                      </Badge>
+                      {!readonly && viewerIsOwner && !member.isPrimaryOwner && (
+                        <>
+                          {member.role !== "owner" && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void transferOwnership(member)}
+                              aria-label={`Make ${member.email} the owner`}
+                            >
+                              Make owner
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void removeMember(member)}
+                            aria-label={`Remove ${member.email}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="p-3 text-sm text-muted-foreground">No members yet.</p>
           )}
         </div>
       </CardContent>
@@ -1837,6 +2066,7 @@ export function WorkspaceTabs({
   workspace: Workspace;
   onRefresh: () => void;
 }) {
+  const { user } = useAuth();
   const readonly = workspace.status === "archived";
   return (
     <Tabs defaultValue="overview" className="space-y-4">
@@ -1855,6 +2085,10 @@ export function WorkspaceTabs({
           <TabsTrigger value="allowlist" className="shrink-0">
             Invitations
           </TabsTrigger>
+          <TabsTrigger value="team" className="shrink-0">
+            <Shield className="h-3 w-3 mr-1" />
+            Team
+          </TabsTrigger>
           <TabsTrigger value="leaderboard" className="shrink-0">
             <BarChart3 className="h-3 w-3 mr-1" />
             Leaderboard
@@ -1871,6 +2105,13 @@ export function WorkspaceTabs({
       <TabsContent value="registrations">
         <WorkspaceRegistrationsTable
           workspaceId={workspace.id}
+          readonly={readonly}
+        />
+      </TabsContent>
+      <TabsContent value="team">
+        <WorkspaceMembersManager
+          workspaceId={workspace.id}
+          currentUserId={user?.id}
           readonly={readonly}
         />
       </TabsContent>

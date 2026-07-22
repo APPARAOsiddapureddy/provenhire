@@ -5,14 +5,18 @@ import { WorkspaceServiceError } from "../services/workspace.service.js";
 import {
   importAllowedWorkspaceEmailsFromCsv,
   addAllowedWorkspaceEmails,
+  addWorkspaceMember,
   getWorkspaceCandidateDossier,
   listAllowedWorkspaceEmails,
   listWorkspaceAuditTrail,
+  listWorkspaceMembers,
   listWorkspaceRegistrations,
   recordWorkspaceCandidateDecision,
+  removeWorkspaceMember,
   removeWorkspaceRegistration,
   restoreWorkspaceRegistration,
   revokeAllowedWorkspaceEmail,
+  transferWorkspaceOwnership,
 } from "../services/workspaceRegistration.service.js";
 import { enqueueManualAssessmentReportWorkflow } from "../services/assessmentWorkflow.service.js";
 
@@ -282,6 +286,88 @@ export async function listWorkspaceAuditTrailController(
   try {
     return res.json({
       events: await listWorkspaceAuditTrail(actorFromRequest(req), req.params.id),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function listWorkspaceMembersController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      members: await listWorkspaceMembers(actorFromRequest(req), req.params.id),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+const workspaceMemberRoleSchema = z.enum(["owner", "manager", "reviewer"]);
+
+export async function addWorkspaceMemberController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z
+    .object({
+      email: z.string().trim().min(3).max(320),
+      role: workspaceMemberRoleSchema.default("manager"),
+    })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide a member email and a valid role." });
+  }
+  try {
+    return res.status(201).json({
+      members: await addWorkspaceMember({
+        actor: actorFromRequest(req),
+        workspaceId: req.params.id,
+        email: parsed.data.email,
+        role: parsed.data.role,
+      }),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function removeWorkspaceMemberController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      members: await removeWorkspaceMember({
+        actor: actorFromRequest(req),
+        workspaceId: req.params.id,
+        memberUserId: req.params.userId,
+      }),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function transferWorkspaceOwnershipController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z
+    .object({ newOwnerUserId: z.string().trim().min(1) })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide the new owner's user id." });
+  }
+  try {
+    return res.json({
+      members: await transferWorkspaceOwnership({
+        actor: actorFromRequest(req),
+        workspaceId: req.params.id,
+        newOwnerUserId: parsed.data.newOwnerUserId,
+      }),
     });
   } catch (error) {
     return sendError(res, error);

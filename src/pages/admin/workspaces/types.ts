@@ -379,10 +379,28 @@ export type AllowlistImportSummary = {
   invalidSamples: string[];
 };
 
+export type InvitationDeliveryStatus = "pending" | "sent" | "failed" | "accepted";
+
 export type WorkspaceInvitation = {
   id: string;
   workspaceId: string;
   email: string;
+  deliveryStatus: InvitationDeliveryStatus;
+  deliveryError: string | null;
+  sentAt: string | null;
+  acceptedAt: string | null;
+  createdAt: string;
+};
+
+export type WorkspaceMemberRole = "owner" | "manager" | "reviewer";
+
+export type WorkspaceMember = {
+  id: string;
+  userId: string;
+  name: string | null;
+  email: string;
+  role: WorkspaceMemberRole;
+  isPrimaryOwner: boolean;
   createdAt: string;
 };
 
