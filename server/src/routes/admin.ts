@@ -33,6 +33,7 @@ import { sendHumanInterviewRejectedEmail } from "../services/resend.js";
 import { grantRetakeCredits } from "../services/candidateRetake.service.js";
 import { ensureRecruiterUsageRow } from "../utils/recruiterSubscription.js";
 import { syncProvenhireResumeFromSources } from "../services/provenhireResume.service.js";
+import { regradeStaleSqlSubmissions } from "../services/sqlSubmissionRemediation.service.js";
 
 function csvEscape(s: string | null | undefined): string {
   if (s == null || s === "") return "";
@@ -1467,5 +1468,22 @@ adminRouter.post("/ai-interview-queue/:id/reject", async (req: AuthedRequest, re
   } catch (e) {
     console.error("[admin/ai-interview-queue/reject]", e);
     res.status(500).json({ error: e instanceof Error ? e.message : "Reject failed" });
+  }
+});
+
+/**
+ * TEMPORARY - one-off remediation endpoint for stale pre-fix SQL scores.
+ * See sqlSubmissionRemediation.service.ts for details. Remove after use;
+ * this is not a permanent admin capability, added only because this
+ * environment's free-tier Render plan doesn't support one-off jobs.
+ */
+adminRouter.post("/ops/regrade-stale-sql-submissions", async (req, res) => {
+  try {
+    const apply = req.body?.apply === true;
+    const result = await regradeStaleSqlSubmissions(apply);
+    res.json(result);
+  } catch (e) {
+    console.error("[admin/ops/regrade-stale-sql-submissions]", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : "Regrade failed" });
   }
 });
