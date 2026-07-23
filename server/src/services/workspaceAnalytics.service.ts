@@ -400,11 +400,7 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
 
 const analyticsCache = new Map<string, { computedAt: number; payload: WorkspaceAnalyticsSnapshot }>();
 
-export async function getWorkspaceAnalytics(
-  actor: WorkspaceActor,
-  workspaceId: string,
-): Promise<WorkspaceAnalyticsSnapshot> {
-  await assertCanManageWorkspace(actor, workspaceId);
+async function getCachedAnalyticsSnapshot(workspaceId: string): Promise<WorkspaceAnalyticsSnapshot> {
   const cached = analyticsCache.get(workspaceId);
   if (cached && Date.now() - cached.computedAt < WORKSPACE_ANALYTICS_CACHE_TTL_MS) {
     return cached.payload;
@@ -412,4 +408,44 @@ export async function getWorkspaceAnalytics(
   const payload = await computeWorkspaceAnalytics(workspaceId);
   analyticsCache.set(workspaceId, { computedAt: Date.now(), payload });
   return payload;
+}
+
+export async function getWorkspaceAnalytics(
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceAnalyticsSnapshot> {
+  await assertCanManageWorkspace(actor, workspaceId);
+  return getCachedAnalyticsSnapshot(workspaceId);
+}
+
+export type CandidateSafeModuleAverage = {
+  configured: boolean;
+  completedCount: number;
+  avgPercentageScore: number | null;
+};
+
+export type CandidateSafeWorkspaceAverages = {
+  totalCandidates: number;
+  modules: Record<WorkspaceRoundType, CandidateSafeModuleAverage>;
+};
+
+// Deliberately narrower than WorkspaceAnalyticsSnapshot: no per-question
+// categories, no retake list, no individual candidate rows - only
+// module-level averages and sample sizes, which is why this can be called
+// for the requesting candidate's own workspace without an admin auth check.
+export async function getCandidateSafeWorkspaceAverages(
+  workspaceId: string,
+): Promise<CandidateSafeWorkspaceAverages> {
+  const snapshot = await getCachedAnalyticsSnapshot(workspaceId);
+  const modules = Object.fromEntries(
+    (Object.entries(snapshot.modules) as [WorkspaceRoundType, ModuleSummary][]).map(([type, summary]) => [
+      type,
+      {
+        configured: summary.configured,
+        completedCount: summary.completedCount,
+        avgPercentageScore: summary.avgPercentageScore,
+      },
+    ]),
+  ) as Record<WorkspaceRoundType, CandidateSafeModuleAverage>;
+  return { totalCandidates: snapshot.workspace.totalCandidates, modules };
 }

@@ -21,6 +21,7 @@ import {
 import { assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 import { createAntigravityReportAccessToken } from "./antigravityReportAccess.service.js";
 import { createPlacementReportAccessToken } from "./placementReportAccessToken.service.js";
+import { getCandidateSafeWorkspaceAverages } from "./workspaceAnalytics.service.js";
 import { listWorkspaceAuditEvents, recordWorkspaceAuditEvent } from "./workspaceAudit.service.js";
 
 export type WorkspaceActor = {
@@ -471,6 +472,110 @@ export function buildConfiguredCandidateAssessmentSynthesis(input: {
       issues: evidenceIssues,
     },
   };
+}
+
+type RoundCompletionStatus = "completed" | "in_progress" | "not_started";
+
+export function computeRoundCompletionTally(
+  configuredRounds: Array<{ id: string; name: string }>,
+  roundAttempts: Array<{ workspaceRoundId: string; status: string }>,
+): {
+  completedRounds: number;
+  totalRounds: number;
+  rounds: Array<{ key: string; label: string; status: RoundCompletionStatus }>;
+} {
+  const statusByRoundId = new Map(roundAttempts.map((attempt) => [attempt.workspaceRoundId, attempt.status]));
+  const rounds = configuredRounds.map((round) => {
+    const status = statusByRoundId.get(round.id);
+    const normalized: RoundCompletionStatus =
+      status === "completed" || status === "auto_completed"
+        ? "completed"
+        : status === "active"
+          ? "in_progress"
+          : "not_started";
+    return { key: round.id, label: round.name, status: normalized };
+  });
+  return {
+    completedRounds: rounds.filter((round) => round.status === "completed").length,
+    totalRounds: rounds.length,
+    rounds,
+  };
+}
+
+// Deterministic, threshold-based statements for modules that have no
+// qualitative AI text of their own (aptitude/dsa/sql are numeric-only) -
+// mirrors the same threshold style already used for crossModuleSignals
+// above, rather than inventing new AI generation with nothing to ground it.
+export function buildModuleScoreNarratives(
+  scores: Record<ConfiguredAssessmentModule, number | null>,
+  readyModuleKeys: ConfiguredAssessmentModule[],
+): { highlights: string[]; concerns: string[] } {
+  const label = (module: ConfiguredAssessmentModule) =>
+    ({ aptitude: "Aptitude", dsa: "Coding", sql: "SQL", interview: "the placement interview" })[module];
+  const readyScores = readyModuleKeys
+    .map((module) => ({ module, score: scores[module] }))
+    .filter((entry): entry is { module: ConfiguredAssessmentModule; score: number } => entry.score !== null);
+  const highlights: string[] = [];
+  const concerns: string[] = [];
+  for (const { module, score } of readyScores) {
+    if (score >= 80) highlights.push(`Scored strongly in ${label(module)} (${score}%).`);
+    else if (score < 60) concerns.push(`${label(module)} trailed the other configured rounds (${score}%) and is worth revisiting.`);
+  }
+  if (readyScores.length > 1) {
+    const sorted = [...readyScores].sort((a, b) => b.score - a.score);
+    const strongest = sorted[0];
+    const weakest = sorted[sorted.length - 1];
+    if (strongest.score - weakest.score >= 15) {
+      concerns.push(
+        `${label(strongest.module)} (${strongest.score}%) is materially stronger than ${label(weakest.module)} (${weakest.score}%) — worth closing that gap.`,
+      );
+    }
+  }
+  return { highlights, concerns };
+}
+
+const PEER_STANDING_BAND_POINTS = 5;
+const PEER_COMPARISON_MIN_SAMPLE_SIZE = 5;
+
+type PeerStanding = "above_average" | "near_average" | "below_average" | "not_available";
+
+export async function buildPeerComparison(
+  workspaceId: string,
+  ownScores: Record<ConfiguredAssessmentModule, number | null>,
+): Promise<{
+  totalCandidates: number;
+  modules: Record<ConfiguredAssessmentModule, { configured: boolean; cohortSampleSize: number; yourStanding: PeerStanding }>;
+}> {
+  const averages = await getCandidateSafeWorkspaceAverages(workspaceId);
+  const moduleTypeByAssessmentModule: Record<ConfiguredAssessmentModule, keyof typeof averages.modules> = {
+    aptitude: "mcq",
+    dsa: "coding",
+    sql: "sql",
+    interview: "interview",
+  };
+  const modules = {} as Record<
+    ConfiguredAssessmentModule,
+    { configured: boolean; cohortSampleSize: number; yourStanding: PeerStanding }
+  >;
+  for (const assessmentModule of Object.keys(moduleTypeByAssessmentModule) as ConfiguredAssessmentModule[]) {
+    const moduleAverage = averages.modules[moduleTypeByAssessmentModule[assessmentModule]];
+    const ownScore = ownScores[assessmentModule];
+    const hasEnoughPeers = moduleAverage.completedCount >= PEER_COMPARISON_MIN_SAMPLE_SIZE;
+    const standing: PeerStanding =
+      !moduleAverage.configured || !hasEnoughPeers || ownScore === null || moduleAverage.avgPercentageScore === null
+        ? "not_available"
+        : ownScore - moduleAverage.avgPercentageScore > PEER_STANDING_BAND_POINTS
+          ? "above_average"
+          : ownScore - moduleAverage.avgPercentageScore < -PEER_STANDING_BAND_POINTS
+            ? "below_average"
+            : "near_average";
+    modules[assessmentModule] = {
+      configured: moduleAverage.configured,
+      cohortSampleSize: moduleAverage.completedCount,
+      yourStanding: standing,
+    };
+  }
+  return { totalCandidates: averages.totalCandidates, modules };
 }
 
 type LeaderboardCursor = {
@@ -1785,6 +1890,22 @@ export async function getWorkspaceCandidateDossier(
       interview: interviewEvidenceComplete,
     },
   });
+  const roundCompletion = computeRoundCompletionTally(
+    registration.workspace.rounds,
+    registration.roundAttempts,
+  );
+  const { highlights: crossRoundHighlights, concerns: crossRoundConcerns } = buildModuleScoreNarratives(
+    synthesis.evidenceBasis.moduleScores,
+    synthesis.readyModuleKeys,
+  );
+  const peerComparison = await buildPeerComparison(workspaceId, synthesis.evidenceBasis.moduleScores);
+  const enrichedSynthesis = {
+    ...synthesis,
+    roundCompletion,
+    peerComparison,
+    crossRoundHighlights,
+    crossRoundConcerns,
+  };
   const recordedDecision = await prisma.workspaceCandidateDecision.findUnique({
     where: {
       workspaceId_candidateUserId: { workspaceId, candidateUserId: userId },
@@ -1804,7 +1925,7 @@ export async function getWorkspaceCandidateDossier(
       registeredAt: registration.registeredAt,
       roundAttempts: registration.roundAttempts,
     },
-    synthesis,
+    synthesis: enrichedSynthesis,
     recordedDecision,
     agentReports: {
       dsa:
@@ -1883,12 +2004,12 @@ export async function getWorkspaceCandidateDossier(
   return {
     ...dossier,
     synthesis: {
-      ...synthesis,
+      ...enrichedSynthesis,
       recommendation: "COACHING EVIDENCE READY",
       decisionStatus: undefined,
       decisionGates: [],
       evidenceBasis: {
-        ...synthesis.evidenceBasis,
+        ...enrichedSynthesis.evidenceBasis,
         antigravityVerdict: null,
       },
     },

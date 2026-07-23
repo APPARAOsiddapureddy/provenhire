@@ -169,6 +169,28 @@ export type WorkspaceCandidateDossier = {
       byModule?: Record<string, boolean>;
       issues: string[];
     };
+    roundCompletion?: {
+      completedRounds: number;
+      totalRounds: number;
+      rounds: Array<{
+        key: string;
+        label: string;
+        status: "completed" | "in_progress" | "not_started";
+      }>;
+    };
+    peerComparison?: {
+      totalCandidates: number;
+      modules: Record<
+        string,
+        {
+          configured: boolean;
+          cohortSampleSize: number;
+          yourStanding: "above_average" | "near_average" | "below_average" | "not_available";
+        }
+      >;
+    };
+    crossRoundHighlights?: string[];
+    crossRoundConcerns?: string[];
   };
   recordedDecision?: {
     id: string;

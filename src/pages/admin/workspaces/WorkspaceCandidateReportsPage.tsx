@@ -1620,13 +1620,49 @@ function CandidateOverview({
   const strengths = synthesis?.verifiedStrengths ?? [];
   const risks = synthesis?.scopedRisks ?? [];
   const practiceActions = (synthesis?.nextActions ?? []).filter(Boolean).slice(0, 3);
+  const roundCompletion = synthesis?.roundCompletion;
+  const moduleLabel: Record<string, string> = {
+    aptitude: "Aptitude",
+    dsa: "Coding",
+    sql: "SQL",
+    interview: "AI interview",
+  };
+  const peerStandingLabel: Record<string, string> = {
+    above_average: "Above cohort average",
+    near_average: "Near cohort average",
+    below_average: "Below cohort average",
+    not_available: "Not enough peer results yet",
+  };
+  const consistentAcrossRounds = [
+    ...(synthesis?.crossModuleSignals ?? []),
+    ...(synthesis?.crossRoundHighlights ?? []),
+  ];
+  const worthResolvingAcrossRounds = [
+    ...(synthesis?.contradictions ?? []),
+    ...(synthesis?.crossRoundConcerns ?? []),
+  ];
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
         title="Your complete assessment feedback"
-        score={`${completeEvidenceCount} of ${requiredModules.length} results ready`}
-        summary="Open each completed round to see your score, detailed feedback, and the next practice action."
+        score={
+          roundCompletion
+            ? `${roundCompletion.completedRounds} of ${roundCompletion.totalRounds} rounds completed`
+            : `${completeEvidenceCount} of ${requiredModules.length} results ready`
+        }
+        summary={`Open each completed round to see your score, detailed feedback, and the next practice action. ${completeEvidenceCount} of ${requiredModules.length} detailed result${requiredModules.length === 1 ? "" : "s"} ready to review.`}
       />
+      {synthesis?.overallRead ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Your overall read</CardTitle>
+            <CardDescription>How your results add up across every round so far.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm leading-7">{synthesis.overallRead}</p>
+          </CardContent>
+        </Card>
+      ) : null}
       {synthesis?.integrity?.status === "blocked" ? (
         <Card className="border-rose-300 bg-rose-50">
           <CardContent className="p-5 text-sm leading-7 text-rose-900">
@@ -1674,6 +1710,34 @@ function CandidateOverview({
           }
         />
       </div>
+      {synthesis?.peerComparison ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>How you compare to your cohort</CardTitle>
+            <CardDescription>
+              Directional standing only — no peer scores are shown, and a module needs enough completed
+              peer results before a comparison is shown at all.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {requiredModules.map((key) => {
+              const standing = synthesis.peerComparison?.modules?.[key];
+              return (
+                <Metric
+                  key={key}
+                  label={moduleLabel[key] ?? key}
+                  value={peerStandingLabel[standing?.yourStanding ?? "not_available"]}
+                  detail={
+                    standing && standing.yourStanding !== "not_available"
+                      ? `Based on ${standing.cohortSampleSize} completed peer result${standing.cohortSampleSize === 1 ? "" : "s"} in this workspace.`
+                      : "Not enough peers have completed this round yet to compare."
+                  }
+                />
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <EvidenceList
           title="What you did well"
@@ -1684,6 +1748,16 @@ function CandidateOverview({
           title="What to improve next"
           items={risks}
           empty="No material improvement area was recorded."
+        />
+        <EvidenceList
+          title="Consistent across your rounds"
+          items={consistentAcrossRounds}
+          empty="No cross-round pattern was recorded yet."
+        />
+        <EvidenceList
+          title="Worth resolving across rounds"
+          items={worthResolvingAcrossRounds}
+          empty="No cross-round concern was recorded."
         />
       </div>
       {unifiedRead || unifiedThesis ? (
