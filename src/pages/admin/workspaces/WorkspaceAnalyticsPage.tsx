@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import type { WorkspaceAnalyticsSnapshot } from "./workspaceAnalyticsTypes";
+import { buildDemoAnalyticsSnapshot } from "./workspaceAnalyticsDemoData";
 import {
   WorkspaceModuleBreakdown,
   WorkspaceReadinessSummary,
@@ -19,6 +21,7 @@ export default function WorkspaceAnalyticsPage() {
   const [analytics, setAnalytics] = useState<WorkspaceAnalyticsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchAnalytics = useCallback(
@@ -54,7 +57,12 @@ export default function WorkspaceAnalyticsPage() {
     };
   }, [fetchAnalytics]);
 
-  if (loading || !analytics) {
+  const displayed = useMemo(() => {
+    if (!analytics) return null;
+    return demoMode ? buildDemoAnalyticsSnapshot(analytics.workspace) : analytics;
+  }, [analytics, demoMode]);
+
+  if (loading || !analytics || !displayed) {
     return (
       <div className="min-h-screen bg-muted/30 flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -62,7 +70,7 @@ export default function WorkspaceAnalyticsPage() {
     );
   }
 
-  const generatedAtLabel = new Date(analytics.generatedAt).toLocaleTimeString([], {
+  const generatedAtLabel = new Date(displayed.generatedAt).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -70,38 +78,58 @@ export default function WorkspaceAnalyticsPage() {
   return (
     <div className="min-h-screen bg-muted/30">
       <header className="bg-background border-b border-border sticky top-0 z-50">
+        {demoMode ? (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 text-center text-xs font-medium text-amber-700">
+            Demo data — fabricated for presentation purposes, not real candidates
+          </div>
+        ) : null}
         <div className="container mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3 min-w-0">
               <Button asChild variant="outline" size="sm">
-                <Link to={`/admin/workspaces/${analytics.workspace.id}`}>
+                <Link to={`/admin/workspaces/${displayed.workspace.id}`}>
                   <ArrowLeft className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">Workspace</span>
                 </Link>
               </Button>
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-bold truncate">{analytics.workspace.name}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg sm:text-xl font-bold truncate">{displayed.workspace.name}</h1>
+                  {demoMode ? (
+                    <Badge className="bg-amber-500 text-white hover:bg-amber-500">Demo data</Badge>
+                  ) : null}
+                </div>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  {analytics.workspace.totalCandidates} candidates &middot; generated at {generatedAtLabel}
+                  {displayed.workspace.totalCandidates} candidates &middot; generated at {generatedAtLabel}
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => fetchAnalytics(true)} disabled={refreshing}>
-              {refreshing ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={demoMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => setDemoMode((v) => !v)}
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                {demoMode ? "Showing demo data" : "View demo data"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => fetchAnalytics(true)} disabled={refreshing || demoMode}>
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Refresh
+              </Button>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-        <WorkspaceReadinessSummary readiness={analytics.readiness} />
-        <WorkspaceModuleBreakdown modules={analytics.modules} />
-        <WorkspaceRetakeTable retakeList={analytics.retakeList} />
+        <WorkspaceReadinessSummary readiness={displayed.readiness} />
+        <WorkspaceModuleBreakdown modules={displayed.modules} />
+        <WorkspaceRetakeTable retakeList={displayed.retakeList} />
       </main>
     </div>
   );
