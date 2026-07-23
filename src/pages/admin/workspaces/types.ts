@@ -269,6 +269,7 @@ export type WorkspaceCandidateDossier = {
         receivedAt: string;
         handoffStatus: string;
         reportUrl?: string | null;
+        candidateReportUrl?: string | null;
       } | null;
       status: string;
       lastError?: string | null;

@@ -21,7 +21,6 @@ import {
 import { assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 import { createAntigravityReportAccessToken } from "./antigravityReportAccess.service.js";
 import { createPlacementReportAccessToken } from "./placementReportAccessToken.service.js";
-import { resolvePlacementWebUrl } from "../routes/placementReadiness.js";
 import { listWorkspaceAuditEvents, recordWorkspaceAuditEvent } from "./workspaceAudit.service.js";
 
 export type WorkspaceActor = {
@@ -1711,12 +1710,24 @@ export async function getWorkspaceCandidateDossier(
     typeof placementArtifactBody?.attemptId === "string" && placementArtifactBody.attemptId
       ? placementArtifactBody.attemptId
       : null;
-  const placementReportUrl =
+  // The report data itself lives behind Placement Readiness's Next.js report
+  // app (provenhire-placement-ag-ui), not the older Vite/React-Router shell
+  // in the same repo - that one shares no live deployment. Its report route
+  // is keyed by sessionId alone (attemptId === sessionId by construction on
+  // the Placement Readiness side).
+  const placementReportWebUrl = (
+    process.env.PLACEMENT_READINESS_REPORT_WEB_URL || "https://provenhire-placement-ag-ui.vercel.app"
+  ).replace(/\/$/, "");
+  const placementReportAccessToken =
     placementCandidateId && placementAttemptId
-      ? `${resolvePlacementWebUrl()}/reports/${encodeURIComponent(placementCandidateId)}/${encodeURIComponent(placementAttemptId)}?access_token=${encodeURIComponent(
-          createPlacementReportAccessToken(placementCandidateId, placementAttemptId),
-        )}`
-      : null;
+      ? createPlacementReportAccessToken(placementCandidateId, placementAttemptId)
+      : "";
+  const placementReportUrl = placementReportAccessToken
+    ? `${placementReportWebUrl}/report/${encodeURIComponent(placementAttemptId!)}?access_token=${encodeURIComponent(placementReportAccessToken)}`
+    : null;
+  const placementCandidateReportUrl = placementReportAccessToken
+    ? `${placementReportWebUrl}/report/${encodeURIComponent(placementAttemptId!)}/candidate?access_token=${encodeURIComponent(placementReportAccessToken)}`
+    : null;
   const managerPlacementReport = placementArtifact
     ? {
         source: "placement_readiness" as const,
@@ -1729,6 +1740,7 @@ export async function getWorkspaceCandidateDossier(
         receivedAt: placementArtifact.receivedAt,
         handoffStatus: placementHandoff?.status ?? "completed",
         reportUrl: placementReportUrl,
+        candidateReportUrl: placementCandidateReportUrl,
       }
     : null;
   const workspaceInterviewLinked = Boolean(
