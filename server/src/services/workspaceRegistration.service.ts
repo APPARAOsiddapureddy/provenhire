@@ -20,6 +20,8 @@ import {
 } from "./candidateDossierSanitizer.js";
 import { assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 import { createAntigravityReportAccessToken } from "./antigravityReportAccess.service.js";
+import { createPlacementReportAccessToken } from "./placementReportAccessToken.service.js";
+import { resolvePlacementWebUrl } from "../routes/placementReadiness.js";
 import { listWorkspaceAuditEvents, recordWorkspaceAuditEvent } from "./workspaceAudit.service.js";
 
 export type WorkspaceActor = {
@@ -1701,6 +1703,20 @@ export async function getWorkspaceCandidateDossier(
           ?.overallScore,
       )
     : null;
+  const placementCandidateId =
+    typeof placementArtifactBody?.candidateId === "string" && placementArtifactBody.candidateId
+      ? placementArtifactBody.candidateId
+      : null;
+  const placementAttemptId =
+    typeof placementArtifactBody?.attemptId === "string" && placementArtifactBody.attemptId
+      ? placementArtifactBody.attemptId
+      : null;
+  const placementReportUrl =
+    placementCandidateId && placementAttemptId
+      ? `${resolvePlacementWebUrl()}/reports/${encodeURIComponent(placementCandidateId)}/${encodeURIComponent(placementAttemptId)}?access_token=${encodeURIComponent(
+          createPlacementReportAccessToken(placementCandidateId, placementAttemptId),
+        )}`
+      : null;
   const managerPlacementReport = placementArtifact
     ? {
         source: "placement_readiness" as const,
@@ -1712,6 +1728,7 @@ export async function getWorkspaceCandidateDossier(
         report: placementArtifactBody ?? {},
         receivedAt: placementArtifact.receivedAt,
         handoffStatus: placementHandoff?.status ?? "completed",
+        reportUrl: placementReportUrl,
       }
     : null;
   const workspaceInterviewLinked = Boolean(
