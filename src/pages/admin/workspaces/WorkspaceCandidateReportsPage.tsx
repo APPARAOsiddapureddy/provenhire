@@ -2651,6 +2651,210 @@ function SqlReport({
   );
 }
 
+const AI_REPORT_BAND_STYLE: Record<string, string> = {
+  strong: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  good: "bg-teal-50 text-teal-800 border-teal-200",
+  wrong: "bg-amber-50 text-amber-800 border-amber-200",
+};
+
+function aiReportBandLabel(band: string) {
+  const normalized = band.toLowerCase();
+  if (normalized === "wrong") return "Needs work";
+  return titleize(band || "Unrated");
+}
+
+/// A candidate-facing alternate presentation of the same persisted interview
+/// artifact as the standard report above - same data, a document-style
+/// layout (serif headings, warm neutral ground) some candidates read more
+/// easily than the in-app card grid. Never a second source of truth: every
+/// number and quote here comes from the identical `report` object.
+function AIReportDocument({
+  candidateName,
+  targetRole,
+  score,
+  band,
+  reasoningSummary,
+  verdictSummary,
+  dimensions,
+  strengths,
+  risks,
+  deliverySummary,
+  deliverySignal,
+  ownershipSummary,
+  ownershipSignal,
+  coverageNote,
+  testedDimensionLabels,
+  untestedDimensionLabels,
+  questions,
+  sevenDayPlan,
+  thirtyDayPlan,
+  reportHash,
+}: {
+  candidateName: string;
+  targetRole: string;
+  score: number;
+  band: string;
+  reasoningSummary: string;
+  verdictSummary: string;
+  dimensions: [string, number][];
+  strengths: string[];
+  risks: string[];
+  deliverySummary: string;
+  deliverySignal: string;
+  ownershipSummary: string;
+  ownershipSignal: string;
+  coverageNote: string;
+  testedDimensionLabels: string[];
+  untestedDimensionLabels: string[];
+  questions: Json[];
+  sevenDayPlan: string[];
+  thirtyDayPlan: string[];
+  reportHash: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#DDD6C4] bg-[#F5F3EE] p-5 text-[#1D2624] shadow-sm md:p-8">
+      <div className="mx-auto max-w-3xl">
+        <header className="flex flex-col gap-4 border-b border-[#DDD6C4] pb-6 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[#8A9490]">
+              Placement Readiness Interview · AI Report
+            </p>
+            <h1 className="mt-1 font-serif text-3xl font-semibold text-[#1D2624]">{candidateName}</h1>
+            <p className="mt-1 text-sm text-[#5B655F]">{targetRole}</p>
+          </div>
+          <div className="text-left sm:text-right">
+            <div className="font-serif text-4xl font-semibold leading-none text-[#163B36]">
+              {score}
+              <span className="text-lg font-normal text-[#8A9490]">/100</span>
+            </div>
+            <div className="mt-2 inline-block rounded-full bg-[#E1EDE9] px-3 py-1 text-xs font-semibold text-[#163B36]">
+              {titleize(band)}
+            </div>
+          </div>
+        </header>
+
+        <section className="mt-6">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">Executive summary</p>
+          <p className="text-[1.0625rem] leading-relaxed text-[#1D2624]">{reasoningSummary}</p>
+          <div className="mt-3 rounded-md border border-[#DDD6C4] border-l-[3px] border-l-[#245952] bg-white p-4 text-sm leading-relaxed shadow-sm">
+            <span className="font-semibold text-[#163B36]">Readiness verdict —</span> {verdictSummary}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">Dimension scores</p>
+          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {dimensions.map(([name, value]) => (
+              <div key={name}>
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-[#5B655F]">{name}</span>
+                  <span className="font-semibold tabular-nums">{value}</span>
+                </div>
+                <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-[#ECE8DD]">
+                  <div className="h-full rounded-full bg-[#245952]" style={{ width: `${Math.min(100, value)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-800">Strongest converting signals</h3>
+            <ul className="list-disc space-y-1.5 pl-4 text-sm text-[#1D2624]">
+              {strengths.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">Avoidable rejection risks</h3>
+            <ul className="list-disc space-y-1.5 pl-4 text-sm text-[#1D2624]">
+              {risks.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          </div>
+        </section>
+
+        <section className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
+            <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[#8A9490]">Delivery read</h3>
+            <p>{deliverySummary}</p>
+            <p className="mt-1 text-[#5B655F]">{deliverySignal}</p>
+          </div>
+          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
+            <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[#8A9490]">Project ownership read</h3>
+            <p>{ownershipSummary}</p>
+            <p className="mt-1 text-[#5B655F]">{ownershipSignal}</p>
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">Coverage &amp; confidence</p>
+          <div className="rounded-md border border-[#DDD6C4] border-l-[3px] border-l-[#8A9490] bg-white p-4 text-sm leading-relaxed shadow-sm">
+            {coverageNote} Tested in depth: {testedDimensionLabels.join(", ") || "none recorded"}.
+            {untestedDimensionLabels.length ? ` ${untestedDimensionLabels.join(", ")} ${untestedDimensionLabels.length === 1 ? "was" : "were"} not directly tested this session.` : ""}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">
+            Full interview review · {questions.length} exchange{questions.length === 1 ? "" : "s"}
+          </p>
+          <div className="space-y-3">
+            {questions.map((question, index) => {
+              const band = String(question.answerBand || "").toLowerCase();
+              return (
+                <div key={String(question.slotId || index) + index} className="rounded-lg border border-[#DDD6C4] bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-[#8A9490]">{String(question.slotLabel || `Question ${index + 1}`)}</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${AI_REPORT_BAND_STYLE[band] || "bg-slate-50 text-slate-700 border-slate-200"}`}>
+                      {aiReportBandLabel(band)}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-[0.9375rem] font-semibold text-[#1D2624]">{String(question.questionText || "")}</p>
+                  <p className="mt-1.5 border-l-2 border-[#DDD6C4] pl-3 text-sm italic text-[#5B655F]">&ldquo;{String(question.answerSummary || "")}&rdquo;</p>
+                  <div className="mt-3 grid gap-3 border-t border-[#ECE8DD] pt-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#8A9490]">What was good</p>
+                      <ul className="list-disc space-y-0.5 pl-4 text-[#5B655F]">
+                        {strings(question.whatWasGood).map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#8A9490]">A stronger answer would</p>
+                      <ul className="list-disc space-y-0.5 pl-4 text-[#5B655F]">
+                        {strings(question.strongerAnswerWouldInclude).map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 shadow-sm">
+            <h3 className="mb-2 font-serif text-base font-semibold text-[#163B36]">7-day plan</h3>
+            <ol className="list-decimal space-y-2 pl-4 text-sm text-[#1D2624]">
+              {sevenDayPlan.map((item, i) => <li key={i}>{item}</li>)}
+            </ol>
+          </div>
+          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 shadow-sm">
+            <h3 className="mb-2 font-serif text-base font-semibold text-[#163B36]">30-day plan</h3>
+            <ol className="list-decimal space-y-2 pl-4 text-sm text-[#1D2624]">
+              {thirtyDayPlan.map((item, i) => <li key={i}>{item}</li>)}
+            </ol>
+          </div>
+        </section>
+
+        <footer className="mt-8 flex flex-wrap justify-between gap-2 border-t border-[#DDD6C4] pt-4 text-xs text-[#8A9490]">
+          <span>ProvenHire Placement Readiness · schema placement.callback.v1</span>
+          {reportHash ? <span className="font-mono">report_hash {reportHash.slice(0, 12)}…</span> : null}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function PlacementReadinessReport({
   dossier,
   audience = "admin",
@@ -2658,6 +2862,7 @@ function PlacementReadinessReport({
   dossier: WorkspaceCandidateDossier;
   audience?: ReportAudience;
 }) {
+  const [viewMode, setViewMode] = useState<"standard" | "ai-report">("standard");
   const interviewModule = dossier.modules.interview;
   if (!interviewModule) {
     return <AntigravityReport dossier={dossier} audience={audience} />;
@@ -2715,8 +2920,68 @@ function PlacementReadinessReport({
     interviewConfidence === "Limited"
       ? "Readiness band withheld until coverage improves"
       : titleize(String(scorecard.readinessBand || "readiness band unavailable"));
+
+  const viewToggle =
+    audience === "candidate" ? (
+      <div className="inline-flex rounded-lg border p-1">
+        <button
+          type="button"
+          onClick={() => setViewMode("standard")}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "standard" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Standard view
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("ai-report")}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "ai-report" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          AI Report
+        </button>
+      </div>
+    ) : null;
+
+  if (audience === "candidate" && viewMode === "ai-report" && interviewConfidence !== "Limited") {
+    return (
+      <div className="space-y-4">
+        {viewToggle}
+        <AIReportDocument
+          candidateName={String(
+            dossier.candidate.jobSeekerProfile?.fullName ||
+              dossier.candidate.name ||
+              dossier.candidate.email,
+          )}
+          targetRole={String(dossier.synthesis?.roleRubric?.targetRole || "")}
+          score={numeric(latest.score ?? scorecard.overallScore, 0)}
+          band={String(scorecard.readinessBand || "")}
+          reasoningSummary={String(scorecard.reasoningSummary || "")}
+          verdictSummary={String(verdict.summary || "")}
+          dimensions={Object.entries(dimensions)
+            .filter(([, value]) => Number.isFinite(Number(value)))
+            .map(([key, value]) => [titleize(key), numeric(value)] as [string, number])}
+          strengths={strings(report.strongestConvertingSignals)}
+          risks={strings(report.avoidableRejectionRisks)}
+          deliverySummary={String(delivery.summary || "")}
+          deliverySignal={String(delivery.pressureHandlingSignal || "")}
+          ownershipSummary={String(ownership.summary || "")}
+          ownershipSignal={String(ownership.authenticitySignal || "")}
+          coverageNote={String(coverage.confidenceNote || "")}
+          testedDimensionLabels={testedDimensions.map(titleize)}
+          untestedDimensionLabels={Object.keys(dimensions)
+            .filter((key) => !testedDimensions.includes(key))
+            .map(titleize)}
+          questions={questions}
+          sevenDayPlan={strings(report.sevenDayPlan)}
+          thirtyDayPlan={strings(report.thirtyDayPlan)}
+          reportHash={String(latest.reportHash || "")}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
+      {viewToggle}
       <CandidateFeedbackHeader
         title={audience === "candidate" ? "Your AI interview feedback" : "Placement Readiness evidence report"}
         score={`${latest.score ?? scorecard.overallScore ?? "—"}/100`}
