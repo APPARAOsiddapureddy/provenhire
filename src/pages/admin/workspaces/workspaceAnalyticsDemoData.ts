@@ -1,4 +1,4 @@
-import type { ModuleCategoryStat, RetakeEntry, WorkspaceAnalyticsSnapshot } from "./workspaceAnalyticsTypes";
+import type { ModuleCategoryStat, RetakeEntry, WorkspaceAnalyticsSnapshot, WorkspaceRoundTypeKey } from "./workspaceAnalyticsTypes";
 
 // Presentation-only fabricated dataset for demoing the analytics dashboard at
 // realistic scale. Never fetched from or written to the database - purely a
@@ -32,6 +32,19 @@ function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function pick<T>(arr: T[], rand: () => number): T {
+  return arr[Math.floor(rand() * arr.length)];
+}
+
+function shuffled<T>(arr: T[], rand: () => number): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function demoModule(
   rand: () => number,
   avg: number,
@@ -50,15 +63,23 @@ function demoModule(
     completedCount,
     avgPercentageScore: clampScore(avg + (rand() - 0.5) * spread),
     bands: { top, mid, bottom },
-    categories: categories.map(
-      (c): ModuleCategoryStat => ({
-        name: c.name,
-        avgScore: clampScore(c.avg + (rand() - 0.5) * c.spread),
-        sampleSize: Math.round(completedCount * (0.85 + rand() * 0.15)),
-      }),
-    ),
+    categories: categories.map((c): ModuleCategoryStat => {
+      const avgScore = clampScore(c.avg + (rand() - 0.5) * c.spread);
+      const sampleSize = Math.round(completedCount * (0.85 + rand() * 0.15));
+      const weakFraction = Math.max(0, 1 - avgScore / 100) * (0.75 + rand() * 0.4);
+      const weakCandidateCount = Math.min(sampleSize, Math.round(sampleSize * weakFraction));
+      return { name: c.name, avgScore, sampleSize, weakCandidateCount };
+    }),
   };
 }
+
+const MODULE_TYPES: WorkspaceRoundTypeKey[] = ["mcq", "coding", "sql", "interview"];
+const ROUND_LABELS: Record<WorkspaceRoundTypeKey, string> = {
+  mcq: "Aptitude",
+  coding: "Coding",
+  sql: "SQL",
+  interview: "AI Interview",
+};
 
 export function buildDemoAnalyticsSnapshot(
   workspace: WorkspaceAnalyticsSnapshot["workspace"],
@@ -99,33 +120,49 @@ export function buildDemoAnalyticsSnapshot(
     ]),
   };
 
-  const roundLabels: Record<keyof typeof modules, string> = {
-    mcq: "Aptitude",
-    coding: "Coding",
-    sql: "SQL",
-    interview: "AI Interview",
-  };
-  const retakeReasons: Array<{ roundType: keyof typeof modules; detail: () => string }> = [
-    { roundType: "mcq", detail: () => `${20 + Math.round(rand() * 25)}%` },
-    { roundType: "coding", detail: () => `${15 + Math.round(rand() * 25)}%` },
-    { roundType: "sql", detail: () => `${10 + Math.round(rand() * 25)}%` },
-    { roundType: "interview", detail: () => "Foundation Gap" },
-  ];
-  const retakeList: RetakeEntry[] = Array.from({ length: 18 }).map((_, index) => {
-    const first = DEMO_FIRST_NAMES[Math.floor(rand() * DEMO_FIRST_NAMES.length)];
-    const last = DEMO_LAST_NAMES[Math.floor(rand() * DEMO_LAST_NAMES.length)];
-    const reason = retakeReasons[Math.floor(rand() * retakeReasons.length)];
-    const isIncomplete = rand() < 0.25;
-    return {
-      userId: `demo-candidate-${index + 1}`,
-      name: `${first} ${last}`,
-      email: `demo.candidate${String(index + 1).padStart(3, "0")}@demo.provenhire.in`,
-      roundType: reason.roundType,
-      roundLabel: roundLabels[reason.roundType],
-      reason: isIncomplete ? "incomplete" : "below_threshold",
-      detail: isIncomplete ? "Not attempted" : reason.detail(),
-    };
-  });
+  // Below-threshold candidates: most struggle in exactly one round, but a
+  // realistic minority are behind in two or three - this is what makes the
+  // candidate-segmentation view (single gap / multiple gaps) meaningful
+  // instead of every weak candidate being an isolated, unrelated case.
+  const retakeList: RetakeEntry[] = [];
+  for (let i = 0; i < belowThreshold; i += 1) {
+    const first = pick(DEMO_FIRST_NAMES, rand);
+    const last = pick(DEMO_LAST_NAMES, rand);
+    const userId = `demo-weak-${i + 1}`;
+    const name = `${first} ${last}`;
+    const email = `demo.candidate${String(i + 1).padStart(3, "0")}@demo.provenhire.in`;
+    const gapRoll = rand();
+    const gapCount = gapRoll < 0.58 ? 1 : gapRoll < 0.87 ? 2 : 3;
+    const gapModules = shuffled(MODULE_TYPES, rand).slice(0, gapCount);
+    for (const type of gapModules) {
+      retakeList.push({
+        userId,
+        name,
+        email,
+        roundType: type,
+        roundLabel: ROUND_LABELS[type],
+        reason: "below_threshold",
+        detail: type === "interview" ? "Foundation Gap" : `${20 + Math.round(rand() * 35)}%`,
+      });
+    }
+  }
+  for (let i = 0; i < incomplete; i += 1) {
+    const first = pick(DEMO_FIRST_NAMES, rand);
+    const last = pick(DEMO_LAST_NAMES, rand);
+    const userId = `demo-incomplete-${i + 1}`;
+    const name = `${first} ${last}`;
+    const email = `demo.candidate${String(belowThreshold + i + 1).padStart(3, "0")}@demo.provenhire.in`;
+    const type = pick(MODULE_TYPES, rand);
+    retakeList.push({
+      userId,
+      name,
+      email,
+      roundType: type,
+      roundLabel: ROUND_LABELS[type],
+      reason: "incomplete",
+      detail: rand() < 0.4 ? "In progress" : "Not attempted",
+    });
+  }
 
   return {
     workspace: { ...workspace, totalCandidates },

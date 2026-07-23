@@ -368,6 +368,7 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
       name: row.difficulty,
       avgScore: row.attempted ? Math.round((row.fullyPassed / row.attempted) * 100) : 0,
       sampleSize: row.attempted,
+      weakCandidateCount: row.attempted - row.fullyPassed,
     }))
     .sort((a, b) => a.avgScore - b.avgScore);
 
@@ -376,6 +377,7 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
       name: `${row.subtrack} / ${row.difficulty}`,
       avgScore: row.attempted ? Math.round((row.fullyPassed / row.attempted) * 100) : 0,
       sampleSize: row.attempted,
+      weakCandidateCount: row.attempted - row.fullyPassed,
     }))
     .sort((a, b) => a.avgScore - b.avgScore);
 
