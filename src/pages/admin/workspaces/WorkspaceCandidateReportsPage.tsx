@@ -2938,9 +2938,9 @@ function PlacementReadinessReport({
         >
           AI Report
         </button>
-        {latest.reportUrl ? (
+        {latest.candidateReportUrl ? (
           <a
-            href={latest.reportUrl}
+            href={latest.candidateReportUrl}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
