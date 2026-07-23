@@ -19,14 +19,14 @@ export function assessmentEvidenceFor(
   kind: AssessmentEvidenceKind,
   dossier: AssessmentEvidenceDossier,
 ) {
-  const base = {
+  const identity = {
     candidate: dossier.candidate,
     registration: dossier.registration,
-    deterministicSynthesis: dossier.synthesis,
   };
-  if (kind === "dsa") return { ...base, dsa: dossier.modules.dsa };
+  if (kind === "dsa") return { ...identity, dsa: dossier.modules.dsa };
   return {
-    ...base,
+    ...identity,
+    deterministicSynthesis: dossier.synthesis,
     aptitude: dossier.modules.aptitude,
     dsa: dossier.modules.dsa,
     sql: dossier.modules.sql,

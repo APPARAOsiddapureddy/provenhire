@@ -171,6 +171,16 @@ export function sanitizeAssessmentGenerationForCandidate(
                 .map((item) => optionalString(record(item).followUpReasoning))
                 .filter((item): item is string => Boolean(item))
             : [],
+          problemReads: Array.isArray(result.problemReads)
+            ? result.problemReads.map((raw) => {
+                const item = record(raw);
+                return {
+                  title: optionalString(item.title),
+                  approach: optionalString(item.approach),
+                  complexity: optionalString(item.complexity),
+                };
+              })
+            : [],
         }
       : {
           executiveRead: candidateCitation(result.executiveRead),
