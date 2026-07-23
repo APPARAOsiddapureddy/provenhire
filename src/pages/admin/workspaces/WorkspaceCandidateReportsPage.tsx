@@ -2759,13 +2759,13 @@ function AIReportDocument({
         </section>
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+          <div className="rounded-[10px] border border-emerald-200 bg-emerald-50 p-4">
             <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-800">Strongest converting signals</h3>
             <ul className="list-disc space-y-1.5 pl-4 text-sm text-[#1D2624]">
               {strengths.map((item, i) => <li key={i}>{item}</li>)}
             </ul>
           </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="rounded-[10px] border border-amber-200 bg-amber-50 p-4">
             <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">Avoidable rejection risks</h3>
             <ul className="list-disc space-y-1.5 pl-4 text-sm text-[#1D2624]">
               {risks.map((item, i) => <li key={i}>{item}</li>)}
@@ -2774,12 +2774,12 @@ function AIReportDocument({
         </section>
 
         <section className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
             <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[#8A9490]">Delivery read</h3>
             <p>{deliverySummary}</p>
             <p className="mt-1 text-[#5B655F]">{deliverySignal}</p>
           </div>
-          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
             <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[#8A9490]">Project ownership read</h3>
             <p>{ownershipSummary}</p>
             <p className="mt-1 text-[#5B655F]">{ownershipSignal}</p>
@@ -2802,7 +2802,7 @@ function AIReportDocument({
             {questions.map((question, index) => {
               const band = String(question.answerBand || "").toLowerCase();
               return (
-                <div key={String(question.slotId || index) + index} className="rounded-lg border border-[#DDD6C4] bg-white p-4 shadow-sm">
+                <div key={String(question.slotId || index) + index} className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-[#8A9490]">{String(question.slotLabel || `Question ${index + 1}`)}</span>
                     <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${AI_REPORT_BAND_STYLE[band] || "bg-slate-50 text-slate-700 border-slate-200"}`}>
@@ -2832,13 +2832,13 @@ function AIReportDocument({
         </section>
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 shadow-sm">
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 shadow-sm">
             <h3 className="mb-2 font-serif text-base font-semibold text-[#163B36]">7-day plan</h3>
             <ol className="list-decimal space-y-2 pl-4 text-sm text-[#1D2624]">
               {sevenDayPlan.map((item, i) => <li key={i}>{item}</li>)}
             </ol>
           </div>
-          <div className="rounded-lg border border-[#DDD6C4] bg-white p-4 shadow-sm">
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 shadow-sm">
             <h3 className="mb-2 font-serif text-base font-semibold text-[#163B36]">30-day plan</h3>
             <ol className="list-decimal space-y-2 pl-4 text-sm text-[#1D2624]">
               {thirtyDayPlan.map((item, i) => <li key={i}>{item}</li>)}
