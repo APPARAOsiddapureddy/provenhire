@@ -99,6 +99,9 @@ const WorkspaceCandidateReportsPage = lazy(
 const WorkspaceTechnicalDeskPage = lazy(
   () => import("./pages/admin/workspaces/WorkspaceTechnicalDeskPage"),
 );
+const WorkspaceAnalyticsPage = lazy(
+  () => import("./pages/admin/workspaces/WorkspaceAnalyticsPage"),
+);
 const UserWorkspacesPage = lazy(
   () => import("./pages/dashboard/workspaces/UserWorkspacesPage"),
 );
@@ -338,6 +341,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRole="admin">
                     <WorkspaceTechnicalDeskPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/workspaces/:id/analytics"
+                element={
+                  <ProtectedRoute allowedRole="admin">
+                    <WorkspaceAnalyticsPage />
                   </ProtectedRoute>
                 }
               />

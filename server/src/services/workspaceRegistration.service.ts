@@ -629,7 +629,7 @@ async function getActiveWorkspaceMemberRole(
 /// manage a workspace (candidates, invitations, reports, rounds). Platform
 /// admins can always manage any workspace. 'reviewer' members are read-only
 /// and must use assertCanReviewWorkspace instead.
-async function assertCanManageWorkspace(
+export async function assertCanManageWorkspace(
   actor: WorkspaceActor,
   workspaceId: string,
 ) {

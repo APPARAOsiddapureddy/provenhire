@@ -19,6 +19,7 @@ import {
   transferWorkspaceOwnership,
 } from "../services/workspaceRegistration.service.js";
 import { enqueueManualAssessmentReportWorkflow } from "../services/assessmentWorkflow.service.js";
+import { getWorkspaceAnalytics } from "../services/workspaceAnalytics.service.js";
 
 type UploadedCsvFile = {
   buffer: Buffer;
@@ -124,6 +125,21 @@ export async function recordWorkspaceCandidateDecisionController(
       parsed.data,
     );
     return res.json({ decision });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function getWorkspaceAnalyticsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    const analytics = await getWorkspaceAnalytics(
+      actorFromRequest(req),
+      req.params.id,
+    );
+    return res.json({ analytics });
   } catch (error) {
     return sendError(res, error);
   }
