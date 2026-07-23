@@ -63,7 +63,7 @@ async function createAutoOfficialSubmission(params: {
   }
 }
 
-async function scoreSqlSession(sessionId: string, taskIds: string[]) {
+export async function scoreSqlSession(sessionId: string, taskIds: string[]) {
   const rows = await prisma.workspaceSqlSubmission.findMany({
     where: { sessionId, isOfficial: true },
     orderBy: { submittedAt: "desc" },
