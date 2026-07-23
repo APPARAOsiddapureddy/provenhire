@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { PageLoaderFullScreen } from "@/components/PageLoader";
 import type { WorkspaceCandidateDossier } from "./types";
+import type { WorkspaceAnalyticsSnapshot, WorkspaceRoundTypeKey } from "./workspaceAnalyticsTypes";
 import UserWorkspaceShell from "../../dashboard/workspaces/UserWorkspaceShell";
 import {
   preview,
@@ -759,6 +760,135 @@ function HumanDecisionPanel({
   );
 }
 
+const OVERVIEW_MODULE_LABEL: Record<WorkspaceRoundTypeKey, string> = {
+  mcq: "Aptitude",
+  coding: "Coding",
+  sql: "SQL",
+  interview: "AI interview",
+};
+const OVERVIEW_WEAK_CATEGORY_GAP = 8;
+
+function candidateAptitudeCategoryScores(dossier: WorkspaceCandidateDossier): Array<{ name: string; score: number }> {
+  return (dossier.modules.aptitude.workspaceEvidence?.categories ?? []).map((c) => ({
+    name: c.name,
+    score: c.score,
+  }));
+}
+
+function candidateInterviewDimensionScores(
+  dossier: WorkspaceCandidateDossier,
+): Array<{ name: string; score: number }> {
+  const report = asRecord(dossier.modules.interview.latest?.report);
+  const scorecard = asRecord(report.scorecard);
+  const dimensionScores = asRecord(scorecard.dimensionScores);
+  return Object.entries(dimensionScores)
+    .map(([name, value]) => ({ name, score: Number(value) }))
+    .filter((entry) => Number.isFinite(entry.score));
+}
+
+function WorkspaceAverageComparison({ dossier }: { dossier: WorkspaceCandidateDossier }) {
+  const [analytics, setAnalytics] = useState<WorkspaceAnalyticsSnapshot | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ analytics: WorkspaceAnalyticsSnapshot }>(`/api/workspaces/${dossier.workspaceId}/analytics`)
+      .then((res) => {
+        if (!cancelled) setAnalytics(res.analytics);
+      })
+      .catch(() => {
+        if (!cancelled) setAnalytics(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dossier.workspaceId]);
+
+  if (!analytics) return null;
+
+  const ownScoreByType: Record<WorkspaceRoundTypeKey, number | null> = {
+    mcq: dossier.synthesis?.evidenceBasis.aptitudeScore ?? null,
+    coding: dossier.synthesis?.evidenceBasis.dsaScore ?? null,
+    sql: dossier.synthesis?.evidenceBasis.sqlScore ?? null,
+    interview: dossier.synthesis?.evidenceBasis.interviewScore ?? null,
+  };
+  const candidateCategoriesByType: Partial<Record<WorkspaceRoundTypeKey, Array<{ name: string; score: number }>>> = {
+    mcq: candidateAptitudeCategoryScores(dossier),
+    interview: candidateInterviewDimensionScores(dossier),
+  };
+
+  const configuredTypes = (Object.entries(analytics.modules) as [WorkspaceRoundTypeKey, typeof analytics.modules[WorkspaceRoundTypeKey]][])
+    .filter(([, summary]) => summary.configured);
+  if (configuredTypes.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription>Workspace comparison</CardDescription>
+        <CardTitle className="text-2xl">How this candidate compares to the workspace average</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Based on {analytics.workspace.totalCandidates} registered candidate
+          {analytics.workspace.totalCandidates === 1 ? "" : "s"} in this workspace, generated{" "}
+          {new Date(analytics.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {configuredTypes.map(([type, summary]) => {
+            const ownScore = ownScoreByType[type];
+            const delta = ownScore !== null && summary.avgPercentageScore !== null ? ownScore - summary.avgPercentageScore : null;
+            return (
+              <Metric
+                key={type}
+                label={OVERVIEW_MODULE_LABEL[type]}
+                value={ownScore !== null ? `${ownScore}%` : "—"}
+                detail={
+                  summary.avgPercentageScore !== null
+                    ? `Workspace average ${summary.avgPercentageScore}%${delta !== null ? ` · ${delta > 0 ? "+" : ""}${delta} vs. average` : ""}`
+                    : "No completed peer results yet."
+                }
+              />
+            );
+          })}
+        </div>
+        {configuredTypes.some(([type]) => candidateCategoriesByType[type]?.length) ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {configuredTypes.map(([type, summary]) => {
+              const own = candidateCategoriesByType[type];
+              if (!own?.length) return null;
+              const weak = own.filter((c) => {
+                const groupCategory = summary.categories.find((g) => g.name === c.name);
+                return groupCategory && groupCategory.avgScore - c.score >= OVERVIEW_WEAK_CATEGORY_GAP;
+              });
+              const strong = own.filter((c) => {
+                const groupCategory = summary.categories.find((g) => g.name === c.name);
+                return groupCategory && c.score - groupCategory.avgScore >= OVERVIEW_WEAK_CATEGORY_GAP;
+              });
+              if (weak.length === 0 && strong.length === 0) return null;
+              return (
+                <div key={type} className="rounded-xl border p-4">
+                  <p className="font-semibold">{OVERVIEW_MODULE_LABEL[type]} categories</p>
+                  {strong.length > 0 ? (
+                    <p className="mt-2 text-sm leading-6">
+                      <span className="font-medium text-emerald-700">Ahead of the group: </span>
+                      {strong.map((c) => titleize(c.name)).join(", ")}
+                    </p>
+                  ) : null}
+                  {weak.length > 0 ? (
+                    <p className="mt-2 text-sm leading-6">
+                      <span className="font-medium text-rose-700">Behind the group: </span>
+                      {weak.map((c) => titleize(c.name)).join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function Overview({
   dossier,
   generating,
@@ -839,6 +969,7 @@ function Overview({
         onRecord={onRecordDecision}
         recording={recordingDecision}
       />
+      <WorkspaceAverageComparison dossier={dossier} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
           label="Aptitude evidence"
@@ -1245,6 +1376,19 @@ function DsaReport({
   const complete = evidenceComplete(dossier, "dsa");
   const dsaResult = asRecord(dossier.agentReports?.dsa?.result);
   const problemReads = complete ? asList(dsaResult.problemReads).map(asRecord) : [];
+  const dsaDifficultyLedger = new Map<string, { correct: number; total: number }>();
+  for (const submission of submissions) {
+    const difficulty = titleize(String(submission.question?.difficulty || "Unspecified"));
+    const current = dsaDifficultyLedger.get(difficulty) ?? { correct: 0, total: 0 };
+    current.total += submission.totalCount;
+    current.correct += submission.passedCount;
+    dsaDifficultyLedger.set(difficulty, current);
+  }
+  const dsaDifficultyBreakdown = Array.from(dsaDifficultyLedger.entries()).map(([name, { correct, total }]) => ({
+    name,
+    score: total ? Math.round((correct / total) * 100) : 0,
+    total,
+  }));
   return (
     <div className="space-y-5">
       <AdminDecisionBanner kind="dsa" dossier={dossier} />
@@ -1310,13 +1454,34 @@ function DsaReport({
           </div>
         </CardContent>
       </Card>
+      {dsaDifficultyBreakdown.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Score by difficulty</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {dsaDifficultyBreakdown.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm">{entry.name}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${entry.score}%`,
+                      backgroundColor: entry.score < 60 ? "#ef4444" : entry.score < 80 ? "#f59e0b" : "#10b981",
+                    }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm font-medium">{entry.score}%</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
       {submissions.length
         ? submissions.map((submission, index) => {
             const question = submission.question;
-            const resultPayload = asRecord(submission.results);
-            const rows = asList(resultPayload.results).length
-              ? asList(resultPayload.results).map(asRecord)
-              : asList(submission.results).map(asRecord);
+            const rows = parseJudgeResultRows(submission.results);
             const followUp = asRecord(submission.followUpResults);
             const followRows = asList(followUp.results).map(asRecord);
             return (
@@ -1352,6 +1517,34 @@ function DsaReport({
                       <p className="mt-2 whitespace-pre-wrap text-sm leading-7">
                         {question.description}
                       </p>
+                    </section>
+                  ) : null}
+                  {asList(question?.examples).length ? (
+                    <section>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Examples
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {asList(question?.examples).map(asRecord).map((example, exampleIndex) => (
+                          <div key={exampleIndex} className="rounded-lg border bg-muted/40 p-3 text-xs">
+                            {example.input !== undefined ? (
+                              <p>
+                                <span className="font-medium text-muted-foreground">Input: </span>
+                                <code>{String(example.input)}</code>
+                              </p>
+                            ) : null}
+                            {(example.output ?? example.expectedOutput) !== undefined ? (
+                              <p className="mt-1">
+                                <span className="font-medium text-muted-foreground">Output: </span>
+                                <code>{String(example.output ?? example.expectedOutput)}</code>
+                              </p>
+                            ) : null}
+                            {example.explanation ? (
+                              <p className="mt-1 text-muted-foreground">{String(example.explanation)}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
                     </section>
                   ) : null}
                   {question?.constraints?.length ? (
@@ -1413,20 +1606,35 @@ function DsaReport({
                     <div className="mt-2 space-y-2">
                       {rows.length ? (
                         rows.map((row, rowIndex) => (
-                          <details
+                          <div
                             key={rowIndex}
-                            className="rounded-lg border px-3 py-2"
+                            className={`rounded-lg border p-3 text-xs ${row.passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
                           >
-                            <summary className="cursor-pointer text-sm font-medium">
-                              Test {rowIndex + 1} ·{" "}
-                              {row.passed
-                                ? "Passed"
-                                : String(row.status || "Failed")}
-                            </summary>
-                            <pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
-                              {JSON.stringify(row, null, 2)}
-                            </pre>
-                          </details>
+                            <div className="flex items-center justify-between gap-2">
+                              <Badge variant={row.passed ? "outline" : "destructive"}>
+                                Test {rowIndex + 1} · {JUDGE_STATUS_LABEL[row.status] ?? (row.passed ? "Passed" : row.status)}
+                              </Badge>
+                              {!row.input ? (
+                                <span className="text-muted-foreground">Hidden test case</span>
+                              ) : null}
+                            </div>
+                            {row.input ? (
+                              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Input</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.input}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Expected</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.expected}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Actual</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.actual}</pre>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
                         ))
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -2093,16 +2301,29 @@ function CandidateDsaReport({
           title,
           description: submission.question?.description || "",
           constraints: submission.question?.constraints || [],
+          examples: submission.question?.examples ?? [],
+          difficulty: submission.question?.difficulty || "",
           code: submission.code,
           language: submission.language,
           testCasesPassed: submission.passedCount,
           testCasesTotal: submission.totalCount,
-          results: asList(asRecord(submission.results).results).map(asRecord),
+          results: parseJudgeResultRows(submission.results),
           approach: read?.approach ?? null,
           complexity: read?.complexity ?? null,
         };
       })
     : asList(answers.problems).map(asRecord);
+  const candidateDifficultyLedger = new Map<string, { correct: number; total: number }>();
+  for (const problem of problems) {
+    const difficulty = titleize(String(problem.difficulty || "Unspecified"));
+    const current = candidateDifficultyLedger.get(difficulty) ?? { correct: 0, total: 0 };
+    current.total += numeric(problem.testCasesTotal);
+    current.correct += numeric(problem.testCasesPassed);
+    candidateDifficultyLedger.set(difficulty, current);
+  }
+  const candidateDifficultyBreakdown = Array.from(candidateDifficultyLedger.entries())
+    .filter(([, { total }]) => total > 0)
+    .map(([name, { correct, total }]) => ({ name, score: Math.round((correct / total) * 100) }));
   const smallestRetainedSuite = problems.length
     ? Math.min(
         ...problems.map((problem) => numeric(problem.testCasesTotal)),
@@ -2142,6 +2363,30 @@ function CandidateDsaReport({
         <Metric label="Smallest test suite" value={smallestRetainedSuite} detail="Judge cases retained for one problem" />
         <Metric label="Evidence confidence" value={testCoverage} detail="High confidence requires at least two problems and eight cases per problem" />
       </div>
+      {candidateDifficultyBreakdown.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Score by difficulty</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {candidateDifficultyBreakdown.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm">{entry.name}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${entry.score}%`,
+                      backgroundColor: entry.score < 60 ? "#ef4444" : entry.score < 80 ? "#f59e0b" : "#10b981",
+                    }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm font-medium">{entry.score}%</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -2193,18 +2438,12 @@ function CandidateDsaReport({
         <CardContent className="space-y-3">
           {problems.length ? (
             problems.map((problem, index) => {
-              const resultRows = asList(problem.results).map(asRecord);
-              const visibleFailure = resultRows.find(
-                (row) =>
-                  row.passed === false &&
-                  String(row.visibility || "candidate_visible") !== "hidden" &&
-                  [row.input, row.expected, row.actual, row.message].some(
-                    (item) => String(item ?? "").trim(),
-                  ),
-              );
+              const resultRows = parseJudgeResultRows(problem.results);
+              const hasVisibleFailure = resultRows.some((row) => !row.passed && row.input);
               const isPartial =
                 numeric(problem.testCasesPassed) <
                 numeric(problem.testCasesTotal);
+              const examples = asList(problem.examples).map(asRecord);
               return (
                 <div key={index} className="rounded-xl border p-4">
                 <div className="flex flex-wrap justify-between gap-2">
@@ -2229,6 +2468,27 @@ function CandidateDsaReport({
                     ? String(problem.complexity)
                     : `${String(problem.timeComplexity || "—")} time · ${String(problem.spaceComplexity || "—")} space`}
                 </p>
+                {examples.length ? (
+                  <div className="mt-2 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Examples</p>
+                    {examples.map((example, exampleIndex) => (
+                      <div key={exampleIndex} className="rounded-lg border bg-muted/40 p-3 text-xs">
+                        {example.input !== undefined ? (
+                          <p>
+                            <span className="font-medium text-muted-foreground">Input: </span>
+                            <code>{String(example.input)}</code>
+                          </p>
+                        ) : null}
+                        {(example.output ?? example.expectedOutput) !== undefined ? (
+                          <p className="mt-1">
+                            <span className="font-medium text-muted-foreground">Output: </span>
+                            <code>{String(example.output ?? example.expectedOutput)}</code>
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {problem.code ? (
                   <details className="mt-2 rounded-lg border p-3">
                     <summary className="cursor-pointer text-sm font-semibold">
@@ -2239,17 +2499,46 @@ function CandidateDsaReport({
                     </pre>
                   </details>
                 ) : null}
-                {visibleFailure ? (
-                  <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm leading-6 text-rose-950">
-                    <p className="font-semibold">Reproducible failed case</p>
-                    <p>Input: {JSON.stringify(visibleFailure.input ?? "Not retained")}</p>
-                    <p>Expected: {JSON.stringify(visibleFailure.expected ?? "Not retained")}</p>
-                    <p>Actual: {JSON.stringify(visibleFailure.actual ?? visibleFailure.message ?? "Not retained")}</p>
-                  </div>
+                {resultRows.length ? (
+                  <details className="mt-2 rounded-lg border p-3" open={hasVisibleFailure}>
+                    <summary className="cursor-pointer text-sm font-semibold">
+                      Test case results ({resultRows.filter((r) => r.passed).length}/{resultRows.length} passed)
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      {resultRows.map((row, rowIndex) => (
+                        <div
+                          key={rowIndex}
+                          className={`rounded-lg border p-2 text-xs ${row.passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
+                        >
+                          <Badge variant={row.passed ? "outline" : "destructive"}>
+                            Test {rowIndex + 1} · {row.passed ? "Passed" : "Failed"}
+                          </Badge>
+                          {row.input ? (
+                            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                              <div>
+                                <p className="font-medium text-muted-foreground">Input</p>
+                                <pre className="mt-1 whitespace-pre-wrap break-all">{row.input}</pre>
+                              </div>
+                              <div>
+                                <p className="font-medium text-muted-foreground">Expected</p>
+                                <pre className="mt-1 whitespace-pre-wrap break-all">{row.expected}</pre>
+                              </div>
+                              <div>
+                                <p className="font-medium text-muted-foreground">Actual</p>
+                                <pre className="mt-1 whitespace-pre-wrap break-all">{row.actual}</pre>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="ml-2 text-muted-foreground">Hidden test case</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 ) : null}
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
                   <strong>Next improvement:</strong>{" "}
-                  {isPartial && visibleFailure
+                  {isPartial && hasVisibleFailure
                     ? "Reproduce the visible failed case, name the broken invariant, patch it, and add one neighboring adversarial case."
                     : isPartial
                       ? "The failed case is hidden or was not retained, so a specific patch cannot be prescribed responsibly. Ask for a public counterexample or rerun this problem with candidate-visible judge evidence."
@@ -2667,6 +2956,32 @@ function AntigravityReport({
   );
 }
 
+type JudgeResultRow = { passed: boolean; status: string; input?: string; expected?: string; actual?: string };
+
+function parseJudgeResultRows(value: unknown): JudgeResultRow[] {
+  // Handles both a flat array of rows and a legacy { results: [...] } wrapper.
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && Array.isArray((value as Record<string, unknown>).results)
+      ? ((value as Record<string, unknown>).results as unknown[])
+      : [];
+  return rows
+    .filter((row): row is Record<string, unknown> => typeof row === "object" && row !== null)
+    .map((row) => ({
+      passed: Boolean(row.passed),
+      status: typeof row.status === "string" ? row.status : "UNKNOWN",
+      input: typeof row.input === "string" ? row.input : undefined,
+      expected: typeof row.expected === "string" ? row.expected : undefined,
+      actual: typeof row.actual === "string" ? row.actual : undefined,
+    }));
+}
+
+const JUDGE_STATUS_LABEL: Record<string, string> = {
+  CORRECT_ANSWER: "Passed",
+  WRONG_ANSWER: "Wrong answer",
+  INTERNAL_ERROR: "Execution error",
+};
+
 function SqlReport({
   dossier,
   audience = "admin",
@@ -2695,6 +3010,43 @@ function SqlReport({
       : evidence.submissions.length >= 2 && smallestRetainedSuite >= 3
         ? "Moderate"
         : "Limited";
+
+  const difficultyLedger = new Map<string, { correct: number; total: number }>();
+  for (const submission of evidence.submissions) {
+    const task = asRecord(submission.task);
+    const difficulty = titleize(String(task.difficulty || "Unspecified"));
+    const current = difficultyLedger.get(difficulty) ?? { correct: 0, total: 0 };
+    current.total += submission.totalCount;
+    current.correct += submission.passedCount;
+    difficultyLedger.set(difficulty, current);
+  }
+  const difficultyBreakdown = Array.from(difficultyLedger.entries()).map(([name, { correct, total }]) => ({
+    name,
+    score: total ? Math.round((correct / total) * 100) : 0,
+    total,
+  }));
+
+  const fullyPassedTasks = evidence.submissions.filter(
+    (s) => s.totalCount > 0 && s.passedCount === s.totalCount,
+  ).length;
+  const sqlStrengths: string[] = [];
+  const sqlRisks: string[] = [];
+  if (evidence.submissions.length > 0) {
+    if (fullyPassedTasks === evidence.submissions.length) {
+      sqlStrengths.push("Passed every retained test case across all submitted tasks.");
+    } else if (fullyPassedTasks > 0) {
+      sqlStrengths.push(`Fully passed ${fullyPassedTasks} of ${evidence.submissions.length} tasks.`);
+    }
+    for (const { name, score, total } of difficultyBreakdown) {
+      if (total === 0) continue;
+      if (score <= 40) sqlRisks.push(`Weak on ${name} tasks (${score}% of retained cases passed).`);
+      else if (score >= 90) sqlStrengths.push(`Strong on ${name} tasks (${score}% of retained cases passed).`);
+    }
+    if (sqlRisks.length === 0 && fullyPassedTasks < evidence.submissions.length) {
+      sqlRisks.push("Some retained test cases still failed — review the specific failing rows below.");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
@@ -2716,6 +3068,36 @@ function SqlReport({
         <Metric label={audience === "candidate" ? "Feedback confidence" : "Evidence confidence"} value={testCoverage} detail={audience === "candidate" ? `${evidence.submissions.length} submitted task${evidence.submissions.length === 1 ? "" : "s"}` : `${evidence.submissions.length} task${evidence.submissions.length === 1 ? "" : "s"}; smallest retained suite: ${smallestRetainedSuite} cases`} />
         <Metric label="Time used" value={`${Math.round(evidence.timeTakenSeconds / 60)} min`} detail={audience === "candidate" ? "Total time in this round" : "From session start to finalization"} />
       </div>
+      {difficultyBreakdown.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Score by difficulty</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {difficultyBreakdown.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm">{entry.name}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${entry.score}%`,
+                      backgroundColor: entry.score < 60 ? "#ef4444" : entry.score < 80 ? "#f59e0b" : "#10b981",
+                    }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm font-medium">{entry.score}%</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+      {sqlStrengths.length > 0 || sqlRisks.length > 0 ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <EvidenceList title="What went well" items={sqlStrengths} empty="No clear strength pattern yet." />
+          <EvidenceList title="What to improve" items={sqlRisks} empty="No material risk pattern recorded." />
+        </div>
+      ) : null}
       <div className="space-y-4">
         {evidence.submissions.map((submission, index) => {
           const task = asRecord(submission.task);
@@ -2770,12 +3152,48 @@ function SqlReport({
                     </p>
                   </section>
                 </div>
-                {audience === "admin" && submission.results ? (
-                  <details className="rounded-lg border p-3">
-                    <summary className="cursor-pointer text-sm font-semibold">Retained judge diagnostics</summary>
-                    <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(submission.results, null, 2)}</pre>
-                  </details>
-                ) : null}
+                {(() => {
+                  const rows = parseJudgeResultRows(submission.results);
+                  if (rows.length === 0) return null;
+                  return (
+                    <div className="border-t pt-4">
+                      <p className="mb-2 text-sm font-semibold">Test case results</p>
+                      <div className="space-y-2">
+                        {rows.map((row, rowIndex) => (
+                          <div
+                            key={rowIndex}
+                            className={`rounded-lg border p-3 text-xs ${row.passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <Badge variant={row.passed ? "outline" : "destructive"}>
+                                {JUDGE_STATUS_LABEL[row.status] ?? row.status}
+                              </Badge>
+                              {!row.input ? (
+                                <span className="text-muted-foreground">Hidden test case</span>
+                              ) : null}
+                            </div>
+                            {row.input ? (
+                              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Input</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.input}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Expected</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.expected}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Actual</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.actual}</pre>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           );
@@ -3055,37 +3473,37 @@ function PlacementReadinessReport({
       ? "Readiness band withheld until coverage improves"
       : titleize(String(scorecard.readinessBand || "readiness band unavailable"));
 
-  const viewToggle =
-    audience === "candidate" ? (
-      <div className="inline-flex rounded-lg border p-1">
-        <button
-          type="button"
-          onClick={() => setViewMode("standard")}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "standard" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+  const reportUrlForAudience = audience === "candidate" ? latest.candidateReportUrl : latest.reportUrl;
+  const viewToggle = (
+    <div className="inline-flex rounded-lg border p-1">
+      <button
+        type="button"
+        onClick={() => setViewMode("standard")}
+        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "standard" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+      >
+        Standard view
+      </button>
+      <button
+        type="button"
+        onClick={() => setViewMode("ai-report")}
+        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "ai-report" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+      >
+        AI Report
+      </button>
+      {reportUrlForAudience ? (
+        <a
+          href={reportUrlForAudience}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
-          Standard view
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode("ai-report")}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "ai-report" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          AI Report
-        </button>
-        {latest.candidateReportUrl ? (
-          <a
-            href={latest.candidateReportUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Full report <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        ) : null}
-      </div>
-    ) : null;
+          Full report <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      ) : null}
+    </div>
+  );
 
-  if (audience === "candidate" && viewMode === "ai-report" && interviewConfidence !== "Limited") {
+  if (viewMode === "ai-report" && interviewConfidence !== "Limited") {
     return (
       <div className="space-y-4">
         {viewToggle}
