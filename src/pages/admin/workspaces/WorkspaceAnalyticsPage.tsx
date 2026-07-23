@@ -8,9 +8,11 @@ import { ArrowLeft, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import type { WorkspaceAnalyticsSnapshot } from "./workspaceAnalyticsTypes";
 import { buildDemoAnalyticsSnapshot } from "./workspaceAnalyticsDemoData";
 import {
+  WorkspaceCandidateSegments,
   WorkspaceModuleBreakdown,
   WorkspaceReadinessSummary,
   WorkspaceRetakeTable,
+  WorkspaceTopicPriorityMatrix,
 } from "@/components/admin/WorkspaceAnalyticsCharts";
 
 const POLL_INTERVAL_MS = 45_000;
@@ -80,7 +82,7 @@ export default function WorkspaceAnalyticsPage() {
       <header className="bg-background border-b border-border sticky top-0 z-50">
         {demoMode ? (
           <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 text-center text-xs font-medium text-amber-700">
-            Demo data — fabricated for presentation purposes, not real candidates
+            Demo data
           </div>
         ) : null}
         <div className="container mx-auto px-4 sm:px-6 py-4">
@@ -128,6 +130,11 @@ export default function WorkspaceAnalyticsPage() {
 
       <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         <WorkspaceReadinessSummary readiness={displayed.readiness} />
+        <WorkspaceTopicPriorityMatrix modules={displayed.modules} />
+        <WorkspaceCandidateSegments
+          retakeList={displayed.retakeList}
+          totalCandidates={displayed.workspace.totalCandidates}
+        />
         <WorkspaceModuleBreakdown modules={displayed.modules} />
         <WorkspaceRetakeTable retakeList={displayed.retakeList} />
       </main>
