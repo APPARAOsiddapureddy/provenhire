@@ -99,6 +99,23 @@ const titleize = (value: string) =>
   value
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+const normalizeTitle = (value: unknown) => String(value ?? "").trim().toLowerCase();
+// Prefers a title match (problemReads ordering isn't contractually guaranteed
+// to mirror the submission list); falls back to positional alignment only
+// when the two arrays are the same length, so a partial/mismatched
+// problemReads array never gets silently misattributed to the wrong problem.
+const matchProblemRead = (
+  problemReads: Json[],
+  title: unknown,
+  index: number,
+  totalCount: number,
+): Json | undefined => {
+  const byTitle = problemReads.find(
+    (read) => normalizeTitle(read.title) === normalizeTitle(title),
+  );
+  if (byTitle) return byTitle;
+  return problemReads.length === totalCount ? problemReads[index] : undefined;
+};
 
 function Metric({
   label,
@@ -1226,6 +1243,8 @@ function DsaReport({
     ? [...new Set(submissions.map((item) => item.language))].join(", ")
     : String(answers.language ?? "Not recorded");
   const complete = evidenceComplete(dossier, "dsa");
+  const dsaResult = asRecord(dossier.agentReports?.dsa?.result);
+  const problemReads = complete ? asList(dsaResult.problemReads).map(asRecord) : [];
   return (
     <div className="space-y-5">
       <AdminDecisionBanner kind="dsa" dossier={dossier} />
@@ -1347,6 +1366,32 @@ function DsaReport({
                       </ul>
                     </section>
                   ) : null}
+                  {(() => {
+                    const read = matchProblemRead(
+                      problemReads,
+                      question?.title,
+                      index,
+                      submissions.length,
+                    );
+                    if (!read?.approach && !read?.complexity) return null;
+                    return (
+                      <section className="rounded-xl border bg-muted/40 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          AI-analyzed reasoning
+                        </p>
+                        {read.approach ? (
+                          <p className="mt-2 text-sm leading-6">
+                            <strong>Approach:</strong> {String(read.approach)}
+                          </p>
+                        ) : null}
+                        {read.complexity ? (
+                          <p className="mt-2 text-sm leading-6">
+                            <strong>Complexity:</strong> {String(read.complexity)}
+                          </p>
+                        ) : null}
+                      </section>
+                    );
+                  })()}
                   <section>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1958,17 +2003,31 @@ function CandidateDsaReport({
   const risks = complete
     ? asList(result.failureAndRiskAnalysis).map(asRecord)
     : [];
+  const problemReads = complete
+    ? asList(result.problemReads).map(asRecord)
+    : [];
   const problems = workspace?.submissions.length
-    ? workspace.submissions.map((submission): Json => ({
-        title: submission.question?.title || submission.questionId,
-        description: submission.question?.description || "",
-        constraints: submission.question?.constraints || [],
-        code: submission.code,
-        language: submission.language,
-        testCasesPassed: submission.passedCount,
-        testCasesTotal: submission.totalCount,
-        results: asList(asRecord(submission.results).results).map(asRecord),
-      }))
+    ? workspace.submissions.map((submission, index): Json => {
+        const title = submission.question?.title || submission.questionId;
+        const read = matchProblemRead(
+          problemReads,
+          title,
+          index,
+          workspace.submissions.length,
+        );
+        return {
+          title,
+          description: submission.question?.description || "",
+          constraints: submission.question?.constraints || [],
+          code: submission.code,
+          language: submission.language,
+          testCasesPassed: submission.passedCount,
+          testCasesTotal: submission.totalCount,
+          results: asList(asRecord(submission.results).results).map(asRecord),
+          approach: read?.approach ?? null,
+          complexity: read?.complexity ?? null,
+        };
+      })
     : asList(answers.problems).map(asRecord);
   const smallestRetainedSuite = problems.length
     ? Math.min(
@@ -2092,8 +2151,9 @@ function CandidateDsaReport({
                 </p>
                 <p className="mt-2 text-sm leading-6">
                   <strong>Complexity:</strong>{" "}
-                  {String(problem.timeComplexity || "—")} time ·{" "}
-                  {String(problem.spaceComplexity || "—")} space
+                  {problem.complexity
+                    ? String(problem.complexity)
+                    : `${String(problem.timeComplexity || "—")} time · ${String(problem.spaceComplexity || "—")} space`}
                 </p>
                 {problem.code ? (
                   <details className="mt-2 rounded-lg border p-3">
