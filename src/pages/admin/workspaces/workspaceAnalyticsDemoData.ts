@@ -1,5 +1,7 @@
 import type {
+  MistakeBreakdown,
   ModuleCategoryStat,
+  ModuleSummary,
   ProficiencyTiers,
   RetakeEntry,
   WorkspaceAnalyticsSnapshot,
@@ -55,18 +57,57 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+// Believable P25/P50/P75 spread around a given average - not derived from a
+// real candidate list (demo mode has none), but shaped so P25 < P50 < P75
+// and the spread narrows for very high or very low averages, the way a real
+// bounded 0-100 score distribution behaves.
+function demoPercentiles(rand: () => number, avgScore: number): { p25: number; p50: number; p75: number } {
+  const spread = 9 + rand() * 7;
+  const p50 = clampScore(avgScore + (rand() - 0.5) * 4);
+  const p25 = Math.min(p50, clampScore(p50 - spread * (0.9 + rand() * 0.3)));
+  const p75 = Math.max(p50, clampScore(p50 + spread * (0.9 + rand() * 0.3)));
+  return { p25, p50, p75 };
+}
+
+function demoTopDecileAvg(rand: () => number, avgScore: number): number {
+  return clampScore(avgScore + 16 + rand() * 8);
+}
+
 function demoCategoryList(
   rand: () => number,
   completedCount: number,
   entries: Array<{ name: string; avg: number; spread: number }>,
+  withPercentiles = false,
 ): ModuleCategoryStat[] {
   return entries.map((c): ModuleCategoryStat => {
     const avgScore = clampScore(c.avg + (rand() - 0.5) * c.spread);
     const sampleSize = Math.round(completedCount * (0.85 + rand() * 0.15));
     const weakFraction = Math.max(0, 1 - avgScore / 100) * (0.75 + rand() * 0.4);
     const weakCandidateCount = Math.min(sampleSize, Math.round(sampleSize * weakFraction));
-    return { name: c.name, avgScore, sampleSize, weakCandidateCount };
+    return {
+      name: c.name,
+      avgScore,
+      sampleSize,
+      weakCandidateCount,
+      ...(withPercentiles ? demoPercentiles(rand, avgScore) : {}),
+    };
   });
+}
+
+// Mirrors the real classifyTestStatus() split server-side: most failures are
+// "ran but wrong" (logic gap), a smaller share never compile at all (syntax
+// gap), and the remainder time out / crash (efficiency or edge-case gap).
+function demoMistakeBreakdown(rand: () => number, avgScore: number, completedCount: number): MistakeBreakdown {
+  const testsPerAttempt = 5;
+  const totalTestCases = Math.max(1, Math.round(completedCount * testsPerAttempt * (0.9 + rand() * 0.2)));
+  const correct = Math.round(totalTestCases * clamp01(avgScore / 100));
+  const failed = totalTestCases - correct;
+  const wrongLogicFraction = clamp01(0.55 + (rand() - 0.5) * 0.15);
+  const syntaxFraction = clamp01(0.25 + (rand() - 0.5) * 0.1);
+  const wrongLogic = Math.round(failed * wrongLogicFraction);
+  const syntaxError = Math.round(failed * syntaxFraction);
+  const inefficientOrCrashed = Math.max(0, failed - wrongLogic - syntaxError);
+  return { totalTestCases, correct, wrongLogic, syntaxError, inefficientOrCrashed };
 }
 
 // Absolute Good/Average/Poor proficiency split, shaped around avgScore
@@ -94,8 +135,12 @@ function demoModule(
   attempted: number,
   completedFraction: number,
   categories: Array<{ name: string; avg: number; spread: number }>,
-  topics?: Array<{ name: string; avg: number; spread: number }>,
-): WorkspaceAnalyticsSnapshot["modules"][keyof WorkspaceAnalyticsSnapshot["modules"]] {
+  options: {
+    topics?: Array<{ name: string; avg: number; spread: number }>;
+    categoryPercentiles?: boolean;
+    withMistakeBreakdown?: boolean;
+  } = {},
+): ModuleSummary {
   const completedCount = Math.round(attempted * completedFraction);
   const top = Math.round(completedCount * (0.22 + rand() * 0.08));
   const bottom = Math.round(completedCount * (0.14 + rand() * 0.08));
@@ -108,8 +153,13 @@ function demoModule(
     avgPercentageScore,
     bands: { top, mid, bottom },
     proficiency: demoProficiency(rand, avgPercentageScore, completedCount),
-    categories: demoCategoryList(rand, completedCount, categories),
-    ...(topics ? { topics: demoCategoryList(rand, completedCount, topics) } : {}),
+    percentiles: demoPercentiles(rand, avgPercentageScore),
+    topDecileAvg: demoTopDecileAvg(rand, avgPercentageScore),
+    categories: demoCategoryList(rand, completedCount, categories, options.categoryPercentiles),
+    ...(options.topics ? { topics: demoCategoryList(rand, completedCount, options.topics) } : {}),
+    ...(options.withMistakeBreakdown
+      ? { mistakeBreakdown: demoMistakeBreakdown(rand, avgPercentageScore, completedCount) }
+      : {}),
   };
 }
 
@@ -131,12 +181,20 @@ export function buildDemoAnalyticsSnapshot(
   const incomplete = totalCandidates - ready - belowThreshold;
 
   const modules: WorkspaceAnalyticsSnapshot["modules"] = {
-    mcq: demoModule(rand, 68, 6, totalCandidates, 0.97, [
-      { name: "Quantitative", avg: 72, spread: 8 },
-      { name: "Logical Reasoning", avg: 69, spread: 8 },
-      { name: "Verbal Reasoning", avg: 63, spread: 8 },
-      { name: "Number System", avg: 66, spread: 8 },
-    ]),
+    mcq: demoModule(
+      rand,
+      68,
+      6,
+      totalCandidates,
+      0.97,
+      [
+        { name: "Quantitative", avg: 72, spread: 8 },
+        { name: "Logical Reasoning", avg: 69, spread: 8 },
+        { name: "Verbal Reasoning", avg: 63, spread: 8 },
+        { name: "Number System", avg: 66, spread: 8 },
+      ],
+      { categoryPercentiles: true },
+    ),
     coding: demoModule(
       rand,
       71,
@@ -148,18 +206,21 @@ export function buildDemoAnalyticsSnapshot(
         { name: "Medium", avg: 64, spread: 8 },
         { name: "Hard", avg: 38, spread: 10 },
       ],
-      [
-        { name: "Arrays & Strings", avg: 88, spread: 5 },
-        { name: "Hashing", avg: 79, spread: 6 },
-        { name: "Two Pointers / Sliding Window", avg: 71, spread: 7 },
-        { name: "Stacks & Queues", avg: 68, spread: 7 },
-        { name: "Sorting & Searching", avg: 65, spread: 7 },
-        { name: "Linked Lists", avg: 61, spread: 8 },
-        { name: "Trees", avg: 54, spread: 9 },
-        { name: "Backtracking & Recursion", avg: 47, spread: 9 },
-        { name: "Graphs", avg: 36, spread: 10 },
-        { name: "Dynamic Programming", avg: 31, spread: 10 },
-      ],
+      {
+        topics: [
+          { name: "Arrays & Strings", avg: 88, spread: 5 },
+          { name: "Hashing", avg: 79, spread: 6 },
+          { name: "Two Pointers / Sliding Window", avg: 71, spread: 7 },
+          { name: "Stacks & Queues", avg: 68, spread: 7 },
+          { name: "Sorting & Searching", avg: 65, spread: 7 },
+          { name: "Linked Lists", avg: 61, spread: 8 },
+          { name: "Trees", avg: 54, spread: 9 },
+          { name: "Backtracking & Recursion", avg: 47, spread: 9 },
+          { name: "Graphs", avg: 36, spread: 10 },
+          { name: "Dynamic Programming", avg: 31, spread: 10 },
+        ],
+        withMistakeBreakdown: true,
+      },
     ),
     sql: demoModule(
       rand,
@@ -173,25 +234,36 @@ export function buildDemoAnalyticsSnapshot(
         { name: "operations / Medium", avg: 69, spread: 8 },
         { name: "engineering / Hard", avg: 49, spread: 10 },
       ],
-      [
-        { name: "Filtering & Sorting", avg: 91, spread: 5 },
-        { name: "Joins", avg: 73, spread: 7 },
-        { name: "Aggregations & Grouping", avg: 66, spread: 8 },
-        { name: "Subqueries", avg: 54, spread: 9 },
-        { name: "Schema Design / DDL", avg: 50, spread: 9 },
-        { name: "Window Functions", avg: 34, spread: 10 },
-      ],
+      {
+        topics: [
+          { name: "Filtering & Sorting", avg: 91, spread: 5 },
+          { name: "Joins", avg: 73, spread: 7 },
+          { name: "Aggregations & Grouping", avg: 66, spread: 8 },
+          { name: "Subqueries", avg: 54, spread: 9 },
+          { name: "Schema Design / DDL", avg: 50, spread: 9 },
+          { name: "Window Functions", avg: 34, spread: 10 },
+        ],
+        withMistakeBreakdown: true,
+      },
     ),
-    interview: demoModule(rand, 70, 6, totalCandidates, 0.91, [
-      { name: "communication_clarity", avg: 74, spread: 7 },
-      { name: "project_ownership", avg: 72, spread: 7 },
-      { name: "hr_professional_readiness", avg: 73, spread: 7 },
-      { name: "answer_structure", avg: 70, spread: 7 },
-      { name: "role_specific_readiness", avg: 68, spread: 7 },
-      { name: "practical_reasoning", avg: 67, spread: 7 },
-      { name: "cs_fundamentals", avg: 66, spread: 7 },
-      { name: "programming_logic", avg: 64, spread: 7 },
-    ]),
+    interview: demoModule(
+      rand,
+      70,
+      6,
+      totalCandidates,
+      0.91,
+      [
+        { name: "communication_clarity", avg: 74, spread: 7 },
+        { name: "project_ownership", avg: 72, spread: 7 },
+        { name: "hr_professional_readiness", avg: 73, spread: 7 },
+        { name: "answer_structure", avg: 70, spread: 7 },
+        { name: "role_specific_readiness", avg: 68, spread: 7 },
+        { name: "practical_reasoning", avg: 67, spread: 7 },
+        { name: "cs_fundamentals", avg: 66, spread: 7 },
+        { name: "programming_logic", avg: 64, spread: 7 },
+      ],
+      { categoryPercentiles: true },
+    ),
   };
 
   // Below-threshold candidates: most struggle in exactly one round, but a

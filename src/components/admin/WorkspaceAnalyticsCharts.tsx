@@ -33,9 +33,15 @@ import {
   Scatter,
   ZAxis,
   ReferenceLine,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
 } from "recharts";
-import { AlertTriangle, Award, CheckCircle2, Lightbulb, Target, TrendingDown, Users2 } from "lucide-react";
+import { AlertTriangle, Award, CheckCircle2, Lightbulb, Target, TrendingDown, Users2, XCircle } from "lucide-react";
 import type {
+  MistakeBreakdown,
   ModuleCategoryStat,
   ModuleSummary,
   ProficiencyTiers,
@@ -261,6 +267,116 @@ export function WorkspaceBatchOverview({
   );
 }
 
+function ModulePercentileStrip({
+  percentiles,
+  topDecileAvg,
+}: {
+  percentiles?: { p25: number; p50: number; p75: number };
+  topDecileAvg: number | null;
+}) {
+  if (!percentiles) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className="relative h-1.5 rounded-full bg-muted">
+        <div
+          className="absolute top-0 bottom-0 rounded-full bg-primary/25"
+          style={{ left: `${percentiles.p25}%`, width: `${Math.max(0, percentiles.p75 - percentiles.p25)}%` }}
+        />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-2.5 w-0.5 bg-foreground/70"
+          style={{ left: `${percentiles.p50}%` }}
+        />
+        {topDecileAvg !== null && (
+          <div
+            className="absolute top-1/2 -translate-y-1/2 h-2.5 w-0.5 bg-emerald-500"
+            style={{ left: `${topDecileAvg}%` }}
+          />
+        )}
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        P25 {percentiles.p25}% &middot; P50 {percentiles.p50}% &middot; P75 {percentiles.p75}%
+        {topDecileAvg !== null ? (
+          <>
+            {" "}
+            &middot; <span className="text-emerald-600 font-medium">Top 10% avg {topDecileAvg}%</span>
+          </>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+function CategoryBar({ stat, labelWidthClass }: { stat: ModuleCategoryStat; labelWidthClass: string }) {
+  const hasPercentiles = typeof stat.p25 === "number" && typeof stat.p75 === "number" && typeof stat.p50 === "number";
+  return (
+    <div className="flex items-center gap-3">
+      <span className={`text-xs ${labelWidthClass} shrink-0 truncate`} title={stat.name}>
+        {stat.name}
+      </span>
+      <div className="relative flex-1 h-2 rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${stat.avgScore}%`, backgroundColor: categoryColor(stat.avgScore) }}
+        />
+        {hasPercentiles && (
+          <>
+            <div
+              className="absolute top-0 bottom-0 w-px bg-foreground/40"
+              style={{ left: `${stat.p25}%` }}
+              title={`P25: ${stat.p25}%`}
+            />
+            <div
+              className="absolute top-0 bottom-0 w-px bg-foreground/70"
+              style={{ left: `${stat.p50}%` }}
+              title={`P50 (median): ${stat.p50}%`}
+            />
+            <div
+              className="absolute top-0 bottom-0 w-px bg-foreground/40"
+              style={{ left: `${stat.p75}%` }}
+              title={`P75: ${stat.p75}%`}
+            />
+          </>
+        )}
+      </div>
+      <span className="text-xs w-10 shrink-0 text-right font-medium">{stat.avgScore}%</span>
+    </div>
+  );
+}
+
+function MistakeBreakdownNote({
+  breakdown,
+  moduleLabel,
+}: {
+  breakdown?: MistakeBreakdown;
+  moduleLabel: string;
+}) {
+  if (!breakdown) return null;
+  const failed = breakdown.wrongLogic + breakdown.syntaxError + breakdown.inefficientOrCrashed;
+  if (failed === 0) return null;
+  const wrongPercent = Math.round((breakdown.wrongLogic / failed) * 100);
+  const syntaxPercent = Math.round((breakdown.syntaxError / failed) * 100);
+  const crashPercent = Math.max(0, 100 - wrongPercent - syntaxPercent);
+  const noun = moduleLabel === "SQL" ? "query" : "submission";
+  const nounPlural = moduleLabel === "SQL" ? "queries" : "submissions";
+  let verdict: string;
+  if (wrongPercent >= syntaxPercent && wrongPercent >= crashPercent) {
+    verdict = `most candidates can write a valid ${noun} — the gap is correctness, not syntax`;
+  } else if (syntaxPercent >= crashPercent) {
+    verdict = `a large share can't produce a syntactically valid ${noun} at all — this points to a fundamentals gap`;
+  } else {
+    verdict = `${nounPlural} often run but time out, exceed limits, or crash — likely inefficient approaches rather than wrong logic`;
+  }
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <p className="text-xs font-medium mb-1">When they get it wrong</p>
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Of failed test cases: {wrongPercent}% run but return the wrong result, {syntaxPercent}% never run at all
+        (syntax errors), and {crashPercent}% time out, exceed limits, or crash &mdash; {verdict}.
+      </p>
+    </div>
+  );
+}
+
 function ModuleCard({ type, summary }: { type: WorkspaceRoundTypeKey; summary: ModuleSummary }) {
   const bandData = [
     { name: "Top", value: summary.bands.top, key: "top" as const },
@@ -282,6 +398,7 @@ function ModuleCard({ type, summary }: { type: WorkspaceRoundTypeKey; summary: M
         <CardDescription>
           {summary.completedCount} completed &middot; {Math.max(0, summary.attemptedCount - summary.completedCount)} in progress
         </CardDescription>
+        <ModulePercentileStrip percentiles={summary.percentiles} topDecileAvg={summary.topDecileAvg} />
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="h-[140px]">
@@ -310,43 +427,27 @@ function ModuleCard({ type, summary }: { type: WorkspaceRoundTypeKey; summary: M
             <p className="text-xs font-medium text-muted-foreground mb-2">By topic</p>
             <div className="space-y-2">
               {summary.topics.map((topic) => (
-                <div key={topic.name} className="flex items-center gap-3">
-                  <span className="text-xs w-40 shrink-0 truncate" title={topic.name}>
-                    {topic.name}
-                  </span>
-                  <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${topic.avgScore}%`, backgroundColor: categoryColor(topic.avgScore) }}
-                    />
-                  </div>
-                  <span className="text-xs w-10 shrink-0 text-right font-medium">{topic.avgScore}%</span>
-                </div>
+                <CategoryBar key={topic.name} stat={topic} labelWidthClass="w-40" />
               ))}
             </div>
           </div>
         )}
         {summary.categories.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">{categoryLabel}</p>
+            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center justify-between">
+              <span>{categoryLabel}</span>
+              {summary.categories.some((c) => typeof c.p25 === "number") && (
+                <span className="text-[10px] font-normal">tick marks: P25 · P50 · P75</span>
+              )}
+            </p>
             <div className="space-y-2">
               {summary.categories.map((category) => (
-                <div key={category.name} className="flex items-center gap-3">
-                  <span className="text-xs w-32 shrink-0 truncate" title={category.name}>
-                    {category.name}
-                  </span>
-                  <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${category.avgScore}%`, backgroundColor: categoryColor(category.avgScore) }}
-                    />
-                  </div>
-                  <span className="text-xs w-10 shrink-0 text-right font-medium">{category.avgScore}%</span>
-                </div>
+                <CategoryBar key={category.name} stat={category} labelWidthClass="w-32" />
               ))}
             </div>
           </div>
         )}
+        <MistakeBreakdownNote breakdown={summary.mistakeBreakdown} moduleLabel={MODULE_LABELS[type]} />
       </CardContent>
     </Card>
   );
@@ -550,6 +651,133 @@ export function WorkspaceTopicPriorityMatrix({
             </div>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function WorkspaceModuleRadar({ modules }: { modules: WorkspaceAnalyticsSnapshot["modules"] }) {
+  const entries = (Object.entries(modules) as [WorkspaceRoundTypeKey, ModuleSummary][]).filter(
+    ([, summary]) => summary.configured && summary.avgPercentageScore !== null,
+  );
+  if (entries.length < 3) return null;
+
+  const data = entries.map(([type, summary]) => ({
+    module: MODULE_LABELS[type],
+    "Batch average": summary.avgPercentageScore ?? 0,
+    "Top 10%": summary.topDecileAvg ?? summary.avgPercentageScore ?? 0,
+  }));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base sm:text-lg">Module performance radar</CardTitle>
+        <CardDescription>
+          Batch average vs. your top 10% across every round, at a glance &mdash; a wide gap between the two means the
+          ceiling is high but most candidates aren't reaching it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[320px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart data={data} outerRadius="72%">
+              <PolarGrid className="stroke-muted" />
+              <PolarAngleAxis dataKey="module" tick={{ fontSize: 12 }} />
+              <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10 }} />
+              <Radar name="Batch average" dataKey="Batch average" stroke="#6366f1" fill="#6366f1" fillOpacity={0.35} />
+              <Radar name="Top 10%" dataKey="Top 10%" stroke="#10b981" fill="#10b981" fillOpacity={0.12} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function buildStrengthsWeaknesses(
+  modules: WorkspaceAnalyticsSnapshot["modules"],
+): { strengths: PriorityTopic[]; weaknesses: PriorityTopic[] } {
+  const topics = buildPriorityTopics(modules);
+  const byScoreDesc = [...topics].sort((a, b) => b.avgScore - a.avgScore);
+  const byPriorityDesc = [...topics]
+    .filter((t) => t.avgScore < MASTERY_THRESHOLD)
+    .sort((a, b) => b.priorityScore - a.priorityScore);
+  // Skip the single strongest/weakest topic in each direction - those are
+  // already the headline callouts elsewhere on the page (topic matrix,
+  // batch overview, core insights). This surfaces the next layer down
+  // instead of repeating the same one or two facts a third time.
+  return {
+    strengths: byScoreDesc.slice(1, 4),
+    weaknesses: byPriorityDesc.slice(3, 6),
+  };
+}
+
+export function WorkspaceStrengthsWeaknesses({ modules }: { modules: WorkspaceAnalyticsSnapshot["modules"] }) {
+  const { strengths, weaknesses } = useMemo(() => buildStrengthsWeaknesses(modules), [modules]);
+
+  if (strengths.length === 0 && weaknesses.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+          <Award className="h-4 w-4 text-primary" />
+          Presentation-ready read
+        </CardTitle>
+        <CardDescription>
+          Deeper strengths and weaknesses beyond the headline numbers above &mdash; distinct from the callouts
+          elsewhere on this page, meant for a slide or a status update.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-6 sm:grid-cols-2">
+        <div className="space-y-3">
+          <p className="text-sm font-semibold flex items-center gap-2 text-emerald-700">
+            <CheckCircle2 className="h-4 w-4" />
+            Strengths
+          </p>
+          {strengths.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Not enough data yet.</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {strengths.map((t) => (
+                <li key={`${t.module}-${t.name}`} className="flex items-start gap-2 text-sm leading-snug">
+                  <span className="text-emerald-600 font-bold shrink-0">✓</span>
+                  <span>
+                    <span className="font-medium">
+                      {t.moduleLabel} &mdash; {t.name}
+                    </span>
+                    : avg {t.avgScore}% across {t.sampleSize} candidates, comfortably clear of the mastery bar.
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="space-y-3">
+          <p className="text-sm font-semibold flex items-center gap-2 text-red-700">
+            <XCircle className="h-4 w-4" />
+            Weaknesses
+          </p>
+          {weaknesses.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No further weak spots beyond what's already flagged above.</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {weaknesses.map((t) => (
+                <li key={`${t.module}-${t.name}`} className="flex items-start gap-2 text-sm leading-snug">
+                  <span className="text-red-600 font-bold shrink-0">✗</span>
+                  <span>
+                    <span className="font-medium">
+                      {t.moduleLabel} &mdash; {t.name}
+                    </span>
+                    : avg {t.avgScore}%, {t.impact} of {t.sampleSize} candidates still below the mastery bar.
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
