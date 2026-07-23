@@ -18,6 +18,7 @@ import {
   importAllowedWorkspaceEmailsController,
   addAllowedWorkspaceEmailsController,
   addWorkspaceMemberController,
+  getWorkspaceAnalyticsController,
   getWorkspaceCandidateDossierController,
   generateWorkspaceCandidateReportController,
   listWorkspaceRegistrationsController,
@@ -107,6 +108,7 @@ workspacesRouter.delete(
   revokeAllowedWorkspaceEmailController,
 );
 workspacesRouter.get("/:id/audit-trail", listWorkspaceAuditTrailController);
+workspacesRouter.get("/:id/analytics", getWorkspaceAnalyticsController);
 workspacesRouter.get("/:id/members", listWorkspaceMembersController);
 workspacesRouter.post("/:id/members", addWorkspaceMemberController);
 workspacesRouter.delete("/:id/members/:userId", removeWorkspaceMemberController);
