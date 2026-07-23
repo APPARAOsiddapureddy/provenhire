@@ -8,7 +8,9 @@ import { ArrowLeft, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import type { WorkspaceAnalyticsSnapshot } from "./workspaceAnalyticsTypes";
 import { buildDemoAnalyticsSnapshot } from "./workspaceAnalyticsDemoData";
 import {
+  WorkspaceBatchOverview,
   WorkspaceCandidateSegments,
+  WorkspaceCoreInsights,
   WorkspaceModuleBreakdown,
   WorkspaceReadinessSummary,
   WorkspaceRetakeTable,
@@ -129,12 +131,18 @@ export default function WorkspaceAnalyticsPage() {
       </header>
 
       <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+        <WorkspaceBatchOverview
+          workspace={displayed.workspace}
+          readiness={displayed.readiness}
+          modules={displayed.modules}
+        />
         <WorkspaceReadinessSummary readiness={displayed.readiness} />
         <WorkspaceTopicPriorityMatrix modules={displayed.modules} />
         <WorkspaceCandidateSegments
           retakeList={displayed.retakeList}
           totalCandidates={displayed.workspace.totalCandidates}
         />
+        <WorkspaceCoreInsights snapshot={displayed} />
         <WorkspaceModuleBreakdown modules={displayed.modules} />
         <WorkspaceRetakeTable retakeList={displayed.retakeList} />
       </main>
