@@ -15,15 +15,47 @@ type AssessmentEvidenceDossier = {
   };
 };
 
+// roundAttempts carries every round's own artifact nested inside it
+// (placementReadinessHandoff.artifact.artifact for the interview round, other
+// modules' scores directly on each attempt) - passing it through whole would
+// leak other modules' evidence into a single-module report the same way
+// dossier.synthesis did. Scope it to only the round(s) this report kind is
+// actually about.
+function scopeRegistrationToRoundType(registration: unknown, roundType: string) {
+  const reg =
+    registration && typeof registration === "object" && !Array.isArray(registration)
+      ? (registration as Record<string, unknown>)
+      : {};
+  const attempts = Array.isArray(reg.roundAttempts) ? reg.roundAttempts : [];
+  return {
+    ...reg,
+    roundAttempts: attempts.filter(
+      (attempt) =>
+        attempt &&
+        typeof attempt === "object" &&
+        (attempt as Record<string, unknown>).workspaceRound &&
+        typeof (attempt as Record<string, unknown>).workspaceRound === "object" &&
+        ((attempt as Record<string, unknown>).workspaceRound as Record<string, unknown>).type ===
+          roundType,
+    ),
+  };
+}
+
 export function assessmentEvidenceFor(
   kind: AssessmentEvidenceKind,
   dossier: AssessmentEvidenceDossier,
 ) {
+  if (kind === "dsa") {
+    return {
+      candidate: dossier.candidate,
+      registration: scopeRegistrationToRoundType(dossier.registration, "coding"),
+      dsa: dossier.modules.dsa,
+    };
+  }
   const identity = {
     candidate: dossier.candidate,
     registration: dossier.registration,
   };
-  if (kind === "dsa") return { ...identity, dsa: dossier.modules.dsa };
   return {
     ...identity,
     deterministicSynthesis: dossier.synthesis,
