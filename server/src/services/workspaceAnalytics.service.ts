@@ -79,6 +79,33 @@ function aggregateByTopic(
     .sort((a, b) => a.avgScore - b.avgScore);
 }
 
+// Test-case statuses come from the shared TestResultStatus union
+// (constants/dsa.ts), reused for both DSA and SQL judge results.
+// COMPILE_ERROR means the submission never ran at all - a fundamentals gap.
+// WRONG_ANSWER means it ran and produced output, just the wrong one - a
+// correctness/logic gap. Everything else (TLE/MLE/OLE/RUNTIME_ERROR/
+// INTERNAL_ERROR) ran but blew up or timed out - usually an inefficient or
+// unhandled-edge-case approach rather than "can't write the code at all".
+function classifyTestStatus(status: string): "correct" | "wrongLogic" | "syntaxError" | "inefficientOrCrashed" {
+  if (status === "CORRECT_ANSWER") return "correct";
+  if (status === "WRONG_ANSWER") return "wrongLogic";
+  if (status === "COMPILE_ERROR") return "syntaxError";
+  return "inefficientOrCrashed";
+}
+
+function computeMistakeBreakdown(rows: { results: unknown }[]): MistakeBreakdown {
+  const breakdown: MistakeBreakdown = { totalTestCases: 0, correct: 0, wrongLogic: 0, syntaxError: 0, inefficientOrCrashed: 0 };
+  for (const row of rows) {
+    const results = Array.isArray(row.results) ? row.results : [];
+    for (const item of results) {
+      if (!isRecord(item) || typeof item.status !== "string") continue;
+      breakdown.totalTestCases += 1;
+      breakdown[classifyTestStatus(item.status)] += 1;
+    }
+  }
+  return breakdown;
+}
+
 const ROUND_LABELS: Record<WorkspaceRoundType, string> = {
   mcq: "Aptitude",
   coding: "Coding",
@@ -105,12 +132,32 @@ export type ModuleCategoryStat = {
   avgScore: number;
   sampleSize: number;
   weakCandidateCount?: number;
+  // Per-candidate score distribution within this category. Only present
+  // where a real per-candidate score exists (aptitude domains, interview
+  // dimensions) - coding/SQL categories are pass-rate based, not a
+  // per-candidate score, so these are omitted there.
+  p25?: number;
+  p50?: number;
+  p75?: number;
 };
 
 // Absolute proficiency tiers (see PROFICIENCY_*_THRESHOLD_PERCENT) - distinct
 // from `bands`, which is a percentile-relative top/mid/bottom split of this
 // batch only and shifts meaning as the batch composition changes.
 export type ProficiencyTiers = { good: number; average: number; poor: number };
+
+// Test-case-level outcome breakdown for failed coding/SQL submissions -
+// answers "when they get it wrong, how do they get it wrong": never produced
+// a runnable submission (syntaxError), ran but returned the wrong result
+// (wrongLogic), or ran but timed out / exceeded limits / crashed
+// (inefficientOrCrashed).
+export type MistakeBreakdown = {
+  totalTestCases: number;
+  correct: number;
+  wrongLogic: number;
+  syntaxError: number;
+  inefficientOrCrashed: number;
+};
 
 export type ModuleSummary = {
   configured: boolean;
@@ -119,12 +166,16 @@ export type ModuleSummary = {
   avgPercentageScore: number | null;
   bands: { top: number; mid: number; bottom: number };
   proficiency: ProficiencyTiers;
+  percentiles?: { p25: number; p50: number; p75: number };
+  topDecileAvg: number | null;
   categories: ModuleCategoryStat[];
   // Topic-level breakdown inferred from question/task text. Only populated
   // for coding and SQL, where `categories` is difficulty/subtrack (too
   // coarse to say "focus on graphs"); aptitude and interview categories are
   // already topic-shaped, so this is omitted there.
   topics?: ModuleCategoryStat[];
+  // Coding/SQL only - see MistakeBreakdown.
+  mistakeBreakdown?: MistakeBreakdown;
 };
 
 export type RetakeEntry = {
@@ -200,6 +251,24 @@ function quantile(sortedAsc: number[], p: number): number {
   return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (idx - lo);
 }
 
+function percentileTrio(scores: number[]): { p25: number; p50: number; p75: number } | undefined {
+  if (scores.length === 0) return undefined;
+  const sorted = [...scores].sort((a, b) => a - b);
+  return {
+    p25: Math.round(quantile(sorted, 0.25)),
+    p50: Math.round(quantile(sorted, 0.5)),
+    p75: Math.round(quantile(sorted, 0.75)),
+  };
+}
+
+function topDecileAverage(scores: number[]): number | null {
+  if (scores.length === 0) return null;
+  const sorted = [...scores].sort((a, b) => b - a);
+  const count = Math.max(1, Math.ceil(sorted.length * 0.1));
+  const top = sorted.slice(0, count);
+  return Math.round(top.reduce((sum, s) => sum + s, 0) / top.length);
+}
+
 function bandCounts(scores: number[]): { top: number; mid: number; bottom: number } {
   if (scores.length === 0) return { top: 0, mid: 0, bottom: 0 };
   const sorted = [...scores].sort((a, b) => a - b);
@@ -260,6 +329,7 @@ function extractAptitudeDomainStats(
       avgScore: entry.totalMarks ? Math.round((entry.correctMarks / entry.totalMarks) * 100) : 0,
       sampleSize: entry.candidateScores.length,
       weakCandidateCount: entry.candidateScores.filter((s) => s < WEAK_CATEGORY_SCORE_THRESHOLD).length,
+      ...(percentileTrio(entry.candidateScores) ?? {}),
     }))
     .sort((a, b) => a.avgScore - b.avgScore);
 }
@@ -286,6 +356,7 @@ function extractInterviewDimensionStats(
       avgScore: Math.round(scores.reduce((sum, s) => sum + s, 0) / scores.length),
       sampleSize: scores.length,
       weakCandidateCount: scores.filter((s) => s < WEAK_CATEGORY_SCORE_THRESHOLD).length,
+      ...(percentileTrio(scores) ?? {}),
     }))
     .sort((a, b) => a.avgScore - b.avgScore);
 }
@@ -308,6 +379,7 @@ function moduleSummaryFor(
   attempts: AttemptRow[],
   categories: ModuleCategoryStat[],
   topics?: ModuleCategoryStat[],
+  mistakeBreakdown?: MistakeBreakdown,
 ): ModuleSummary {
   const forType = attempts.filter((a) => a.roundType === type);
   const completed = forType.filter((a) => isCompleted(a.status));
@@ -324,14 +396,26 @@ function moduleSummaryFor(
     avgPercentageScore: avg,
     bands: bandCounts(scores),
     proficiency: proficiencyTiers(scores),
+    percentiles: percentileTrio(scores),
+    topDecileAvg: topDecileAverage(scores),
     categories,
     ...(topics ? { topics } : {}),
+    ...(mistakeBreakdown ? { mistakeBreakdown } : {}),
   };
 }
 
 async function computeWorkspaceAnalytics(workspaceId: string): Promise<WorkspaceAnalyticsSnapshot> {
-  const [workspace, workspaceRounds, roster, attempts, dsaQuestionRows, sqlTaskRows, interviewArtifacts] =
-    await Promise.all([
+  const [
+    workspace,
+    workspaceRounds,
+    roster,
+    attempts,
+    dsaQuestionRows,
+    sqlTaskRows,
+    interviewArtifacts,
+    dsaResultRows,
+    sqlResultRows,
+  ] = await Promise.all([
       prisma.workspace.findUniqueOrThrow({
         where: { id: workspaceId },
         select: { id: true, name: true, code: true },
@@ -385,6 +469,20 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
         where: { workspaceId },
         select: { userId: true, artifact: true },
       }),
+      prisma.$queryRaw<{ results: unknown }[]>`
+        SELECT ds."results" AS "results"
+        FROM "WorkspaceRoundAttempt" wra
+        JOIN "DsaSubmission" ds ON ds."roundSessionId" = wra."dsaRoundSessionId" AND ds."isOfficial" = true
+        WHERE wra."workspaceId" = ${workspaceId} AND wra."roundType" = 'coding'
+          AND wra."status" IN ('completed', 'auto_completed')
+      `,
+      prisma.$queryRaw<{ results: unknown }[]>`
+        SELECT wss."results" AS "results"
+        FROM "WorkspaceRoundAttempt" wra
+        JOIN "WorkspaceSqlSubmission" wss ON wss."sessionId" = wra."sqlSessionId" AND wss."isOfficial" = true
+        WHERE wra."workspaceId" = ${workspaceId} AND wra."roundType" = 'sql'
+          AND wra."status" IN ('completed', 'auto_completed')
+      `,
     ]);
 
   const configuredRoundTypes = new Set(workspaceRounds.map((r) => r.type));
@@ -503,14 +601,17 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
     .sort((a, b) => a.avgScore - b.avgScore);
   const sqlTopics = aggregateByTopic(sqlTaskRows, SQL_TOPIC_KEYWORDS, "General SQL");
 
+  const dsaMistakeBreakdown = computeMistakeBreakdown(dsaResultRows);
+  const sqlMistakeBreakdown = computeMistakeBreakdown(sqlResultRows);
+
   return {
     workspace: { id: workspace.id, name: workspace.name, code: workspace.code, totalCandidates: roster.length },
     generatedAt: new Date().toISOString(),
     readiness: { ready, incomplete, belowThreshold },
     modules: {
       mcq: moduleSummaryFor("mcq", configuredRoundTypes, attempts, extractAptitudeDomainStats(mcqSessions)),
-      coding: moduleSummaryFor("coding", configuredRoundTypes, attempts, dsaCategories, dsaTopics),
-      sql: moduleSummaryFor("sql", configuredRoundTypes, attempts, sqlCategories, sqlTopics),
+      coding: moduleSummaryFor("coding", configuredRoundTypes, attempts, dsaCategories, dsaTopics, dsaMistakeBreakdown),
+      sql: moduleSummaryFor("sql", configuredRoundTypes, attempts, sqlCategories, sqlTopics, sqlMistakeBreakdown),
       interview: moduleSummaryFor(
         "interview",
         configuredRoundTypes,

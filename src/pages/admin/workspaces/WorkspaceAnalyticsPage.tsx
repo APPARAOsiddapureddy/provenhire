@@ -12,8 +12,10 @@ import {
   WorkspaceCandidateSegments,
   WorkspaceCoreInsights,
   WorkspaceModuleBreakdown,
+  WorkspaceModuleRadar,
   WorkspaceReadinessSummary,
   WorkspaceRetakeTable,
+  WorkspaceStrengthsWeaknesses,
   WorkspaceTopicPriorityMatrix,
 } from "@/components/admin/WorkspaceAnalyticsCharts";
 
@@ -138,6 +140,10 @@ export default function WorkspaceAnalyticsPage() {
         />
         <WorkspaceReadinessSummary readiness={displayed.readiness} />
         <WorkspaceTopicPriorityMatrix modules={displayed.modules} />
+        <div className="grid gap-6 lg:grid-cols-2 items-start">
+          <WorkspaceModuleRadar modules={displayed.modules} />
+          <WorkspaceStrengthsWeaknesses modules={displayed.modules} />
+        </div>
         <WorkspaceCandidateSegments
           retakeList={displayed.retakeList}
           totalCandidates={displayed.workspace.totalCandidates}
