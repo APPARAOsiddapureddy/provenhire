@@ -2855,136 +2855,6 @@ function AIReportDocument({
   );
 }
 
-const AG_BAND_STYLE: Record<string, string> = {
-  strong: "bg-emerald-400/15 text-emerald-200",
-  good: "bg-violet-400/15 text-violet-200",
-  wrong: "bg-amber-400/15 text-amber-200",
-};
-
-/// Third presentation of the same persisted interview artifact, in the same
-/// dark gradient-hero visual language as the legacy Antigravity recruiter
-/// report (bg-gradient-to-br slate/indigo/violet, numbered evidence tiles,
-/// RadioTower branding) - so a candidate who's used to that look sees the
-/// current Placement Readiness data in a familiar frame. Same data as the
-/// other two views, read from the same report/scorecard/questionReviews
-/// object.
-function AGStyleReport({
-  candidateName,
-  targetRole,
-  score,
-  band,
-  reasoningSummary,
-  verdictSummary,
-  dimensions,
-  strengths,
-  risks,
-  questions,
-  sevenDayPlan,
-  thirtyDayPlan,
-}: {
-  candidateName: string;
-  targetRole: string;
-  score: number;
-  band: string;
-  reasoningSummary: string;
-  verdictSummary: string;
-  dimensions: [string, number][];
-  strengths: string[];
-  risks: string[];
-  questions: Json[];
-  sevenDayPlan: string[];
-  thirtyDayPlan: string[];
-}) {
-  return (
-    <div className="space-y-5">
-      <Card className="overflow-hidden border-0 bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 text-white shadow-2xl">
-        <CardContent className="p-6 md:p-10">
-          <div className="grid gap-8 lg:grid-cols-[1.35fr_.65fr] lg:items-center">
-            <div>
-              <Badge className="bg-violet-400/20 text-violet-100 hover:bg-violet-400/20">
-                Placement Readiness · AI Interview
-              </Badge>
-              <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight md:text-5xl">
-                {candidateName}
-              </h2>
-              <p className="mt-2 text-base text-slate-300">{targetRole}</p>
-              <p className="mt-4 max-w-3xl text-base leading-8 text-slate-200">{reasoningSummary}</p>
-              <div className="mt-6 flex flex-wrap items-center gap-4">
-                <span className="text-5xl font-bold tabular-nums">{score}<span className="text-xl font-normal text-slate-400">/100</span></span>
-                <Badge className="bg-white/10 text-white hover:bg-white/10">{titleize(band)}</Badge>
-              </div>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-              {dimensions.slice(0, 5).map(([label, value], index) => (
-                <div key={label} className="rounded-xl border border-white/15 bg-white/[0.07] p-3 backdrop-blur">
-                  <div className="flex gap-3">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-300 text-xs font-bold text-violet-950">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="font-semibold">{label}</p>
-                        <p className="text-xs text-slate-300">{value}/100</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-primary/30">
-        <CardHeader>
-          <CardDescription>Placement Readiness · evidence-based interview report</CardDescription>
-          <CardTitle className="mt-2 flex items-center gap-2 text-2xl">
-            <RadioTower className="h-6 w-6 text-primary" />
-            Readiness verdict
-          </CardTitle>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{verdictSummary}</p>
-        </CardHeader>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <EvidenceList title="Strongest converting signals" items={strengths} />
-        <EvidenceList title="Avoidable rejection risks" items={risks} />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Evidence timeline</CardTitle>
-          <CardDescription>Every exchange, in order, with what it demonstrated.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {questions.map((question, index) => {
-            const band = String(question.answerBand || "").toLowerCase();
-            return (
-              <div key={String(question.slotId || index) + index} className="rounded-xl border-0 bg-slate-950 p-4 text-slate-100">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-400/20 text-[11px] font-bold text-violet-200">
-                    {index + 1}
-                  </span>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${AG_BAND_STYLE[band] || "bg-slate-400/15 text-slate-200"}`}>
-                    {aiReportBandLabel(band)}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm font-semibold">{String(question.questionText || "")}</p>
-                <p className="mt-1.5 text-sm text-slate-400">{String(question.answerSummary || "")}</p>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <EvidenceList title="7-day plan" items={sevenDayPlan} />
-        <EvidenceList title="30-day plan" items={thirtyDayPlan} />
-      </div>
-    </div>
-  );
-}
-
 function PlacementReadinessReport({
   dossier,
   audience = "admin",
@@ -2992,7 +2862,7 @@ function PlacementReadinessReport({
   dossier: WorkspaceCandidateDossier;
   audience?: ReportAudience;
 }) {
-  const [viewMode, setViewMode] = useState<"standard" | "ai-report" | "ag-style">("standard");
+  const [viewMode, setViewMode] = useState<"standard" | "ai-report">("standard");
   const interviewModule = dossier.modules.interview;
   if (!interviewModule) {
     return <AntigravityReport dossier={dossier} audience={audience} />;
@@ -3068,43 +2938,18 @@ function PlacementReadinessReport({
         >
           AI Report
         </button>
-        <button
-          type="button"
-          onClick={() => setViewMode("ag-style")}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "ag-style" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          AG Style
-        </button>
+        {latest.reportUrl ? (
+          <a
+            href={latest.reportUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Full report <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        ) : null}
       </div>
     ) : null;
-
-  if (audience === "candidate" && viewMode === "ag-style" && interviewConfidence !== "Limited") {
-    return (
-      <div className="space-y-4">
-        {viewToggle}
-        <AGStyleReport
-          candidateName={String(
-            dossier.candidate.jobSeekerProfile?.fullName ||
-              dossier.candidate.name ||
-              dossier.candidate.email,
-          )}
-          targetRole={String(dossier.synthesis?.roleRubric?.targetRole || "")}
-          score={numeric(latest.score ?? scorecard.overallScore, 0)}
-          band={String(scorecard.readinessBand || "")}
-          reasoningSummary={String(scorecard.reasoningSummary || "")}
-          verdictSummary={String(verdict.summary || "")}
-          dimensions={Object.entries(dimensions)
-            .filter(([, value]) => Number.isFinite(Number(value)))
-            .map(([key, value]) => [titleize(key), numeric(value)] as [string, number])}
-          strengths={strings(report.strongestConvertingSignals)}
-          risks={strings(report.avoidableRejectionRisks)}
-          questions={questions}
-          sevenDayPlan={strings(report.sevenDayPlan)}
-          thirtyDayPlan={strings(report.thirtyDayPlan)}
-        />
-      </div>
-    );
-  }
 
   if (audience === "candidate" && viewMode === "ai-report" && interviewConfidence !== "Limited") {
     return (
