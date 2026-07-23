@@ -334,12 +334,21 @@ placementReadinessRouter.post("/callbacks", async (req, res) => {
         where: { id: handoff.id },
         data: { status: "completed", placementSessionId: event.placement_session_id, completedAt: new Date(event.occurred_at) },
       });
+      const attemptForWeighting = await tx.workspaceRoundAttempt.findUnique({
+        where: { id: handoff.workspaceRoundAttemptId },
+        select: { workspaceRound: { select: { scoreWeightage: true } } },
+      });
+      const weightedScore =
+        Number.isFinite(score) && attemptForWeighting
+          ? Math.round((Math.round(score) * attemptForWeighting.workspaceRound.scoreWeightage) / 100)
+          : null;
       await tx.workspaceRoundAttempt.updateMany({
         where: { id: handoff.workspaceRoundAttemptId, status: "active" },
         data: {
           status: "completed",
           score: Number.isFinite(score) ? Math.round(score) : null,
           percentageScore: Number.isFinite(score) ? Math.round(score) : null,
+          weightedScore,
           completedAt: new Date(event.occurred_at),
         },
       });
