@@ -276,30 +276,53 @@ function ModulePercentileStrip({
 }) {
   if (!percentiles) return null;
   return (
-    <div className="space-y-1.5">
-      <div className="relative h-1.5 rounded-full bg-muted">
+    <div className="space-y-2 pt-0.5">
+      <div className="relative h-2.5 rounded-full bg-muted">
         <div
           className="absolute top-0 bottom-0 rounded-full bg-primary/25"
           style={{ left: `${percentiles.p25}%`, width: `${Math.max(0, percentiles.p75 - percentiles.p25)}%` }}
         />
         <div
-          className="absolute top-1/2 -translate-y-1/2 h-2.5 w-0.5 bg-foreground/70"
+          className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground/60 bg-background"
+          style={{ left: `${percentiles.p25}%` }}
+          title={`P25: ${percentiles.p25}%`}
+        />
+        <div
+          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground ring-2 ring-background"
           style={{ left: `${percentiles.p50}%` }}
+          title={`P50 (median): ${percentiles.p50}%`}
+        />
+        <div
+          className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground/60 bg-background"
+          style={{ left: `${percentiles.p75}%` }}
+          title={`P75: ${percentiles.p75}%`}
         />
         {topDecileAvg !== null && (
           <div
-            className="absolute top-1/2 -translate-y-1/2 h-2.5 w-0.5 bg-emerald-500"
+            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500 ring-2 ring-background"
             style={{ left: `${topDecileAvg}%` }}
+            title={`Top 10% avg: ${topDecileAvg}%`}
           />
         )}
       </div>
-      <p className="text-[10px] text-muted-foreground">
-        P25 {percentiles.p25}% &middot; P50 {percentiles.p50}% &middot; P75 {percentiles.p75}%
+      <p className="text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="inline-flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full border-2 border-foreground/60 bg-background inline-block" />
+          P25 {percentiles.p25}%
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-2.5 w-2.5 rounded-full bg-foreground inline-block" />
+          P50 {percentiles.p50}%
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full border-2 border-foreground/60 bg-background inline-block" />
+          P75 {percentiles.p75}%
+        </span>
         {topDecileAvg !== null ? (
-          <>
-            {" "}
-            &middot; <span className="text-emerald-600 font-medium">Top 10% avg {topDecileAvg}%</span>
-          </>
+          <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block" />
+            Top 10% avg {topDecileAvg}%
+          </span>
         ) : null}
       </p>
     </div>
@@ -313,25 +336,27 @@ function CategoryBar({ stat, labelWidthClass }: { stat: ModuleCategoryStat; labe
       <span className={`text-xs ${labelWidthClass} shrink-0 truncate`} title={stat.name}>
         {stat.name}
       </span>
-      <div className="relative flex-1 h-2 rounded-full bg-muted overflow-hidden">
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${stat.avgScore}%`, backgroundColor: categoryColor(stat.avgScore) }}
-        />
+      <div className="relative flex-1 h-2.5">
+        <div className="absolute inset-0 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full rounded-full"
+            style={{ width: `${stat.avgScore}%`, backgroundColor: categoryColor(stat.avgScore) }}
+          />
+        </div>
         {hasPercentiles && (
           <>
             <div
-              className="absolute top-0 bottom-0 w-px bg-foreground/40"
+              className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground/60 bg-background"
               style={{ left: `${stat.p25}%` }}
               title={`P25: ${stat.p25}%`}
             />
             <div
-              className="absolute top-0 bottom-0 w-px bg-foreground/70"
+              className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground ring-2 ring-background"
               style={{ left: `${stat.p50}%` }}
               title={`P50 (median): ${stat.p50}%`}
             />
             <div
-              className="absolute top-0 bottom-0 w-px bg-foreground/40"
+              className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground/60 bg-background"
               style={{ left: `${stat.p75}%` }}
               title={`P75: ${stat.p75}%`}
             />
@@ -437,7 +462,7 @@ function ModuleCard({ type, summary }: { type: WorkspaceRoundTypeKey; summary: M
             <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center justify-between">
               <span>{categoryLabel}</span>
               {summary.categories.some((c) => typeof c.p25 === "number") && (
-                <span className="text-[10px] font-normal">tick marks: P25 · P50 · P75</span>
+                <span className="text-[10px] font-normal">○ P25 / P75 &nbsp;&bull;&nbsp; ● P50</span>
               )}
             </p>
             <div className="space-y-2">
