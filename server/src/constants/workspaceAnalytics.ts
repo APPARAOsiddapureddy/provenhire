@@ -18,3 +18,10 @@ export const SCORE_BAND_BOTTOM_PERCENTILE = 0.25;
 // How long a computed analytics payload is served from the in-process cache
 // before being recomputed on the next request.
 export const WORKSPACE_ANALYTICS_CACHE_TTL_MS = 30_000;
+
+// Absolute (not percentile-relative) proficiency cutoffs used for the batch
+// overview's Good / Average / Needs improvement tiers, so an admin can read
+// "62 candidates are Good at SQL" without it shifting meaning as the batch
+// composition changes, the way the top/mid/bottom percentile bands do.
+export const PROFICIENCY_GOOD_THRESHOLD_PERCENT = 75;
+export const PROFICIENCY_AVERAGE_THRESHOLD_PERCENT = 50;

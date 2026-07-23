@@ -5,6 +5,8 @@ import {
   type WorkspaceActor,
 } from "./workspaceRegistration.service.js";
 import {
+  PROFICIENCY_AVERAGE_THRESHOLD_PERCENT,
+  PROFICIENCY_GOOD_THRESHOLD_PERCENT,
   SCORE_BAND_BOTTOM_PERCENTILE,
   SCORE_BAND_TOP_PERCENTILE,
   WORKSPACE_ANALYTICS_CACHE_TTL_MS,
@@ -14,6 +16,68 @@ import {
 
 const COMPLETED_STATUSES: WorkspaceRoundAttemptStatus[] = ["completed", "auto_completed"];
 const WEAK_CATEGORY_SCORE_THRESHOLD = 60;
+
+// Neither DsaQuestion nor DataRoundTask has a structured topic/concept tag in
+// the schema - only a free-text title/description. This keyword table infers
+// a human-readable topic from that text so the priority matrix and insights
+// can say "Graphs" or "Joins" instead of just "Hard" or "engineering". First
+// matching topic wins, so order matters (most specific first).
+const DSA_TOPIC_KEYWORDS: Array<{ topic: string; keywords: string[] }> = [
+  { topic: "Graphs", keywords: ["graph", "island", "topological", "dijkstra", " bfs", " dfs", "shortest path", "connected component"] },
+  { topic: "Dynamic Programming", keywords: [" dp ", "dynamic programming", "subsequence", "knapsack", "partition", "edit distance", "longest common"] },
+  { topic: "Trees", keywords: ["binary tree", " tree", "trie", "ancestor", "bst"] },
+  { topic: "Linked Lists", keywords: ["linked list"] },
+  { topic: "Backtracking & Recursion", keywords: ["backtrack", "permutation", "combination", "recursion", "recursive"] },
+  { topic: "Two Pointers / Sliding Window", keywords: ["sliding window", "two pointer", "subarray"] },
+  { topic: "Stacks & Queues", keywords: ["stack", "queue", "parenthes"] },
+  { topic: "Hashing", keywords: ["hash", "duplicate", "anagram", "frequency"] },
+  { topic: "Sorting & Searching", keywords: ["sort", "binary search", "kth largest", "kth smallest"] },
+  { topic: "Greedy", keywords: ["greedy", "interval", "schedule"] },
+  { topic: "Arrays & Strings", keywords: ["array", "string", "matrix"] },
+];
+
+const SQL_TOPIC_KEYWORDS: Array<{ topic: string; keywords: string[] }> = [
+  { topic: "Window Functions", keywords: ["window", "partition by", "rank(", "row_number", "lag(", "lead(", "running total"] },
+  { topic: "Joins", keywords: ["join"] },
+  { topic: "Aggregations & Grouping", keywords: ["group by", "aggregat", "sum(", "count(", "avg(", "having", "top n", "top-n"] },
+  { topic: "Subqueries", keywords: ["subquery", "nested query", "correlated"] },
+  { topic: "Schema Design / DDL", keywords: ["create table", "schema", "constraint", "foreign key", "index"] },
+  { topic: "Filtering & Sorting", keywords: ["where", "order by", "filter", "distinct"] },
+];
+
+function inferTopic(text: string, table: Array<{ topic: string; keywords: string[] }>, fallback: string): string {
+  const lower = ` ${text.toLowerCase()} `;
+  for (const { topic, keywords } of table) {
+    if (keywords.some((keyword) => lower.includes(keyword))) return topic;
+  }
+  return fallback;
+}
+
+type QuestionStatRow = { title: string; description: string; attempted: number; fullyPassed: number };
+
+function aggregateByTopic(
+  rows: QuestionStatRow[],
+  table: Array<{ topic: string; keywords: string[] }>,
+  fallback: string,
+): ModuleCategoryStat[] {
+  const ledger = new Map<string, { attempted: number; fullyPassed: number }>();
+  for (const row of rows) {
+    const topic = inferTopic(`${row.title} ${row.description}`, table, fallback);
+    const entry = ledger.get(topic) ?? { attempted: 0, fullyPassed: 0 };
+    entry.attempted += row.attempted;
+    entry.fullyPassed += row.fullyPassed;
+    ledger.set(topic, entry);
+  }
+  return Array.from(ledger.entries())
+    .map(([name, { attempted, fullyPassed }]) => ({
+      name,
+      avgScore: attempted ? Math.round((fullyPassed / attempted) * 100) : 0,
+      sampleSize: attempted,
+      weakCandidateCount: attempted - fullyPassed,
+    }))
+    .filter((topic) => topic.sampleSize > 0)
+    .sort((a, b) => a.avgScore - b.avgScore);
+}
 
 const ROUND_LABELS: Record<WorkspaceRoundType, string> = {
   mcq: "Aptitude",
@@ -43,13 +107,24 @@ export type ModuleCategoryStat = {
   weakCandidateCount?: number;
 };
 
+// Absolute proficiency tiers (see PROFICIENCY_*_THRESHOLD_PERCENT) - distinct
+// from `bands`, which is a percentile-relative top/mid/bottom split of this
+// batch only and shifts meaning as the batch composition changes.
+export type ProficiencyTiers = { good: number; average: number; poor: number };
+
 export type ModuleSummary = {
   configured: boolean;
   attemptedCount: number;
   completedCount: number;
   avgPercentageScore: number | null;
   bands: { top: number; mid: number; bottom: number };
+  proficiency: ProficiencyTiers;
   categories: ModuleCategoryStat[];
+  // Topic-level breakdown inferred from question/task text. Only populated
+  // for coding and SQL, where `categories` is difficulty/subtrack (too
+  // coarse to say "focus on graphs"); aptitude and interview categories are
+  // already topic-shaped, so this is omitted there.
+  topics?: ModuleCategoryStat[];
 };
 
 export type RetakeEntry = {
@@ -80,8 +155,33 @@ type AttemptRow = {
   mcqSessionId: string | null;
 };
 
-type DsaDifficultyRow = { difficulty: string; attempted: number; fullyPassed: number };
-type SqlBreakdownRow = { subtrack: string; difficulty: string; attempted: number; fullyPassed: number };
+type DsaQuestionRow = { title: string; description: string; difficulty: string; attempted: number; fullyPassed: number };
+type SqlTaskRow = {
+  title: string;
+  description: string;
+  subtrack: string;
+  difficulty: string;
+  attempted: number;
+  fullyPassed: number;
+};
+
+function byDifficulty(rows: { difficulty: string; attempted: number; fullyPassed: number }[]): ModuleCategoryStat[] {
+  const ledger = new Map<string, { attempted: number; fullyPassed: number }>();
+  for (const row of rows) {
+    const entry = ledger.get(row.difficulty) ?? { attempted: 0, fullyPassed: 0 };
+    entry.attempted += row.attempted;
+    entry.fullyPassed += row.fullyPassed;
+    ledger.set(row.difficulty, entry);
+  }
+  return Array.from(ledger.entries())
+    .map(([name, { attempted, fullyPassed }]) => ({
+      name,
+      avgScore: attempted ? Math.round((fullyPassed / attempted) * 100) : 0,
+      sampleSize: attempted,
+      weakCandidateCount: attempted - fullyPassed,
+    }))
+    .sort((a, b) => a.avgScore - b.avgScore);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -190,11 +290,24 @@ function extractInterviewDimensionStats(
     .sort((a, b) => a.avgScore - b.avgScore);
 }
 
+function proficiencyTiers(scores: number[]): ProficiencyTiers {
+  let good = 0;
+  let average = 0;
+  let poor = 0;
+  for (const score of scores) {
+    if (score >= PROFICIENCY_GOOD_THRESHOLD_PERCENT) good += 1;
+    else if (score >= PROFICIENCY_AVERAGE_THRESHOLD_PERCENT) average += 1;
+    else poor += 1;
+  }
+  return { good, average, poor };
+}
+
 function moduleSummaryFor(
   type: WorkspaceRoundType,
   configuredRoundTypes: Set<WorkspaceRoundType>,
   attempts: AttemptRow[],
   categories: ModuleCategoryStat[],
+  topics?: ModuleCategoryStat[],
 ): ModuleSummary {
   const forType = attempts.filter((a) => a.roundType === type);
   const completed = forType.filter((a) => isCompleted(a.status));
@@ -210,12 +323,14 @@ function moduleSummaryFor(
     completedCount: completed.length,
     avgPercentageScore: avg,
     bands: bandCounts(scores),
+    proficiency: proficiencyTiers(scores),
     categories,
+    ...(topics ? { topics } : {}),
   };
 }
 
 async function computeWorkspaceAnalytics(workspaceId: string): Promise<WorkspaceAnalyticsSnapshot> {
-  const [workspace, workspaceRounds, roster, attempts, dsaBreakdown, sqlBreakdown, interviewArtifacts] =
+  const [workspace, workspaceRounds, roster, attempts, dsaQuestionRows, sqlTaskRows, interviewArtifacts] =
     await Promise.all([
       prisma.workspace.findUniqueOrThrow({
         where: { id: workspaceId },
@@ -243,8 +358,8 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
           mcqSessionId: true,
         },
       }),
-      prisma.$queryRaw<DsaDifficultyRow[]>`
-        SELECT dq."difficulty" AS "difficulty",
+      prisma.$queryRaw<DsaQuestionRow[]>`
+        SELECT dq."title" AS "title", dq."description" AS "description", dq."difficulty" AS "difficulty",
                COUNT(*)::int AS "attempted",
                COUNT(*) FILTER (WHERE ds."passedCount" = ds."totalCount")::int AS "fullyPassed"
         FROM "WorkspaceRoundAttempt" wra
@@ -252,10 +367,11 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
         JOIN "DsaQuestion" dq ON dq."id" = ds."questionId"
         WHERE wra."workspaceId" = ${workspaceId} AND wra."roundType" = 'coding'
           AND wra."status" IN ('completed', 'auto_completed')
-        GROUP BY dq."difficulty"
+        GROUP BY dq."id", dq."title", dq."description", dq."difficulty"
       `,
-      prisma.$queryRaw<SqlBreakdownRow[]>`
-        SELECT COALESCE(drt."subtrack", 'general') AS "subtrack", drt."difficulty" AS "difficulty",
+      prisma.$queryRaw<SqlTaskRow[]>`
+        SELECT drt."title" AS "title", drt."description" AS "description",
+               COALESCE(drt."subtrack", 'general') AS "subtrack", drt."difficulty" AS "difficulty",
                COUNT(*)::int AS "attempted",
                COUNT(*) FILTER (WHERE wss."passedCount" = wss."totalCount")::int AS "fullyPassed"
         FROM "WorkspaceRoundAttempt" wra
@@ -263,7 +379,7 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
         JOIN "DataRoundTask" drt ON drt."id" = wss."taskId"
         WHERE wra."workspaceId" = ${workspaceId} AND wra."roundType" = 'sql'
           AND wra."status" IN ('completed', 'auto_completed')
-        GROUP BY drt."subtrack", drt."difficulty"
+        GROUP BY drt."id", drt."title", drt."description", drt."subtrack", drt."difficulty"
       `,
       prisma.placementReadinessArtifact.findMany({
         where: { workspaceId },
@@ -363,23 +479,29 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
     else ready += 1;
   }
 
-  const dsaCategories: ModuleCategoryStat[] = dsaBreakdown
-    .map((row) => ({
-      name: row.difficulty,
-      avgScore: row.attempted ? Math.round((row.fullyPassed / row.attempted) * 100) : 0,
-      sampleSize: row.attempted,
-      weakCandidateCount: row.attempted - row.fullyPassed,
-    }))
-    .sort((a, b) => a.avgScore - b.avgScore);
+  const dsaCategories = byDifficulty(dsaQuestionRows);
+  const dsaTopics = aggregateByTopic(dsaQuestionRows, DSA_TOPIC_KEYWORDS, "General problem solving");
 
-  const sqlCategories: ModuleCategoryStat[] = sqlBreakdown
-    .map((row) => ({
-      name: `${row.subtrack} / ${row.difficulty}`,
-      avgScore: row.attempted ? Math.round((row.fullyPassed / row.attempted) * 100) : 0,
-      sampleSize: row.attempted,
-      weakCandidateCount: row.attempted - row.fullyPassed,
+  const sqlCategories: ModuleCategoryStat[] = Array.from(
+    sqlTaskRows
+      .reduce((ledger, row) => {
+        const name = `${row.subtrack} / ${row.difficulty}`;
+        const entry = ledger.get(name) ?? { attempted: 0, fullyPassed: 0 };
+        entry.attempted += row.attempted;
+        entry.fullyPassed += row.fullyPassed;
+        ledger.set(name, entry);
+        return ledger;
+      }, new Map<string, { attempted: number; fullyPassed: number }>())
+      .entries(),
+  )
+    .map(([name, { attempted, fullyPassed }]) => ({
+      name,
+      avgScore: attempted ? Math.round((fullyPassed / attempted) * 100) : 0,
+      sampleSize: attempted,
+      weakCandidateCount: attempted - fullyPassed,
     }))
     .sort((a, b) => a.avgScore - b.avgScore);
+  const sqlTopics = aggregateByTopic(sqlTaskRows, SQL_TOPIC_KEYWORDS, "General SQL");
 
   return {
     workspace: { id: workspace.id, name: workspace.name, code: workspace.code, totalCandidates: roster.length },
@@ -387,8 +509,8 @@ async function computeWorkspaceAnalytics(workspaceId: string): Promise<Workspace
     readiness: { ready, incomplete, belowThreshold },
     modules: {
       mcq: moduleSummaryFor("mcq", configuredRoundTypes, attempts, extractAptitudeDomainStats(mcqSessions)),
-      coding: moduleSummaryFor("coding", configuredRoundTypes, attempts, dsaCategories),
-      sql: moduleSummaryFor("sql", configuredRoundTypes, attempts, sqlCategories),
+      coding: moduleSummaryFor("coding", configuredRoundTypes, attempts, dsaCategories, dsaTopics),
+      sql: moduleSummaryFor("sql", configuredRoundTypes, attempts, sqlCategories, sqlTopics),
       interview: moduleSummaryFor(
         "interview",
         configuredRoundTypes,

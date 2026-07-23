@@ -34,10 +34,11 @@ import {
   ZAxis,
   ReferenceLine,
 } from "recharts";
-import { Target, TrendingDown, Users2 } from "lucide-react";
+import { AlertTriangle, Award, CheckCircle2, Lightbulb, Target, TrendingDown, Users2 } from "lucide-react";
 import type {
   ModuleCategoryStat,
   ModuleSummary,
+  ProficiencyTiers,
   RetakeEntry,
   WorkspaceAnalyticsSnapshot,
   WorkspaceRoundTypeKey,
@@ -153,6 +154,113 @@ export function WorkspaceReadinessSummary({
   );
 }
 
+function weakestEntry(summary: ModuleSummary): ModuleCategoryStat | null {
+  const list = (summary.topics ?? summary.categories).filter((c) => c.sampleSize > 0);
+  if (list.length === 0) return null;
+  return [...list].sort((a, b) => a.avgScore - b.avgScore)[0];
+}
+
+function strongestEntry(summary: ModuleSummary): ModuleCategoryStat | null {
+  const list = (summary.topics ?? summary.categories).filter((c) => c.sampleSize > 0);
+  if (list.length === 0) return null;
+  return [...list].sort((a, b) => b.avgScore - a.avgScore)[0];
+}
+
+const PROFICIENCY_COLORS: Record<keyof ProficiencyTiers, string> = {
+  good: "#10b981",
+  average: "#f59e0b",
+  poor: "#ef4444",
+};
+
+export function WorkspaceBatchOverview({
+  workspace,
+  readiness,
+  modules,
+}: {
+  workspace: WorkspaceAnalyticsSnapshot["workspace"];
+  readiness: WorkspaceAnalyticsSnapshot["readiness"];
+  modules: WorkspaceAnalyticsSnapshot["modules"];
+}) {
+  const total = workspace.totalCandidates;
+  if (total === 0) return null;
+  const readyPercent = Math.round((readiness.ready / total) * 100);
+  const entries = (Object.entries(modules) as [WorkspaceRoundTypeKey, ModuleSummary][]).filter(
+    ([, summary]) => summary.configured,
+  );
+
+  return (
+    <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.05] to-transparent">
+      <CardHeader>
+        <CardTitle className="text-lg sm:text-xl">Batch overview</CardTitle>
+        <CardDescription className="text-sm">
+          {total} candidate{total === 1 ? "" : "s"} in this workspace &middot;{" "}
+          <span className="font-medium text-foreground">
+            {readiness.ready} ({readyPercent}%) are placement ready today
+          </span>
+          , {readiness.belowThreshold} need a retake, and {readiness.incomplete} haven&rsquo;t finished every round.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {entries.map(([type, summary]) => {
+            const weakest = weakestEntry(summary);
+            const tierTotal = summary.proficiency.good + summary.proficiency.average + summary.proficiency.poor;
+            return (
+              <div key={type} className="rounded-lg border bg-background p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">{MODULE_LABELS[type]}</p>
+                  {summary.avgPercentageScore !== null && (
+                    <span className="text-xs text-muted-foreground">{summary.avgPercentageScore}% avg</span>
+                  )}
+                </div>
+                {tierTotal > 0 ? (
+                  <>
+                    <div className="h-2 w-full rounded-full overflow-hidden flex bg-muted">
+                      {(Object.keys(summary.proficiency) as (keyof ProficiencyTiers)[]).map((tier) =>
+                        summary.proficiency[tier] > 0 ? (
+                          <div
+                            key={tier}
+                            style={{
+                              width: `${(summary.proficiency[tier] / tierTotal) * 100}%`,
+                              backgroundColor: PROFICIENCY_COLORS[tier],
+                            }}
+                          />
+                        ) : null,
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="text-sm font-bold text-emerald-600">{summary.proficiency.good}</p>
+                        <p className="text-[10px] text-muted-foreground">Good</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-amber-600">{summary.proficiency.average}</p>
+                        <p className="text-[10px] text-muted-foreground">Average</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-red-600">{summary.proficiency.poor}</p>
+                        <p className="text-[10px] text-muted-foreground">Poor / fail</p>
+                      </div>
+                    </div>
+                    {weakest && (
+                      <p className="text-[11px] text-muted-foreground leading-snug border-t pt-2">
+                        Commonly struggling with{" "}
+                        <span className="font-medium text-foreground">{weakest.name}</span> (avg {weakest.avgScore}%)
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No completed attempts yet.</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ModuleCard({ type, summary }: { type: WorkspaceRoundTypeKey; summary: ModuleSummary }) {
   const bandData = [
     { name: "Top", value: summary.bands.top, key: "top" as const },
@@ -197,6 +305,27 @@ function ModuleCard({ type, summary }: { type: WorkspaceRoundTypeKey; summary: M
             </div>
           )}
         </div>
+        {summary.topics && summary.topics.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">By topic</p>
+            <div className="space-y-2">
+              {summary.topics.map((topic) => (
+                <div key={topic.name} className="flex items-center gap-3">
+                  <span className="text-xs w-40 shrink-0 truncate" title={topic.name}>
+                    {topic.name}
+                  </span>
+                  <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${topic.avgScore}%`, backgroundColor: categoryColor(topic.avgScore) }}
+                    />
+                  </div>
+                  <span className="text-xs w-10 shrink-0 text-right font-medium">{topic.avgScore}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {summary.categories.length > 0 && (
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-2">{categoryLabel}</p>
@@ -267,7 +396,7 @@ function buildPriorityTopics(modules: WorkspaceAnalyticsSnapshot["modules"]): Pr
   return (Object.entries(modules) as [WorkspaceRoundTypeKey, ModuleSummary][])
     .filter(([, summary]) => summary.configured)
     .flatMap(([type, summary]) =>
-      summary.categories
+      (summary.topics ?? summary.categories)
         .filter((category) => category.sampleSize > 0)
         .map((category) => {
           const impact = estimateImpact(category);
@@ -319,7 +448,8 @@ export function WorkspaceTopicPriorityMatrix({
   const fixFirst = [...topics]
     .filter((t) => t.avgScore < MASTERY_THRESHOLD)
     .sort((a, b) => b.priorityScore - a.priorityScore)
-    .slice(0, 3);
+    .slice(0, 4);
+  const [biggestOpportunity, ...otherPriorities] = fixFirst;
 
   const configuredModuleTypes = (Object.entries(modules) as [WorkspaceRoundTypeKey, ModuleSummary][])
     .filter(([, summary]) => summary.configured)
@@ -339,6 +469,21 @@ export function WorkspaceTopicPriorityMatrix({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {biggestOpportunity && (
+          <div className="rounded-lg border-2 border-red-500/30 bg-red-500/5 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="h-9 w-9 rounded-full bg-red-500/15 flex items-center justify-center shrink-0">
+              <TrendingDown className="h-4.5 w-4.5 text-red-600" />
+            </div>
+            <p className="text-sm leading-relaxed">
+              <span className="font-semibold">Biggest opportunity: {biggestOpportunity.moduleLabel} &mdash; {biggestOpportunity.name}.</span>{" "}
+              {biggestOpportunity.impact} of {biggestOpportunity.sampleSize} candidates who attempted it (
+              {biggestOpportunity.sampleSize ? Math.round((biggestOpportunity.impact / biggestOpportunity.sampleSize) * 100) : 0}%) are
+              scoring below the mastery bar, averaging just {biggestOpportunity.avgScore}%. This is the single
+              highest-leverage fix on the board &mdash; closing it moves more candidates toward placement-ready than
+              any other topic.
+            </p>
+          </div>
+        )}
         <div className="h-[380px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 10, right: 24, bottom: 28, left: 8 }}>
@@ -381,26 +526,24 @@ export function WorkspaceTopicPriorityMatrix({
           </ResponsiveContainer>
         </div>
 
-        {fixFirst.length > 0 && (
+        {otherPriorities.length > 0 && (
           <div className="space-y-3">
             <p className="text-sm font-semibold flex items-center gap-2">
-              <TrendingDown className="h-4 w-4 text-red-600" />
-              Where to focus next
+              <Target className="h-4 w-4 text-amber-600" />
+              Also worth prioritizing
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
-              {fixFirst.map((topic, index) => (
+              {otherPriorities.map((topic, index) => (
                 <div key={`${topic.module}-${topic.name}`} className="rounded-lg border p-3 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <Badge variant="outline" className="text-[10px]">
-                      {index === 0 ? "Biggest opportunity" : `Priority #${index + 1}`}
+                      Priority #{index + 2}
                     </Badge>
                     <span className="text-[10px] text-muted-foreground">{topic.moduleLabel}</span>
                   </div>
                   <p className="text-sm font-medium">{topic.name}</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    {topic.impact} of {topic.sampleSize} candidates who attempted this are below the mastery bar
-                    (avg {topic.avgScore}%). Highest-leverage fix in this round &mdash; closing this gap moves the
-                    most candidates toward placement-ready.
+                    {topic.impact} of {topic.sampleSize} candidates below the mastery bar (avg {topic.avgScore}%).
                   </p>
                 </div>
               ))}
@@ -550,6 +693,147 @@ export function WorkspaceCandidateSegments({
           {segments.singleGap} candidate{segments.singleGap === 1 ? "" : "s"} are behind in exactly one round &mdash;
           the fastest group to move into "placement ready" with targeted practice.
         </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+type CoreInsight = { tone: "strength" | "risk" | "focus" | "info"; text: string };
+
+function buildCoreInsights(snapshot: WorkspaceAnalyticsSnapshot): CoreInsight[] {
+  const { readiness, modules, retakeList, workspace } = snapshot;
+  const total = workspace.totalCandidates;
+  if (total === 0) return [];
+
+  const insights: CoreInsight[] = [];
+  const readyPercent = Math.round((readiness.ready / total) * 100);
+  insights.push({
+    tone: "info",
+    text: `${total} candidates are registered; ${readiness.ready} (${readyPercent}%) are placement ready today, ${readiness.belowThreshold} need a retake somewhere, and ${readiness.incomplete} haven't finished every round yet.`,
+  });
+
+  const topics = buildPriorityTopics(modules);
+  const priorities = [...topics].filter((t) => t.avgScore < MASTERY_THRESHOLD).sort((a, b) => b.priorityScore - a.priorityScore);
+  if (priorities[0]) {
+    const t = priorities[0];
+    insights.push({
+      tone: "focus",
+      text: `Biggest opportunity: ${t.moduleLabel} — ${t.name}. ${t.impact} of ${t.sampleSize} candidates are below the mastery bar (avg ${t.avgScore}%) — the single highest-leverage fix available right now.`,
+    });
+  }
+
+  const entries = (Object.entries(modules) as [WorkspaceRoundTypeKey, ModuleSummary][]).filter(
+    ([, summary]) => summary.configured,
+  );
+  for (const [type, summary] of entries) {
+    const weakest = weakestEntry(summary);
+    const strongest = strongestEntry(summary);
+    if (weakest) {
+      insights.push({
+        tone: "risk",
+        text: `${MODULE_LABELS[type]}: candidates are weakest in ${weakest.name} (avg ${weakest.avgScore}%, ${
+          weakest.weakCandidateCount ?? estimateImpact(weakest)
+        } struggling) — prioritize this before broader ${MODULE_LABELS[type]} practice.`,
+      });
+    }
+    if (strongest && strongest.name !== weakest?.name) {
+      insights.push({
+        tone: "strength",
+        text: `${MODULE_LABELS[type]}: ${strongest.name} is a genuine strength (avg ${strongest.avgScore}%) — candidates don't need more practice here.`,
+      });
+    }
+  }
+
+  const worstModule = [...entries]
+    .filter(([, summary]) => summary.avgPercentageScore !== null)
+    .sort((a, b) => (a[1].avgPercentageScore ?? 0) - (b[1].avgPercentageScore ?? 0))[0];
+  if (worstModule) {
+    const [type, summary] = worstModule;
+    const tierTotal = summary.proficiency.good + summary.proficiency.average + summary.proficiency.poor;
+    const poorPercent = tierTotal ? Math.round((summary.proficiency.poor / tierTotal) * 100) : 0;
+    insights.push({
+      tone: "risk",
+      text: `${MODULE_LABELS[type]} has the lowest batch-wide average (${summary.avgPercentageScore}%) — ${summary.proficiency.poor} candidates (${poorPercent}%) fall in the Poor/fail tier.`,
+    });
+  }
+
+  const segments = buildCandidateSegments(retakeList, total);
+  const multiPercent = Math.round((segments.multiGap / total) * 100);
+  insights.push({
+    tone: "risk",
+    text: `${segments.multiGap} candidates (${multiPercent}%) are behind in two or more rounds at once — the highest-risk group, since a single-round fix won't be enough for them.`,
+  });
+  if (segments.topPair) {
+    insights.push({
+      tone: "info",
+      text: `The most common combined gap is ${segments.topPair[0]} + ${segments.topPair[1]} (${segments.topPairCount} candidates) — worth investigating as a shared root cause rather than two unrelated weak spots.`,
+    });
+  }
+  if (segments.singleGap > 0) {
+    insights.push({
+      tone: "focus",
+      text: `${segments.singleGap} candidates are behind in exactly one round — the fastest group to move into "placement ready" with targeted practice.`,
+    });
+  }
+
+  for (const t of priorities.slice(1, 4)) {
+    insights.push({
+      tone: "focus",
+      text: `${t.moduleLabel} — ${t.name}: ${t.impact} of ${t.sampleSize} candidates (avg ${t.avgScore}%) still need work here.`,
+    });
+  }
+
+  const strongestOverall = [...topics].sort((a, b) => b.avgScore - a.avgScore)[0];
+  if (strongestOverall) {
+    insights.push({
+      tone: "strength",
+      text: `Across every round, ${strongestOverall.moduleLabel} — ${strongestOverall.name} is the strongest area batch-wide (avg ${strongestOverall.avgScore}%).`,
+    });
+  }
+
+  return insights.slice(0, 15);
+}
+
+const INSIGHT_ICON: Record<CoreInsight["tone"], typeof CheckCircle2> = {
+  strength: CheckCircle2,
+  risk: AlertTriangle,
+  focus: Target,
+  info: Lightbulb,
+};
+
+const INSIGHT_COLOR: Record<CoreInsight["tone"], string> = {
+  strength: "text-emerald-600",
+  risk: "text-red-600",
+  focus: "text-amber-600",
+  info: "text-blue-600",
+};
+
+export function WorkspaceCoreInsights({ snapshot }: { snapshot: WorkspaceAnalyticsSnapshot }) {
+  const insights = useMemo(() => buildCoreInsights(snapshot), [snapshot]);
+
+  if (insights.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+          <Lightbulb className="h-4 w-4 text-primary" />
+          Core insights
+        </CardTitle>
+        <CardDescription>{insights.length} direct, data-driven takeaways from this batch.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-3">
+          {insights.map((insight, index) => {
+            const Icon = INSIGHT_ICON[insight.tone];
+            return (
+              <li key={index} className="flex items-start gap-2.5 text-sm leading-relaxed">
+                <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${INSIGHT_COLOR[insight.tone]}`} />
+                <span>{insight.text}</span>
+              </li>
+            );
+          })}
+        </ul>
       </CardContent>
     </Card>
   );
