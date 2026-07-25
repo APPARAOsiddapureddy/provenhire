@@ -6,6 +6,7 @@ import { finalizeActiveWorkspaceMcqAttempts } from "./mcqAutoFinalize.service.js
 import { finalizeActiveWorkspaceDsaAttempts } from "./workspaceDsaFinalize.service.js";
 import { finalizeActiveWorkspaceSqlAttempts } from "./workspaceSqlFinalize.service.js";
 import { recordWorkspaceAuditEvent } from "./workspaceAudit.service.js";
+import { assertInstitutionCanPublish } from "./institution.service.js";
 
 export const MAX_WORKSPACE_ROUNDS = 5;
 
@@ -121,10 +122,28 @@ async function generateWorkspaceCode(
   );
 }
 
+/// The institution a user acts on behalf of, via an active InstitutionMember
+/// row with a managing role. Null for every non-institution user.
+async function resolveActorInstitutionId(
+  creator: WorkspaceCreator,
+): Promise<string | null> {
+  if (creator.role !== "institution") return null;
+  const membership = await prisma.institutionMember.findFirst({
+    where: {
+      userId: creator.id,
+      removedAt: null,
+      role: { in: ["owner", "manager"] },
+    },
+    select: { institutionId: true },
+  });
+  return membership?.institutionId ?? null;
+}
+
 async function resolveOwnership(creator: WorkspaceCreator): Promise<{
-  ownerRole: "admin" | "recruiter";
+  ownerRole: "admin" | "recruiter" | "institution";
   ownerUserId: string;
   recruiterProfileId: string | null;
+  institutionId?: string;
 }> {
   if (creator.role === "admin") {
     return {
@@ -152,10 +171,39 @@ async function resolveOwnership(creator: WorkspaceCreator): Promise<{
     };
   }
 
+  if (creator.role === "institution") {
+    const institutionId = await resolveActorInstitutionId(creator);
+    if (!institutionId) {
+      throw new WorkspaceServiceError(
+        "Institution membership required to create a placement drive.",
+        403,
+      );
+    }
+    return {
+      ownerRole: "institution",
+      ownerUserId: creator.id,
+      recruiterProfileId: null,
+      institutionId,
+    };
+  }
+
   throw new WorkspaceServiceError("Workspace creator access required.", 403);
 }
 
-function ownerWhere(creator: WorkspaceCreator): Prisma.WorkspaceWhereInput {
+/// Scope for listing workspaces. Recruiters and platform admins see what they
+/// personally own. Institution staff see every drive their own institution
+/// owns - including drives created by a colleague - so a placement cell is not
+/// tied to whichever individual happened to click "create".
+async function ownerWhere(
+  creator: WorkspaceCreator,
+): Promise<Prisma.WorkspaceWhereInput> {
+  if (creator.role === "institution") {
+    const institutionId = await resolveActorInstitutionId(creator);
+    // No membership => match nothing, rather than falling through to a
+    // broader query.
+    if (!institutionId) return { id: "__no_institution_membership__" };
+    return { institutionId };
+  }
   return { ownerUserId: creator.id };
 }
 
@@ -190,7 +238,7 @@ export async function syncWorkspaceLifecycle(workspaceId: string) {
 async function syncOwnerWorkspaceLifecycles(
   creator: WorkspaceCreator,
 ): Promise<void> {
-  const where = ownerWhere(creator);
+  const where = await ownerWhere(creator);
   const now = new Date();
   await prisma.$transaction([
     prisma.workspace.updateMany({
@@ -314,7 +362,7 @@ export async function listWorkspaces(
   filters: WorkspaceListFilters,
 ) {
   await syncOwnerWorkspaceLifecycles(creator);
-  const where: Prisma.WorkspaceWhereInput = { ...ownerWhere(creator) };
+  const where: Prisma.WorkspaceWhereInput = { ...(await ownerWhere(creator)) };
 
   if (filters.status) where.status = filters.status;
   if (filters.organization) {
@@ -400,7 +448,7 @@ export async function getWorkspace(
 ) {
   await syncWorkspaceLifecycle(workspaceId);
   const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...ownerWhere(creator) },
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
     include: { rounds: { orderBy: { order: "asc" } } },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
@@ -413,7 +461,7 @@ export async function updateWorkspace(
   input: UpdateWorkspaceInput,
 ) {
   const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...ownerWhere(creator) },
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status !== "draft") {
@@ -464,7 +512,7 @@ export async function replaceWorkspaceRounds(
   rounds: WorkspaceRoundInput[],
 ) {
   const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...ownerWhere(creator) },
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status !== "draft") {
@@ -563,6 +611,11 @@ export async function publishWorkspace(
     );
   }
 
+  // Institutions can build drives in draft the moment they sign up, but going
+  // live to real students waits on platform verification. No-op for
+  // recruiter/admin-owned workspaces (institutionId is null there).
+  await assertInstitutionCanPublish(workspace.institutionId);
+
   assertValidWorkspaceDates(workspace.startAt, workspace.endAt);
   validateRounds(workspace.rounds, workspace.totalRounds);
   const rubric =
@@ -658,7 +711,7 @@ export async function startWorkspace(
 ) {
   await syncWorkspaceLifecycle(workspaceId);
   const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...ownerWhere(creator) },
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status === "started") return workspace;
@@ -696,7 +749,7 @@ export async function endWorkspace(
   workspaceId: string,
 ) {
   const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...ownerWhere(creator) },
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status === "ended") return workspace;
@@ -724,7 +777,7 @@ export async function archiveWorkspace(
   workspaceId: string,
 ) {
   const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...ownerWhere(creator) },
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status === "archived") return workspace;
@@ -763,7 +816,7 @@ export async function deleteWorkspace(
 ) {
   await syncWorkspaceLifecycle(workspaceId);
   const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...ownerWhere(creator) },
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
     select: {
       id: true,
       status: true,
