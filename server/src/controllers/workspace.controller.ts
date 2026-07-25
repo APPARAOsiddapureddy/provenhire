@@ -2,6 +2,10 @@ import type { Response } from "express";
 import { z } from "zod";
 import type { AuthedRequest } from "../middleware/auth.js";
 import {
+  CollegeCredentialServiceError,
+  getCollegeCredentialForAdmin,
+} from "../services/collegeCredential.service.js";
+import {
   MAX_WORKSPACE_ROUNDS,
   WorkspaceServiceError,
   archiveWorkspace,
@@ -81,7 +85,10 @@ function creatorFromRequest(req: AuthedRequest) {
 }
 
 function sendError(res: Response, error: unknown) {
-  if (error instanceof WorkspaceServiceError) {
+  if (
+    error instanceof WorkspaceServiceError ||
+    error instanceof CollegeCredentialServiceError
+  ) {
     return res.status(error.statusCode).json({ error: error.message });
   }
   console.error("[workspace]", error);
@@ -108,11 +115,12 @@ export async function createWorkspaceController(
   }
 
   try {
-    const workspace = await createWorkspace(
+    const { workspace, credentials } = await createWorkspace(
       creatorFromRequest(req),
       parsed.data,
     );
-    return res.status(201).json({ workspace });
+    // The plain password is returned once, at creation, so it can be handed to the college.
+    return res.status(201).json({ workspace, credentials });
   } catch (error) {
     return sendError(res, error);
   }
@@ -274,6 +282,21 @@ export async function updateWorkspaceStatusController(
       req.params.id,
     );
     return res.json({ workspace });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+/** Lets an admin re-read the college login so it can be shared with the college. */
+export async function getWorkspaceCollegeCredentialsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    // Ownership check first, so one admin cannot read another owner's credentials.
+    await getWorkspace(creatorFromRequest(req), req.params.id);
+    const credentials = await getCollegeCredentialForAdmin(req.params.id);
+    return res.json({ credentials });
   } catch (error) {
     return sendError(res, error);
   }

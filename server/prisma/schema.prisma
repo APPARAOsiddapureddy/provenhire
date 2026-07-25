@@ -378,11 +378,28 @@ model Workspace {
   candidateDecisions          WorkspaceCandidateDecision[]
   placementReadinessHandoffs  PlacementReadinessHandoff[]
   placementReadinessArtifacts PlacementReadinessArtifact[]
+  collegeCredential           CollegeCredential?
 
   @@index([ownerRole, ownerUserId])
   @@index([recruiterProfileId])
   @@index([status, startAt, endAt])
   @@index([createdAt])
+}
+
+/// Login credentials issued to a college/university when its workspace is created.
+/// One credential per workspace; deleted automatically when the workspace is deleted.
+model CollegeCredential {
+  userId       String   @id
+  workspaceId  String   @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([isActive])
 }
 
 model WorkspaceRound {

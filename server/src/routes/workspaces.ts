@@ -4,6 +4,7 @@ import multer from "multer";
 import {
   createWorkspaceController,
   deleteWorkspaceController,
+  getWorkspaceCollegeCredentialsController,
   getWorkspaceController,
   getWorkspaceSqlTaskAvailabilityController,
   listWorkspacesController,
@@ -121,6 +122,10 @@ workspacesRouter.post("/:id/technical-desk/incidents/:incidentId/resolve", async
     next(error);
   }
 });
+workspacesRouter.get(
+  "/:id/college-credentials",
+  getWorkspaceCollegeCredentialsController,
+);
 workspacesRouter.get("/:id", getWorkspaceController);
 workspacesRouter.patch("/:id", updateWorkspaceController);
 

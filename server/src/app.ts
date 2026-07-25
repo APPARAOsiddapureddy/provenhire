@@ -26,6 +26,7 @@ import { antigravityRouter } from "./routes/antigravity.js";
 import { aiInterviewAdapterRouter } from "./routes/aiInterviewAdapter.js";
 import { candidateContextRouter } from "./routes/candidateContext.js";
 import { workspacesRouter } from "./routes/workspaces.js";
+import { collegeRouter } from "./routes/college.js";
 import { userWorkspacesRouter } from "./routes/userWorkspaces.js";
 import { sessionRouter } from "./routes/session.js";
 import { recruiterPaymentsRouter } from "./routes/recruiterPayments.js";
@@ -230,6 +231,7 @@ export function createApp() {
         "/api/recruiter/payments",
         "/api/webhooks/razorpay",
         "/api/placement-readiness",
+        "/api/college",
       ],
     });
   });
@@ -258,6 +260,7 @@ export function createApp() {
   app.use("/api/ai-interview-adapter", aiInterviewAdapterRouter);
   app.use("/api/candidate-context", candidateContextRouter);
   app.use("/api/workspaces", workspacesRouter);
+  app.use("/api/college", collegeRouter);
   app.use("/api/user/workspaces", userWorkspacesRouter);
   app.use("/api/session", sessionRouter);
   app.use("/api/recruiter/payments", recruiterPaymentsRouter);

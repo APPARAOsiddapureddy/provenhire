@@ -2,6 +2,12 @@ import crypto from "crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { createWorkspaceMcqQuestionSet } from "../data/aptitude-loader.js";
+import {
+  buildCollegeCredential,
+  createCollegeCredentialForWorkspace,
+  deactivateCollegeCredentialForWorkspace,
+  hashCollegePassword,
+} from "./collegeCredential.service.js";
 import { finalizeActiveWorkspaceMcqAttempts } from "./mcqAutoFinalize.service.js";
 import { finalizeActiveWorkspaceDsaAttempts } from "./workspaceDsaFinalize.service.js";
 import { finalizeActiveWorkspaceSqlAttempts } from "./workspaceSqlFinalize.service.js";
@@ -238,32 +244,62 @@ function validateRounds(
   }
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === "P2002";
+}
+
 export async function createWorkspace(
   creator: WorkspaceCreator,
   input: CreateWorkspaceInput,
 ) {
   assertValidWorkspaceDates(input.startAt, input.endAt);
   const ownership = await resolveOwnership(creator);
-  const code = await generateWorkspaceCode(input.organization, input.startAt);
+  // The password only depends on the organization name, so hash it once outside the
+  // retry loop rather than on every attempt.
+  const { password } = buildCollegeCredential(input.organization, "PH-X-0000");
+  const passwordHash = await hashCollegePassword(password);
 
-  return prisma.workspace.create({
-    data: {
-      ...ownership,
-      name: input.name,
-      organization: input.organization,
-      targetRole: input.targetRole,
-      hiringRubric: {
-        schemaVersion: "workspace_hiring_rubric_v1",
-        responsibilities: input.responsibilities,
-        decisionPolicy: "named_human_review_required",
-      },
-      code,
-      startAt: input.startAt,
-      endAt: input.endAt,
-      totalRounds: input.totalRounds,
-      accessMode: input.accessMode ?? "public",
-    },
-  });
+  // The workspace code and the college login id share the same random suffix, so a
+  // collision on either one is resolved by regenerating the code and retrying.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const code = await generateWorkspaceCode(input.organization, input.startAt);
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const workspace = await tx.workspace.create({
+          data: {
+            ...ownership,
+            name: input.name,
+            organization: input.organization,
+            targetRole: input.targetRole,
+            hiringRubric: {
+              schemaVersion: "workspace_hiring_rubric_v1",
+              responsibilities: input.responsibilities,
+              decisionPolicy: "named_human_review_required",
+            },
+            code,
+            startAt: input.startAt,
+            endAt: input.endAt,
+            totalRounds: input.totalRounds,
+            accessMode: input.accessMode ?? "public",
+          },
+        });
+        const { userId } = await createCollegeCredentialForWorkspace(
+          tx,
+          workspace,
+          passwordHash,
+        );
+        return { workspace, credentials: { userId, password } };
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) continue;
+      throw error;
+    }
+  }
+
+  throw new WorkspaceServiceError(
+    "Could not generate unique workspace login credentials. Please retry.",
+    500,
+  );
 }
 
 export async function listWorkspaces(
@@ -644,6 +680,7 @@ export async function archiveWorkspace(
     where: { id: workspace.id },
     data: { status: "archived" },
   });
+  await deactivateCollegeCredentialForWorkspace(workspace.id);
   await finalizeActiveWorkspaceMcqAttempts(workspace.id);
   await finalizeActiveWorkspaceDsaAttempts(workspace.id);
   await finalizeActiveWorkspaceSqlAttempts(workspace.id);

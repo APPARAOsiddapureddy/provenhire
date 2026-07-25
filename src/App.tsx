@@ -76,6 +76,10 @@ const DSARoundStage = lazy(
   () => import("./pages/verification/stages/DSARoundStage"),
 );
 const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const CollegeLoginPage = lazy(() => import("./pages/college/CollegeLoginPage"));
+const CollegeWorkspacePage = lazy(
+  () => import("./pages/college/CollegeWorkspacePage"),
+);
 const InterviewerCareers = lazy(
   () => import("./pages/careers/InterviewerCareers"),
 );
@@ -263,6 +267,9 @@ const App = () => (
                 element={<InterviewerCareers />}
               />
               <Route path="/admin" element={<AdminLogin />} />
+              {/* College portal: standalone, reached only via the URL an admin shares. */}
+              <Route path="/c/login" element={<CollegeLoginPage />} />
+              <Route path="/c/workspace" element={<CollegeWorkspacePage />} />
               <Route
                 path="/local-preview/workspace"
                 element={

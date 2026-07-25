@@ -33,6 +33,8 @@
     "test:report-integrity": "tsx scripts/report-integrity-contract.ts",
     "test:report-routing": "tsx scripts/report-model-routing-contract.ts",
     "test:placement-contract": "tsx scripts/placement-readiness-contract.ts",
+    "test:college-credentials": "tsx scripts/college-credentials-contract.ts",
+    "wipe:workspaces": "tsx prisma/seeds/wipe-workspaces.ts",
     "seed:interview-bank": "tsx prisma/seeds/interviewQuestionBank.seed.ts",
     "clear-test-users": "tsx prisma/clear-test-users.ts"
   },

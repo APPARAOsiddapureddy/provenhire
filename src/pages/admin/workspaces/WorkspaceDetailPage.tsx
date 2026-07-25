@@ -9,6 +9,7 @@ import { Activity, ArrowLeft, Edit, Loader2 } from "lucide-react";
 import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import type { Workspace } from "./types";
 import { WorkspaceActionBar, WorkspaceTabs } from "./WorkspaceAdminComponents";
+import CollegeCredentialsCard from "./CollegeCredentialsCard";
 import { canEditDraft, statusBadgeClass, statusLabel } from "./workspaceUtils";
 
 type WorkspaceConfirmAction = "archive" | "start" | "delete";
@@ -187,6 +188,10 @@ export default function WorkspaceDetailPage() {
             </CardContent>
           </Card>
         )}
+        <CollegeCredentialsCard
+          workspaceId={workspace.id}
+          workspaceStatus={workspace.status}
+        />
         <WorkspaceTabs workspace={workspace} onRefresh={fetchWorkspace} />
       </main>
       {confirmCopy ? (
