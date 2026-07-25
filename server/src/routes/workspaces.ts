@@ -17,6 +17,8 @@ import {
 import {
   importAllowedWorkspaceEmailsController,
   addAllowedWorkspaceEmailsController,
+  sendWorkspaceInvitationsController,
+  provisionWorkspaceStudentsController,
   addWorkspaceMemberController,
   getWorkspaceAnalyticsController,
   getWorkspaceCandidateDossierController,
@@ -106,6 +108,10 @@ workspacesRouter.post(
 );
 workspacesRouter.get("/:id/allowed-emails", listAllowedWorkspaceEmailsController);
 workspacesRouter.post("/:id/allowed-emails", addAllowedWorkspaceEmailsController);
+// Emailing the roster is a separate, explicit action from building it.
+workspacesRouter.post("/:id/allowed-emails/send", sendWorkspaceInvitationsController);
+// Pre-creates student accounts, returning single-use activation links (never passwords).
+workspacesRouter.post("/:id/students/provision", provisionWorkspaceStudentsController);
 workspacesRouter.delete(
   "/:id/allowed-emails/:invitationId",
   revokeAllowedWorkspaceEmailController,

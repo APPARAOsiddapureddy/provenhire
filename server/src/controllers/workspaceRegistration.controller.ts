@@ -2,9 +2,11 @@ import type { Response } from "express";
 import { z } from "zod";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { WorkspaceServiceError } from "../services/workspace.service.js";
+import { provisionStudentAccounts } from "../services/studentProvisioning.service.js";
 import {
   importAllowedWorkspaceEmailsFromCsv,
   addAllowedWorkspaceEmails,
+  sendPendingWorkspaceInvitations,
   addWorkspaceMember,
   getWorkspaceCandidateDossier,
   listAllowedWorkspaceEmails,
@@ -265,6 +267,10 @@ export async function addAllowedWorkspaceEmailsController(
 ) {
   const parsed = z.object({
     emails: z.array(z.string().trim().min(3).max(320)).min(1).max(200),
+    /// Omitted => true, preserving the existing recruiter/admin behaviour of
+    /// emailing on add. The campus roster UI passes false to stage a batch
+    /// without emailing, then sends explicitly.
+    sendInvites: z.boolean().optional(),
   }).safeParse(req.body ?? {});
   if (!parsed.success) {
     return res.status(400).json({ error: "Provide between 1 and 200 invitation emails." });
@@ -274,6 +280,61 @@ export async function addAllowedWorkspaceEmailsController(
       actor: actorFromRequest(req),
       workspaceId: req.params.id,
       emails: parsed.data.emails,
+      sendInvites: parsed.data.sendInvites,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+/// Explicit, separate send action - see sendPendingWorkspaceInvitations.
+export async function sendWorkspaceInvitationsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z.object({
+    emails: z.array(z.string().trim().min(3).max(320)).max(1000).optional(),
+  }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid invitation send payload." });
+  }
+  try {
+    return res.json(await sendPendingWorkspaceInvitations({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      emails: parsed.data.emails,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+/// Pre-creates student accounts and returns one single-use activation link
+/// each. No passwords are generated or returned - see
+/// provisionStudentAccounts.
+export async function provisionWorkspaceStudentsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z.object({
+    students: z
+      .array(
+        z.object({
+          email: z.string().trim().min(3).max(320),
+          name: z.string().trim().max(160).nullish(),
+        }),
+      )
+      .min(1)
+      .max(1000),
+  }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide between 1 and 1000 students, each with an email." });
+  }
+  try {
+    return res.status(201).json(await provisionStudentAccounts({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      students: parsed.data.students,
     }));
   } catch (error) {
     return sendError(res, error);

@@ -2664,6 +2664,12 @@ export async function addAllowedWorkspaceEmails(input: {
   actor: WorkspaceActor;
   workspaceId: string;
   emails: string[];
+  /// Whether to email each newly added address immediately. Defaults to true to
+  /// preserve the existing recruiter/admin invitation behaviour. The campus
+  /// roster flow passes false so a college can stage a whole batch first and
+  /// then send deliberately, rather than emailing hundreds of students the
+  /// moment a CSV lands.
+  sendInvites?: boolean;
 }) {
   await assertCanManageWorkspace(input.actor, input.workspaceId);
   const normalized = [...new Set(input.emails.map(normalizeEmail))];
@@ -2697,6 +2703,7 @@ export async function addAllowedWorkspaceEmails(input: {
       skipDuplicates: true,
     });
   }
+  const sendInvites = input.sendInvites !== false;
   await Promise.all(
     added.map(async (email) => {
       await recordWorkspaceAuditEvent({
@@ -2705,6 +2712,7 @@ export async function addAllowedWorkspaceEmails(input: {
         eventType: "invitation.created",
         targetEmail: email,
       });
+      if (!sendInvites) return;
       await deliverWorkspaceInvitationEmail({
         workspaceId: input.workspaceId,
         email,
@@ -2719,6 +2727,63 @@ export async function addAllowedWorkspaceEmails(input: {
     requested: normalized.length,
     added: added.length,
     alreadyPresent: existing.length,
+    invitesSent: sendInvites ? added.length : 0,
+    invitations: await listAllowedWorkspaceEmails(input.actor, input.workspaceId),
+  };
+}
+
+/// Explicitly sends (or re-sends) invitation email to allowlisted addresses that
+/// have not accepted yet. Separated from roster upload on purpose: adding
+/// students to a drive and emailing them are two different decisions, and the
+/// second one is the outward-facing, hard-to-undo one.
+export async function sendPendingWorkspaceInvitations(input: {
+  actor: WorkspaceActor;
+  workspaceId: string;
+  /// When provided, only these addresses are emailed; otherwise every
+  /// not-yet-accepted address on the drive is.
+  emails?: string[];
+}) {
+  await assertCanManageWorkspace(input.actor, input.workspaceId);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: input.workspaceId },
+    select: { name: true, organization: true, code: true, startAt: true },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+
+  const targetEmails = input.emails?.length
+    ? [...new Set(input.emails.map(normalizeEmail))]
+    : undefined;
+  const pending = await prisma.workspaceAllowedEmail.findMany({
+    where: {
+      workspaceId: input.workspaceId,
+      acceptedAt: null,
+      ...(targetEmails ? { email: { in: targetEmails } } : {}),
+    },
+    select: { email: true },
+  });
+  if (!pending.length) {
+    return { sent: 0, invitations: await listAllowedWorkspaceEmails(input.actor, input.workspaceId) };
+  }
+
+  for (const row of pending) {
+    await deliverWorkspaceInvitationEmail({
+      workspaceId: input.workspaceId,
+      email: row.email,
+      workspaceName: workspace.name,
+      organization: workspace.organization,
+      code: workspace.code,
+      startAt: workspace.startAt,
+    });
+    await recordWorkspaceAuditEvent({
+      workspaceId: input.workspaceId,
+      actorUserId: input.actor.id,
+      eventType: "invitation.sent",
+      targetEmail: row.email,
+    });
+  }
+
+  return {
+    sent: pending.length,
     invitations: await listAllowedWorkspaceEmails(input.actor, input.workspaceId),
   };
 }
