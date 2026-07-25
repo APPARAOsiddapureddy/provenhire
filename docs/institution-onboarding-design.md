@@ -142,6 +142,8 @@ is delivered to the inbox above. To finish:
 ## Build order
 
 1. `Institution` + `InstitutionMember` models, `institution` role, additive migration.
+
+Done v1
 2. Institution-scoped authorization (+ tests proving cross-tenant denial).
 3. Backend: signup/login, own-institution read/update, drives CRUD scoped to tenant, roll-up analytics.
 4. Student roster: bulk allowlist upload, activation-link account creation, invite path.
