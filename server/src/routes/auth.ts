@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import {
   login,
   register,
+  registerInstitution,
   googleAuth,
   googleSelectRole,
   me,
@@ -35,6 +36,10 @@ authRouter.get("/register", (_req, res) => {
   res.status(405).json({ error: "Method not allowed", message: "Use POST with { email, password } to register." });
 });
 authRouter.post("/register", authRegisterLimiter, register);
+// Institution (campus placement cell) signup. Separate from /register because
+// it also creates the Institution tenant + owner membership; sign-in afterwards
+// uses the shared /login and /email-verification/verify endpoints unchanged.
+authRouter.post("/register-institution", authRegisterLimiter, registerInstitution);
 authRouter.post("/login", authLoginLimiter, login);
 authRouter.post("/google", googleAuth);
 authRouter.post("/google/select-role", requireAuth, googleSelectRole);

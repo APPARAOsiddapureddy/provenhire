@@ -24,7 +24,7 @@ import {
   preferGoogleRedirectSignIn,
 } from "@/lib/firebase";
 
-type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | null;
+type UserRole = "recruiter" | "jobseeker" | "admin" | "expert_interviewer" | "institution" | null;
 
 type User = {
   id: string;

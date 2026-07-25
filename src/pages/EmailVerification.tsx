@@ -18,6 +18,7 @@ function dashboardForRole(role?: string | null): string {
   if (role === "admin") return "/admin/dashboard";
   if (role === "recruiter") return "/dashboard/recruiter";
   if (role === "expert_interviewer") return "/dashboard/expert";
+  if (role === "institution") return "/campus/overview";
   return "/dashboard/jobseeker";
 }
 

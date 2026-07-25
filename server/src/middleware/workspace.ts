@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from "express";
 import type { AuthedRequest } from "./auth.js";
 
-export type WorkspaceCreatorRole = "admin" | "recruiter";
+export type WorkspaceCreatorRole = "admin" | "recruiter" | "institution";
 
 export function allowWorkspaceCreator(roles: readonly WorkspaceCreatorRole[]) {
   const allowedRoles = new Set<string>(roles);

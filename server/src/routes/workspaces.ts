@@ -17,6 +17,8 @@ import {
 import {
   importAllowedWorkspaceEmailsController,
   addAllowedWorkspaceEmailsController,
+  sendWorkspaceInvitationsController,
+  provisionWorkspaceStudentsController,
   addWorkspaceMemberController,
   getWorkspaceAnalyticsController,
   getWorkspaceCandidateDossierController,
@@ -42,7 +44,10 @@ import {
 
 export const workspacesRouter = Router();
 
-const WORKSPACE_CREATOR_ROLES = ["admin"] as const;
+// Institutions manage their own campus drives through this same router; every
+// handler below is already tenant-scoped via ownerWhere()/assertCanManage*,
+// which for an institution actor resolves to that institution's own drives only.
+const WORKSPACE_CREATOR_ROLES = ["admin", "institution"] as const;
 const csvUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 1024 * 1024 },
@@ -103,6 +108,10 @@ workspacesRouter.post(
 );
 workspacesRouter.get("/:id/allowed-emails", listAllowedWorkspaceEmailsController);
 workspacesRouter.post("/:id/allowed-emails", addAllowedWorkspaceEmailsController);
+// Emailing the roster is a separate, explicit action from building it.
+workspacesRouter.post("/:id/allowed-emails/send", sendWorkspaceInvitationsController);
+// Pre-creates student accounts, returning single-use activation links (never passwords).
+workspacesRouter.post("/:id/students/provision", provisionWorkspaceStudentsController);
 workspacesRouter.delete(
   "/:id/allowed-emails/:invitationId",
   revokeAllowedWorkspaceEmailController,

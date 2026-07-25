@@ -43,6 +43,16 @@ export function requireJobSeeker(req: AuthedRequest, res: Response, next: NextFu
   return next();
 }
 
+/// Campus placement-cell staff. Tenant scoping is enforced separately by
+/// resolveInstitutionContext / resolveWorkspaceAccessLevel - this only checks
+/// that the caller is an institution user at all.
+export function requireInstitution(req: AuthedRequest, res: Response, next: NextFunction) {
+  if (req.user?.role !== "institution") {
+    return res.status(403).json({ error: "Institution access required" });
+  }
+  return next();
+}
+
 export function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
