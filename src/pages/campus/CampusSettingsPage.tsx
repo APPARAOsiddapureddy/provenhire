@@ -163,7 +163,10 @@ export default function CampusSettingsPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {FIELD_GROUPS.map((group) => (
-              <Card key={group.heading}>
+              <Card
+                key={group.heading}
+                className="transition-colors duration-300 focus-within:border-primary/25"
+              >
                 <CardContent className="p-6">
                   <h2 className="font-medium">{group.heading}</h2>
                   <p className="mt-1 text-sm text-muted-foreground">{group.hint}</p>
@@ -179,7 +182,7 @@ export default function CampusSettingsPage() {
                           onChange={(e) =>
                             setForm((prev) => ({ ...prev, [field.key as string]: e.target.value }))
                           }
-                          className="h-11"
+                          className="h-11 transition-all duration-200 focus-visible:ring-primary/40 focus-visible:border-primary/40"
                         />
                       </div>
                     ))}

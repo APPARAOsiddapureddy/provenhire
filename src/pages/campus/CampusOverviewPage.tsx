@@ -104,9 +104,14 @@ export default function CampusOverviewPage() {
               { label: "Live now", value: totals?.liveDrives ?? 0 },
               { label: "In draft", value: totals?.draftDrives ?? 0 },
             ].map((stat) => (
-              <Card key={stat.label}>
+              <Card
+                key={stat.label}
+                className="group transition-all duration-300 hover:border-primary/25 hover:-translate-y-1 hover:shadow-[0_0_30px_hsl(var(--gold)/0.08)] motion-reduce:hover:translate-y-0"
+              >
                 <CardContent className="p-5">
-                  <p className="text-3xl font-semibold tabular-nums">{stat.value}</p>
+                  <p className="text-3xl font-semibold tabular-nums transition-colors duration-300 group-hover:text-primary">
+                    {stat.value}
+                  </p>
                   <p className="mt-1.5 text-sm text-muted-foreground">{stat.label}</p>
                 </CardContent>
               </Card>
@@ -121,10 +126,15 @@ export default function CampusOverviewPage() {
               </p>
               <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {Object.entries(data!.attemptsByRound).map(([roundType, counts]) => (
-                  <Card key={roundType}>
+                  <Card
+                    key={roundType}
+                    className="group transition-all duration-300 hover:border-primary/25 hover:-translate-y-1 motion-reduce:hover:translate-y-0"
+                  >
                     <CardContent className="p-5">
                       <p className="text-sm font-medium">{ROUND_LABELS[roundType] ?? roundType}</p>
-                      <p className="mt-3 text-2xl font-semibold tabular-nums">{counts.completed}</p>
+                      <p className="mt-3 text-2xl font-semibold tabular-nums transition-colors duration-300 group-hover:text-primary">
+                        {counts.completed}
+                      </p>
                       <p className="text-xs text-muted-foreground">completed</p>
                       {counts.inProgress > 0 && (
                         <p className="mt-2 text-xs text-muted-foreground">
@@ -174,12 +184,14 @@ export default function CampusOverviewPage() {
                   <Link
                     key={drive.id}
                     to={`/admin/workspaces/${drive.id}`}
-                    className="block rounded-lg border border-border bg-card p-5 transition-colors hover:border-primary/30"
+                    className="group block rounded-lg border border-border bg-card p-5 transition-all duration-300 hover:border-primary/30 hover:bg-primary/[0.03] hover:-translate-y-0.5 hover:shadow-[0_0_26px_hsl(var(--gold)/0.07)] motion-reduce:hover:translate-y-0"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-3">
-                          <p className="font-medium truncate">{drive.name}</p>
+                          <p className="font-medium truncate transition-colors duration-300 group-hover:text-primary">
+                            {drive.name}
+                          </p>
                           <Badge className={`shrink-0 ${STATUS_STYLE[drive.status]}`}>
                             {drive.status === "started" ? "live" : drive.status}
                           </Badge>
@@ -189,7 +201,7 @@ export default function CampusOverviewPage() {
                           {drive.studentCount === 1 ? "" : "s"} · {drive.totalRounds} rounds
                         </p>
                       </div>
-                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-all duration-300 group-hover:translate-x-1 group-hover:text-primary motion-reduce:group-hover:translate-x-0" />
                     </div>
                   </Link>
                 ))}
