@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { savePendingEmailVerification } from "@/lib/emailVerification";
-import { CountUp, GrowBar, Reveal } from "./Reveal";
+import { GrowBar, Reveal } from "./Reveal";
+import CampusJourneyCard from "./CampusJourneyCard";
 
 /// The four rounds a campus drive runs, in order. This is the single most
 /// load-bearing graphic on the page: it answers "what will my students actually
@@ -144,7 +145,8 @@ export default function CampusOnboardingPage() {
           aria-hidden="true"
           className="pointer-events-none absolute -top-48 -left-32 h-[36rem] w-[36rem] bg-[radial-gradient(circle,hsl(var(--gold)/0.10)_0%,hsl(var(--gold)/0.04)_38%,transparent_70%)]"
         />
-        <div className="relative container mx-auto max-w-6xl px-6 pt-20 pb-24">
+        <div className="relative container mx-auto max-w-6xl px-6 pt-20 pb-24 grid gap-14 lg:grid-cols-[minmax(0,1fr)_26rem] lg:items-center">
+          <div>
           <Reveal immediate>
             <p className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-primary mb-7">
               <span className="relative flex h-1.5 w-1.5">
@@ -182,6 +184,11 @@ export default function CampusOnboardingPage() {
                 Three fields. No card required.
               </span>
             </div>
+          </Reveal>
+          </div>
+
+          <Reveal immediate delayMs={280} motion="none">
+            <CampusJourneyCard />
           </Reveal>
         </div>
       </section>
@@ -259,42 +266,42 @@ export default function CampusOnboardingPage() {
           </Reveal>
 
           <Reveal delayMs={140} motion="none">
-            {/* Gold rim-light on hover, so the card reads as the live artefact
-                the product actually produces. */}
+            {/* Deliberately a different cut of the data from the hero journey
+                card, which already shows the headline placement-ready count.
+                Repeating it here would waste the second-best slot on the page. */}
             <div className="group rounded-xl border border-border bg-card p-7 transition-all duration-500 hover:border-primary/25 hover:shadow-[0_0_40px_hsl(var(--gold)/0.10)]">
               <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                Illustration
+                Illustration &middot; where the batch is losing marks
               </p>
-              <div className="mt-6 flex items-baseline gap-3">
-                <CountUp
-                  value={148}
-                  className="text-5xl font-semibold tabular-nums text-primary"
-                />
-                <span className="text-sm text-muted-foreground">
-                  of 214 placement&#8209;ready
-                </span>
-              </div>
-              {/* Bar grows from zero on reveal via --bar-width, matching the
-                  grow-bar keyframe already used elsewhere in the app. */}
-              <div className="mt-5 flex h-2 overflow-hidden rounded-full bg-muted">
-                <GrowBar percent={69} className="bg-primary" />
-                <GrowBar percent={21} className="bg-primary/30" delayMs={180} />
-              </div>
-              <div className="mt-8 space-y-1 border-t border-border pt-6">
+              <div className="mt-6 space-y-4">
                 {[
-                  { label: "Weakest topic", value: "Dynamic Programming" },
-                  { label: "Behind in 2+ rounds", value: "18 students" },
-                  { label: "Strongest area", value: "Arrays & Strings" },
-                ].map((row) => (
-                  <div
-                    key={row.label}
-                    className="flex items-center justify-between gap-4 rounded-md px-3 py-2 -mx-3 text-sm transition-colors duration-200 hover:bg-white/[0.03]"
-                  >
-                    <span className="text-muted-foreground">{row.label}</span>
-                    <span className="font-medium">{row.value}</span>
+                  { topic: "Dynamic Programming", round: "Coding", pct: 31 },
+                  { topic: "Window Functions", round: "SQL", pct: 34 },
+                  { topic: "Graphs", round: "Coding", pct: 36 },
+                  { topic: "Verbal Reasoning", round: "Aptitude", pct: 63 },
+                ].map((row, index) => (
+                  <div key={row.topic}>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm">
+                        {row.topic}
+                        <span className="ml-2 text-xs text-muted-foreground">{row.round}</span>
+                      </span>
+                      <span className="text-sm font-medium tabular-nums">{row.pct}%</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <GrowBar
+                        percent={row.pct}
+                        delayMs={index * 120}
+                        className={row.pct < 50 ? "bg-red-400" : "bg-amber-400"}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
+              <p className="mt-6 border-t border-border pt-5 text-sm text-muted-foreground leading-relaxed">
+                Fixing Dynamic Programming alone would move more students than any other single
+                topic.
+              </p>
             </div>
           </Reveal>
         </div>
