@@ -93,6 +93,52 @@ detail-readers):
    sentence isn't load-bearing, it's cut — density is the failure mode here, not
    sparseness.
 
+## Production verification status (2026-07-23)
+
+Merged as `17374c5`. Both services deployed.
+
+Verified directly against production:
+
+- Additive migration applied — registering an institution created a real
+  `Institution` row, so the table, the `UserRole.institution` enum value and the
+  `InstitutionMember` bootstrap all exist.
+- `POST /api/auth/register-institution` returns 201 with a generated slug.
+- Retrying the same unverified email reuses the **same** institution id rather
+  than creating a second tenant.
+- Login before verification correctly returns 403 `EMAIL_NOT_VERIFIED`.
+- Every `/api/institutions/*` endpoint returns 401 unauthenticated.
+- `/campus` renders in production with all seven campus chunks served.
+
+### Disposable QA institutions (created in production)
+
+Two tenants exist specifically so cross-tenant isolation can be checked with
+real data — institution A must not be able to reach institution B's drives.
+
+| | Institution | Email | Password |
+| --- | --- | --- | --- |
+| A | QA Test Institute of Technology | `campus.qa.alpha.20260723@provenhire.in` | `CampusQA!2026#Alpha` |
+| B | QA Rival College of Engineering | `campus.qa.beta.20260723@provenhire.in` | `CampusQA!2026#Beta` |
+
+These passwords are for disposable QA tenants only. Real institutions choose
+their own at signup.
+
+### Still to verify (needs a human)
+
+The authenticated walkthrough is blocked on the email verification code, which
+is delivered to the inbox above. To finish:
+
+1. Verify institution A's email, sign in, and confirm the portal loads with the
+   pending-verification banner.
+2. Create a drive — confirm it saves as **draft** and that publishing is refused
+   while the institution is `pending`.
+3. Approve A via `POST /api/institutions/admin/:id/status` with
+   `{"status":"approved"}` as a platform admin, then confirm publishing works.
+4. Sign in as B and confirm B cannot open A's drive by id **or** by join code.
+   This is the case the `workspace-access` contract covers in unit form; this
+   step confirms it against live data.
+5. Upload a student roster and confirm no invite email fires until the explicit
+   send action is used.
+
 ## Build order
 
 1. `Institution` + `InstitutionMember` models, `institution` role, additive migration.
