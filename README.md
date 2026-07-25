@@ -56,3 +56,4 @@ GEMINI_API_KEY="your-gemini-key"
 ```
 
 > **Note:** `PORT=10000` must match the Vite proxy target in `vite.config.ts`.
+> Thankyou
