@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PageLoaderFullScreen } from '@/components/PageLoader';
 import { hasAuthToken } from '@/lib/api';
 
-type AllowedRole = 'recruiter' | 'jobseeker' | 'expert_interviewer' | 'admin';
+type AllowedRole = 'recruiter' | 'jobseeker' | 'expert_interviewer' | 'admin' | 'institution';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -40,6 +40,7 @@ const ProtectedRoute = memo(function ProtectedRoute({ children, allowedRole, all
 
   if (roles && userRole && !roles.includes(userRole)) {
     if (userRole === "admin") return <Navigate to="/admin/dashboard" replace />;
+    if (userRole === "institution") return <Navigate to="/campus/overview" replace />;
     if (userRole === "recruiter") {
       return <Navigate to="/dashboard/recruiter" replace />;
     }

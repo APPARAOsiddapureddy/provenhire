@@ -54,6 +54,12 @@ const AntigravityPage = lazy(
   () => import("./pages/ai-interview/AntigravityPage"),
 );
 
+// Campus (institution) portal — colleges running their own placement drives.
+const CampusOnboardingPage = lazy(
+  () => import("./pages/campus/CampusOnboardingPage"),
+);
+const CampusLoginPage = lazy(() => import("./pages/campus/CampusLoginPage"));
+
 const RecruiterOnboarding = lazy(
   () => import("./pages/dashboard/RecruiterOnboarding"),
 );
@@ -233,6 +239,9 @@ const App = () => (
               />
               <Route path="/auth" element={<Auth />} />
               <Route path="/verify-email" element={<EmailVerification />} />
+              {/* Campus portal: public onboarding + its own sign-in */}
+              <Route path="/campus" element={<CampusOnboardingPage />} />
+              <Route path="/campus/login" element={<CampusLoginPage />} />
               <Route path="/jobs" element={<Jobs />} />
               <Route
                 path="/jobs/:seoSlug"
