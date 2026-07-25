@@ -145,7 +145,10 @@ export default function WorkspaceDetailPage() {
         },
         delete: {
           title: `Delete ${workspace.name}?`,
-          description: `This permanently removes ${workspace.code} and related setup data.`,
+          description:
+            workspace.status === "archived"
+              ? `This permanently removes ${workspace.code}, its candidate registrations and attempts, and the college login. This cannot be undone.`
+              : `This permanently removes ${workspace.code} and related setup data.`,
           confirmLabel: "Yes, Delete",
           variant: "destructive" as const,
           loading: deleting,

@@ -270,7 +270,9 @@ export function canStart(
 export function canDelete(
   workspace?: Pick<Workspace, "status"> | null,
 ): boolean {
-  return !!workspace && workspace.status === "draft";
+  return (
+    !!workspace && ["draft", "archived"].includes(workspace.status)
+  );
 }
 
 export function canEnd(

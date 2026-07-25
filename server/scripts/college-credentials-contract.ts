@@ -14,6 +14,8 @@ import {
   archiveWorkspace,
   createWorkspace,
   deleteWorkspace,
+  publishWorkspace,
+  replaceWorkspaceRounds,
 } from "../src/services/workspace.service.js";
 import { signJwt } from "../src/utils/jwt.js";
 
@@ -227,7 +229,66 @@ async function main() {
       collegeReadingAdmin,
     );
 
+    console.log("\n[2d] Merge fallout: owner member row and audit trail");
+    const ownerMember = await prisma.workspaceMember.findFirst({
+      where: { workspaceId: workspace.id, userId: admin.id, role: "owner" },
+    });
+    check("creator bootstrapped as an owner WorkspaceMember", ownerMember !== null);
+
+    const createdEvents = await prisma.workspaceAuditEvent.findMany({
+      where: { workspaceId: workspace.id },
+      select: { eventType: true },
+    });
+    check(
+      "creation recorded a workspace.created audit event",
+      createdEvents.some((e) => e.eventType === "workspace.created"),
+      createdEvents,
+    );
+
     console.log("\n[3] Archive deactivates the login");
+    // Archiving now requires a published or ended workspace, so walk the lifecycle.
+    await replaceWorkspaceRounds(creator, workspace.id, [
+      {
+        order: 1,
+        name: "Aptitude",
+        type: "mcq",
+        questionType: "random",
+        questionCount: 10,
+        timeLimitMins: 30,
+        scoreWeightage: 100,
+        easyCount: 4,
+        mediumCount: 3,
+        hardCount: 3,
+      },
+    ]);
+    const roundsEvents = await prisma.workspaceAuditEvent.findMany({
+      where: { workspaceId: workspace.id },
+      select: { eventType: true },
+    });
+    check(
+      "saving rounds records workspace.rounds_updated, not workspace.published",
+      roundsEvents.some((e) => e.eventType === "workspace.rounds_updated") &&
+        !roundsEvents.some((e) => e.eventType === "workspace.published"),
+      roundsEvents.map((e) => e.eventType),
+    );
+
+    await publishWorkspace(creator, workspace.id);
+    const publishEvents = await prisma.workspaceAuditEvent.findMany({
+      where: { workspaceId: workspace.id, eventType: "workspace.published" },
+    });
+    check(
+      "publishing records exactly one workspace.published audit event",
+      publishEvents.length === 1,
+      publishEvents.length,
+    );
+
+    const publishedSignIn = await signIn(credentials.userId, credentials.password);
+    check(
+      "login still works after publish",
+      publishedSignIn.status === 200,
+      publishedSignIn,
+    );
+
     await archiveWorkspace(creator, workspace.id);
     const afterArchive = await prisma.collegeCredential.findUnique({
       where: { userId: credentials.userId },
@@ -261,10 +322,35 @@ async function main() {
     );
 
     console.log("\n[4] Delete cascades the credential");
-    await deleteWorkspace(creator, workspace.id);
-    createdWorkspaceIds.pop();
+    // Only drafts are deletable now, so this uses its own throwaway workspace.
+    const doomed = await createWorkspace(
+      creator,
+      workspaceInput("Doomed Drive", "Doomed College"),
+    );
+    createdWorkspaceIds.push(doomed.workspace.id);
+    check(
+      "throwaway draft got its own credential",
+      (await prisma.collegeCredential.findUnique({
+        where: { userId: doomed.credentials.userId },
+      })) !== null,
+    );
+
+    let archiveDraftError: string | undefined;
+    try {
+      await archiveWorkspace(creator, doomed.workspace.id);
+    } catch (error) {
+      archiveDraftError = (error as Error).message;
+    }
+    check(
+      "a draft workspace cannot be archived",
+      Boolean(archiveDraftError),
+      archiveDraftError,
+    );
+
+    await deleteWorkspace(creator, doomed.workspace.id);
+    createdWorkspaceIds.splice(createdWorkspaceIds.indexOf(doomed.workspace.id), 1);
     const afterDelete = await prisma.collegeCredential.findUnique({
-      where: { userId: credentials.userId },
+      where: { userId: doomed.credentials.userId },
     });
     check("credential row removed with the workspace", afterDelete === null);
 

@@ -106,6 +106,7 @@ export async function getCollegeLeaderboardController(
       });
     }
     const result = await getWorkspaceLeaderboardByCode(
+      { id: req.college!.userId, role: "college" },
       workspace.code,
       parsed.data,
     );

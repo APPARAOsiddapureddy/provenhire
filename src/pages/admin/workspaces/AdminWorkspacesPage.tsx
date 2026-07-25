@@ -120,7 +120,10 @@ export default function AdminWorkspacesPage() {
         },
         delete: {
           title: `Delete ${confirmState.workspace.name}?`,
-          description: `This permanently removes ${confirmState.workspace.code} and related setup data.`,
+          description:
+            confirmState.workspace.status === "archived"
+              ? `This permanently removes ${confirmState.workspace.code}, its candidate registrations and attempts, and the college login. This cannot be undone.`
+              : `This permanently removes ${confirmState.workspace.code} and related setup data.`,
           confirmLabel: "Delete assessment",
           variant: "destructive" as const,
           loading: deletingId === confirmState.workspace.id,
@@ -235,7 +238,7 @@ export default function AdminWorkspacesPage() {
                       </Button>
                       {canStart(workspace) ? <Button size="sm" onClick={() => setConfirmState({ workspace, action: "start" })}><Play className="mr-2 h-4 w-4" />Open attempts</Button> : null}
                       {canArchive(workspace) ? <Button variant="outline" size="sm" onClick={() => setConfirmState({ workspace, action: "archive" })}><Archive className="mr-2 h-4 w-4" />Archive</Button> : null}
-                      {canDelete(workspace) ? <Button variant="destructive" size="sm" onClick={() => setConfirmState({ workspace, action: "delete" })}><Trash2 className="mr-2 h-4 w-4" />Delete draft</Button> : null}
+                      {canDelete(workspace) ? <Button variant="destructive" size="sm" onClick={() => setConfirmState({ workspace, action: "delete" })}><Trash2 className="mr-2 h-4 w-4" />{workspace.status === "archived" ? "Delete" : "Delete draft"}</Button> : null}
                     </div>
                   </article>
                 ))}
@@ -300,8 +303,8 @@ export default function AdminWorkspacesPage() {
                             )}
                             {canDelete(workspace) && (
                               <Button
-                                aria-label={`Delete draft ${workspace.name}`}
-                                title="Delete draft"
+                                aria-label={`Delete ${workspace.status === "archived" ? "archived workspace" : "draft"} ${workspace.name}`}
+                                title={workspace.status === "archived" ? "Delete archived workspace" : "Delete draft"}
                                 variant="destructive"
                                 size="sm"
                                 disabled={deletingId === workspace.id}

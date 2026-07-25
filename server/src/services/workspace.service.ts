@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, Workspace } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { createWorkspaceMcqQuestionSet } from "../data/aptitude-loader.js";
 import {
@@ -330,13 +330,17 @@ export async function createWorkspace(
   const { password } = buildCollegeCredential(input.organization, "PH-X-0000");
   const passwordHash = await hashCollegePassword(password);
 
-<<<<<<< HEAD
   // The workspace code and the college login id share the same random suffix, so a
   // collision on either one is resolved by regenerating the code and retrying.
+  let created: {
+    workspace: Workspace;
+    credentials: { userId: string; password: string };
+  } | null = null;
+
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const code = await generateWorkspaceCode(input.organization, input.startAt);
     try {
-      return await prisma.$transaction(async (tx) => {
+      created = await prisma.$transaction(async (tx) => {
         const workspace = await tx.workspace.create({
           data: {
             ...ownership,
@@ -355,6 +359,16 @@ export async function createWorkspace(
             accessMode: input.accessMode ?? "public",
           },
         });
+        // Bootstrap the creator as an explicit 'owner' member so workspace access
+        // control can consistently check WorkspaceMember rather than only
+        // Workspace.ownerUserId once other members/reviewers are added.
+        await tx.workspaceMember.create({
+          data: {
+            workspaceId: workspace.id,
+            userId: ownership.ownerUserId,
+            role: "owner",
+          },
+        });
         const { userId } = await createCollegeCredentialForWorkspace(
           tx,
           workspace,
@@ -362,56 +376,32 @@ export async function createWorkspace(
         );
         return { workspace, credentials: { userId, password } };
       });
+      break;
     } catch (error) {
       if (isUniqueConstraintError(error)) continue;
       throw error;
     }
   }
 
-  throw new WorkspaceServiceError(
-    "Could not generate unique workspace login credentials. Please retry.",
-    500,
-  );
-=======
-  const workspace = await prisma.$transaction(async (tx) => {
-    const created = await tx.workspace.create({
-      data: {
-        ...ownership,
-        name: input.name,
-        organization: input.organization,
-        targetRole: input.targetRole,
-        hiringRubric: {
-          schemaVersion: "workspace_hiring_rubric_v1",
-          responsibilities: input.responsibilities,
-          decisionPolicy: "named_human_review_required",
-        },
-        code,
-        startAt: input.startAt,
-        endAt: input.endAt,
-        totalRounds: input.totalRounds,
-        accessMode: input.accessMode ?? "public",
-      },
-    });
-    // Bootstrap the creator as an explicit 'owner' member so workspace access
-    // control can consistently check WorkspaceMember rather than only
-    // Workspace.ownerUserId once other members/reviewers are added.
-    await tx.workspaceMember.create({
-      data: {
-        workspaceId: created.id,
-        userId: ownership.ownerUserId,
-        role: "owner",
-      },
-    });
-    return created;
-  });
+  if (!created) {
+    throw new WorkspaceServiceError(
+      "Could not generate unique workspace login credentials. Please retry.",
+      500,
+    );
+  }
+
+  // Audited outside the retry loop: a failure here must not be mistaken for a code
+  // collision and cause a second workspace to be created.
   await recordWorkspaceAuditEvent({
-    workspaceId: workspace.id,
+    workspaceId: created.workspace.id,
     actorUserId: creator.id,
     eventType: "workspace.created",
-    detail: { code: workspace.code, accessMode: workspace.accessMode },
+    detail: {
+      code: created.workspace.code,
+      accessMode: created.workspace.accessMode,
+    },
   });
-  return workspace;
->>>>>>> c3901cba10fd1488cadfee8789d3122420346e9e
+  return created;
 }
 
 export async function listWorkspaces(
@@ -580,7 +570,7 @@ export async function replaceWorkspaceRounds(
   }
   validateRounds(rounds, workspace.totalRounds);
 
-  const published = await prisma.$transaction(async (tx) => {
+  const savedRounds = await prisma.$transaction(async (tx) => {
     for (const round of rounds) {
       if (round.type === "sql")
         await validateSqlRoundAvailability(tx, round, true);
@@ -611,10 +601,10 @@ export async function replaceWorkspaceRounds(
   await recordWorkspaceAuditEvent({
     workspaceId: workspace.id,
     actorUserId: creator.id,
-    eventType: "workspace.published",
-    detail: { code: workspace.code },
+    eventType: "workspace.rounds_updated",
+    detail: { code: workspace.code, roundCount: rounds.length },
   });
-  return published;
+  return savedRounds;
 }
 
 async function validateSqlRoundAvailability(
@@ -699,7 +689,7 @@ export async function publishWorkspace(
   const strictQuestionAvailability =
     process.env.STRICT_WORKSPACE_QUESTION_AVAILABILITY === "true";
 
-  return prisma.$transaction(async (tx) => {
+  const published = await prisma.$transaction(async (tx) => {
     for (const round of workspace.rounds) {
       if (round.type === "sql") {
         await validateSqlRoundAvailability(
@@ -760,6 +750,14 @@ export async function publishWorkspace(
       include: { rounds: { orderBy: { order: "asc" } } },
     });
   });
+
+  await recordWorkspaceAuditEvent({
+    workspaceId: published.id,
+    actorUserId: creator.id,
+    eventType: "workspace.published",
+    detail: { code: published.code, roundCount: published.rounds.length },
+  });
+  return published;
 }
 
 export async function startWorkspace(
@@ -882,13 +880,19 @@ export async function deleteWorkspace(
     },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
-  if (workspace.status !== "draft") {
+  // Drafts are deletable because nothing has run yet; archived workspaces are the
+  // explicit purge path, which also removes the college login via FK cascade.
+  // Everything in between still holds live candidate evidence.
+  if (workspace.status !== "draft" && workspace.status !== "archived") {
     throw new WorkspaceServiceError(
-      "Only draft workspaces can be deleted. End or archive published workspaces to preserve candidate evidence.",
+      "Only draft or archived workspaces can be deleted. End and archive a published workspace before deleting it.",
       409,
     );
   }
-  if (workspace._count.registrations > 0 || workspace._count.roundAttempts > 0) {
+  if (
+    workspace.status === "draft" &&
+    (workspace._count.registrations > 0 || workspace._count.roundAttempts > 0)
+  ) {
     throw new WorkspaceServiceError(
       "This draft has registrations or assessment attempts and cannot be deleted.",
       409,
@@ -899,6 +903,11 @@ export async function deleteWorkspace(
     workspaceId: workspace.id,
     actorUserId: creator.id,
     eventType: "workspace.deleted",
+    detail: {
+      previousStatus: workspace.status,
+      registrations: workspace._count.registrations,
+      roundAttempts: workspace._count.roundAttempts,
+    },
   });
   await prisma.workspace.delete({ where: { id: workspace.id } });
   return { ok: true, deletedWorkspaceId: workspace.id };

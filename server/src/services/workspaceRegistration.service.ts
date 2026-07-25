@@ -1043,7 +1043,9 @@ export async function getWorkspaceLeaderboardByCode(
   codeInput: string,
   params: { limit: number; cursor?: string | null },
 ) {
-  if (!["jobseeker", "admin"].includes(actor.role)) {
+  // "college" is scoped by the caller: the college controller resolves the code from the
+  // authenticated credential, so a college can only ever read its own workspace.
+  if (!["jobseeker", "admin", "college"].includes(actor.role)) {
     throw new WorkspaceServiceError("Workspace access required.", 403);
   }
   const code = normalizeWorkspaceCode(codeInput);

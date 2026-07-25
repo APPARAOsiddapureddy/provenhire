@@ -34,6 +34,7 @@
     "test:report-routing": "tsx scripts/report-model-routing-contract.ts",
     "test:placement-contract": "tsx scripts/placement-readiness-contract.ts",
     "test:college-credentials": "tsx scripts/college-credentials-contract.ts",
+    "test:workspace-routes": "tsx scripts/workspace-routes-smoke.ts",
     "wipe:workspaces": "tsx prisma/seeds/wipe-workspaces.ts",
     "test:workspace-aptitude": "tsx scripts/workspace-aptitude-contract.ts",
     "test:workspace-access": "tsx scripts/workspace-access-contract.ts",

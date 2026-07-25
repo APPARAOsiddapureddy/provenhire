@@ -2040,7 +2040,7 @@ export function WorkspaceActionBar({
           <span className="hidden sm:inline">Archive</span>
         </Button>
       )}
-      {workspace.status === "draft" && (
+      {["draft", "archived"].includes(workspace.status) && (
         <Button
           variant="destructive"
           size="sm"
