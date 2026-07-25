@@ -1884,3 +1884,21 @@
   line-height: 1.5;
   letter-spacing: 0.04em !important;
 }
+
+/* ---------------------------------------------------------------------------
+   Reduced motion. Tailwind's motion-reduce: variants cover the interaction
+   states applied inline, but keyframe animations declared via animate-* still
+   run, so stop them here and land every element on its final state. Scoped to
+   the campus surfaces this was introduced for rather than applied app-wide, so
+   it cannot change existing pages' behaviour.
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  [data-campus-surface] *,
+  [data-campus-surface] *::before,
+  [data-campus-surface] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

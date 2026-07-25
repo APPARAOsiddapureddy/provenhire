@@ -106,12 +106,17 @@ export default function CampusDrivesPage() {
       ) : (
         <div className="space-y-4">
           {drives!.map((drive) => (
-            <Card key={drive.id}>
+            <Card
+              key={drive.id}
+              className="group transition-all duration-300 hover:border-primary/25 hover:-translate-y-0.5 hover:shadow-[0_0_30px_hsl(var(--gold)/0.08)] motion-reduce:hover:translate-y-0"
+            >
               <CardContent className="p-6">
                 <div className="flex flex-wrap items-start justify-between gap-5">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-3">
-                      <h2 className="font-medium">{drive.name}</h2>
+                      <h2 className="font-medium transition-colors duration-300 group-hover:text-primary">
+                        {drive.name}
+                      </h2>
                       <Badge className={STATUS_STYLE[drive.status]}>
                         {drive.status === "started" ? "live" : drive.status}
                       </Badge>
@@ -120,7 +125,9 @@ export default function CampusDrivesPage() {
                     <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
                       <div>
                         <dt className="text-muted-foreground">Join code</dt>
-                        <dd className="mt-0.5 font-mono text-xs">{drive.code}</dd>
+                        <dd className="mt-0.5 select-all rounded border border-border/70 bg-white/[0.03] px-1.5 py-0.5 font-mono text-xs transition-colors duration-200 group-hover:border-primary/25">
+                          {drive.code}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-muted-foreground">Students</dt>
