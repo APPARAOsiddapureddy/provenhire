@@ -164,14 +164,16 @@ export default function AntigravityReturnPage() {
             <Button
               onClick={() =>
                 navigate(
-                  workspaceCode
+                  state === "complete" && workspaceCode
+                    ? `/dashboard/jobseeker/workspaces/${encodeURIComponent(workspaceCode)}/reports?module=antigravity`
+                    : workspaceCode
                     ? `/dashboard/jobseeker/workspaces/${encodeURIComponent(workspaceCode)}`
                     : "/dashboard/jobseeker",
                 )
               }
             >
               {state === "complete" && workspaceCode
-                ? "Back to Workspace"
+                ? "View My Antigravity Report"
                 : state === "complete"
                   ? "Back to Dashboard"
                   : "Go to Dashboard"}

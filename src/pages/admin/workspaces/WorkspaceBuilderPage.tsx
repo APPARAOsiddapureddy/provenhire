@@ -42,7 +42,7 @@ export default function WorkspaceBuilderPage() {
         setStep((res.workspace.rounds?.length ?? 0) === res.workspace.totalRounds ? 3 : 2);
       })
       .catch((error) => {
-        toast.error(error instanceof Error ? error.message : "Failed to load draft workspace");
+        toast.error(error instanceof Error ? error.message : "Failed to load draft assessment");
         navigate("/admin/workspaces");
       })
       .finally(() => setLoading(false));
@@ -75,9 +75,9 @@ export default function WorkspaceBuilderPage() {
       setDetails(detailsFromWorkspace(res.workspace));
       setRounds((prev) => normalizeRounds(prev, res.workspace.totalRounds));
       setStep(2);
-      toast.success("Workspace draft saved.");
+      toast.success("Assessment draft saved.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save workspace");
+      toast.error(error instanceof Error ? error.message : "Failed to save assessment");
     } finally {
       setSavingDetails(false);
     }
@@ -85,7 +85,7 @@ export default function WorkspaceBuilderPage() {
 
   const saveRounds = async () => {
     if (!workspace) {
-      toast.error("Save workspace details first.");
+      toast.error("Save assessment details first.");
       setStep(1);
       return;
     }
@@ -122,10 +122,10 @@ export default function WorkspaceBuilderPage() {
     setPublishing(true);
     try {
       const res = await api.post<{ workspace: Workspace; code: string }>(`/api/workspaces/${workspace.id}/publish`, {});
-      toast.success("Workspace created.");
+      toast.success("Assessment published.");
       navigate(`/admin/workspaces/${res.workspace.id}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create workspace");
+      toast.error(error instanceof Error ? error.message : "Failed to publish assessment");
     } finally {
       setPublishing(false);
     }
@@ -149,19 +149,19 @@ export default function WorkspaceBuilderPage() {
             <div className="flex items-center gap-3 min-w-0">
               <Button variant="outline" size="sm" onClick={() => navigate("/admin/workspaces")}>
                 <ArrowLeft className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Workspaces</span>
+                <span className="hidden sm:inline">Assessments</span>
               </Button>
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-bold truncate">{workspace ? "Continue Workspace Draft" : "Create Workspace"}</h1>
+                <h1 className="text-lg sm:text-xl font-bold truncate">{workspace ? "Continue assessment setup" : "Create assessment"}</h1>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  {workspace?.code ? `Code: ${workspace.code}` : "Save details, configure rounds, then publish"}
+                  {workspace?.code ? `Invitation code: ${workspace.code}` : "Add the details and rounds candidates will receive"}
                 </p>
               </div>
             </div>
             {workspace?.status && (
               <Button variant="outline" size="sm" onClick={() => navigate(`/admin/workspaces/${workspace.id}`)} disabled={!workspace}>
                 <ClipboardList className="h-4 w-4 mr-2" />
-                Open detail
+                Open assessment
               </Button>
             )}
           </div>
@@ -173,7 +173,7 @@ export default function WorkspaceBuilderPage() {
 
         {locked && (
           <div className="rounded-md border bg-background p-4 text-sm text-muted-foreground">
-            This workspace is already finalized. Metadata, access mode, and rounds are read-only.
+            This assessment is already published. Its details, access rules, and rounds are read-only.
           </div>
         )}
 

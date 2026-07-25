@@ -54,6 +54,16 @@ const AntigravityPage = lazy(
   () => import("./pages/ai-interview/AntigravityPage"),
 );
 
+// Campus (institution) portal — colleges running their own placement drives.
+const CampusOnboardingPage = lazy(
+  () => import("./pages/campus/CampusOnboardingPage"),
+);
+const CampusLoginPage = lazy(() => import("./pages/campus/CampusLoginPage"));
+const CampusOverviewPage = lazy(() => import("./pages/campus/CampusOverviewPage"));
+const CampusDrivesPage = lazy(() => import("./pages/campus/CampusDrivesPage"));
+const CampusStaffPage = lazy(() => import("./pages/campus/CampusStaffPage"));
+const CampusSettingsPage = lazy(() => import("./pages/campus/CampusSettingsPage"));
+
 const RecruiterOnboarding = lazy(
   () => import("./pages/dashboard/RecruiterOnboarding"),
 );
@@ -102,6 +112,9 @@ const WorkspaceCandidateReportsPage = lazy(
 );
 const WorkspaceTechnicalDeskPage = lazy(
   () => import("./pages/admin/workspaces/WorkspaceTechnicalDeskPage"),
+);
+const WorkspaceAnalyticsPage = lazy(
+  () => import("./pages/admin/workspaces/WorkspaceAnalyticsPage"),
 );
 const UserWorkspacesPage = lazy(
   () => import("./pages/dashboard/workspaces/UserWorkspacesPage"),
@@ -234,6 +247,41 @@ const App = () => (
               />
               <Route path="/auth" element={<Auth />} />
               <Route path="/verify-email" element={<EmailVerification />} />
+              {/* Campus portal: public onboarding + its own sign-in */}
+              <Route path="/campus" element={<CampusOnboardingPage />} />
+              <Route path="/campus/login" element={<CampusLoginPage />} />
+              <Route
+                path="/campus/overview"
+                element={
+                  <ProtectedRoute allowedRole="institution">
+                    <CampusOverviewPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/campus/drives"
+                element={
+                  <ProtectedRoute allowedRole="institution">
+                    <CampusDrivesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/campus/staff"
+                element={
+                  <ProtectedRoute allowedRole="institution">
+                    <CampusStaffPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/campus/settings"
+                element={
+                  <ProtectedRoute allowedRole="institution">
+                    <CampusSettingsPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/jobs" element={<Jobs />} />
               <Route
                 path="/jobs/:seoSlug"
@@ -311,7 +359,7 @@ const App = () => (
               <Route
                 path="/admin/workspaces"
                 element={
-                  <ProtectedRoute allowedRole="admin">
+                  <ProtectedRoute allowedRoles={["admin", "institution"]}>
                     <AdminWorkspacesPage />
                   </ProtectedRoute>
                 }
@@ -319,7 +367,7 @@ const App = () => (
               <Route
                 path="/admin/workspaces/new"
                 element={
-                  <ProtectedRoute allowedRole="admin">
+                  <ProtectedRoute allowedRoles={["admin", "institution"]}>
                     <WorkspaceBuilderPage />
                   </ProtectedRoute>
                 }
@@ -327,7 +375,7 @@ const App = () => (
               <Route
                 path="/admin/workspaces/:id"
                 element={
-                  <ProtectedRoute allowedRole="admin">
+                  <ProtectedRoute allowedRoles={["admin", "institution"]}>
                     <WorkspaceDetailPage />
                   </ProtectedRoute>
                 }
@@ -335,7 +383,7 @@ const App = () => (
               <Route
                 path="/admin/workspaces/:id/candidates/:userId/reports"
                 element={
-                  <ProtectedRoute allowedRole="admin">
+                  <ProtectedRoute allowedRoles={["admin", "institution"]}>
                     <WorkspaceCandidateReportsPage />
                   </ProtectedRoute>
                 }
@@ -343,8 +391,16 @@ const App = () => (
               <Route
                 path="/admin/workspaces/:id/technical-desk"
                 element={
-                  <ProtectedRoute allowedRole="admin">
+                  <ProtectedRoute allowedRoles={["admin", "institution"]}>
                     <WorkspaceTechnicalDeskPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/workspaces/:id/analytics"
+                element={
+                  <ProtectedRoute allowedRoles={["admin", "institution"]}>
+                    <WorkspaceAnalyticsPage />
                   </ProtectedRoute>
                 }
               />

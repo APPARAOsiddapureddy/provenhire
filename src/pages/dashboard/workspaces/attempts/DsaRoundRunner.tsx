@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, PanelLeftClose, PanelLeftOpen, Play, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -18,6 +18,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supportedLanguages, type ProgrammingLanguage } from "@/data/dsaRoundConfig";
 import RoundAttemptShell from "./RoundAttemptShell";
+import RoundCompletionReceipt from "./RoundCompletionReceipt";
+import type { ProctoringState } from "@/components/ProctoringSetupGate";
 
 type DsaQuestion = {
   id: string;
@@ -145,7 +147,7 @@ function DsaConsolePanel({ result, message }: { result: RunTestResult | null; me
   );
 }
 
-export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspaceCode: string; sessionId: string }) {
+export default function DsaRoundRunner({ workspaceCode, attemptId, sessionId, initialProctoringState }: { workspaceCode: string; attemptId: string; sessionId: string; initialProctoringState?: ProctoringState | null }) {
   const [snapshot, setSnapshot] = useState<DsaSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [language, setLanguage] = useState<ProgrammingLanguage>("python");
@@ -158,7 +160,7 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
   const [problemsOpen, setProblemsOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
   const [submitConfirm, setSubmitConfirm] = useState<"question" | "final" | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await api.get<DsaSnapshot>(`/api/session/dsa/${encodeURIComponent(sessionId)}`);
     setSnapshot(res);
     setCodeByQuestion(res.codeDrafts ?? {});
@@ -170,13 +172,14 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
       const firstUnanswered = res.activeFollowUp.followUps.findIndex((question) => !answers[question.followUpQuestionId]);
       setFollowUpIndex(firstUnanswered >= 0 ? firstUnanswered : 0);
     }
-  };
+  }, [sessionId]);
 
   useEffect(() => {
     void load().catch((error) => toast.error(error instanceof Error ? error.message : "Failed to load DSA session"));
-  }, [sessionId]);
+  }, [load]);
 
   const current = snapshot?.questions[activeIndex] ?? null;
+  const currentId = current?.id;
   const currentCode = current ? codeByQuestion[current.id]?.[language] ?? starterFor(current, language) : "";
   const isFinalized = snapshot?.workspaceAttempt.status === "completed" || snapshot?.workspaceAttempt.status === "auto_completed";
   const activeFollowUp = snapshot?.activeFollowUp ?? null;
@@ -206,22 +209,22 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
     }));
   };
 
-  const saveCode = async () => {
-    if (!current || isFinalized) return;
+  const saveCode = useCallback(async () => {
+    if (!currentId || isFinalized) return;
     await api.put(`/api/session/dsa/${encodeURIComponent(sessionId)}/code`, {
-      questionId: current.id,
+      questionId: currentId,
       language,
       code: currentCode,
     });
-  };
+  }, [currentCode, currentId, isFinalized, language, sessionId]);
 
   useEffect(() => {
-    if (!current || isFinalized) return;
+    if (!currentId || isFinalized) return;
     const timer = window.setTimeout(() => {
       saveCode().catch(() => {});
     }, 2500);
     return () => window.clearTimeout(timer);
-  }, [current?.id, currentCode, language, isFinalized]);
+  }, [currentId, isFinalized, saveCode]);
 
   const moveTo = async (index: number) => {
     if (!snapshot?.questions[index]) return;
@@ -310,7 +313,7 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} title="DSA Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="dsa" title="DSA Round" subtitle="Loading session" secondsRemaining={null} initialProctoringState={initialProctoringState}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -321,21 +324,25 @@ export default function DsaRoundRunner({ workspaceCode, sessionId }: { workspace
   return (
     <RoundAttemptShell
       workspaceCode={workspaceCode}
+      attemptId={attemptId}
+      sessionId={sessionId}
+      testType="dsa"
       title={snapshot.workspaceAttempt.round.name}
       subtitle={`Problem ${activeIndex + 1} of ${snapshot.questions.length}`}
       secondsRemaining={snapshot.session.secondsRemaining}
       isFinalized={isFinalized}
+      initialProctoringState={initialProctoringState}
       onExpired={() => {
         toast.info("DSA time expired. Finalizing saved work.");
         void load();
       }}
     >
       {isFinalized ? (
-        <Card className="border-emerald-400/30 bg-emerald-400/10">
-          <CardContent className="p-5 text-emerald-100">
-            Submitted. Score: {snapshot.workspaceAttempt.percentageScore ?? 0}% · Weighted: {snapshot.workspaceAttempt.weightedScore ?? 0}
-          </CardContent>
-        </Card>
+        <RoundCompletionReceipt
+          workspaceCode={workspaceCode}
+          score={snapshot.workspaceAttempt.percentageScore ?? 0}
+          reportModule="coding"
+        />
       ) : null}
 
       <AlertDialog

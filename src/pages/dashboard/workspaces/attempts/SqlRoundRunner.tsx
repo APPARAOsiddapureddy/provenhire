@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Database, Loader2, PanelLeftClose, PanelLeftOpen, Play, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import RoundAttemptShell from "./RoundAttemptShell";
+import RoundCompletionReceipt from "./RoundCompletionReceipt";
+import type { ProctoringState } from "@/components/ProctoringSetupGate";
 
 type SqlTask = {
   id: string;
@@ -120,7 +122,7 @@ function SqlConsolePanel({ result, message }: { result: SqlRunResult | null; mes
   );
 }
 
-export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspaceCode: string; sessionId: string }) {
+export default function SqlRoundRunner({ workspaceCode, attemptId, sessionId, initialProctoringState }: { workspaceCode: string; attemptId: string; sessionId: string; initialProctoringState?: ProctoringState | null }) {
   const [snapshot, setSnapshot] = useState<SqlSnapshot | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -130,19 +132,20 @@ export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspace
   const [tasksOpen, setTasksOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
   const [submitConfirm, setSubmitConfirm] = useState<"task" | "final" | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await api.get<SqlSnapshot>("/api/session/sql/" + encodeURIComponent(sessionId));
     setSnapshot(res);
     setDrafts(res.drafts ?? {});
     const idx = res.session.currentTaskId ? res.tasks.findIndex((task) => task.id === res.session.currentTaskId) : 0;
     setActiveIndex(idx >= 0 ? idx : 0);
-  };
+  }, [sessionId]);
 
   useEffect(() => {
     void load().catch((error) => toast.error(error instanceof Error ? error.message : "Failed to load SQL session"));
-  }, [sessionId]);
+  }, [load]);
 
   const current = snapshot?.tasks[activeIndex] ?? null;
+  const currentId = current?.id;
   const currentQuery = current ? drafts[current.id] ?? starterSql(current) : "";
   const isFinalized = snapshot?.workspaceAttempt.status === "completed" || snapshot?.workspaceAttempt.status === "auto_completed";
   const completedTasks = useMemo(() => Object.keys(snapshot?.officialSubmissions ?? {}).length, [snapshot?.officialSubmissions]);
@@ -156,15 +159,15 @@ export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspace
   };
 
   useEffect(() => {
-    if (!current || isFinalized || isCurrentSubmitted) return;
+    if (!currentId || isFinalized || isCurrentSubmitted) return;
     const timer = window.setTimeout(() => {
       api.patch("/api/session/sql/" + encodeURIComponent(sessionId), {
-        currentTaskId: current.id,
-        draft: { taskId: current.id, query: currentQuery },
+        currentTaskId: currentId,
+        draft: { taskId: currentId, query: currentQuery },
       }).catch(() => {});
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [current?.id, currentQuery, isFinalized, isCurrentSubmitted, sessionId]);
+  }, [currentId, currentQuery, isFinalized, isCurrentSubmitted, sessionId]);
 
   const moveTo = async (index: number) => {
     if (!snapshot?.tasks[index]) return;
@@ -229,7 +232,7 @@ export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspace
 
   if (!snapshot || !current) {
     return (
-      <RoundAttemptShell workspaceCode={workspaceCode} title="SQL Round" subtitle="Loading session" secondsRemaining={null}>
+      <RoundAttemptShell workspaceCode={workspaceCode} attemptId={attemptId} sessionId={sessionId} testType="sql" title="SQL Round" subtitle="Loading session" secondsRemaining={null} initialProctoringState={initialProctoringState}>
         <div className="min-h-[360px] flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--dash-gold)]" />
         </div>
@@ -240,21 +243,25 @@ export default function SqlRoundRunner({ workspaceCode, sessionId }: { workspace
   return (
     <RoundAttemptShell
       workspaceCode={workspaceCode}
+      attemptId={attemptId}
+      sessionId={sessionId}
+      testType="sql"
       title={snapshot.workspaceAttempt.round.name}
       subtitle={"Task " + (activeIndex + 1) + " of " + snapshot.tasks.length}
       secondsRemaining={snapshot.session.secondsRemaining}
       isFinalized={isFinalized}
+      initialProctoringState={initialProctoringState}
       onExpired={() => {
         toast.info("SQL time expired. Finalizing saved work.");
         void load();
       }}
     >
       {isFinalized ? (
-        <Card className="border-emerald-400/30 bg-emerald-400/10">
-          <CardContent className="p-5 text-emerald-100">
-            Submitted. Score: {snapshot.workspaceAttempt.percentageScore ?? 0}% - Weighted: {snapshot.workspaceAttempt.weightedScore ?? 0}
-          </CardContent>
-        </Card>
+        <RoundCompletionReceipt
+          workspaceCode={workspaceCode}
+          score={snapshot.workspaceAttempt.percentageScore ?? 0}
+          reportModule="sql"
+        />
       ) : (
         <div className="flex flex-col gap-3 rounded-lg border border-[var(--dash-navy-border)] bg-white/[0.03] p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-[var(--dash-text-muted)]">

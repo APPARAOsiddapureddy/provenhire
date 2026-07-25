@@ -12,6 +12,11 @@ enum UserRole {
   recruiter
   admin
   expert_interviewer
+  /// A college / university placement cell running campus drives for its own
+  /// students. Deliberately NOT `admin`: `admin` is the platform superadmin and
+  /// bypasses per-workspace authorization, which would expose every
+  /// institution's drives to every other institution.
+  institution
 }
 
 model User {
@@ -68,6 +73,12 @@ model User {
   workspaceRegistrations         WorkspaceRegistration[]       @relation("WorkspaceRegistrationUser")
   removedWorkspaceRegistrations  WorkspaceRegistration[]       @relation("WorkspaceRegistrationRemovedBy")
   restoredWorkspaceRegistrations WorkspaceRegistration[]       @relation("WorkspaceRegistrationRestoredBy")
+  workspaceMemberships           WorkspaceMember[]             @relation("WorkspaceMemberUser")
+  invitedWorkspaceMemberships    WorkspaceMember[]             @relation("WorkspaceMemberInvitedBy")
+  removedWorkspaceMemberships    WorkspaceMember[]             @relation("WorkspaceMemberRemovedBy")
+  institutionMemberships         InstitutionMember[]           @relation("InstitutionMemberUser")
+  invitedInstitutionMemberships  InstitutionMember[]           @relation("InstitutionMemberInvitedBy")
+  removedInstitutionMemberships  InstitutionMember[]           @relation("InstitutionMemberRemovedBy")
   mcqSessions                    McqSession[]
   workspaceSqlSessions           WorkspaceSqlSession[]
   workspaceSqlSubmissions        WorkspaceSqlSubmission[]
@@ -164,9 +175,23 @@ enum RecruiterVerificationStatus {
   rejected
 }
 
+enum WorkspaceMemberRole {
+  owner
+  manager
+  reviewer
+}
+
+enum InvitationDeliveryStatus {
+  pending
+  sent
+  failed
+  accepted
+}
+
 enum WorkspaceOwnerRole {
   admin
   recruiter
+  institution
 }
 
 enum WorkspaceStatus {
@@ -351,11 +376,84 @@ model RecruiterCandidateResumeView {
   @@index([recruiterId])
 }
 
+/// A college / university tenant. Owns many campus placement drives (one
+/// Workspace each) so batches roll over year to year and analytics can
+/// aggregate across drives.
+model Institution {
+  id           String            @id @default(uuid())
+  name         String
+  slug         String            @unique
+  contactEmail String
+  status       InstitutionStatus @default(pending)
+
+  /// Supplementary profile - deliberately all optional. Signup asks for name,
+  /// email and password only; the institution fills these in later from
+  /// Settings, so onboarding is never blocked on paperwork.
+  website          String?
+  addressLine      String?
+  city             String?
+  state            String?
+  country          String?
+  pincode          String?
+  affiliation      String?
+  aicteCode        String?
+  naacGrade        String?
+  studentCount     Int?
+  placementCellHead String?
+  phone            String?
+  logoUrl          String?
+
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  members    InstitutionMember[]
+  workspaces Workspace[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum InstitutionStatus {
+  /// Can sign in, explore, and build drives in draft. Cannot publish a live
+  /// drive to real students until a platform admin approves.
+  pending
+  approved
+  suspended
+}
+
+/// Placement-cell staff at the tenant level. Distinct from WorkspaceMember:
+/// an InstitutionMember can manage every drive the institution owns, whereas
+/// WorkspaceMember grants access to one drive only.
+model InstitutionMember {
+  id              String              @id @default(uuid())
+  institutionId   String
+  userId          String
+  role            WorkspaceMemberRole @default(manager)
+  invitedByUserId String?
+  removedAt       DateTime?
+  removedByUserId String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  user        User        @relation("InstitutionMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User?       @relation("InstitutionMemberInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  removedBy   User?       @relation("InstitutionMemberRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([institutionId, userId])
+  @@index([institutionId, removedAt])
+  @@index([userId])
+}
+
 model Workspace {
   id                 String              @id @default(uuid())
   ownerRole          WorkspaceOwnerRole
   ownerUserId        String
   recruiterProfileId String?
+  /// Set only for institution-owned campus drives; null for recruiter- and
+  /// platform-admin-owned workspaces, which keep working unchanged.
+  institutionId      String?
   name               String
   organization       String
   targetRole         String
@@ -371,8 +469,10 @@ model Workspace {
 
   ownerUser                   User                         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   recruiterProfile            RecruiterProfile?            @relation(fields: [recruiterProfileId], references: [id], onDelete: Cascade)
+  institution                 Institution?                 @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   rounds                      WorkspaceRound[]
   registrations               WorkspaceRegistration[]
+  members                     WorkspaceMember[]
   allowedEmails               WorkspaceAllowedEmail[]
   roundAttempts               WorkspaceRoundAttempt[]
   candidateDecisions          WorkspaceCandidateDecision[]
@@ -382,6 +482,7 @@ model Workspace {
 
   @@index([ownerRole, ownerUserId])
   @@index([recruiterProfileId])
+  @@index([institutionId, status])
   @@index([status, startAt, endAt])
   @@index([createdAt])
 }
@@ -452,15 +553,44 @@ model WorkspaceRegistration {
 }
 
 model WorkspaceAllowedEmail {
-  id          String   @id @default(uuid())
-  workspaceId String
-  email       String
-  createdAt   DateTime @default(now())
+  id             String                   @id @default(uuid())
+  workspaceId    String
+  email          String
+  deliveryStatus InvitationDeliveryStatus @default(pending)
+  deliveryError  String?                  @db.Text
+  sentAt         DateTime?
+  acceptedAt     DateTime?
+  createdAt      DateTime                 @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, email])
   @@index([email])
+}
+
+/// Grants a platform user (recruiter/admin) management or read-only access to a
+/// workspace beyond the single `Workspace.ownerUserId`. `owner` can manage other
+/// members and transfer ownership; `manager` has full operational access; `reviewer`
+/// is read-only (candidates, rounds, reports, audit trail).
+model WorkspaceMember {
+  id              String              @id @default(uuid())
+  workspaceId     String
+  userId          String
+  role            WorkspaceMemberRole @default(manager)
+  invitedByUserId String?
+  removedAt       DateTime?
+  removedByUserId String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation("WorkspaceMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User?     @relation("WorkspaceMemberInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  removedBy   User?     @relation("WorkspaceMemberRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId, removedAt])
+  @@index([userId])
 }
 
 model WorkspaceRoundQuestionSet {
@@ -1233,6 +1363,22 @@ model AssessmentPipelineIncident {
   @@index([workspaceId, status, severity])
   @@index([userId, createdAt])
   @@index([interviewId])
+}
+
+/// Immutable operator audit trail for workspace lifecycle, invitations, and membership.
+model WorkspaceAuditEvent {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  actorUserId  String?
+  eventType    String
+  targetUserId String?
+  targetEmail  String?
+  detail       Json?
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([eventType, createdAt])
 }
 
 /// After AI interview submission: admin approves/rejects before human expert stage + payment gate.

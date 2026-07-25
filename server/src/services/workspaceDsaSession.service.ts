@@ -31,6 +31,20 @@ function shuffle<T>(items: T[]): T[] {
   return out;
 }
 
+const MIN_PREFERRED_DSA_TEST_CASES = 6;
+
+function prioritizeAuditableQuestions<T extends { _count: { testCases: number } }>(
+  rows: T[],
+): T[] {
+  const preferred = shuffle(
+    rows.filter((row) => row._count.testCases >= MIN_PREFERRED_DSA_TEST_CASES),
+  );
+  const fallback = shuffle(
+    rows.filter((row) => row._count.testCases < MIN_PREFERRED_DSA_TEST_CASES),
+  );
+  return [...preferred, ...fallback];
+}
+
 async function selectDsaQuestions(
   tx: Prisma.TransactionClient,
   round: { easyCount: number; mediumCount: number; hardCount: number; questionCount: number },
@@ -42,9 +56,9 @@ async function selectDsaQuestions(
     if (count <= 0) return;
     const rows = await tx.dsaQuestion.findMany({
       where: { difficulty, id: { notIn: Array.from(used) } },
-      select: { id: true },
+      select: { id: true, _count: { select: { testCases: true } } },
     });
-    const picked = shuffle(rows).slice(0, count);
+    const picked = prioritizeAuditableQuestions(rows).slice(0, count);
     picked.forEach((row) => {
       selected.push(row);
       used.add(row.id);
@@ -60,9 +74,9 @@ async function selectDsaQuestions(
   if (selected.length < round.questionCount) {
     const fillers = await tx.dsaQuestion.findMany({
       where: { id: { notIn: Array.from(used) } },
-      select: { id: true },
+      select: { id: true, _count: { select: { testCases: true } } },
     });
-    for (const row of shuffle(fillers)) {
+    for (const row of prioritizeAuditableQuestions(fillers)) {
       selected.push(row);
       used.add(row.id);
       if (selected.length >= round.questionCount) break;

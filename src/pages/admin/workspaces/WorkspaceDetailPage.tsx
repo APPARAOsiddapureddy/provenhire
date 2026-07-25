@@ -1,18 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Activity, ArrowLeft, Edit, Loader2 } from "lucide-react";
+import { Activity, ArrowLeft, BarChart3, Edit, Loader2 } from "lucide-react";
 import WorkspaceConfirmDialog from "@/components/WorkspaceConfirmDialog";
 import type { Workspace } from "./types";
 import { WorkspaceActionBar, WorkspaceTabs } from "./WorkspaceAdminComponents";
 import CollegeCredentialsCard from "./CollegeCredentialsCard";
 import { canEditDraft, statusBadgeClass, statusLabel } from "./workspaceUtils";
 
-type WorkspaceConfirmAction = "archive" | "start" | "delete";
+type WorkspaceConfirmAction = "archive" | "start" | "end" | "delete";
 
 export default function WorkspaceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,9 +22,10 @@ export default function WorkspaceDetailPage() {
   const [archiving, setArchiving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [ending, setEnding] = useState(false);
   const [confirmAction, setConfirmAction] = useState<WorkspaceConfirmAction | null>(null);
 
-  const fetchWorkspace = async () => {
+  const fetchWorkspace = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
@@ -36,11 +37,11 @@ export default function WorkspaceDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
 
   useEffect(() => {
     void fetchWorkspace();
-  }, [id]);
+  }, [fetchWorkspace]);
 
   const archiveWorkspace = async () => {
     if (!workspace) return;
@@ -75,7 +76,22 @@ export default function WorkspaceDetailPage() {
   const copyCode = async () => {
     if (!workspace) return;
     await navigator.clipboard?.writeText(workspace.code);
-    toast.success("Workspace code copied.");
+    toast.success("Invitation code copied.");
+  };
+
+  const endWorkspace = async () => {
+    if (!workspace) return;
+    setEnding(true);
+    try {
+      const res = await api.post<{ workspace: Workspace }>(`/api/workspaces/${workspace.id}/end`, {});
+      setWorkspace(res.workspace);
+      toast.success("Workspace ended. Existing evidence and reports were preserved.");
+      setConfirmAction(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "End workspace failed");
+    } finally {
+      setEnding(false);
+    }
   };
 
   const deleteWorkspace = async () => {
@@ -119,6 +135,14 @@ export default function WorkspaceDetailPage() {
           loading: starting,
           onConfirm: startWorkspace,
         },
+        end: {
+          title: `End ${workspace.name}?`,
+          description: "New round starts will close immediately. Active local rounds will be finalized and all evidence will be preserved.",
+          confirmLabel: "Yes, End Workspace",
+          variant: "destructive" as const,
+          loading: ending,
+          onConfirm: endWorkspace,
+        },
         delete: {
           title: `Delete ${workspace.name}?`,
           description: `This permanently removes ${workspace.code} and related setup data.`,
@@ -138,7 +162,7 @@ export default function WorkspaceDetailPage() {
             <div className="flex items-center gap-3 min-w-0">
               <Button variant="outline" size="sm" onClick={() => navigate("/admin/workspaces")}>
                 <ArrowLeft className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Workspaces</span>
+                <span className="hidden sm:inline">Assessments</span>
               </Button>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -152,9 +176,15 @@ export default function WorkspaceDetailPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="outline" size="sm">
+                <Link to={`/admin/workspaces/${workspace.id}/analytics`}>
+                  <BarChart3 className="mr-2 h-4 w-4" />
+                  Analytics
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="sm">
                 <Link to={`/admin/workspaces/${workspace.id}/technical-desk`}>
                   <Activity className="mr-2 h-4 w-4" />
-                  Technical desk
+                  Operations &amp; delivery
                 </Link>
               </Button>
               {canEditDraft(workspace) && (
@@ -169,6 +199,8 @@ export default function WorkspaceDetailPage() {
                 workspace={workspace}
                 onStart={() => setConfirmAction("start")}
                 starting={starting}
+                onEnd={() => setConfirmAction("end")}
+                ending={ending}
                 onArchive={() => setConfirmAction("archive")}
                 archiving={archiving}
                 onDelete={() => setConfirmAction("delete")}
@@ -184,7 +216,7 @@ export default function WorkspaceDetailPage() {
         {workspace.status === "archived" && (
           <Card className="border-destructive/30">
             <CardContent className="p-4 text-sm text-muted-foreground">
-              This workspace is archived. Registration management is locked and candidate-facing lookup is hidden.
+              This assessment is archived. Candidate management is locked and the assessment is no longer discoverable.
             </CardContent>
           </Card>
         )}

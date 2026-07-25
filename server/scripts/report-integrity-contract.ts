@@ -4,8 +4,16 @@ import {
   CANDIDATE_FORBIDDEN_REPORT_KEYS,
   sanitizeAntigravityReportForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
+  sanitizeAssessmentGenerationForCandidate,
+  sanitizePlacementReportForCandidate,
 } from "../src/services/candidateDossierSanitizer.js";
-import { assertGroundedAssessmentReport } from "../src/services/assessmentReportAgent.service.js";
+import {
+  assertEditorialAssessmentReport,
+  assertGroundedAssessmentReport,
+  canonicalizeAssessmentCitation,
+  canonicalizeAssessmentReportCitations,
+  systemPrompt,
+} from "../src/services/assessmentReportAgent.service.js";
 import { buildCandidateAssessmentSynthesis } from "../src/services/workspaceRegistration.service.js";
 
 const candidateArtifact = sanitizeAntigravityReportForCandidate({
@@ -73,6 +81,86 @@ assert.equal(dsaJson.includes("secret hidden input"), false);
 assert.equal(dsaJson.includes("secret expected"), false);
 assert.equal(dsaJson.includes("public"), true);
 
+const candidatePlacement = sanitizePlacementReportForCandidate({
+  scorecard: {
+    overallScore: 82,
+    readinessBand: "interview ready",
+    reasoningSummary: "Clear, evidence-backed answers.",
+    dimensionScores: { communication: 84, technicalDepth: 79 },
+    privateDecisionScore: 0.91,
+  },
+  readinessVerdict: {
+    summary: "Ready for a focused follow-up.",
+    hiringRecommendation: "ADVANCE",
+  },
+  coverageSummary: {
+    testedSlots: ["ownership", "debugging", "tradeoffs"],
+    lightlyTestedSlots: ["communication"],
+    testedDimensions: ["projectOwnership", "technicalDepth"],
+    lightlyTestedDimensions: ["communication"],
+    untestedDimensions: ["pressureHandling"],
+    confidenceNote: "Useful but not comprehensive coverage.",
+    recruiterOnlyCoverageNote: "Do not expose this note.",
+  },
+  strongestConvertingSignals: ["Explained a concrete trade-off."],
+  avoidableRejectionRisks: ["Needs a clearer recovery invariant."],
+  questionReviews: [
+    {
+      slotId: "q1",
+      questionText: "How do you recover after a crash?",
+      answerBand: "partial",
+      whatWasGood: ["Named idempotency."],
+      strongerAnswerWouldInclude: ["Bind write and acknowledgement."],
+      recruiterNote: "Do not expose this note.",
+    },
+  ],
+  sevenDayPlan: ["Practice one recovery design."],
+  hireRecommendation: "ADVANCE",
+  transcript: [{ private: true }],
+  telemetrySummary: { private: true },
+});
+const placementJson = JSON.stringify(candidatePlacement);
+assert.equal(placementJson.includes("ADVANCE"), false);
+assert.equal(placementJson.includes("recruiterNote"), false);
+assert.equal(placementJson.includes("transcript"), false);
+assert.equal(placementJson.includes("telemetrySummary"), false);
+assert.equal(placementJson.includes("Explained a concrete trade-off."), true);
+assert.equal(placementJson.includes("Useful but not comprehensive coverage."), true);
+assert.equal(placementJson.includes("recruiterOnlyCoverageNote"), false);
+
+const candidateUnified = sanitizeAssessmentGenerationForCandidate(
+  {
+    id: "generation-1",
+    reportKind: "unified",
+    promptVersion: "v5",
+    model: "model",
+    completedAt: "2026-07-23T00:00:00.000Z",
+    sourceHash: "hash",
+    result: {
+      executiveRead: {
+        claim: "Coding and SQL evidence agree on implementation accuracy.",
+        evidence: ["/dsa/score :: 88", "/sql/score :: 90"],
+        support: "derived",
+      },
+      crossModuleThesis: {
+        claim: "The remaining uncertainty is production failure handling.",
+        evidence: ["/interview/risk :: recovery invariant"],
+        support: "limited",
+      },
+      reinforcingSignals: [],
+      contradictions: [],
+      riskRegister: [{ recruiterOnly: true }],
+      panelDecisionGuide: ["Recruiter-only action"],
+      evidenceLimits: ["Only two coding tasks were retained."],
+    },
+  },
+  "unified",
+);
+const candidateUnifiedJson = JSON.stringify(candidateUnified);
+assert.equal(candidateUnifiedJson.includes("Coding and SQL evidence"), true);
+assert.equal(candidateUnifiedJson.includes("recruiterOnly"), false);
+assert.equal(candidateUnifiedJson.includes("Recruiter-only action"), false);
+
 const groundedEvidence = { modules: { dsa: { score: 88 } } };
 assert.doesNotThrow(() =>
   assertGroundedAssessmentReport(
@@ -101,6 +189,69 @@ assert.throws(() =>
     },
     groundedEvidence,
   ),
+);
+
+assert.doesNotThrow(() =>
+  assertEditorialAssessmentReport({
+    executiveRead: {
+      claim: "The retained judge suite supports a bounded correctness claim.",
+      evidence: ["/modules/dsa/score :: 88"],
+      support: "direct",
+    },
+  }),
+);
+assert.throws(
+  () =>
+    assertEditorialAssessmentReport({
+      executiveRead: "This robust candidate demonstrates strong performance — overall.",
+    }),
+  /editorial quality gate/,
+);
+assert.match(systemPrompt("unified"), /unified_reasoning_report_v3/);
+assert.match(systemPrompt("dsa"), /measurable next check/i);
+
+const placementEvidence = {
+  interview: {
+    latest: {
+      report: {
+        scorecard: {
+          recurringStrengths: ["Project ownership"],
+          recurringWeaknesses: ["Programming logic"],
+        },
+        questionReviews: [{ answerBand: "Good" }],
+      },
+    },
+  },
+};
+assert.equal(
+  canonicalizeAssessmentCitation(
+    "/interview/latest/report/recurringStrengths/0 :: project ownership",
+    placementEvidence,
+  ),
+  "/interview/latest/report/scorecard/recurringStrengths/0 :: Project ownership",
+);
+assert.equal(
+  canonicalizeAssessmentCitation(
+    "/dsa/submissions/0/code :: def solve(values):\n return sorted(values)",
+    { dsa: { submissions: [{ code: "def solve(values):\\n    return sorted(values)\\n" }] } },
+  ),
+  "/dsa/submissions/0/code :: def solve(values):\\n    return sorted(values)\\n",
+);
+const repairedGrounding = canonicalizeAssessmentReportCitations(
+  {
+    reinforcingSignals: [{
+      claim: "Grounded placement signal",
+      evidence: [
+        "/interview/latest/report/recurringStrengths/0 :: project ownership",
+        "/interview/latest/report/questionReviews/0/answerBand :: good",
+      ],
+      support: "direct",
+    }],
+  },
+  placementEvidence,
+);
+assert.doesNotThrow(() =>
+  assertGroundedAssessmentReport(repairedGrounding, placementEvidence),
 );
 
 const partial = buildCandidateAssessmentSynthesis({
@@ -147,4 +298,4 @@ assert.equal(complete.decisionStatus, "human_review_required");
 assert.equal(complete.recommendation, "HUMAN REVIEW REQUIRED");
 assert.equal(complete.evidenceBasis.antigravityVerdict, null);
 
-console.log("report integrity contract: 5/5 passed");
+console.log("report integrity contract: all checks passed");

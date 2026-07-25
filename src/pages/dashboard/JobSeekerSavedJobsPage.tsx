@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { buildJobSeekerSidebarSections, type JobSeekerDashboardSection } from "@/utils/jobSeekerSidebar";
 import { useJobSeekerShellIdentity } from "@/hooks/useJobSeekerShellIdentity";
+import { useJobSeekerWorkspaceMembership } from "@/hooks/useJobSeekerWorkspaceMembership";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function SavedJobRowsSkeleton() {
@@ -39,6 +40,7 @@ export default function JobSeekerSavedJobsPage() {
   const [savedJobs, setSavedJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { shellUser } = useJobSeekerShellIdentity();
+  const { hasWorkspace, workspaceName } = useJobSeekerWorkspaceMembership();
 
   const loadSaved = () => {
     if (!user) return;
@@ -65,6 +67,8 @@ export default function JobSeekerSavedJobsPage() {
   };
 
   const sidebarSections = buildJobSeekerSidebarSections({
+    hasWorkspace,
+    workspaceName,
     onDashboardSection: (section: JobSeekerDashboardSection) => {
       navigate("/dashboard/jobseeker", { state: { section } });
     },

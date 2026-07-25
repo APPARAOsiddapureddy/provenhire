@@ -5,6 +5,10 @@ import {
   signPlacementCallback,
   verifyPlacementCallback,
 } from "../src/services/placementReadinessContracts.js";
+import {
+  resolveExistingPlacementLaunch,
+  resolvePlacementWebUrl,
+} from "../src/routes/placementReadiness.js";
 
 const secret = "test-placement-webhook-secret";
 const timestamp = "1784275200";
@@ -25,4 +29,65 @@ assert.equal(canReadPlacementArtifact({ requesterId: "owner", requesterRole: "re
 assert.equal(canReadPlacementArtifact({ requesterId: "other", requesterRole: "recruiter", candidateId: "candidate", workspaceOwnerUserId: "owner" }), false);
 assert.equal(canReadPlacementArtifact({ requesterId: "other", requesterRole: "jobseeker", candidateId: "candidate", workspaceOwnerUserId: "owner" }), false);
 
-console.log("placement readiness contract: 8/8 passed");
+assert.equal(
+  resolvePlacementWebUrl({
+    NODE_ENV: "production",
+    PLACEMENT_READINESS_WEB_URL: "https://placement.provenhire.in",
+  }),
+  "https://provenhireplacement.vercel.app",
+);
+assert.equal(
+  resolvePlacementWebUrl({
+    NODE_ENV: "production",
+    PLACEMENT_READINESS_WEB_URL: "https://placement.provenhire.in",
+    PLACEMENT_READINESS_CUSTOM_DOMAIN_READY: "true",
+  }),
+  "https://placement.provenhire.in",
+);
+
+const resumeNowMs = Date.parse("2026-07-22T00:30:00.000Z");
+assert.deepEqual(
+  resolveExistingPlacementLaunch({
+    handoffId: "handoff-1",
+    status: "started",
+    placementSessionId: "session/1",
+    expiresAt: new Date("2026-07-22T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-22T00:15:00.000Z"),
+    webUrl: "https://placement.example.com",
+    now: resumeNowMs,
+  }),
+  {
+    handoff_id: "handoff-1",
+    launch_url: "https://placement.example.com/interview-room/session%2F1",
+    expires_at: "2026-07-22T00:00:00.000Z",
+    resumed: true,
+    status: "started",
+  },
+);
+assert.equal(
+  resolveExistingPlacementLaunch({
+    handoffId: "handoff-2",
+    status: "created",
+    placementSessionId: null,
+    expiresAt: new Date("2026-07-22T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-22T00:00:00.000Z"),
+    webUrl: "https://placement.example.com",
+  }),
+  null,
+);
+// A handoff abandoned for hours with no progress must not be resumed into a
+// dead interview room - it should fall through so the caller issues a fresh one.
+assert.equal(
+  resolveExistingPlacementLaunch({
+    handoffId: "handoff-3",
+    status: "started",
+    placementSessionId: "session/stale",
+    expiresAt: new Date("2026-07-22T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-22T00:00:00.000Z"),
+    webUrl: "https://placement.example.com",
+    now: Date.parse("2026-07-22T03:00:00.000Z"),
+  }),
+  null,
+);
+
+console.log("placement readiness contract: 14/14 passed");

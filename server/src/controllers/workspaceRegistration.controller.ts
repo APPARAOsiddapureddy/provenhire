@@ -2,15 +2,26 @@ import type { Response } from "express";
 import { z } from "zod";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { WorkspaceServiceError } from "../services/workspace.service.js";
+import { provisionStudentAccounts } from "../services/studentProvisioning.service.js";
 import {
   importAllowedWorkspaceEmailsFromCsv,
+  addAllowedWorkspaceEmails,
+  sendPendingWorkspaceInvitations,
+  addWorkspaceMember,
   getWorkspaceCandidateDossier,
+  listAllowedWorkspaceEmails,
+  listWorkspaceAuditTrail,
+  listWorkspaceMembers,
   listWorkspaceRegistrations,
   recordWorkspaceCandidateDecision,
+  removeWorkspaceMember,
   removeWorkspaceRegistration,
   restoreWorkspaceRegistration,
+  revokeAllowedWorkspaceEmail,
+  transferWorkspaceOwnership,
 } from "../services/workspaceRegistration.service.js";
-import { generateAssessmentReport } from "../services/assessmentReportAgent.service.js";
+import { enqueueManualAssessmentReportWorkflow } from "../services/assessmentWorkflow.service.js";
+import { getWorkspaceAnalytics } from "../services/workspaceAnalytics.service.js";
 
 type UploadedCsvFile = {
   buffer: Buffer;
@@ -50,14 +61,32 @@ export async function generateWorkspaceCandidateReportController(
   if (!parsed.success)
     return res.status(400).json({ error: "kind must be dsa or unified" });
   try {
-    const generation = await generateAssessmentReport(
+    const dossier = await getWorkspaceCandidateDossier(
       actorFromRequest(req),
       req.params.id,
       req.params.userId,
-      parsed.data.kind,
-      Boolean(parsed.data.force),
     );
-    return res.json({ generation });
+    if (dossier.synthesis.decisionStatus !== "human_review_required")
+      throw new WorkspaceServiceError(
+        "Report generation is blocked until every source module has complete, auditable evidence.",
+        409,
+      );
+    const job = await enqueueManualAssessmentReportWorkflow({
+      workspaceId: req.params.id,
+      userId: req.params.userId,
+      kind: parsed.data.kind,
+      force: Boolean(parsed.data.force),
+    });
+    return res.status(202).json({
+      queued: true,
+      job: {
+        id: job.id,
+        kind: parsed.data.kind,
+        status: job.status,
+        currentStep: job.currentStep,
+        queuedAt: job.updatedAt,
+      },
+    });
   } catch (error) {
     return sendError(res, error);
   }
@@ -98,6 +127,21 @@ export async function recordWorkspaceCandidateDecisionController(
       parsed.data,
     );
     return res.json({ decision });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function getWorkspaceAnalyticsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    const analytics = await getWorkspaceAnalytics(
+      actorFromRequest(req),
+      req.params.id,
+    );
+    return res.json({ analytics });
   } catch (error) {
     return sendError(res, error);
   }
@@ -196,6 +240,212 @@ export async function importAllowedWorkspaceEmailsController(
       csvBuffer: req.file.buffer,
     });
     return res.json({ summary });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function listAllowedWorkspaceEmailsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      invitations: await listAllowedWorkspaceEmails(
+        actorFromRequest(req),
+        req.params.id,
+      ),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function addAllowedWorkspaceEmailsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z.object({
+    emails: z.array(z.string().trim().min(3).max(320)).min(1).max(200),
+    /// Omitted => true, preserving the existing recruiter/admin behaviour of
+    /// emailing on add. The campus roster UI passes false to stage a batch
+    /// without emailing, then sends explicitly.
+    sendInvites: z.boolean().optional(),
+  }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide between 1 and 200 invitation emails." });
+  }
+  try {
+    return res.status(201).json(await addAllowedWorkspaceEmails({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      emails: parsed.data.emails,
+      sendInvites: parsed.data.sendInvites,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+/// Explicit, separate send action - see sendPendingWorkspaceInvitations.
+export async function sendWorkspaceInvitationsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z.object({
+    emails: z.array(z.string().trim().min(3).max(320)).max(1000).optional(),
+  }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid invitation send payload." });
+  }
+  try {
+    return res.json(await sendPendingWorkspaceInvitations({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      emails: parsed.data.emails,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+/// Pre-creates student accounts and returns one single-use activation link
+/// each. No passwords are generated or returned - see
+/// provisionStudentAccounts.
+export async function provisionWorkspaceStudentsController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z.object({
+    students: z
+      .array(
+        z.object({
+          email: z.string().trim().min(3).max(320),
+          name: z.string().trim().max(160).nullish(),
+        }),
+      )
+      .min(1)
+      .max(1000),
+  }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide between 1 and 1000 students, each with an email." });
+  }
+  try {
+    return res.status(201).json(await provisionStudentAccounts({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      students: parsed.data.students,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function revokeAllowedWorkspaceEmailController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json(await revokeAllowedWorkspaceEmail({
+      actor: actorFromRequest(req),
+      workspaceId: req.params.id,
+      invitationId: req.params.invitationId,
+    }));
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function listWorkspaceAuditTrailController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      events: await listWorkspaceAuditTrail(actorFromRequest(req), req.params.id),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function listWorkspaceMembersController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      members: await listWorkspaceMembers(actorFromRequest(req), req.params.id),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+const workspaceMemberRoleSchema = z.enum(["owner", "manager", "reviewer"]);
+
+export async function addWorkspaceMemberController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z
+    .object({
+      email: z.string().trim().min(3).max(320),
+      role: workspaceMemberRoleSchema.default("manager"),
+    })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide a member email and a valid role." });
+  }
+  try {
+    return res.status(201).json({
+      members: await addWorkspaceMember({
+        actor: actorFromRequest(req),
+        workspaceId: req.params.id,
+        email: parsed.data.email,
+        role: parsed.data.role,
+      }),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function removeWorkspaceMemberController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  try {
+    return res.json({
+      members: await removeWorkspaceMember({
+        actor: actorFromRequest(req),
+        workspaceId: req.params.id,
+        memberUserId: req.params.userId,
+      }),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function transferWorkspaceOwnershipController(
+  req: AuthedRequest,
+  res: Response,
+) {
+  const parsed = z
+    .object({ newOwnerUserId: z.string().trim().min(1) })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Provide the new owner's user id." });
+  }
+  try {
+    return res.json({
+      members: await transferWorkspaceOwnership({
+        actor: actorFromRequest(req),
+        workspaceId: req.params.id,
+        newOwnerUserId: parsed.data.newOwnerUserId,
+      }),
+    });
   } catch (error) {
     return sendError(res, error);
   }

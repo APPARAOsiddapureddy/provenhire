@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock3,
   Code2,
+  Database,
   ExternalLink,
   FileSearch,
   GraduationCap,
@@ -42,12 +43,20 @@ import {
 } from "@/components/ui/select";
 import { PageLoaderFullScreen } from "@/components/PageLoader";
 import type { WorkspaceCandidateDossier } from "./types";
+import type { WorkspaceAnalyticsSnapshot, WorkspaceRoundTypeKey } from "./workspaceAnalyticsTypes";
+import UserWorkspaceShell from "../../dashboard/workspaces/UserWorkspaceShell";
 import {
   preview,
   workspaceId as localWorkspaceId,
 } from "./WorkspaceLocalPreviewPage";
 
-type ModuleKey = "overview" | "aptitude" | "dsa" | "antigravity";
+type ModuleKey =
+  | "overview"
+  | "aptitude"
+  | "dsa"
+  | "sql"
+  | "interview"
+  | "antigravity";
 type Json = Record<string, unknown>;
 
 const asRecord = (value: unknown): Json =>
@@ -58,12 +67,21 @@ const asList = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : [];
 const strings = (value: unknown): string[] =>
   asList(value).map(String).filter(Boolean);
+const narrativeClaim = (value: unknown, fallback = "") => {
+  if (typeof value === "string") return value;
+  return String(asRecord(value).claim || fallback);
+};
+const narrativeEvidence = (value: unknown) =>
+  strings(asRecord(value).evidence);
 const numeric = (value: unknown, fallback = 0) =>
   Number.isFinite(Number(value)) ? Number(value) : fallback;
 const evidenceComplete = (
   dossier: WorkspaceCandidateDossier,
-  module: "aptitude" | "dsa" | "antigravity",
-) => dossier.synthesis?.evidenceCompleteness?.[module] === true;
+  module: "aptitude" | "dsa" | "sql" | "interview" | "antigravity",
+) =>
+  dossier.synthesis?.evidenceCompleteness?.byModule?.[
+    module === "antigravity" ? "interview" : module
+  ] === true || dossier.synthesis?.evidenceCompleteness?.[module] === true;
 const interviewEvidenceState = (
   latest: WorkspaceCandidateDossier["modules"]["antigravity"]["latest"],
 ) => {
@@ -82,6 +100,23 @@ const titleize = (value: string) =>
   value
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+const normalizeTitle = (value: unknown) => String(value ?? "").trim().toLowerCase();
+// Prefers a title match (problemReads ordering isn't contractually guaranteed
+// to mirror the submission list); falls back to positional alignment only
+// when the two arrays are the same length, so a partial/mismatched
+// problemReads array never gets silently misattributed to the wrong problem.
+const matchProblemRead = (
+  problemReads: Json[],
+  title: unknown,
+  index: number,
+  totalCount: number,
+): Json | undefined => {
+  const byTitle = problemReads.find(
+    (read) => normalizeTitle(read.title) === normalizeTitle(title),
+  );
+  if (byTitle) return byTitle;
+  return problemReads.length === totalCount ? problemReads[index] : undefined;
+};
 
 function Metric({
   label,
@@ -93,13 +128,59 @@ function Metric({
   detail: string;
 }) {
   return (
-    <div className="rounded-xl border bg-background p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+    <div className="rounded-lg border bg-background p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <p className="text-xl font-bold tabular-nums">{value}</p>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
     </div>
+  );
+}
+
+function EvidenceItems({
+  items,
+  empty = "No evidence recorded.",
+}: {
+  items: string[];
+  empty?: string;
+}) {
+  if (!items.length) {
+    return <p className="text-sm leading-6 text-muted-foreground">{empty}</p>;
+  }
+  return (
+    <ul className="space-y-2 text-sm">
+      {items.map((item, index) => (
+        <li key={`${index}-${item}`} className="flex gap-2 leading-6">
+          <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CitationList({ items }: { items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <details className="mt-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer font-medium">
+        {items.length} evidence source{items.length === 1 ? "" : "s"}
+      </summary>
+      <ul className="mt-2 space-y-2">
+        {items.map((item) => {
+          const separator = item.indexOf(" :: ");
+          const pointer = separator > 0 ? item.slice(0, separator) : item;
+          const excerpt = separator > 0 ? item.slice(separator + 4) : "";
+          return (
+            <li key={item} className="rounded-md bg-muted/50 p-2 leading-5">
+              <code className="break-all">{pointer}</code>
+              {excerpt ? <span className="mt-1 block">Recorded value: {excerpt}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
 
@@ -118,18 +199,7 @@ function EvidenceList({
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        {items.length ? (
-          <ul className="space-y-3 text-sm">
-            {items.map((item, index) => (
-              <li key={`${index}-${item}`} className="flex gap-2 leading-6">
-                <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">{empty}</p>
-        )}
+        <EvidenceItems items={items} empty={empty} />
       </CardContent>
     </Card>
   );
@@ -176,6 +246,11 @@ type AgentGeneration = NonNullable<
   NonNullable<WorkspaceCandidateDossier["agentReports"]>["dsa"]
 >;
 
+type QueuedReport = {
+  kind: "dsa" | "unified";
+  baselineCompletedAt: string | null;
+};
+
 type ReportAudience = "admin" | "candidate";
 
 function AdminDecisionBanner({
@@ -199,14 +274,14 @@ function AdminDecisionBanner({
     kind === "unified" ? true : evidenceComplete(dossier, kind);
   const decision =
     kind === "unified"
-      ? synthesis?.recommendation || "INSUFFICIENT EVIDENCE"
+      ? titleize((synthesis?.recommendation || "insufficient evidence").toLowerCase())
       : score == null
-        ? "ASSESSMENT EVIDENCE UNAVAILABLE"
+        ? "Assessment evidence unavailable"
         : !moduleComplete
-          ? "PARTIAL EVIDENCE — DECISION USE BLOCKED"
+          ? "Partial evidence. Decision use blocked"
         : kind === "aptitude"
-          ? "OBJECTIVE SIGNAL RECORDED"
-          : "CODING EVIDENCE RECORDED";
+          ? "Objective signal recorded"
+          : "Coding evidence recorded";
   const aptitudeAnswers = asRecord(
     dossier.modules.aptitude.workspaceEvidence ??
       dossier.modules.aptitude.latest?.answers,
@@ -229,15 +304,15 @@ function AdminDecisionBanner({
   const proofs =
     kind === "aptitude"
       ? [
-          `${score ?? "—"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
-          `${String(aptitudeAnswers.correct ?? "—")} correct responses`,
+          `${score ?? "Not available"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
+          `${String(aptitudeAnswers.correct ?? "Not available")} correct responses`,
           aptitudeReview.length === aptitudeTotal && aptitudeTotal > 0
             ? `All ${aptitudeTotal} question records retained`
             : `${aptitudeReview.length}/${aptitudeTotal || "?"} question records retained`,
         ]
       : kind === "dsa"
         ? [
-            `${score ?? "—"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
+            `${score ?? "Not available"}/100 stored result${moduleComplete ? "" : " (not fully auditable)"}`,
             `${fullyPassed}/${dsaSubmissions.length} submissions passed every retained test`,
             moduleComplete
               ? "Problem, source, and test evidence are reproducible below"
@@ -258,15 +333,15 @@ function AdminDecisionBanner({
         ? "This module is one input to a human review. It does not independently approve or reject the candidate."
         : "A score exists, but the retained source is incomplete. Do not use this module in a hiring decision until the missing evidence is recovered or the assessment is rerun.";
   return (
-    <Card className="overflow-hidden border-slate-800 shadow-lg">
-      <CardContent className="bg-slate-950 p-6 text-white md:p-8">
+    <Card className="border-slate-700/60 bg-slate-950">
+      <CardContent className="p-6 text-white md:p-8">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-300">
+          <p className="text-sm font-medium text-slate-300">
             {kind === "unified"
               ? "Decision-support status"
               : `${kind} assessment status`}
           </p>
-          <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">
+          <h2 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">
             {decision}
           </h2>
           <p className="mt-3 max-w-4xl text-sm leading-7 text-slate-200">
@@ -279,8 +354,8 @@ function AdminDecisionBanner({
               key={proof}
               className="rounded-lg border border-white/15 bg-white/[0.06] p-3"
             >
-              <p className="text-xs font-bold text-violet-300">
-                EVIDENCE {index + 1}
+              <p className="text-sm font-semibold text-violet-300">
+                Evidence {index + 1}
               </p>
               <p className="mt-1 text-sm leading-6 text-slate-100">{proof}</p>
             </div>
@@ -310,6 +385,8 @@ function AgentReasoningReport({
     result.failureAndRiskAnalysis ?? result.contradictions,
   ).map(asRecord);
   const role = asRecord(result.roleReadiness ?? result.roleFit);
+  const executiveRead = result.executiveRead;
+  const thesis = result.crossModuleThesis || result.algorithmicReasoning;
   if (!report)
     return (
       <Card className="border-dashed border-primary/40">
@@ -339,20 +416,20 @@ function AgentReasoningReport({
       </Card>
     );
   return (
-    <Card className="overflow-hidden border-indigo-300 shadow-sm">
-      <CardHeader className="bg-gradient-to-r from-indigo-950 via-slate-950 to-violet-950 text-white">
+    <Card className="border-indigo-400/40">
+      <CardHeader className="border-b bg-indigo-950/35">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardDescription className="text-indigo-200">
-              AI evidence interpretation · advisory, persisted, source-hashed
+            <CardDescription>
+              Advisory interpretation of persisted, source-hashed evidence
             </CardDescription>
             <CardTitle className="mt-2 flex items-center gap-2 text-2xl">
-              <Sparkles className="h-6 w-6 text-violet-300" />
+              <FileSearch className="h-6 w-6 text-indigo-400" />
               {title}
             </CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            <Badge className="bg-white/10 text-white hover:bg-white/10">
+            <Badge variant="outline">
               Requires human review
             </Badge>
             {onGenerate ? (
@@ -375,42 +452,34 @@ function AgentReasoningReport({
       </CardHeader>
       <CardContent className="space-y-6 p-6">
         <section>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-700">
-            Evidence interpretation
-          </p>
+          <h3 className="text-base font-semibold">Evidence interpretation</h3>
           <p className="mt-3 text-base leading-8">
-            {String(result.executiveRead || "No executive read was returned.")}
+            {narrativeClaim(executiveRead, "No executive read was returned.")}
           </p>
+          <CitationList items={narrativeEvidence(executiveRead)} />
           <p className="mt-3 text-xs leading-5 text-muted-foreground">
             This narrative cannot create missing evidence, assign a hiring
             outcome, or replace a named reviewer applying the employer rubric.
           </p>
         </section>
-        {result.crossModuleThesis || result.algorithmicReasoning ? (
+        {thesis ? (
           <section className="rounded-xl bg-indigo-50 p-4">
             <p className="font-semibold text-indigo-950">Reasoning thesis</p>
             <p className="mt-2 text-sm leading-7 text-indigo-950/80">
-              {String(result.crossModuleThesis || result.algorithmicReasoning)}
+              {narrativeClaim(thesis)}
             </p>
+            <CitationList items={narrativeEvidence(thesis)} />
           </section>
         ) : null}
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                Evidence-backed strengths
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+        <div className="grid gap-6 border-y py-5 lg:grid-cols-2">
+          <section>
+            <h3 className="mb-3 text-base font-semibold">Evidence-backed strengths</h3>
+            <div className="space-y-3">
               {strengths.length ? (
                 strengths.map((item, index) => (
-                  <div key={index} className="rounded-lg border p-3">
+                  <div key={index} className="border-b pb-3 last:border-b-0 last:pb-0">
                     <p className="font-medium">{String(item.claim)}</p>
-                    <ul className="mt-2 list-inside list-disc text-xs leading-5 text-muted-foreground">
-                      {strings(item.evidence).map((evidence) => (
-                        <li key={evidence}>{evidence}</li>
-                      ))}
-                    </ul>
+                    <CitationList items={strings(item.evidence)} />
                   </div>
                 ))
               ) : (
@@ -418,24 +487,16 @@ function AgentReasoningReport({
                   No verified strength claim returned.
                 </p>
               )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                Contradictions and risks
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+            </div>
+          </section>
+          <section>
+            <h3 className="mb-3 text-base font-semibold">Contradictions and risks</h3>
+            <div className="space-y-3">
               {concerns.length ? (
                 concerns.map((item, index) => (
-                  <div key={index} className="rounded-lg border p-3">
+                  <div key={index} className="border-b pb-3 last:border-b-0 last:pb-0">
                     <p className="font-medium">{String(item.claim)}</p>
-                    <ul className="mt-2 list-inside list-disc text-xs leading-5 text-muted-foreground">
-                      {strings(item.evidence).map((evidence) => (
-                        <li key={evidence}>{evidence}</li>
-                      ))}
-                    </ul>
+                    <CitationList items={strings(item.evidence)} />
                   </div>
                 ))
               ) : (
@@ -443,23 +504,23 @@ function AgentReasoningReport({
                   No material contradiction returned.
                 </p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <EvidenceList
-            title="Ready now"
-            items={strings(role.readyFor ?? role.readyNow)}
-          />
-          <EvidenceList
-            title="Conditional / support"
-            items={strings(role.needsSupportFor ?? role.conditional)}
-          />
-          <EvidenceList
-            title="Not yet proven"
-            items={strings(role.avoidUntilVerified ?? role.notYetProven)}
-          />
-        </div>
+        {Object.keys(role).length ? (
+          <div className="grid gap-6 md:grid-cols-3">
+            {[
+              ["Ready now", strings(role.readyFor ?? role.readyNow)],
+              ["Conditional support", strings(role.needsSupportFor ?? role.conditional)],
+              ["Not yet proven", strings(role.avoidUntilVerified ?? role.notYetProven)],
+            ].map(([label, items]) => (
+              <section key={String(label)}>
+                <h3 className="mb-3 text-sm font-semibold">{String(label)}</h3>
+                <EvidenceItems items={items as string[]} />
+              </section>
+            ))}
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-x-5 gap-y-1 border-t pt-4 text-xs text-muted-foreground">
           <span>Model: {report.model}</span>
           <span>
@@ -521,7 +582,8 @@ function HumanDecisionPanel({
   );
   const gatesReady =
     dossier.synthesis?.integrity?.status === "verified" &&
-    dossier.synthesis.completedModules === 3 &&
+    dossier.synthesis.completedModules ===
+      dossier.synthesis.requiredModules.length &&
     dossier.synthesis.decisionStatus === "human_review_required" &&
     responsibilities.length >= 3;
   const complete =
@@ -576,8 +638,8 @@ function HumanDecisionPanel({
         {!gatesReady ? (
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             Decision entry remains locked until evidence binding, complete
-            auditable source data for all three modules, and the employer role
-            rubric are ready.
+            auditable source data for every configured module, and the employer
+            role rubric are ready.
           </div>
         ) : (
           <>
@@ -698,6 +760,135 @@ function HumanDecisionPanel({
   );
 }
 
+const OVERVIEW_MODULE_LABEL: Record<WorkspaceRoundTypeKey, string> = {
+  mcq: "Aptitude",
+  coding: "Coding",
+  sql: "SQL",
+  interview: "AI interview",
+};
+const OVERVIEW_WEAK_CATEGORY_GAP = 8;
+
+function candidateAptitudeCategoryScores(dossier: WorkspaceCandidateDossier): Array<{ name: string; score: number }> {
+  return (dossier.modules.aptitude.workspaceEvidence?.categories ?? []).map((c) => ({
+    name: c.name,
+    score: c.score,
+  }));
+}
+
+function candidateInterviewDimensionScores(
+  dossier: WorkspaceCandidateDossier,
+): Array<{ name: string; score: number }> {
+  const report = asRecord(dossier.modules.interview.latest?.report);
+  const scorecard = asRecord(report.scorecard);
+  const dimensionScores = asRecord(scorecard.dimensionScores);
+  return Object.entries(dimensionScores)
+    .map(([name, value]) => ({ name, score: Number(value) }))
+    .filter((entry) => Number.isFinite(entry.score));
+}
+
+function WorkspaceAverageComparison({ dossier }: { dossier: WorkspaceCandidateDossier }) {
+  const [analytics, setAnalytics] = useState<WorkspaceAnalyticsSnapshot | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ analytics: WorkspaceAnalyticsSnapshot }>(`/api/workspaces/${dossier.workspaceId}/analytics`)
+      .then((res) => {
+        if (!cancelled) setAnalytics(res.analytics);
+      })
+      .catch(() => {
+        if (!cancelled) setAnalytics(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dossier.workspaceId]);
+
+  if (!analytics) return null;
+
+  const ownScoreByType: Record<WorkspaceRoundTypeKey, number | null> = {
+    mcq: dossier.synthesis?.evidenceBasis.aptitudeScore ?? null,
+    coding: dossier.synthesis?.evidenceBasis.dsaScore ?? null,
+    sql: dossier.synthesis?.evidenceBasis.sqlScore ?? null,
+    interview: dossier.synthesis?.evidenceBasis.interviewScore ?? null,
+  };
+  const candidateCategoriesByType: Partial<Record<WorkspaceRoundTypeKey, Array<{ name: string; score: number }>>> = {
+    mcq: candidateAptitudeCategoryScores(dossier),
+    interview: candidateInterviewDimensionScores(dossier),
+  };
+
+  const configuredTypes = (Object.entries(analytics.modules) as [WorkspaceRoundTypeKey, typeof analytics.modules[WorkspaceRoundTypeKey]][])
+    .filter(([, summary]) => summary.configured);
+  if (configuredTypes.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription>Workspace comparison</CardDescription>
+        <CardTitle className="text-2xl">How this candidate compares to the workspace average</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Based on {analytics.workspace.totalCandidates} registered candidate
+          {analytics.workspace.totalCandidates === 1 ? "" : "s"} in this workspace, generated{" "}
+          {new Date(analytics.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {configuredTypes.map(([type, summary]) => {
+            const ownScore = ownScoreByType[type];
+            const delta = ownScore !== null && summary.avgPercentageScore !== null ? ownScore - summary.avgPercentageScore : null;
+            return (
+              <Metric
+                key={type}
+                label={OVERVIEW_MODULE_LABEL[type]}
+                value={ownScore !== null ? `${ownScore}%` : "—"}
+                detail={
+                  summary.avgPercentageScore !== null
+                    ? `Workspace average ${summary.avgPercentageScore}%${delta !== null ? ` · ${delta > 0 ? "+" : ""}${delta} vs. average` : ""}`
+                    : "No completed peer results yet."
+                }
+              />
+            );
+          })}
+        </div>
+        {configuredTypes.some(([type]) => candidateCategoriesByType[type]?.length) ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {configuredTypes.map(([type, summary]) => {
+              const own = candidateCategoriesByType[type];
+              if (!own?.length) return null;
+              const weak = own.filter((c) => {
+                const groupCategory = summary.categories.find((g) => g.name === c.name);
+                return groupCategory && groupCategory.avgScore - c.score >= OVERVIEW_WEAK_CATEGORY_GAP;
+              });
+              const strong = own.filter((c) => {
+                const groupCategory = summary.categories.find((g) => g.name === c.name);
+                return groupCategory && c.score - groupCategory.avgScore >= OVERVIEW_WEAK_CATEGORY_GAP;
+              });
+              if (weak.length === 0 && strong.length === 0) return null;
+              return (
+                <div key={type} className="rounded-xl border p-4">
+                  <p className="font-semibold">{OVERVIEW_MODULE_LABEL[type]} categories</p>
+                  {strong.length > 0 ? (
+                    <p className="mt-2 text-sm leading-6">
+                      <span className="font-medium text-emerald-700">Ahead of the group: </span>
+                      {strong.map((c) => titleize(c.name)).join(", ")}
+                    </p>
+                  ) : null}
+                  {weak.length > 0 ? (
+                    <p className="mt-2 text-sm leading-6">
+                      <span className="font-medium text-rose-700">Behind the group: </span>
+                      {weak.map((c) => titleize(c.name)).join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function Overview({
   dossier,
   generating,
@@ -778,7 +969,8 @@ function Overview({
         onRecord={onRecordDecision}
         recording={recordingDecision}
       />
-      <div className="grid gap-4 md:grid-cols-3">
+      <WorkspaceAverageComparison dossier={dossier} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
           label="Aptitude evidence"
           value={
@@ -791,6 +983,14 @@ function Overview({
           value={synthesis.evidenceCompleteness?.dsa ? "Complete" : "Partial"}
           detail={`Stored module result: ${synthesis.evidenceBasis.dsaScore ?? "—"}/100`}
         />
+        {(synthesis.requiredModules?.includes("sql") ||
+          synthesis.evidenceBasis.sqlScore != null) ? (
+          <Metric
+            label="SQL evidence"
+            value={synthesis.evidenceCompleteness?.sql ? "Complete" : "Partial"}
+            detail={`Stored module result: ${synthesis.evidenceBasis.sqlScore ?? "—"}/100`}
+          />
+        ) : null}
         <Metric
           label="Interview evidence"
           value={
@@ -798,7 +998,7 @@ function Overview({
               ? "Complete"
               : "Partial"
           }
-          detail={`Recorded interview result: ${synthesis.evidenceBasis.antigravityScore == null ? "—" : `${synthesis.evidenceBasis.antigravityScore / 10}/10`}`}
+          detail={`Recorded interview result: ${synthesis.evidenceBasis.interviewScore ?? synthesis.evidenceBasis.antigravityScore ?? "—"}/100`}
         />
       </div>
       <Card>
@@ -822,7 +1022,7 @@ function Overview({
               ],
               [
                 "Pressure-tested transfer",
-                "Antigravity probes ownership, mechanisms, failure boundaries, and production judgment.",
+                "The configured interview probes ownership, mechanisms, failure boundaries, and production judgment.",
               ],
             ].map(([label, detail], index) => (
               <div key={label} className="rounded-xl border p-4">
@@ -937,7 +1137,7 @@ function AptitudeReport({ dossier }: { dossier: WorkspaceCandidateDossier }) {
               detail="Unattempted questions"
             />
           </div>
-          <div className="rounded-xl border-l-4 border-l-primary bg-muted/40 p-4">
+          <div className="rounded-xl border bg-muted/40 p-4">
             <p className="font-semibold">Reasoning interpretation</p>
             <p className="mt-2 text-sm leading-7">
               {!ledgerComplete
@@ -1174,6 +1374,21 @@ function DsaReport({
     ? [...new Set(submissions.map((item) => item.language))].join(", ")
     : String(answers.language ?? "Not recorded");
   const complete = evidenceComplete(dossier, "dsa");
+  const dsaResult = asRecord(dossier.agentReports?.dsa?.result);
+  const problemReads = complete ? asList(dsaResult.problemReads).map(asRecord) : [];
+  const dsaDifficultyLedger = new Map<string, { correct: number; total: number }>();
+  for (const submission of submissions) {
+    const difficulty = titleize(String(submission.question?.difficulty || "Unspecified"));
+    const current = dsaDifficultyLedger.get(difficulty) ?? { correct: 0, total: 0 };
+    current.total += submission.totalCount;
+    current.correct += submission.passedCount;
+    dsaDifficultyLedger.set(difficulty, current);
+  }
+  const dsaDifficultyBreakdown = Array.from(dsaDifficultyLedger.entries()).map(([name, { correct, total }]) => ({
+    name,
+    score: total ? Math.round((correct / total) * 100) : 0,
+    total,
+  }));
   return (
     <div className="space-y-5">
       <AdminDecisionBanner kind="dsa" dossier={dossier} />
@@ -1227,7 +1442,7 @@ function DsaReport({
               detail="Official submission language"
             />
           </div>
-          <div className="rounded-xl border-l-4 border-l-primary bg-muted/40 p-4">
+          <div className="rounded-xl border bg-muted/40 p-4">
             <p className="font-semibold">Implementation interpretation</p>
             <p className="mt-2 text-sm leading-7">
               {totalTests && totalPassed === totalTests
@@ -1239,13 +1454,34 @@ function DsaReport({
           </div>
         </CardContent>
       </Card>
+      {dsaDifficultyBreakdown.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Score by difficulty</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {dsaDifficultyBreakdown.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm">{entry.name}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${entry.score}%`,
+                      backgroundColor: entry.score < 60 ? "#ef4444" : entry.score < 80 ? "#f59e0b" : "#10b981",
+                    }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm font-medium">{entry.score}%</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
       {submissions.length
         ? submissions.map((submission, index) => {
             const question = submission.question;
-            const resultPayload = asRecord(submission.results);
-            const rows = asList(resultPayload.results).length
-              ? asList(resultPayload.results).map(asRecord)
-              : asList(submission.results).map(asRecord);
+            const rows = parseJudgeResultRows(submission.results);
             const followUp = asRecord(submission.followUpResults);
             const followRows = asList(followUp.results).map(asRecord);
             return (
@@ -1283,6 +1519,34 @@ function DsaReport({
                       </p>
                     </section>
                   ) : null}
+                  {asList(question?.examples).length ? (
+                    <section>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Examples
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {asList(question?.examples).map(asRecord).map((example, exampleIndex) => (
+                          <div key={exampleIndex} className="rounded-lg border bg-muted/40 p-3 text-xs">
+                            {example.input !== undefined ? (
+                              <p>
+                                <span className="font-medium text-muted-foreground">Input: </span>
+                                <code>{String(example.input)}</code>
+                              </p>
+                            ) : null}
+                            {(example.output ?? example.expectedOutput) !== undefined ? (
+                              <p className="mt-1">
+                                <span className="font-medium text-muted-foreground">Output: </span>
+                                <code>{String(example.output ?? example.expectedOutput)}</code>
+                              </p>
+                            ) : null}
+                            {example.explanation ? (
+                              <p className="mt-1 text-muted-foreground">{String(example.explanation)}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
                   {question?.constraints?.length ? (
                     <section>
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1295,6 +1559,32 @@ function DsaReport({
                       </ul>
                     </section>
                   ) : null}
+                  {(() => {
+                    const read = matchProblemRead(
+                      problemReads,
+                      question?.title,
+                      index,
+                      submissions.length,
+                    );
+                    if (!read?.approach && !read?.complexity) return null;
+                    return (
+                      <section className="rounded-xl border bg-muted/40 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          AI-analyzed reasoning
+                        </p>
+                        {read.approach ? (
+                          <p className="mt-2 text-sm leading-6">
+                            <strong>Approach:</strong> {String(read.approach)}
+                          </p>
+                        ) : null}
+                        {read.complexity ? (
+                          <p className="mt-2 text-sm leading-6">
+                            <strong>Complexity:</strong> {String(read.complexity)}
+                          </p>
+                        ) : null}
+                      </section>
+                    );
+                  })()}
                   <section>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1316,20 +1606,35 @@ function DsaReport({
                     <div className="mt-2 space-y-2">
                       {rows.length ? (
                         rows.map((row, rowIndex) => (
-                          <details
+                          <div
                             key={rowIndex}
-                            className="rounded-lg border px-3 py-2"
+                            className={`rounded-lg border p-3 text-xs ${row.passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
                           >
-                            <summary className="cursor-pointer text-sm font-medium">
-                              Test {rowIndex + 1} ·{" "}
-                              {row.passed
-                                ? "Passed"
-                                : String(row.status || "Failed")}
-                            </summary>
-                            <pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
-                              {JSON.stringify(row, null, 2)}
-                            </pre>
-                          </details>
+                            <div className="flex items-center justify-between gap-2">
+                              <Badge variant={row.passed ? "outline" : "destructive"}>
+                                Test {rowIndex + 1} · {JUDGE_STATUS_LABEL[row.status] ?? (row.passed ? "Passed" : row.status)}
+                              </Badge>
+                              {!row.input ? (
+                                <span className="text-muted-foreground">Hidden test case</span>
+                              ) : null}
+                            </div>
+                            {row.input ? (
+                              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Input</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.input}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Expected</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.expected}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Actual</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.actual}</pre>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
                         ))
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -1484,23 +1789,21 @@ function CandidateFeedbackHeader({
   scoreLabel?: string;
 }) {
   return (
-    <Card className="overflow-hidden border-emerald-300">
-      <CardContent className="bg-gradient-to-br from-emerald-950 via-teal-950 to-slate-950 p-6 text-white md:p-8">
+    <Card className="border-emerald-700/40 bg-emerald-950/30">
+      <CardContent className="p-6 md:p-8">
         <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-center">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">
-              Candidate feedback · learning and improvement
+            <p className="text-sm font-medium text-emerald-300">
+              Your feedback
             </p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight">{title}</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-emerald-50/90">
+            <h2 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{title}</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-foreground/80">
               {summary}
             </p>
           </div>
-          <div className="rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-center">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">
-              {scoreLabel}
-            </p>
-            <p className="mt-1 text-4xl font-black">{score}</p>
+          <div className="rounded-lg border border-emerald-700/40 bg-background/40 px-5 py-4 md:min-w-44">
+            <p className="text-sm text-muted-foreground">{scoreLabel}</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{score}</p>
           </div>
         </div>
       </CardContent>
@@ -1516,67 +1819,133 @@ function CandidateOverview({
   const synthesis = dossier.synthesis;
   const result = asRecord(dossier.agentReports?.unified?.result);
   const role = asRecord(result.roleFit);
-  const completeEvidenceCount = synthesis?.evidenceCompleteness
-    ? ["aptitude", "dsa", "antigravity"].filter(
-        (key) =>
-          synthesis.evidenceCompleteness?.[
-            key as "aptitude" | "dsa" | "antigravity"
-          ],
-      ).length
-    : 0;
-  const strengths =
-    synthesis?.decisionStatus === "human_review_required"
-      ? synthesis.verifiedStrengths
-      : [];
+  const unifiedRead = narrativeClaim(result.executiveRead);
+  const unifiedThesis = narrativeClaim(result.crossModuleThesis);
+  const requiredModules = synthesis?.requiredModules ?? ["aptitude", "dsa", "interview"];
+  const completeEvidenceCount = requiredModules.filter(
+    (key) => synthesis?.evidenceCompleteness?.byModule?.[key] === true,
+  ).length;
+  const strengths = synthesis?.verifiedStrengths ?? [];
   const risks = synthesis?.scopedRisks ?? [];
+  const practiceActions = (synthesis?.nextActions ?? []).filter(Boolean).slice(0, 3);
+  const roundCompletion = synthesis?.roundCompletion;
+  const moduleLabel: Record<string, string> = {
+    aptitude: "Aptitude",
+    dsa: "Coding",
+    sql: "SQL",
+    interview: "AI interview",
+  };
+  const peerStandingLabel: Record<string, string> = {
+    above_average: "Above cohort average",
+    near_average: "Near cohort average",
+    below_average: "Below cohort average",
+    not_available: "Not enough peer results yet",
+  };
+  const consistentAcrossRounds = [
+    ...(synthesis?.crossModuleSignals ?? []),
+    ...(synthesis?.crossRoundHighlights ?? []),
+  ];
+  const worthResolvingAcrossRounds = [
+    ...(synthesis?.contradictions ?? []),
+    ...(synthesis?.crossRoundConcerns ?? []),
+  ];
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
         title="Your complete assessment feedback"
-        score={`${completeEvidenceCount}/3 evidence complete`}
-        summary="This coaching view keeps the three assessment results separate. It shows what the retained evidence supports and converts remaining gaps into practice deliverables; it does not calculate or reveal an employer hiring outcome."
+        score={
+          roundCompletion
+            ? `${roundCompletion.completedRounds} of ${roundCompletion.totalRounds} rounds completed`
+            : `${completeEvidenceCount} of ${requiredModules.length} results ready`
+        }
+        summary={`Open each completed round to see your score, detailed feedback, and the next practice action. ${completeEvidenceCount} of ${requiredModules.length} detailed result${requiredModules.length === 1 ? "" : "s"} ready to review.`}
       />
-      {synthesis?.integrity?.status === "blocked" ? (
-        <Card className="border-rose-300 bg-rose-50">
-          <CardContent className="p-5 text-sm leading-7 text-rose-900">
-            This feedback cannot be treated as candidate-specific until the
-            report binding is corrected: {synthesis.integrity.issues.join(" ")}
+      {synthesis?.overallRead ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Your overall read</CardTitle>
+            <CardDescription>How your results add up across every round so far.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm leading-7">{synthesis.overallRead}</p>
           </CardContent>
         </Card>
       ) : null}
-      <div className="grid gap-4 md:grid-cols-3">
+      {synthesis?.integrity?.status === "blocked" ? (
+        <Card className="border-rose-300 bg-rose-50">
+          <CardContent className="p-5 text-sm leading-7 text-rose-900">
+            We are verifying that this feedback belongs to your assessment. Your results are saved and no action is required right now. If this message remains, contact the organizer.
+          </CardContent>
+        </Card>
+      ) : null}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Aptitude · /100 scale"
+          label="Aptitude score"
           value={synthesis?.evidenceBasis.aptitudeScore ?? "—"}
           detail={
             synthesis?.evidenceCompleteness?.aptitude
-              ? "Complete question evidence retained"
-              : "Stored result; complete question evidence unavailable"
+              ? "Question review is ready"
+              : "Your score is ready; detailed question review is not available"
           }
         />
         <Metric
-          label="DSA · /100 scale"
+          label="Coding score"
           value={synthesis?.evidenceBasis.dsaScore ?? "—"}
           detail={
             synthesis?.evidenceCompleteness?.dsa
-              ? "Reproducible source and judge evidence retained"
-              : "Stored result; at least one correctness concern is not reproducible"
+              ? "Code and test feedback is ready"
+              : "Your score is ready; detailed test feedback is not available"
           }
         />
+        {requiredModules.includes("sql") ? (
+          <Metric
+            label="SQL score"
+            value={synthesis?.evidenceBasis.sqlScore ?? "—"}
+            detail={
+              synthesis?.evidenceCompleteness?.sql
+                ? "Query and test feedback is ready"
+                : "Detailed SQL feedback is still being prepared"
+            }
+          />
+        ) : null}
         <Metric
-          label="Interview · /10 scale"
-          value={
-            synthesis?.evidenceBasis.antigravityScore == null
-              ? "—"
-              : synthesis.evidenceBasis.antigravityScore / 10
-          }
+          label="AI interview score"
+          value={synthesis?.evidenceBasis.interviewScore ?? synthesis?.evidenceBasis.antigravityScore ?? "—"}
           detail={
-            synthesis?.evidenceCompleteness?.antigravity
-              ? "Complete bound interview evidence retained"
-              : "Interview evidence is incomplete"
+            evidenceComplete(dossier, "interview")
+              ? "Detailed interview feedback is ready"
+              : "Interview feedback is still being prepared"
           }
         />
       </div>
+      {synthesis?.peerComparison ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>How you compare to your cohort</CardTitle>
+            <CardDescription>
+              Directional standing only — no peer scores are shown, and a module needs enough completed
+              peer results before a comparison is shown at all.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {requiredModules.map((key) => {
+              const standing = synthesis.peerComparison?.modules?.[key];
+              return (
+                <Metric
+                  key={key}
+                  label={moduleLabel[key] ?? key}
+                  value={peerStandingLabel[standing?.yourStanding ?? "not_available"]}
+                  detail={
+                    standing && standing.yourStanding !== "not_available"
+                      ? `Based on ${standing.cohortSampleSize} completed peer result${standing.cohortSampleSize === 1 ? "" : "s"} in this workspace.`
+                      : "Not enough peers have completed this round yet to compare."
+                  }
+                />
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <EvidenceList
           title="What you did well"
@@ -1588,7 +1957,44 @@ function CandidateOverview({
           items={risks}
           empty="No material improvement area was recorded."
         />
+        <EvidenceList
+          title="Consistent across your rounds"
+          items={consistentAcrossRounds}
+          empty="No cross-round pattern was recorded yet."
+        />
+        <EvidenceList
+          title="Worth resolving across rounds"
+          items={worthResolvingAcrossRounds}
+          empty="No cross-round concern was recorded."
+        />
       </div>
+      {unifiedRead || unifiedThesis ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>How your results connect</CardTitle>
+            <CardDescription>
+              A source-linked interpretation across completed rounds. It is
+              coaching guidance, not a hiring decision.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {unifiedRead ? (
+              <section>
+                <h3 className="text-sm font-semibold">Cross-round read</h3>
+                <p className="mt-2 text-sm leading-7">{unifiedRead}</p>
+                <CitationList items={narrativeEvidence(result.executiveRead)} />
+              </section>
+            ) : null}
+            {unifiedThesis ? (
+              <section className="border-t pt-4">
+                <h3 className="text-sm font-semibold">Main evidence boundary</h3>
+                <p className="mt-2 text-sm leading-7">{unifiedThesis}</p>
+                <CitationList items={narrativeEvidence(result.crossModuleThesis)} />
+              </section>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
       {synthesis?.decisionStatus === "human_review_required" &&
       (synthesis.roleRubric?.responsibilities.length ?? 0) >= 3 ? (
         <Card>
@@ -1599,48 +2005,46 @@ function CandidateOverview({
               the missing evidence.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <EvidenceList
-              title="Ready to demonstrate"
-              items={strings(role.readyNow)}
-            />
-            <EvidenceList
-              title="Build with guidance"
-              items={strings(role.conditional)}
-            />
-            <EvidenceList
-              title="Not yet proven"
-              items={strings(role.notYetProven)}
-            />
+          <CardContent className="grid gap-6 md:grid-cols-3">
+            {[
+              ["Ready to demonstrate", strings(role.readyNow)],
+              ["Build with guidance", strings(role.conditional)],
+              ["Not yet proven", strings(role.notYetProven)],
+            ].map(([label, items]) => (
+              <section key={String(label)}>
+                <h4 className="mb-3 text-sm font-semibold">{String(label)}</h4>
+                <EvidenceItems items={items as string[]} />
+              </section>
+            ))}
           </CardContent>
         </Card>
       ) : null}
       <Card>
         <CardHeader>
-          <CardTitle>30-day improvement plan</CardTitle>
+          <CardTitle>Priority practice plan</CardTitle>
+          <CardDescription>
+            These actions come from your completed rounds. Finish one, record
+            the result, then move to the next.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          {[
-            [
-              "Week 1",
-              risks[0]
-                ? `Deliverable: write a one-page failure timeline for “${risks[0]}” naming the invariant, failure point, recovery action, and verification test.`
-                : "Deliverable: choose the weakest retained module and write the missing mechanism, failure case, and verification test.",
-            ],
-            [
-              "Week 2",
-              "Deliverable: implement the smallest runnable example that proves the mechanism under failure. Success means the failure is reproduced first and the new automated test passes after the fix.",
-            ],
-            [
-              "Weeks 3–4",
-              "Deliverable: record two three-minute mock answers using context, invariant, mechanism, trade-off, failure boundary, and personal ownership. Ask a reviewer to identify any unsupported claim.",
-            ],
-          ].map(([period, action]) => (
-            <div key={period} className="rounded-xl border p-4">
-              <Badge variant="outline">{period}</Badge>
-              <p className="mt-3 text-sm leading-6">{action}</p>
-            </div>
-          ))}
+        <CardContent>
+          <ol className="divide-y rounded-lg border">
+            {(practiceActions.length
+              ? practiceActions
+              : risks.slice(0, 3).map((risk) => `Resolve this retained gap: ${risk}`)
+            ).map((action, index) => (
+              <li key={`${index}-${action}`} className="flex gap-4 p-4 text-sm leading-6">
+                <span className="font-semibold text-primary">{index + 1}</span>
+                <span>{action}</span>
+              </li>
+            ))}
+          </ol>
+          {!practiceActions.length && !risks.length ? (
+            <p className="text-sm leading-6 text-muted-foreground">
+              No evidence-backed practice action is available yet. Open each
+              completed round for its specific feedback.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
     </div>
@@ -1654,6 +2058,14 @@ function CandidateAptitudeReport({
 }) {
   const latest = dossier.modules.aptitude.latest;
   const workspace = dossier.modules.aptitude.workspaceEvidence;
+  if (!latest && !workspace) {
+    return (
+      <MissingModule
+        name="Aptitude"
+        message="Complete the aptitude round to unlock your question-by-question feedback."
+      />
+    );
+  }
   const answers = workspace ? asRecord(workspace) : asRecord(latest?.answers);
   const score = workspace?.score ?? latest?.score ?? null;
   const review = asList(answers.questionReview).map(asRecord);
@@ -1668,6 +2080,12 @@ function CandidateAptitudeReport({
   const attempted = Math.max(0, total - skipped);
   const accuracy = attempted ? Math.round((correct / attempted) * 100) : 0;
   const ledgerComplete = total > 0 && review.length === total;
+  const evidenceConfidence =
+    ledgerComplete && total >= 20
+      ? "High"
+      : ledgerComplete && total >= 15
+        ? "Moderate"
+        : "Limited";
   const timeLimitMinutes = numeric(answers.timeLimitSeconds)
     ? Math.round(numeric(answers.timeLimitSeconds) / 60)
     : null;
@@ -1702,17 +2120,19 @@ function CandidateAptitudeReport({
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
-        title="Your Aptitude feedback"
-        score={score == null ? "—" : `${ledgerComplete ? "" : "Stored "}${score}/100`}
+        title="Your aptitude feedback"
+        score={score == null ? "—" : `${score}/100`}
         summary={
           !ledgerComplete
-            ? `Only ${review.length}/${total || "?"} question records are available. Use the retained mistakes for practice, but do not treat the headline score or domain ranking as fully auditable.`
+            ? `Detailed feedback is available for ${review.length} of ${total || "the"} questions. Use the available mistakes for practice; category rankings will appear once the full question history is available.`
+            : total < 15
+              ? `This was a ${total}-question diagnostic, not the standard 20-question ProvenHire aptitude round. The feedback is useful for practice, but the score has limited reliability.`
             : accuracy >= 85
             ? "Your reasoning accuracy is a strength. Your next improvement comes from understanding the exact wrong or skipped patterns, not from repeating the entire syllabus."
             : "Your score shows a usable baseline, but your next practice cycle should target the error patterns and time-allocation choices below."
         }
       />
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric
           label={ledgerComplete ? "Accuracy" : "Accuracy status"}
           value={ledgerComplete ? `${accuracy}%` : "Withheld"}
@@ -1720,6 +2140,17 @@ function CandidateAptitudeReport({
             ledgerComplete
               ? `${correct} correct across ${attempted} attempts`
               : "Complete answer history is unavailable"
+          }
+        />
+        <Metric
+          label="Feedback confidence"
+          value={evidenceConfidence}
+          detail={
+            !ledgerComplete
+              ? `${review.length}/${total || "?"} question records are available`
+              : total >= 20
+              ? `${total} questions, aligned with the standard aptitude baseline`
+              : `${total} questions, below the standard 20-question baseline`
           }
         />
         <Metric
@@ -1745,7 +2176,7 @@ function CandidateAptitudeReport({
         <CardHeader>
           <CardTitle>Where you are strongest</CardTitle>
           <CardDescription>
-            Domains are ranked by your persisted performance—not generic advice.
+            Your strongest categories, based on this assessment.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1836,6 +2267,14 @@ function CandidateDsaReport({
 }) {
   const latest = dossier.modules.dsa.latest;
   const workspace = dossier.modules.dsa.workspaceEvidence;
+  if (!latest && !workspace) {
+    return (
+      <MissingModule
+        name="Coding / DSA"
+        message="Complete the coding round to unlock your problem-by-problem report."
+      />
+    );
+  }
   const answers = asRecord(latest?.answers);
   const result = asRecord(dossier.agentReports?.dsa?.result);
   const score = workspace?.score ?? latest?.score ?? null;
@@ -1846,18 +2285,56 @@ function CandidateDsaReport({
   const risks = complete
     ? asList(result.failureAndRiskAnalysis).map(asRecord)
     : [];
+  const problemReads = complete
+    ? asList(result.problemReads).map(asRecord)
+    : [];
   const problems = workspace?.submissions.length
-    ? workspace.submissions.map((submission): Json => ({
-        title: submission.question?.title || submission.questionId,
-        description: submission.question?.description || "",
-        constraints: submission.question?.constraints || [],
-        code: submission.code,
-        language: submission.language,
-        testCasesPassed: submission.passedCount,
-        testCasesTotal: submission.totalCount,
-        results: asList(asRecord(submission.results).results).map(asRecord),
-      }))
+    ? workspace.submissions.map((submission, index): Json => {
+        const title = submission.question?.title || submission.questionId;
+        const read = matchProblemRead(
+          problemReads,
+          title,
+          index,
+          workspace.submissions.length,
+        );
+        return {
+          title,
+          description: submission.question?.description || "",
+          constraints: submission.question?.constraints || [],
+          examples: submission.question?.examples ?? [],
+          difficulty: submission.question?.difficulty || "",
+          code: submission.code,
+          language: submission.language,
+          testCasesPassed: submission.passedCount,
+          testCasesTotal: submission.totalCount,
+          results: parseJudgeResultRows(submission.results),
+          approach: read?.approach ?? null,
+          complexity: read?.complexity ?? null,
+        };
+      })
     : asList(answers.problems).map(asRecord);
+  const candidateDifficultyLedger = new Map<string, { correct: number; total: number }>();
+  for (const problem of problems) {
+    const difficulty = titleize(String(problem.difficulty || "Unspecified"));
+    const current = candidateDifficultyLedger.get(difficulty) ?? { correct: 0, total: 0 };
+    current.total += numeric(problem.testCasesTotal);
+    current.correct += numeric(problem.testCasesPassed);
+    candidateDifficultyLedger.set(difficulty, current);
+  }
+  const candidateDifficultyBreakdown = Array.from(candidateDifficultyLedger.entries())
+    .filter(([, { total }]) => total > 0)
+    .map(([name, { correct, total }]) => ({ name, score: Math.round((correct / total) * 100) }));
+  const smallestRetainedSuite = problems.length
+    ? Math.min(
+        ...problems.map((problem) => numeric(problem.testCasesTotal)),
+      )
+    : 0;
+  const testCoverage =
+    problems.length >= 2 && smallestRetainedSuite >= 8
+      ? "High"
+      : problems.length >= 2 && smallestRetainedSuite >= 6
+        ? "Moderate"
+        : "Limited";
   const probes = strings(
     result.candidatePracticePrompts ?? result.recommendedPanelProbes,
   );
@@ -1869,16 +2346,47 @@ function CandidateDsaReport({
   return (
     <div className="space-y-5">
       <CandidateFeedbackHeader
-        title="Your DSA feedback"
+        title="Your coding feedback"
         score={score == null ? "—" : `${score}/100`}
         summary={
           !complete
-            ? "A stored result exists, but at least one correctness concern cannot be reproduced from the retained source. The report therefore limits coaching to facts you can inspect."
+            ? "Your score is saved, but some detailed solution data is unavailable. The coaching below is limited to feedback we can verify from your submission."
+            : testCoverage === "Limited"
+              ? `This score is based on ${problems.length} problem${problems.length === 1 ? "" : "s"}. Use it as a practice signal, and continue testing your solutions against additional edge cases.`
             : score != null && score >= 80
             ? "Your implementation signal is strong. The goal now is to close the difference between passing the retained tests and proving that your solution remains correct under edge cases, concurrency, and failure."
             : "Your implementation baseline is developing. Use the problem feedback below to separate algorithm selection, correctness, and code-quality improvements."
         }
       />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric label="Problems assessed" value={problems.length} detail="Official submitted solutions" />
+        <Metric label="Smallest test suite" value={smallestRetainedSuite} detail="Judge cases retained for one problem" />
+        <Metric label="Evidence confidence" value={testCoverage} detail="High confidence requires at least two problems and eight cases per problem" />
+      </div>
+      {candidateDifficultyBreakdown.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Score by difficulty</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {candidateDifficultyBreakdown.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm">{entry.name}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${entry.score}%`,
+                      backgroundColor: entry.score < 60 ? "#ef4444" : entry.score < 80 ? "#f59e0b" : "#10b981",
+                    }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm font-medium">{entry.score}%</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -1889,9 +2397,7 @@ function CandidateDsaReport({
               strengths.map((item, index) => (
                 <div key={index} className="rounded-lg border p-3">
                   <p className="font-medium">{String(item.claim)}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Evidence: {strings(item.evidence).join(" · ")}
-                  </p>
+                  <CitationList items={strings(item.evidence)} />
                 </div>
               ))
             ) : (
@@ -1910,9 +2416,7 @@ function CandidateDsaReport({
               risks.map((item, index) => (
                 <div key={index} className="rounded-lg border p-3">
                   <p className="font-medium">{String(item.claim)}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Why: {strings(item.evidence).join(" · ")}
-                  </p>
+                  <CitationList items={strings(item.evidence)} />
                 </div>
               ))
             ) : (
@@ -1934,18 +2438,12 @@ function CandidateDsaReport({
         <CardContent className="space-y-3">
           {problems.length ? (
             problems.map((problem, index) => {
-              const resultRows = asList(problem.results).map(asRecord);
-              const visibleFailure = resultRows.find(
-                (row) =>
-                  row.passed === false &&
-                  String(row.visibility || "candidate_visible") !== "hidden" &&
-                  [row.input, row.expected, row.actual, row.message].some(
-                    (item) => String(item ?? "").trim(),
-                  ),
-              );
+              const resultRows = parseJudgeResultRows(problem.results);
+              const hasVisibleFailure = resultRows.some((row) => !row.passed && row.input);
               const isPartial =
                 numeric(problem.testCasesPassed) <
                 numeric(problem.testCasesTotal);
+              const examples = asList(problem.examples).map(asRecord);
               return (
                 <div key={index} className="rounded-xl border p-4">
                 <div className="flex flex-wrap justify-between gap-2">
@@ -1961,15 +2459,36 @@ function CandidateDsaReport({
                   <strong>Your approach:</strong>{" "}
                   {String(
                     problem.approach ||
-                      problem.description ||
-                      "The problem statement was not retained.",
+                      "An explicit approach explanation was not retained. Inspect your submitted source and write the invariant and complexity before your next attempt.",
                   )}
                 </p>
                 <p className="mt-2 text-sm leading-6">
                   <strong>Complexity:</strong>{" "}
-                  {String(problem.timeComplexity || "—")} time ·{" "}
-                  {String(problem.spaceComplexity || "—")} space
+                  {problem.complexity
+                    ? String(problem.complexity)
+                    : `${String(problem.timeComplexity || "—")} time · ${String(problem.spaceComplexity || "—")} space`}
                 </p>
+                {examples.length ? (
+                  <div className="mt-2 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Examples</p>
+                    {examples.map((example, exampleIndex) => (
+                      <div key={exampleIndex} className="rounded-lg border bg-muted/40 p-3 text-xs">
+                        {example.input !== undefined ? (
+                          <p>
+                            <span className="font-medium text-muted-foreground">Input: </span>
+                            <code>{String(example.input)}</code>
+                          </p>
+                        ) : null}
+                        {(example.output ?? example.expectedOutput) !== undefined ? (
+                          <p className="mt-1">
+                            <span className="font-medium text-muted-foreground">Output: </span>
+                            <code>{String(example.output ?? example.expectedOutput)}</code>
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {problem.code ? (
                   <details className="mt-2 rounded-lg border p-3">
                     <summary className="cursor-pointer text-sm font-semibold">
@@ -1980,17 +2499,46 @@ function CandidateDsaReport({
                     </pre>
                   </details>
                 ) : null}
-                {visibleFailure ? (
-                  <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm leading-6 text-rose-950">
-                    <p className="font-semibold">Reproducible failed case</p>
-                    <p>Input: {JSON.stringify(visibleFailure.input ?? "Not retained")}</p>
-                    <p>Expected: {JSON.stringify(visibleFailure.expected ?? "Not retained")}</p>
-                    <p>Actual: {JSON.stringify(visibleFailure.actual ?? visibleFailure.message ?? "Not retained")}</p>
-                  </div>
+                {resultRows.length ? (
+                  <details className="mt-2 rounded-lg border p-3" open={hasVisibleFailure}>
+                    <summary className="cursor-pointer text-sm font-semibold">
+                      Test case results ({resultRows.filter((r) => r.passed).length}/{resultRows.length} passed)
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      {resultRows.map((row, rowIndex) => (
+                        <div
+                          key={rowIndex}
+                          className={`rounded-lg border p-2 text-xs ${row.passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
+                        >
+                          <Badge variant={row.passed ? "outline" : "destructive"}>
+                            Test {rowIndex + 1} · {row.passed ? "Passed" : "Failed"}
+                          </Badge>
+                          {row.input ? (
+                            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                              <div>
+                                <p className="font-medium text-muted-foreground">Input</p>
+                                <pre className="mt-1 whitespace-pre-wrap break-all">{row.input}</pre>
+                              </div>
+                              <div>
+                                <p className="font-medium text-muted-foreground">Expected</p>
+                                <pre className="mt-1 whitespace-pre-wrap break-all">{row.expected}</pre>
+                              </div>
+                              <div>
+                                <p className="font-medium text-muted-foreground">Actual</p>
+                                <pre className="mt-1 whitespace-pre-wrap break-all">{row.actual}</pre>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="ml-2 text-muted-foreground">Hidden test case</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 ) : null}
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
                   <strong>Next improvement:</strong>{" "}
-                  {isPartial && visibleFailure
+                  {isPartial && hasVisibleFailure
                     ? "Reproduce the visible failed case, name the broken invariant, patch it, and add one neighboring adversarial case."
                     : isPartial
                       ? "The failed case is hidden or was not retained, so a specific patch cannot be prescribed responsibly. Ask for a public counterexample or rerun this problem with candidate-visible judge evidence."
@@ -2042,7 +2590,17 @@ function AntigravityReport({
   audience?: ReportAudience;
 }) {
   const latest = dossier.modules.antigravity.latest;
-  if (!latest) return <MissingModule name="Antigravity" />;
+  if (!latest)
+    return (
+      <MissingModule
+        name={audience === "candidate" ? "AI interview" : "Antigravity"}
+        message={
+          audience === "candidate"
+            ? "Complete the AI interview to unlock detailed feedback."
+            : undefined
+        }
+      />
+    );
   const report = asRecord(latest.report);
   const coverage = asRecord(report.coverage_portrait);
   const domain = asRecord(coverage.primary_domain);
@@ -2057,12 +2615,24 @@ function AntigravityReport({
   const isLocalPreviewCandidate =
     import.meta.env.DEV &&
     dossier.candidate.email.endsWith("@provenhire.local");
+  const defaultPublicAntigravityUrl = import.meta.env.DEV
+    ? "http://localhost:3000"
+    : "https://antigravity-gz2r.vercel.app";
+  const configuredPublicAntigravityUrl = String(
+    import.meta.env.VITE_ANTIGRAVITY_PUBLIC_URL || "",
+  ).trim();
+  const publicAntigravityUrl =
+    import.meta.env.PROD &&
+    /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::|\/|$)/i.test(
+      configuredPublicAntigravityUrl,
+    )
+      ? defaultPublicAntigravityUrl
+      : configuredPublicAntigravityUrl || defaultPublicAntigravityUrl;
   const baseUrl = String(
     isLocalPreviewCandidate
       ? import.meta.env.VITE_ANTIGRAVITY_LOCAL_PREVIEW_URL ||
           "http://localhost:3001"
-      : import.meta.env.VITE_ANTIGRAVITY_PUBLIC_URL ||
-          "http://localhost:3000",
+      : publicAntigravityUrl,
   ).replace(/\/$/, "");
   const previewCaseId = String(report.preview_replay_case_id || "");
   const reportAccessToken = latest.reportAccessToken || "";
@@ -2076,6 +2646,16 @@ function AntigravityReport({
     ? `${baseUrl}/report-preview/${encodeURIComponent(previewCaseId)}?view=candidate`
     : `${baseUrl}/report/${encodeURIComponent(latest.antigravitySessionId)}/candidate${accessQuery}`;
   if (dossier.synthesis?.integrity?.status === "blocked") {
+    if (audience === "candidate") {
+      return (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="p-6 text-amber-950">
+            <h2 className="font-semibold">We are verifying this interview report</h2>
+            <p className="mt-2 text-sm leading-7">We cannot show the feedback until we confirm that it belongs to your interview. Your interview is saved, and no action is required right now. If this message remains, contact the organizer.</p>
+          </CardContent>
+        </Card>
+      );
+    }
     return (
       <Card className="border-rose-400 bg-rose-50">
         <CardHeader>
@@ -2111,24 +2691,21 @@ function AntigravityReport({
     return (
       <div className="space-y-5">
         <CandidateFeedbackHeader
-          title="Your Antigravity interview reflection"
+          title="Your AI interview feedback"
           score={
             latest.overallScore == null ? "—" : `${latest.overallScore}/10`
           }
-          summary="Your full reflection is a separate coaching experience. It explains what you proved, what remained unproven, how your answers behaved under pressure, and what to practice before your next interview."
+          summary="See what your answers demonstrated, where they lacked detail, how you communicated under pressure, and what to practice before your next interview."
           scoreLabel="Recorded interview result"
         />
         <Card className="overflow-hidden border-emerald-300">
           <CardContent className="grid gap-6 p-6 md:grid-cols-[1fr_auto] md:items-center md:p-8">
             <div>
               <h3 className="text-2xl font-bold">
-                Continue to your complete candidate report
+                View detailed interview feedback
               </h3>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground">
-                Open the reflection workspace for your personal mirror, concept
-                map, interview communication feedback, evidence gaps, and 30-day
-                practice plan. Employer decision labels are not part of this
-                coaching view.
+                Open your detailed feedback for answer-by-answer review, communication guidance, knowledge gaps, and a practical 30-day improvement plan.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {[
@@ -2379,7 +2956,669 @@ function AntigravityReport({
   );
 }
 
-function MissingModule({ name }: { name: string }) {
+type JudgeResultRow = { passed: boolean; status: string; input?: string; expected?: string; actual?: string };
+
+function parseJudgeResultRows(value: unknown): JudgeResultRow[] {
+  // Handles both a flat array of rows and a legacy { results: [...] } wrapper.
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && Array.isArray((value as Record<string, unknown>).results)
+      ? ((value as Record<string, unknown>).results as unknown[])
+      : [];
+  return rows
+    .filter((row): row is Record<string, unknown> => typeof row === "object" && row !== null)
+    .map((row) => ({
+      passed: Boolean(row.passed),
+      status: typeof row.status === "string" ? row.status : "UNKNOWN",
+      input: typeof row.input === "string" ? row.input : undefined,
+      expected: typeof row.expected === "string" ? row.expected : undefined,
+      actual: typeof row.actual === "string" ? row.actual : undefined,
+    }));
+}
+
+const JUDGE_STATUS_LABEL: Record<string, string> = {
+  CORRECT_ANSWER: "Passed",
+  WRONG_ANSWER: "Wrong answer",
+  INTERNAL_ERROR: "Execution error",
+};
+
+function SqlReport({
+  dossier,
+  audience = "admin",
+}: {
+  dossier: WorkspaceCandidateDossier;
+  audience?: ReportAudience;
+}) {
+  const evidence = dossier.modules.sql?.workspaceEvidence;
+  if (!evidence)
+    return (
+      <MissingModule
+        name="SQL"
+        message={
+          audience === "candidate"
+            ? "Complete the SQL round to unlock your query-by-query report."
+            : undefined
+        }
+      />
+    );
+  const smallestRetainedSuite = evidence.submissions.length
+    ? Math.min(...evidence.submissions.map((submission) => submission.totalCount))
+    : 0;
+  const testCoverage =
+    evidence.submissions.length >= 2 && smallestRetainedSuite >= 6
+      ? "High"
+      : evidence.submissions.length >= 2 && smallestRetainedSuite >= 3
+        ? "Moderate"
+        : "Limited";
+
+  const difficultyLedger = new Map<string, { correct: number; total: number }>();
+  for (const submission of evidence.submissions) {
+    const task = asRecord(submission.task);
+    const difficulty = titleize(String(task.difficulty || "Unspecified"));
+    const current = difficultyLedger.get(difficulty) ?? { correct: 0, total: 0 };
+    current.total += submission.totalCount;
+    current.correct += submission.passedCount;
+    difficultyLedger.set(difficulty, current);
+  }
+  const difficultyBreakdown = Array.from(difficultyLedger.entries()).map(([name, { correct, total }]) => ({
+    name,
+    score: total ? Math.round((correct / total) * 100) : 0,
+    total,
+  }));
+
+  const fullyPassedTasks = evidence.submissions.filter(
+    (s) => s.totalCount > 0 && s.passedCount === s.totalCount,
+  ).length;
+  const sqlStrengths: string[] = [];
+  const sqlRisks: string[] = [];
+  if (evidence.submissions.length > 0) {
+    if (fullyPassedTasks === evidence.submissions.length) {
+      sqlStrengths.push("Passed every retained test case across all submitted tasks.");
+    } else if (fullyPassedTasks > 0) {
+      sqlStrengths.push(`Fully passed ${fullyPassedTasks} of ${evidence.submissions.length} tasks.`);
+    }
+    for (const { name, score, total } of difficultyBreakdown) {
+      if (total === 0) continue;
+      if (score <= 40) sqlRisks.push(`Weak on ${name} tasks (${score}% of retained cases passed).`);
+      else if (score >= 90) sqlStrengths.push(`Strong on ${name} tasks (${score}% of retained cases passed).`);
+    }
+    if (sqlRisks.length === 0 && fullyPassedTasks < evidence.submissions.length) {
+      sqlRisks.push("Some retained test cases still failed — review the specific failing rows below.");
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <CandidateFeedbackHeader
+        title={audience === "candidate" ? "Your SQL feedback" : "SQL evidence report"}
+        score={`${evidence.score ?? "—"}/100`}
+        summary={
+          audience === "candidate"
+            ? testCoverage === "Limited"
+              ? "Use the query feedback below for practice, and test your solutions against more schemas and edge cases."
+              : "Review each submitted query, the tests it passed, and the areas to practice next."
+            : testCoverage === "Limited"
+              ? `This SQL result covers ${evidence.submissions.length} task${evidence.submissions.length === 1 ? "" : "s"}, with as few as ${smallestRetainedSuite} retained judge cases per task. Use the query feedback for coaching, but do not treat the score as broad schema and edge-case coverage.`
+              : "A query-by-query view of the retained SQL work. Passing judge cases is bounded execution evidence; it is not a claim that every schema or production edge case was tested."
+        }
+      />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Score" value={evidence.score ?? "—"} detail={audience === "candidate" ? "Out of 100" : "Canonical /100 workspace result"} />
+        <Metric label="Tests passed" value={`${evidence.passedCount ?? "—"}/${evidence.totalCount ?? "—"}`} detail={audience === "candidate" ? "Across your submitted queries" : "Aggregate persisted judge outcomes, not task count"} />
+        <Metric label={audience === "candidate" ? "Feedback confidence" : "Evidence confidence"} value={testCoverage} detail={audience === "candidate" ? `${evidence.submissions.length} submitted task${evidence.submissions.length === 1 ? "" : "s"}` : `${evidence.submissions.length} task${evidence.submissions.length === 1 ? "" : "s"}; smallest retained suite: ${smallestRetainedSuite} cases`} />
+        <Metric label="Time used" value={`${Math.round(evidence.timeTakenSeconds / 60)} min`} detail={audience === "candidate" ? "Total time in this round" : "From session start to finalization"} />
+      </div>
+      {difficultyBreakdown.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Score by difficulty</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {difficultyBreakdown.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm">{entry.name}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${entry.score}%`,
+                      backgroundColor: entry.score < 60 ? "#ef4444" : entry.score < 80 ? "#f59e0b" : "#10b981",
+                    }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm font-medium">{entry.score}%</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+      {sqlStrengths.length > 0 || sqlRisks.length > 0 ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <EvidenceList title="What went well" items={sqlStrengths} empty="No clear strength pattern yet." />
+          <EvidenceList title="What to improve" items={sqlRisks} empty="No material risk pattern recorded." />
+        </div>
+      ) : null}
+      <div className="space-y-4">
+        {evidence.submissions.map((submission, index) => {
+          const task = asRecord(submission.task);
+          const passedAllRetainedCases =
+            submission.totalCount > 0 &&
+            submission.passedCount === submission.totalCount;
+          const taskEvidenceLabel =
+            submission.totalCount >= 6
+              ? audience === "candidate" ? "Broader test coverage" : "Broader sample"
+              : audience === "candidate" ? "Limited test coverage" : "Limited sample";
+          return (
+            <Card key={submission.id}>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardDescription>SQL task {index + 1} · {titleize(String(task.difficulty || "difficulty not recorded"))}</CardDescription>
+                    <CardTitle className="mt-1 text-lg">{String(task.title || task.name || submission.taskId)}</CardTitle>
+                  </div>
+                  <Badge variant="outline">{submission.passedCount}/{submission.totalCount} cases · {submission.score}/100</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {task.description || task.prompt ? (
+                  <p className="text-sm leading-6 text-muted-foreground">{String(task.description || task.prompt)}</p>
+                ) : null}
+                <div>
+                  <p className="mb-2 text-sm font-semibold">Submitted query</p>
+                  <pre className="overflow-x-auto rounded-lg bg-slate-950 p-4 text-xs leading-6 text-slate-100"><code>{submission.query}</code></pre>
+                </div>
+                <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
+                  <section>
+                    <h4 className="text-sm font-semibold">{audience === "candidate" ? "Test result" : "What the judge established"}</h4>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {passedAllRetainedCases
+                        ? audience === "candidate"
+                          ? `Your query passed all ${submission.totalCount} automated tests for this task.`
+                          : `Your query matched all ${submission.totalCount} retained cases. This confirms the expected output for this suite only.`
+                        : audience === "candidate"
+                          ? `Your query passed ${submission.passedCount} of ${submission.totalCount} automated tests. At least one test produced a different result.`
+                          : `Your query matched ${submission.passedCount} of ${submission.totalCount} retained cases. At least one retained dataset produced a different result.`}
+                    </p>
+                  </section>
+                  <section>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold">{audience === "candidate" ? "Next practice step" : "Next verification"}</h4>
+                      <Badge variant="outline">{taskEvidenceLabel}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {passedAllRetainedCases
+                        ? "Create one new dataset with nulls, duplicate join keys, ties, or empty groups where the schema permits them. The query should still return the columns and ordering required by the task."
+                        : "Re-read the required columns, grouping, filters, tie handling, and final ordering. Change one clause at a time, then rerun until every visible case matches."}
+                    </p>
+                  </section>
+                </div>
+                {(() => {
+                  const rows = parseJudgeResultRows(submission.results);
+                  if (rows.length === 0) return null;
+                  return (
+                    <div className="border-t pt-4">
+                      <p className="mb-2 text-sm font-semibold">Test case results</p>
+                      <div className="space-y-2">
+                        {rows.map((row, rowIndex) => (
+                          <div
+                            key={rowIndex}
+                            className={`rounded-lg border p-3 text-xs ${row.passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <Badge variant={row.passed ? "outline" : "destructive"}>
+                                {JUDGE_STATUS_LABEL[row.status] ?? row.status}
+                              </Badge>
+                              {!row.input ? (
+                                <span className="text-muted-foreground">Hidden test case</span>
+                              ) : null}
+                            </div>
+                            {row.input ? (
+                              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Input</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.input}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Expected</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.expected}</pre>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-muted-foreground">Actual</p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-all">{row.actual}</pre>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const AI_REPORT_BAND_STYLE: Record<string, string> = {
+  strong: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  good: "bg-teal-50 text-teal-800 border-teal-200",
+  wrong: "bg-amber-50 text-amber-800 border-amber-200",
+};
+
+function aiReportBandLabel(band: string) {
+  const normalized = band.toLowerCase();
+  if (normalized === "wrong") return "Needs work";
+  return titleize(band || "Unrated");
+}
+
+/// A candidate-facing alternate presentation of the same persisted interview
+/// artifact as the standard report above - same data, a document-style
+/// layout (serif headings, warm neutral ground) some candidates read more
+/// easily than the in-app card grid. Never a second source of truth: every
+/// number and quote here comes from the identical `report` object.
+function AIReportDocument({
+  candidateName,
+  targetRole,
+  score,
+  band,
+  reasoningSummary,
+  verdictSummary,
+  dimensions,
+  strengths,
+  risks,
+  deliverySummary,
+  deliverySignal,
+  ownershipSummary,
+  ownershipSignal,
+  coverageNote,
+  testedDimensionLabels,
+  untestedDimensionLabels,
+  questions,
+  sevenDayPlan,
+  thirtyDayPlan,
+  reportHash,
+}: {
+  candidateName: string;
+  targetRole: string;
+  score: number;
+  band: string;
+  reasoningSummary: string;
+  verdictSummary: string;
+  dimensions: [string, number][];
+  strengths: string[];
+  risks: string[];
+  deliverySummary: string;
+  deliverySignal: string;
+  ownershipSummary: string;
+  ownershipSignal: string;
+  coverageNote: string;
+  testedDimensionLabels: string[];
+  untestedDimensionLabels: string[];
+  questions: Json[];
+  sevenDayPlan: string[];
+  thirtyDayPlan: string[];
+  reportHash: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#DDD6C4] bg-[#F5F3EE] p-5 text-[#1D2624] shadow-sm md:p-8">
+      <div className="mx-auto max-w-3xl">
+        <header className="flex flex-col gap-4 border-b border-[#DDD6C4] pb-6 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[#8A9490]">
+              Placement Readiness Interview · AI Report
+            </p>
+            <h1 className="mt-1 font-serif text-3xl font-semibold text-[#1D2624]">{candidateName}</h1>
+            <p className="mt-1 text-sm text-[#5B655F]">{targetRole}</p>
+          </div>
+          <div className="text-left sm:text-right">
+            <div className="font-serif text-4xl font-semibold leading-none text-[#163B36]">
+              {score}
+              <span className="text-lg font-normal text-[#8A9490]">/100</span>
+            </div>
+            <div className="mt-2 inline-block rounded-full bg-[#E1EDE9] px-3 py-1 text-xs font-semibold text-[#163B36]">
+              {titleize(band)}
+            </div>
+          </div>
+        </header>
+
+        <section className="mt-6">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">Executive summary</p>
+          <p className="text-[1.0625rem] leading-relaxed text-[#1D2624]">{reasoningSummary}</p>
+          <div className="mt-3 rounded-md border border-[#DDD6C4] border-l-[3px] border-l-[#245952] bg-white p-4 text-sm leading-relaxed shadow-sm">
+            <span className="font-semibold text-[#163B36]">Readiness verdict —</span> {verdictSummary}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">Dimension scores</p>
+          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {dimensions.map(([name, value]) => (
+              <div key={name}>
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-[#5B655F]">{name}</span>
+                  <span className="font-semibold tabular-nums">{value}</span>
+                </div>
+                <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-[#ECE8DD]">
+                  <div className="h-full rounded-full bg-[#245952]" style={{ width: `${Math.min(100, value)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-[10px] border border-emerald-200 bg-emerald-50 p-4">
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-800">Strongest converting signals</h3>
+            <ul className="list-disc space-y-1.5 pl-4 text-sm text-[#1D2624]">
+              {strengths.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          </div>
+          <div className="rounded-[10px] border border-amber-200 bg-amber-50 p-4">
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">Avoidable rejection risks</h3>
+            <ul className="list-disc space-y-1.5 pl-4 text-sm text-[#1D2624]">
+              {risks.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          </div>
+        </section>
+
+        <section className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
+            <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[#8A9490]">Delivery read</h3>
+            <p>{deliverySummary}</p>
+            <p className="mt-1 text-[#5B655F]">{deliverySignal}</p>
+          </div>
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 text-sm shadow-sm">
+            <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[#8A9490]">Project ownership read</h3>
+            <p>{ownershipSummary}</p>
+            <p className="mt-1 text-[#5B655F]">{ownershipSignal}</p>
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">Coverage &amp; confidence</p>
+          <div className="rounded-md border border-[#DDD6C4] border-l-[3px] border-l-[#8A9490] bg-white p-4 text-sm leading-relaxed shadow-sm">
+            {coverageNote} Tested in depth: {testedDimensionLabels.join(", ") || "none recorded"}.
+            {untestedDimensionLabels.length ? ` ${untestedDimensionLabels.join(", ")} ${untestedDimensionLabels.length === 1 ? "was" : "were"} not directly tested this session.` : ""}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#8A9490]">
+            Full interview review · {questions.length} exchange{questions.length === 1 ? "" : "s"}
+          </p>
+          <div className="space-y-3">
+            {questions.map((question, index) => {
+              const band = String(question.answerBand || "").toLowerCase();
+              return (
+                <div key={String(question.slotId || index) + index} className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-[#8A9490]">{String(question.slotLabel || `Question ${index + 1}`)}</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${AI_REPORT_BAND_STYLE[band] || "bg-slate-50 text-slate-700 border-slate-200"}`}>
+                      {aiReportBandLabel(band)}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-[0.9375rem] font-semibold text-[#1D2624]">{String(question.questionText || "")}</p>
+                  <p className="mt-1.5 border-l-2 border-[#DDD6C4] pl-3 text-sm italic text-[#5B655F]">&ldquo;{String(question.answerSummary || "")}&rdquo;</p>
+                  <div className="mt-3 grid gap-3 border-t border-[#ECE8DD] pt-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#8A9490]">What was good</p>
+                      <ul className="list-disc space-y-0.5 pl-4 text-[#5B655F]">
+                        {strings(question.whatWasGood).map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#8A9490]">A stronger answer would</p>
+                      <ul className="list-disc space-y-0.5 pl-4 text-[#5B655F]">
+                        {strings(question.strongerAnswerWouldInclude).map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 shadow-sm">
+            <h3 className="mb-2 font-serif text-base font-semibold text-[#163B36]">7-day plan</h3>
+            <ol className="list-decimal space-y-2 pl-4 text-sm text-[#1D2624]">
+              {sevenDayPlan.map((item, i) => <li key={i}>{item}</li>)}
+            </ol>
+          </div>
+          <div className="rounded-[10px] border border-[#DDD6C4] bg-white p-4 shadow-sm">
+            <h3 className="mb-2 font-serif text-base font-semibold text-[#163B36]">30-day plan</h3>
+            <ol className="list-decimal space-y-2 pl-4 text-sm text-[#1D2624]">
+              {thirtyDayPlan.map((item, i) => <li key={i}>{item}</li>)}
+            </ol>
+          </div>
+        </section>
+
+        <footer className="mt-8 flex flex-wrap justify-between gap-2 border-t border-[#DDD6C4] pt-4 text-xs text-[#8A9490]">
+          <span>ProvenHire Placement Readiness · schema placement.callback.v1</span>
+          {reportHash ? <span className="font-mono">report_hash {reportHash.slice(0, 12)}…</span> : null}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function PlacementReadinessReport({
+  dossier,
+  audience = "admin",
+}: {
+  dossier: WorkspaceCandidateDossier;
+  audience?: ReportAudience;
+}) {
+  const [viewMode, setViewMode] = useState<"standard" | "ai-report">("standard");
+  const interviewModule = dossier.modules.interview;
+  if (!interviewModule) {
+    return <AntigravityReport dossier={dossier} audience={audience} />;
+  }
+  const latest = interviewModule.latest;
+  if (!latest && interviewModule.legacyAntigravity) {
+    return <AntigravityReport dossier={dossier} audience={audience} />;
+  }
+  if (!latest) {
+    const status = interviewModule.status;
+    return status === "started" || status === "processing" ? (
+      <Card className="border-amber-300 bg-amber-50">
+        <CardContent className="flex items-start gap-3 p-6 text-amber-950">
+          <Loader2 className="mt-0.5 h-5 w-5 animate-spin" />
+          <div><p className="font-semibold">Preparing your interview feedback</p><p className="mt-1 text-sm">Your interview is saved. Detailed feedback is usually ready within five minutes. You can safely return to your assessment and check again later.</p></div>
+        </CardContent>
+      </Card>
+    ) : status === "failed" ? (
+      <Card className="border-rose-300 bg-rose-50">
+        <CardContent className="flex items-start gap-3 p-6 text-rose-950">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">We could not prepare your feedback yet</p>
+            <p className="mt-1 text-sm leading-6">
+              Your interview is saved, and you do not need to retake it. Check again later or contact the organizer if this message remains.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    ) : (
+      <MissingModule
+        name="Placement Readiness"
+        message="Complete the interview to unlock your detailed readiness report."
+      />
+    );
+  }
+  const report = asRecord(latest.report);
+  const scorecard = asRecord(report.scorecard);
+  const verdict = asRecord(report.readinessVerdict);
+  const delivery = asRecord(report.deliveryRead);
+  const ownership = asRecord(report.projectOwnershipRead);
+  const questions = asList(report.questionReviews).map(asRecord);
+  const dimensions = asRecord(scorecard.dimensionScores);
+  const coverage = asRecord(report.coverageSummary);
+  const testedSlots = strings(coverage.testedSlots);
+  const lightlyTestedSlots = strings(coverage.lightlyTestedSlots);
+  const testedDimensions = strings(coverage.testedDimensions);
+  const interviewConfidence =
+    testedSlots.length >= 6 && testedDimensions.length >= 4
+      ? "High"
+      : testedSlots.length >= 3 && testedDimensions.length >= 2
+        ? "Moderate"
+        : "Limited";
+  const readinessDetail =
+    interviewConfidence === "Limited"
+      ? "Readiness band withheld until coverage improves"
+      : titleize(String(scorecard.readinessBand || "readiness band unavailable"));
+
+  const reportUrlForAudience = audience === "candidate" ? latest.candidateReportUrl : latest.reportUrl;
+  const viewToggle = (
+    <div className="inline-flex rounded-lg border p-1">
+      <button
+        type="button"
+        onClick={() => setViewMode("standard")}
+        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "standard" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+      >
+        Standard view
+      </button>
+      <button
+        type="button"
+        onClick={() => setViewMode("ai-report")}
+        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "ai-report" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+      >
+        AI Report
+      </button>
+      {reportUrlForAudience ? (
+        <a
+          href={reportUrlForAudience}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Full report <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      ) : null}
+    </div>
+  );
+
+  if (viewMode === "ai-report" && interviewConfidence !== "Limited") {
+    return (
+      <div className="space-y-4">
+        {viewToggle}
+        <AIReportDocument
+          candidateName={String(
+            dossier.candidate.jobSeekerProfile?.fullName ||
+              dossier.candidate.name ||
+              dossier.candidate.email,
+          )}
+          targetRole={String(dossier.synthesis?.roleRubric?.targetRole || "")}
+          score={numeric(latest.score ?? scorecard.overallScore, 0)}
+          band={String(scorecard.readinessBand || "")}
+          reasoningSummary={String(scorecard.reasoningSummary || "")}
+          verdictSummary={String(verdict.summary || "")}
+          dimensions={Object.entries(dimensions)
+            .filter(([, value]) => Number.isFinite(Number(value)))
+            .map(([key, value]) => [titleize(key), numeric(value)] as [string, number])}
+          strengths={strings(report.strongestConvertingSignals)}
+          risks={strings(report.avoidableRejectionRisks)}
+          deliverySummary={String(delivery.summary || "")}
+          deliverySignal={String(delivery.pressureHandlingSignal || "")}
+          ownershipSummary={String(ownership.summary || "")}
+          ownershipSignal={String(ownership.authenticitySignal || "")}
+          coverageNote={String(coverage.confidenceNote || "")}
+          testedDimensionLabels={testedDimensions.map(titleize)}
+          untestedDimensionLabels={Object.keys(dimensions)
+            .filter((key) => !testedDimensions.includes(key))
+            .map(titleize)}
+          questions={questions}
+          sevenDayPlan={strings(report.sevenDayPlan)}
+          thirtyDayPlan={strings(report.thirtyDayPlan)}
+          reportHash={String(latest.reportHash || "")}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {viewToggle}
+      <CandidateFeedbackHeader
+        title={audience === "candidate" ? "Your AI interview feedback" : "Placement Readiness evidence report"}
+        score={`${latest.score ?? scorecard.overallScore ?? "—"}/100`}
+        summary={
+          interviewConfidence === "Limited"
+            ? `This is a preliminary coaching read. Only ${testedSlots.length} interview slots were fully tested, so the score and dimensions must not be treated as a complete readiness classification.`
+            : String(
+                verdict.summary ||
+                  scorecard.reasoningSummary ||
+                  (audience === "candidate"
+                    ? "Your detailed interview feedback is ready."
+                    : "The persisted interview artifact is ready for review."),
+              )
+        }
+      />
+      {interviewConfidence === "Limited" ? (
+        <Card className="border-amber-300 bg-amber-50 text-amber-950">
+          <CardContent className="flex items-start gap-3 p-5">
+            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-semibold">Coverage is too thin for a readiness label</p>
+              <p className="mt-1 text-sm leading-6">The detailed observations remain visible for coaching. Complete more structured slots before using the scorecard as a readiness signal.</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Overall score" value={latest.score ?? numeric(scorecard.overallScore, 0)} detail={readinessDetail} />
+        <Metric label="Fully tested slots" value={testedSlots.length} detail={`${lightlyTestedSlots.length} additional slots were lightly tested`} />
+        <Metric label={audience === "candidate" ? "Feedback confidence" : "Evidence confidence"} value={interviewConfidence} detail={String(coverage.confidenceNote || (audience === "candidate" ? "Based on the topics covered in your interview" : "Coverage note was not retained"))} />
+        <Metric label="Validation" value={asRecord(report.validationSummary).validationPassed === true ? "Passed" : "Review"} detail={audience === "candidate" ? "Feedback quality check" : `Session ${latest.sessionId}`} />
+      </div>
+      <Card><CardHeader><CardTitle className="text-base">Readiness dimensions</CardTitle></CardHeader><CardContent><ScoreBreakdown values={dimensions} /></CardContent></Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <EvidenceList title="Strongest converting signals" items={strings(report.strongestConvertingSignals)} />
+        <EvidenceList title={audience === "candidate" ? "Priority improvements" : "Avoidable rejection risks"} items={strings(report.avoidableRejectionRisks)} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card><CardHeader><CardTitle className="text-base">Communication and delivery</CardTitle></CardHeader><CardContent className="space-y-3 text-sm leading-6"><p>{String(delivery.summary || "No delivery summary retained.")}</p><p className="text-muted-foreground">{String(delivery.pressureHandlingSignal || "")}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-base">Project ownership</CardTitle></CardHeader><CardContent className="space-y-3 text-sm leading-6"><p>{String(ownership.summary || "No ownership summary retained.")}</p><p className="text-muted-foreground">{String(ownership.authenticitySignal || "")}</p></CardContent></Card>
+      </div>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Question-by-question review</CardTitle><CardDescription>What was demonstrated, what was missing, and what a stronger answer would include.</CardDescription></CardHeader>
+        <CardContent className="space-y-4">
+          {questions.length ? questions.map((question, index) => (
+            <div key={String(question.slotId || index)} className="rounded-xl border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{String(question.slotLabel || `Question ${index + 1}`)}</p><Badge variant="outline">{titleize(String(question.answerBand || "unrated"))}</Badge></div>
+              <p className="mt-2 text-sm leading-6">{String(question.questionText || "Question text unavailable")}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{String(question.answerSummary || "")}</p>
+              <div className="mt-4 grid gap-5 border-t pt-4 md:grid-cols-2">
+                <section>
+                  <h4 className="mb-2 text-sm font-semibold">Demonstrated</h4>
+                  <EvidenceItems items={strings(question.whatWasGood)} />
+                </section>
+                <section>
+                  <h4 className="mb-2 text-sm font-semibold">Stronger answer</h4>
+                  <EvidenceItems items={strings(question.strongerAnswerWouldInclude)} />
+                </section>
+              </div>
+            </div>
+          )) : <p className="text-sm text-muted-foreground">No question-level review was retained.</p>}
+        </CardContent>
+      </Card>
+      <div className="grid gap-4 lg:grid-cols-2"><EvidenceList title="7-day plan" items={strings(report.sevenDayPlan)} /><EvidenceList title="30-day plan" items={strings(report.thirtyDayPlan)} /></div>
+    </div>
+  );
+}
+
+function MissingModule({
+  name,
+  message,
+}: {
+  name: string;
+  message?: string;
+}) {
   return (
     <Card>
       <CardContent className="flex items-start gap-3 p-6">
@@ -2387,7 +3626,8 @@ function MissingModule({ name }: { name: string }) {
         <div>
           <p className="font-semibold">{name} report unavailable</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            This candidate has no persisted completed result for this module.
+            {message ||
+              "This candidate has no persisted completed result for this module."}
           </p>
         </div>
       </CardContent>
@@ -2403,10 +3643,12 @@ export default function WorkspaceCandidateReportsPage() {
   }>();
   const [searchParams] = useSearchParams();
   const requested = searchParams.get("module") as ModuleKey | null;
-  const module: ModuleKey = [
+  const requestedModule: ModuleKey = [
     "overview",
     "aptitude",
     "dsa",
+    "sql",
+    "interview",
     "antigravity",
   ].includes(requested || "")
     ? requested!
@@ -2422,12 +3664,15 @@ export default function WorkspaceCandidateReportsPage() {
   );
   const [error, setError] = useState("");
   const [generationError, setGenerationError] = useState("");
+  const [generationNotice, setGenerationNotice] = useState("");
+  const [queuedReport, setQueuedReport] = useState<QueuedReport | null>(null);
   const [decisionError, setDecisionError] = useState("");
   const [recordingDecision, setRecordingDecision] = useState(false);
   const [generatingReport, setGeneratingReport] = useState<
     "dsa" | "unified" | null
   >(null);
   const local = import.meta.env.DEV && (!id || id === localWorkspaceId);
+  const candidateExperience = selfService || (local && audience === "candidate");
 
   useEffect(() => {
     if (selfService && code) {
@@ -2471,27 +3716,109 @@ export default function WorkspaceCandidateReportsPage() {
       );
   }, [id, userId, local, selfService, code]);
 
+  const waitingForPlacementReport = Boolean(
+    selfService &&
+      code &&
+      !dossier?.modules.interview?.latest &&
+      ["started", "processing"].includes(
+        dossier?.modules.interview?.status || "",
+      ),
+  );
+
+  useEffect(() => {
+    if (!waitingForPlacementReport || !code) return;
+    const timer = window.setInterval(() => {
+      void api
+        .get<{ dossier: WorkspaceCandidateDossier }>(
+          `/api/user/workspaces/code/${encodeURIComponent(code)}/my-dossier`,
+        )
+        .then((response) => {
+          setDossier(response.dossier);
+          setError("");
+        })
+        .catch(() => {
+          // Keep the persisted report-processing state visible during transient polling errors.
+        });
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [code, waitingForPlacementReport]);
+
+  useEffect(() => {
+    if (!queuedReport || local || !id || !userId) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const response = await api.get<{ dossier: WorkspaceCandidateDossier }>(
+          `/api/workspaces/${id}/registrations/${userId}/dossier`,
+        );
+        if (cancelled) return;
+        setDossier(response.dossier);
+        const completedAt =
+          response.dossier.agentReports?.[queuedReport.kind]?.completedAt ??
+          null;
+        if (
+          completedAt &&
+          completedAt !== queuedReport.baselineCompletedAt
+        ) {
+          setQueuedReport(null);
+          setGenerationNotice(
+            `${queuedReport.kind === "dsa" ? "DSA" : "Unified"} reasoning report is ready.`,
+          );
+        }
+      } catch {
+        // The durable job continues if one polling request fails.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    const deadline = window.setTimeout(() => {
+      if (cancelled) return;
+      setQueuedReport(null);
+      setGenerationNotice(
+        "The report is still processing. You can leave this page and return to the workspace within five minutes.",
+      );
+    }, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.clearTimeout(deadline);
+    };
+  }, [id, local, queuedReport, userId]);
+
   async function generateReport(kind: "dsa" | "unified") {
     if (local || !id || !userId) return;
     setGeneratingReport(kind);
     setGenerationError("");
+    setGenerationNotice("");
     try {
-      const response = await api.post<{ generation: AgentGeneration }>(
+      const baselineCompletedAt =
+        dossier?.agentReports?.[kind]?.completedAt ?? null;
+      const response = await api.post<{
+        generation?: AgentGeneration;
+        queued?: boolean;
+      }>(
         `/api/workspaces/${id}/registrations/${userId}/reports/generate`,
         { kind, force: true },
       );
-      setDossier((current) =>
-        current
-          ? {
-              ...current,
-              agentReports: {
-                dsa: current.agentReports?.dsa ?? null,
-                unified: current.agentReports?.unified ?? null,
-                [kind]: response.generation,
-              },
-            }
-          : current,
-      );
+      if (response.generation) {
+        setDossier((current) =>
+          current
+            ? {
+                ...current,
+                agentReports: {
+                  dsa: current.agentReports?.dsa ?? null,
+                  unified: current.agentReports?.unified ?? null,
+                  [kind]: response.generation!,
+                },
+              }
+            : current,
+        );
+      } else if (response.queued) {
+        setQueuedReport({ kind, baselineCompletedAt });
+        setGenerationNotice(
+          "Report generation has started in the background. You can leave this page; the report will appear in this workspace within five minutes.",
+        );
+      }
     } catch (reason) {
       setGenerationError(
         reason instanceof Error ? reason.message : "Report generation failed",
@@ -2528,15 +3855,33 @@ export default function WorkspaceCandidateReportsPage() {
       "Candidate",
     [dossier],
   );
-  if (!dossier && !error) return <PageLoaderFullScreen />;
-  if (!dossier)
+  if (!dossier && !error) {
+    if (!selfService) return <PageLoaderFullScreen />;
     return (
-      <main className="min-h-screen bg-muted/30 p-8">
-        <Card className="mx-auto max-w-xl">
-          <CardContent className="p-6 text-rose-700">{error}</CardContent>
-        </Card>
-      </main>
+      <UserWorkspaceShell>
+        <div className="workspace-dashboard-page flex min-h-[420px] items-center justify-center">
+          <div className="flex items-center gap-3 text-[var(--dash-text-muted)]">
+            <Loader2 className="h-7 w-7 animate-spin text-[var(--dash-gold)]" />
+            Loading your assessment reports…
+          </div>
+        </div>
+      </UserWorkspaceShell>
     );
+  }
+  if (!dossier) {
+    const errorCard = (
+      <div className={selfService ? "workspace-dashboard-page" : "p-8"}>
+        <Card className="mx-auto max-w-xl border-rose-300 bg-rose-50">
+          <CardContent className="p-6 text-rose-950">{error}</CardContent>
+        </Card>
+      </div>
+    );
+    return selfService ? (
+      <UserWorkspaceShell>{errorCard}</UserWorkspaceShell>
+    ) : (
+      <main className="min-h-screen bg-muted/30">{errorCard}</main>
+    );
+  }
   const backHref = selfService
     ? `/dashboard/jobseeker/workspaces/${encodeURIComponent(code || "")}`
     : local
@@ -2547,21 +3892,71 @@ export default function WorkspaceCandidateReportsPage() {
     : local
       ? `/local-preview/workspace/candidates/${userId}/reports`
       : `/admin/workspaces/${id}/candidates/${userId}/reports`;
+  const configuredModules = new Set(
+    dossier.synthesis?.requiredModules ??
+      dossier.registration.roundAttempts.map((attempt) =>
+        ({
+          mcq: "aptitude",
+          coding: "dsa",
+          sql: "sql",
+          interview: "interview",
+        })[attempt.roundType],
+      ),
+  );
   const modules: Array<{ key: ModuleKey; label: string; icon: typeof Target }> =
     [
-      { key: "overview", label: "Unified reasoning", icon: Target },
-      { key: "aptitude", label: "Aptitude report", icon: BrainCircuit },
-      { key: "dsa", label: "DSA report", icon: Code2 },
-      { key: "antigravity", label: "Antigravity report", icon: RadioTower },
+      { key: "overview", label: audience === "candidate" ? "Overview" : "Review summary", icon: Target },
+      ...(configuredModules.has("aptitude") || dossier.modules.aptitude.workspaceEvidence
+        ? [{ key: "aptitude" as const, label: "Aptitude", icon: BrainCircuit }]
+        : []),
+      ...(configuredModules.has("dsa") || dossier.modules.dsa.workspaceEvidence
+        ? [{ key: "dsa" as const, label: "Coding", icon: Code2 }]
+        : []),
+      ...(configuredModules.has("sql") || dossier.modules.sql.workspaceEvidence
+        ? [{ key: "sql" as const, label: "SQL", icon: Database }]
+        : []),
+      ...(configuredModules.has("interview") ||
+      dossier.modules.interview.latest ||
+      dossier.modules.interview.legacyAntigravity
+        ? [{ key: "interview" as const, label: "AI interview", icon: RadioTower }]
+        : []),
+      ...(audience === "admin" && dossier.modules.antigravity.latest
+        ? [{ key: "antigravity" as const, label: "Antigravity archive", icon: RadioTower }]
+        : []),
     ];
+  const module = modules.some((item) => item.key === requestedModule)
+    ? requestedModule
+    : "overview";
+  const requiredResultCount =
+    dossier.synthesis?.requiredModules?.length || configuredModules.size;
+  const auditableResultCount = Array.from(configuredModules).filter((key) =>
+    key === "aptitude" || key === "dsa" || key === "sql" || key === "interview"
+      ? evidenceComplete(dossier, key)
+      : false,
+  ).length;
 
-  return (
-    <main className="min-h-screen bg-muted/30 px-4 py-6 md:px-8">
-      <div className="mx-auto max-w-7xl space-y-5">
+  const reportContent = (
+      <div
+        className={
+          candidateExperience
+            ? "workspace-dashboard-page workspace-report-page space-y-5"
+            : "mx-auto min-w-0 max-w-7xl space-y-5"
+        }
+      >
         {local ? (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Local preview mode: this uses production-shaped dossier data without
-            authentication or database writes.
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              {candidateExperience
+                ? "Candidate preview: this is the same navigation and wording a signed-in candidate sees."
+                : "Local preview: production-shaped data without authentication or database writes."}
+            </span>
+            {candidateExperience && !selfService ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to={`${baseHref}?module=${module}&audience=admin`}>
+                  Return to reviewer view
+                </Link>
+              </Button>
+            ) : null}
           </div>
         ) : null}
         {decisionError ? (
@@ -2569,33 +3964,41 @@ export default function WorkspaceCandidateReportsPage() {
             {decisionError}
           </div>
         ) : null}
-        <header className="rounded-xl border bg-background p-5 shadow-sm md:p-7">
+        <header
+          className={
+            candidateExperience
+              ? "dashboard-hero-card p-5 md:p-7"
+              : "rounded-xl border bg-background p-5 shadow-sm md:p-7"
+          }
+        >
           <Button asChild variant="ghost" size="sm" className="mb-4 -ml-3">
             <Link to={backHref}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to workspace
+              Back to assessment
             </Link>
           </Button>
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                Candidate assessment dossier
+              <p className="text-sm font-medium text-primary">
+                {candidateExperience ? "Results and feedback" : "Candidate review"}
               </p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
-                {candidateName}
+                {candidateExperience ? "Your assessment results" : candidateName}
               </h1>
-              <p className="mt-2 text-muted-foreground">
-                {dossier.candidate.email} ·{" "}
+              <p className="mt-2 break-words text-muted-foreground">
+                {candidateExperience
+                  ? `${code ? `Assessment code ${code} · ` : ""}`
+                  : `${dossier.candidate.email} · `}
                 {dossier.synthesis?.roleRubric?.targetRole ||
                   "Employer target role not recorded"}
               </p>
             </div>
             <Badge variant="outline" className="px-3 py-1.5">
-              {dossier.synthesis?.completedModules ?? 0}/3 modules complete
+              {auditableResultCount}/{requiredResultCount} detailed results ready
             </Badge>
           </div>
         </header>
-        {!selfService ? (
+        {!candidateExperience ? (
           <section
             className="grid gap-3 rounded-xl border bg-background p-3 md:grid-cols-2"
             aria-label="Report audience"
@@ -2604,11 +4007,11 @@ export default function WorkspaceCandidateReportsPage() {
               asChild
               size="lg"
               variant={audience === "admin" ? "default" : "outline"}
-              className="h-auto justify-start py-4"
+              className="h-auto min-w-0 justify-start whitespace-normal py-4"
             >
               <Link to={`${baseHref}?module=${module}&audience=admin`}>
                 <BriefcaseBusiness className="mr-3 h-5 w-5" />
-                <span className="text-left">
+                <span className="min-w-0 text-left">
                   <span className="block font-bold">Reviewer evidence</span>
                   <span className="block text-xs font-normal opacity-80">
                     Evidence gates, contradictions, risk, and panel action
@@ -2620,11 +4023,11 @@ export default function WorkspaceCandidateReportsPage() {
               asChild
               size="lg"
               variant={audience === "candidate" ? "default" : "outline"}
-              className="h-auto justify-start py-4"
+              className="h-auto min-w-0 justify-start whitespace-normal py-4"
             >
               <Link to={`${baseHref}?module=${module}&audience=candidate`}>
                 <GraduationCap className="mr-3 h-5 w-5" />
-                <span className="text-left">
+                <span className="min-w-0 text-left">
                   <span className="block font-bold">
                     Preview candidate feedback
                   </span>
@@ -2637,7 +4040,7 @@ export default function WorkspaceCandidateReportsPage() {
           </section>
         ) : null}
         <nav
-          className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-2 lg:grid-cols-4"
+          className="flex flex-wrap gap-2 rounded-xl border bg-background p-2"
           aria-label="Candidate report modules"
         >
           {modules.map(({ key, label, icon: Icon }) => (
@@ -2645,7 +4048,7 @@ export default function WorkspaceCandidateReportsPage() {
               key={key}
               asChild
               variant={module === key ? "default" : "ghost"}
-              className="justify-start"
+              className="min-w-[10rem] flex-1 justify-start whitespace-normal"
             >
               <Link to={`${baseHref}?module=${key}&audience=${audience}`}>
                 <Icon className="mr-2 h-4 w-4" />
@@ -2659,6 +4062,19 @@ export default function WorkspaceCandidateReportsPage() {
             {generationError}
           </div>
         ) : null}
+        {generationNotice ? (
+          <div
+            className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-950"
+            role="status"
+          >
+            {queuedReport ? (
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 inline h-4 w-4" />
+            )}
+            {generationNotice}
+          </div>
+        ) : null}
         {audience === "candidate" ? (
           module === "overview" ? (
             <CandidateOverview dossier={dossier} />
@@ -2666,13 +4082,20 @@ export default function WorkspaceCandidateReportsPage() {
             <CandidateAptitudeReport dossier={dossier} />
           ) : module === "dsa" ? (
             <CandidateDsaReport dossier={dossier} />
-          ) : (
+          ) : module === "sql" ? (
+            <SqlReport dossier={dossier} audience="candidate" />
+          ) : module === "antigravity" ? (
             <AntigravityReport dossier={dossier} audience="candidate" />
+          ) : (
+            <PlacementReadinessReport dossier={dossier} audience="candidate" />
           )
         ) : module === "overview" ? (
           <Overview
             dossier={dossier}
-            generating={generatingReport === "unified"}
+            generating={
+              generatingReport === "unified" ||
+              queuedReport?.kind === "unified"
+            }
             onGenerate={local ? undefined : () => generateReport("unified")}
             onRecordDecision={local ? undefined : recordDecision}
             recordingDecision={recordingDecision}
@@ -2682,13 +4105,25 @@ export default function WorkspaceCandidateReportsPage() {
         ) : module === "dsa" ? (
           <DsaReport
             dossier={dossier}
-            generating={generatingReport === "dsa"}
+            generating={
+              generatingReport === "dsa" || queuedReport?.kind === "dsa"
+            }
             onGenerate={local ? undefined : () => generateReport("dsa")}
           />
-        ) : (
+        ) : module === "sql" ? (
+          <SqlReport dossier={dossier} />
+        ) : module === "antigravity" ? (
           <AntigravityReport dossier={dossier} />
+        ) : (
+          <PlacementReadinessReport dossier={dossier} />
         )}
       </div>
+  );
+  return candidateExperience ? (
+    <UserWorkspaceShell>{reportContent}</UserWorkspaceShell>
+  ) : (
+    <main className="min-h-screen bg-muted/30 px-4 py-6 md:px-8">
+      {reportContent}
     </main>
   );
 }

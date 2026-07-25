@@ -28,6 +28,7 @@ import { candidateContextRouter } from "./routes/candidateContext.js";
 import { workspacesRouter } from "./routes/workspaces.js";
 import { collegeRouter } from "./routes/college.js";
 import { userWorkspacesRouter } from "./routes/userWorkspaces.js";
+import { institutionsRouter } from "./routes/institutions.js";
 import { sessionRouter } from "./routes/session.js";
 import { recruiterPaymentsRouter } from "./routes/recruiterPayments.js";
 import { razorpayWebhookRouter } from "./routes/razorpayWebhook.js";
@@ -262,6 +263,7 @@ export function createApp() {
   app.use("/api/workspaces", workspacesRouter);
   app.use("/api/college", collegeRouter);
   app.use("/api/user/workspaces", userWorkspacesRouter);
+  app.use("/api/institutions", institutionsRouter);
   app.use("/api/session", sessionRouter);
   app.use("/api/recruiter/payments", recruiterPaymentsRouter);
   app.use("/api/placement-readiness", placementReadinessRouter);

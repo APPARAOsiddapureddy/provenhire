@@ -18,7 +18,11 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: PLACEMENT_READINESS_WEB_URL
-        sync: false
+        value: https://provenhireplacement.vercel.app
+      - key: PLACEMENT_READINESS_FALLBACK_WEB_URL
+        value: https://provenhireplacement.vercel.app
+      - key: PLACEMENT_READINESS_CUSTOM_DOMAIN_READY
+        value: "false"
       - key: PROVENHIRE_WEB_URL
         value: https://provenhire.in
       - key: PLACEMENT_HANDOFF_SHARED_SECRET

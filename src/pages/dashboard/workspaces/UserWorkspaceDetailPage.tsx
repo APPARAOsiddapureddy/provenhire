@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -23,9 +23,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  BarChart3,
+  CheckCircle2,
   ClipboardList,
   Loader2,
   Lock,
+  ShieldAlert,
   Trophy,
   Users,
 } from "lucide-react";
@@ -35,6 +38,7 @@ import type {
   UserWorkspaceLeaderboardResponse,
   UserWorkspaceRegistration,
   UserWorkspaceRound,
+  UserWorkspaceRoundAttempt,
 } from "./types";
 import {
   formatWorkspaceDate,
@@ -97,10 +101,10 @@ export default function UserWorkspaceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
 
-  const loadWorkspace = async () => {
+  const loadWorkspace = useCallback(async (silent = false) => {
     const workspaceCode = normalizeWorkspaceCode(decodeURIComponent(code));
     if (!workspaceCode) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await api.get<{
         workspace: UserWorkspace;
@@ -110,17 +114,34 @@ export default function UserWorkspaceDetailPage() {
       setRegistration(res.registration);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to load workspace",
+        error instanceof Error ? error.message : "Failed to load assessment",
       );
       navigate("/dashboard/jobseeker/workspaces");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [code, navigate]);
 
   useEffect(() => {
     void loadWorkspace();
-  }, [code]);
+  }, [loadWorkspace]);
+
+  const hasPendingPlacementReport = Boolean(
+    registration?.roundAttempts?.some(
+      (attempt) =>
+        attempt.roundType === "interview" &&
+        attempt.status === "active" &&
+        ["started", "processing"].includes(
+          attempt.placementReadinessHandoff?.status || "",
+        ),
+    ),
+  );
+
+  useEffect(() => {
+    if (!hasPendingPlacementReport) return;
+    const timer = window.setInterval(() => void loadWorkspace(true), 5_000);
+    return () => window.clearInterval(timer);
+  }, [hasPendingPlacementReport, loadWorkspace]);
 
   const joinWorkspace = async () => {
     if (!workspace) return;
@@ -130,11 +151,11 @@ export default function UserWorkspaceDetailPage() {
         `/api/user/workspaces/code/${encodeURIComponent(workspace.code)}/join`,
         {},
       );
-      toast.success("Workspace joined.");
+      toast.success("Assessment added.");
       await loadWorkspace();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not join workspace",
+        error instanceof Error ? error.message : "Could not join assessment",
       );
     } finally {
       setJoining(false);
@@ -158,7 +179,7 @@ export default function UserWorkspaceDetailPage() {
         <Button variant="outline" size="sm" asChild>
           <Link to="/dashboard/jobseeker/workspaces">
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Workspaces
+            Assessments
           </Link>
         </Button>
 
@@ -176,7 +197,7 @@ export default function UserWorkspaceDetailPage() {
                 </Badge>
               </div>
               <p className="dashboard-hero-subtitle">
-                Code{" "}
+                Invitation code{" "}
                 <span className="font-mono text-[var(--dash-gold)]">
                   {workspace.code}
                 </span>
@@ -190,7 +211,7 @@ export default function UserWorkspaceDetailPage() {
                   ) : (
                     <Users className="h-4 w-4 mr-2" />
                   )}
-                  Join workspace
+                  Join assessment
                 </Button>
               )}
               {registration && (
@@ -202,7 +223,7 @@ export default function UserWorkspaceDetailPage() {
                       : "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
                   }
                 >
-                  {isRemoved ? "Removed" : "Registered"}
+                  {isRemoved ? "Access removed" : "Joined"}
                 </Badge>
               )}
             </div>
@@ -212,17 +233,33 @@ export default function UserWorkspaceDetailPage() {
         {isRemoved && (
           <Card className="border-red-400/30 bg-red-400/5">
             <CardContent className="p-4 text-sm text-red-100">
-              You were removed from this workspace. Contact the workspace
-              organizer if this looks wrong.
+              Your access to this assessment was removed. Contact the organizer if this looks wrong.
             </CardContent>
           </Card>
         )}
 
-        <Tabs defaultValue="overview" className="min-w-0 space-y-4">
+        {hasPendingPlacementReport && (
+          <Card className="border-amber-400/30 bg-amber-400/5">
+            <CardContent className="p-5">
+              <div className="flex items-start gap-3">
+                <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-amber-300" />
+                <div>
+                  <h2 className="font-semibold text-amber-100">Interview complete</h2>
+                  <p className="mt-1 text-sm leading-6 text-amber-100/80">Your interview is saved. We are preparing your feedback, which is usually ready within five minutes. You can safely leave this page and return to Results later.</p>
+                  <Button className="mt-3" size="sm" variant="outline" asChild>
+                    <Link to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/reports?module=interview`}>Check feedback</Link>
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Tabs defaultValue="rounds" className="min-w-0 space-y-4">
           <TabsList className="workspace-dashboard-tabs border border-[var(--dash-navy-border)] bg-white/[0.04]">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="rounds">Rounds</TabsTrigger>
-            <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
+            <TabsTrigger value="overview">Details</TabsTrigger>
+            <TabsTrigger value="rounds">Assessment plan</TabsTrigger>
+            <TabsTrigger value="leaderboard">Rankings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -260,11 +297,10 @@ function WorkspaceOverview({
       <CardHeader>
         <CardTitle className="text-base text-[var(--dash-text-primary)] flex items-center gap-2">
           <ClipboardList className="h-4 w-4 text-[var(--dash-gold)]" />
-          Workspace overview
+          Assessment details
         </CardTitle>
         <CardDescription>
-          Complete each configured assessment in order. Results return to this
-          workspace.
+          Review the schedule and access rules for this assessment.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
@@ -277,8 +313,8 @@ function WorkspaceOverview({
         <Info label="Starts" value={formatWorkspaceDate(workspace.startAt)} />
         <Info label="Ends" value={formatWorkspaceDate(workspace.endAt)} />
         <Info
-          label="Registration"
-          value={registration ? registration.status : "Not joined"}
+          label="Your access"
+          value={registration ? (registration.status === "registered" ? "Joined" : registration.status) : "Not joined"}
         />
       </CardContent>
     </Card>
@@ -308,11 +344,10 @@ function WorkspaceRounds({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle className="text-base text-[var(--dash-text-primary)]">
-              Rounds
+              Assessment plan
             </CardTitle>
             <CardDescription>
-              Assessment rounds unlock in order and persist their evidence to
-              your workspace record.
+              Complete the rounds in order. Your progress is saved after each round.
             </CardDescription>
           </div>
           {registration && completedCount > 0 ? (
@@ -320,22 +355,60 @@ function WorkspaceRounds({
               <Link
                 to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/reports?module=overview`}
               >
-                View my feedback ({completedCount}/{workspace.rounds.length})
+                View results and feedback ({completedCount}/{workspace.rounds.length})
               </Link>
             </Button>
           ) : null}
         </div>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <Table className="min-w-[760px]">
+        <div className="space-y-3 md:hidden">
+          {workspace.rounds.map((round) => {
+            const attempt = attempts.get(round.id);
+            const previousComplete = workspace.rounds
+              .filter((candidate) => candidate.order < round.order)
+              .every((candidate) => {
+                const previous = attempts.get(candidate.id);
+                return previous?.status === "completed" || previous?.status === "auto_completed";
+              });
+            const typeLabel = { mcq: "Aptitude", coding: "Coding", sql: "SQL", interview: "AI interview" }[round.type];
+            const isComplete = attempt?.status === "completed" || attempt?.status === "auto_completed";
+            return (
+              <article key={round.id} className="rounded-xl border border-[var(--dash-navy-border)] bg-white/[0.025] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-medium text-[var(--dash-gold)]">Round {round.order}</div>
+                    <h3 className="mt-1 font-semibold leading-6 text-[var(--dash-text-primary)]">{round.name}</h3>
+                  </div>
+                  <Badge variant="outline">{typeLabel}</Badge>
+                </div>
+                <dl className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                  <div><dt className="text-xs text-[var(--dash-text-muted)]">Questions</dt><dd className="mt-1 font-medium text-[var(--dash-text-primary)]">{round.questionCount}</dd></div>
+                  <div><dt className="text-xs text-[var(--dash-text-muted)]">Time</dt><dd className="mt-1 font-medium text-[var(--dash-text-primary)]">{round.timeLimitMins} min</dd></div>
+                  <div><dt className="text-xs text-[var(--dash-text-muted)]">Score weight</dt><dd className="mt-1 font-medium text-[var(--dash-text-primary)]">{round.scoreWeightage}%</dd></div>
+                </dl>
+                <div className="mt-4 flex flex-col gap-3 border-t border-[var(--dash-navy-border)] pt-4">
+                  <div className="text-sm text-[var(--dash-text-muted)]">
+                    {isComplete ? <span className="font-semibold text-emerald-200">Score: {attempt?.percentageScore ?? attempt?.score ?? "—"}/100</span> : attempt?.status === "active" ? <span className="text-amber-200">In progress</span> : "Not started"}
+                  </div>
+                  <div className="flex justify-stretch [&>*]:w-full">
+                    <RoundAction round={round} workspace={workspace} registered={registration?.status === "registered"} attempt={attempt} previousComplete={previousComplete} />
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Round</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Questions</TableHead>
                 <TableHead>Time</TableHead>
-                <TableHead>Score</TableHead>
+                <TableHead>Weight</TableHead>
+                <TableHead>Result</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -362,17 +435,38 @@ function WorkspaceRounds({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{round.type}</Badge>
+                      <Badge variant="outline">
+                        {{
+                          mcq: "Aptitude",
+                          coding: "Coding / DSA",
+                          sql: "SQL",
+                          interview: "AI interview",
+                        }[round.type]}
+                      </Badge>
                     </TableCell>
                     <TableCell>{round.questionCount}</TableCell>
                     <TableCell>{round.timeLimitMins} min</TableCell>
                     <TableCell>{round.scoreWeightage}%</TableCell>
+                    <TableCell>
+                      {attempt?.status === "completed" ||
+                      attempt?.status === "auto_completed" ? (
+                        <span className="font-semibold text-emerald-200">
+                          {attempt.percentageScore ?? attempt.score ?? "—"}/100
+                        </span>
+                      ) : attempt?.status === "active" ? (
+                        <span className="text-amber-200">In progress</span>
+                      ) : attempt?.status === "discarded" ? (
+                        <span className="font-medium text-red-200">Invalidated</span>
+                      ) : (
+                        <span className="text-[var(--dash-text-muted)]">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <RoundAction
                         round={round}
                         workspace={workspace}
                         registered={registration?.status === "registered"}
-                        attemptStatus={attempt?.status}
+                        attempt={attempt}
                         previousComplete={previousComplete}
                       />
                     </TableCell>
@@ -391,23 +485,69 @@ function RoundAction({
   round,
   workspace,
   registered,
-  attemptStatus,
+  attempt,
   previousComplete,
 }: {
   round: UserWorkspaceRound;
   workspace: UserWorkspace;
   registered: boolean;
-  attemptStatus?: string;
+  attempt?: UserWorkspaceRoundAttempt;
   previousComplete: boolean;
 }) {
-  if (attemptStatus === "completed" || attemptStatus === "auto_completed") {
+  if (attempt?.status === "discarded") {
     return (
-      <Badge
-        variant="outline"
-        className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
-      >
-        Completed
-      </Badge>
+      <div className="flex items-center justify-end gap-2 text-red-200">
+        <ShieldAlert className="h-4 w-4" />
+        <span className="text-sm font-medium">Integrity review required</span>
+      </div>
+    );
+  }
+  if (attempt?.status === "completed" || attempt?.status === "auto_completed") {
+    const module = {
+      mcq: "aptitude",
+      coding: "dsa",
+      sql: "sql",
+      interview: "interview",
+    }[round.type];
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <Badge
+          variant="outline"
+          className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+        >
+          <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+          Completed
+        </Badge>
+        <Button size="sm" variant="outline" asChild>
+          <Link
+            to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/reports?module=${module}`}
+          >
+            <BarChart3 className="mr-2 h-4 w-4" />
+            View report
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+  const placementStatus = attempt?.placementReadinessHandoff?.status;
+  if (
+    round.type === "interview" &&
+    attempt?.status === "active" &&
+    ["started", "processing"].includes(placementStatus || "")
+  ) {
+    return (
+      <div className="max-w-56 space-y-1 text-right">
+        <Badge
+          variant="outline"
+          className="border-amber-400/30 bg-amber-400/10 text-amber-100"
+        >
+          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+          Report processing
+        </Badge>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Your interview is saved. Feedback is usually ready within five minutes.
+        </p>
+      </div>
     );
   }
   if (
@@ -424,7 +564,13 @@ function RoundAction({
         <Link
           to={`/dashboard/jobseeker/workspaces/${encodeURIComponent(workspace.code)}/rounds/${encodeURIComponent(round.id)}`}
         >
-          {attemptStatus === "active" ? "Continue" : "Start"}
+          {round.type === "interview" && placementStatus === "failed"
+            ? "Retry interview"
+            : attempt?.status === "active"
+              ? round.type === "interview"
+                ? "Retry launch"
+                : "Continue"
+              : "Start"}
         </Link>
       </Button>
     );
@@ -451,7 +597,7 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = async (cursor?: string | null) => {
+  const load = useCallback(async (cursor?: string | null) => {
     setLoading(true);
     try {
       const qs = new URLSearchParams({ limit: "20" });
@@ -470,20 +616,20 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceCode]);
 
   useEffect(() => {
     void load(null);
-  }, [workspaceCode]);
+  }, [load]);
 
   return (
     <Card className="workspace-dashboard-panel">
       <CardHeader>
         <CardTitle className="text-base text-[var(--dash-text-primary)] flex items-center gap-2">
           <Trophy className="h-4 w-4 text-[var(--dash-gold)]" />
-          Leaderboard
+          Rankings
         </CardTitle>
-        <CardDescription>Scores appear after round completion.</CardDescription>
+        <CardDescription>Candidate identities are hidden. Scores appear after round completion.</CardDescription>
       </CardHeader>
       <CardContent>
         {loading && rows.length === 0 ? (
@@ -506,14 +652,11 @@ function WorkspaceLeaderboard({ workspaceCode }: { workspaceCode: string }) {
                 </TableHeader>
                 <TableBody>
                   {rows.map((row) => (
-                    <TableRow key={`${row.rank}-${row.userId}`}>
+                    <TableRow key={`${row.rank}-${row.candidateLabel}`}>
                       <TableCell>#{row.rank}</TableCell>
                       <TableCell>
                         <div className="font-medium text-[var(--dash-text-primary)]">
-                          {row.name || row.email}
-                        </div>
-                        <div className="text-xs text-[var(--dash-text-muted)]">
-                          {row.email}
+                          {row.candidateLabel}
                         </div>
                       </TableCell>
                       <TableCell>{row.totalScore}</TableCell>

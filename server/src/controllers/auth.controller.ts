@@ -40,6 +40,20 @@ const registerSchema = z
     }
   });
 
+/// Institution signup is deliberately three fields. Everything else about the
+/// college (address, affiliation, AICTE code, placement-cell head...) is
+/// optional and filled in later from Settings, so onboarding is never blocked
+/// on paperwork.
+const institutionRegisterSchema = z.object({
+  institutionName: z.string().trim().min(2, "Enter your institution's name.").max(200),
+  email: z.string().email("Enter a valid email address."),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters.")
+    .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, "Password must include at least one letter and one number."),
+  contactName: z.string().trim().max(120).optional(),
+});
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
@@ -505,6 +519,184 @@ export async function register(req: Request, res: Response) {
     const body: { error: string; code?: string } = { error: "Registration failed. Please try again." };
     if (code && process.env.NODE_ENV !== "production") body.code = code;
     return res.status(500).json(body);
+  }
+}
+
+async function generateInstitutionSlug(name: string): Promise<string> {
+  const base =
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "institution";
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const slug = attempt === 0 ? base : `${base}-${crypto.randomInt(1000, 10_000)}`;
+    const existing = await prisma.institution.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!existing) return slug;
+  }
+  throw new Error("Could not generate a unique institution slug.");
+}
+
+/// Registers a college / university placement cell.
+///
+/// Creates three things atomically: the signing-in User with role
+/// `institution`, the Institution tenant (status `pending`), and an
+/// InstitutionMember `owner` row linking them. The `institution` role is
+/// deliberately NOT `admin` - `admin` is the platform superadmin and bypasses
+/// per-workspace authorization, which would expose every college's drives to
+/// every other college.
+///
+/// `pending` still allows full sign-in and building drives in draft; only
+/// publishing a live drive to real students requires platform approval.
+export async function registerInstitution(req: Request, res: Response) {
+  try {
+    if (!process.env.JWT_SECRET) {
+      console.error("[auth/register-institution] JWT_SECRET is not configured");
+      return res.status(500).json({ error: "Server configuration error. Contact support." });
+    }
+    const parsed = institutionRegisterSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+      const firstMsg = Object.values(fieldErrors).flat()[0];
+      return res.status(400).json({
+        error: firstMsg ?? "Invalid registration payload",
+        code: "VALIDATION_ERROR",
+        fields: fieldErrors,
+      });
+    }
+    const { institutionName, email, password, contactName } = parsed.data;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (isBlockedEmailListEnforced()) {
+      const blocked = await prisma.blockedEmail.findUnique({ where: { email: normalizedEmail } });
+      if (blocked) {
+        return res.status(403).json({ error: "This email cannot be used for registration" });
+      }
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing?.emailVerified) {
+      return res.status(409).json({
+        error:
+          existing.role === "institution"
+            ? "This institution account already exists. Sign in instead."
+            : `This email is already registered as ${existing.role}. Use a different email for the institution account.`,
+      });
+    }
+    if (existing && (existing as { authProvider?: string | null }).authProvider === "GOOGLE") {
+      return res.status(409).json({ error: "This email already uses Google sign-in. Continue with Google." });
+    }
+    // An unverified signup already in flight: don't spam another code.
+    if (existing) {
+      const cooldownSeconds = await getVerificationCooldownSeconds(normalizedEmail);
+      if (cooldownSeconds > 0) {
+        return res.json({
+          ok: true,
+          requiresEmailVerification: true,
+          email: existing.email,
+          role: existing.role,
+          message: "A verification code was already sent. Check your inbox or request a new code in a moment.",
+        });
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const slug = await generateInstitutionSlug(institutionName);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const user = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              name: contactName || institutionName,
+              passwordHash,
+              role: "institution",
+              emailVerified: false,
+              authProvider: "EMAIL",
+            },
+          })
+        : await tx.user.create({
+            data: {
+              name: contactName || institutionName,
+              email: normalizedEmail,
+              passwordHash,
+              role: "institution",
+              emailVerified: false,
+              authProvider: "EMAIL",
+            },
+          });
+
+      // A retried signup on the same unverified email must not create a second
+      // tenant, so reuse any institution this user already owns.
+      const existingMembership = await tx.institutionMember.findFirst({
+        where: { userId: user.id, removedAt: null },
+        select: { institutionId: true },
+      });
+
+      const institution = existingMembership
+        ? await tx.institution.update({
+            where: { id: existingMembership.institutionId },
+            data: { name: institutionName, contactEmail: normalizedEmail },
+          })
+        : await tx.institution.create({
+            data: {
+              name: institutionName,
+              slug,
+              contactEmail: normalizedEmail,
+              status: "pending",
+            },
+          });
+
+      if (!existingMembership) {
+        await tx.institutionMember.create({
+          data: {
+            institutionId: institution.id,
+            userId: user.id,
+            role: "owner",
+          },
+        });
+      }
+
+      const issued = await createEmailVerificationCode(tx, normalizedEmail);
+      return { user, institution, issued };
+    });
+
+    const sent = await deliverVerificationCode(normalizedEmail, result.issued.code);
+    if (!sent) {
+      await consumeVerificationCode(normalizedEmail);
+      return res.status(502).json({
+        error: "We could not send the verification email right now. Please try again.",
+        code: "EMAIL_DELIVERY_FAILED",
+      });
+    }
+
+    return res.status(201).json({
+      ok: true,
+      requiresEmailVerification: true,
+      email: result.user.email,
+      role: result.user.role,
+      institution: { id: result.institution.id, name: result.institution.name, slug: result.institution.slug },
+      expiresAt: result.issued.expiresAt.toISOString(),
+      message: `Verification code sent to ${normalizedEmail}. Check your inbox and spam folder.`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Registration failed";
+    console.error("[auth/register-institution]", msg, err);
+    const code = (err as { code?: string })?.code;
+    if (code === "P1001") {
+      return res.status(503).json({ error: "Database unavailable. Please try again in a moment." });
+    }
+    if (code === "P2021") {
+      return res.status(503).json({ error: "Database is still initializing. Please try again in a minute." });
+    }
+    if (code === "P2002") {
+      return res.status(409).json({ error: "Email already registered." });
+    }
+    return res.status(500).json({ error: msg });
   }
 }
 

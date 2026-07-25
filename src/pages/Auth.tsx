@@ -23,6 +23,15 @@ const isValidEmail = (value: string) => EMAIL_REGEX.test(value.trim());
 const isStrongPassword = (value: string) =>
   value.length >= PASSWORD_MIN_LENGTH && PASSWORD_REGEX.test(value);
 
+function safeReturnPath(value: string | null, role: string | null): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  if (role === "admin" && value.startsWith("/admin/")) return value;
+  if (role === "recruiter" && value.startsWith("/dashboard/recruiter")) return value;
+  if (role === "expert_interviewer" && value.startsWith("/dashboard/expert")) return value;
+  if (role === "jobseeker" && value.startsWith("/dashboard/jobseeker")) return value;
+  return null;
+}
+
 const Auth = () => {
   const [searchParams] = useSearchParams();
   const roleFromUrl = searchParams.get("role");
@@ -31,6 +40,7 @@ const Auth = () => {
   const emailFromUrl = searchParams.get("email");
   const resetTokenFromUrl = searchParams.get("token");
   const resetSuccess = searchParams.get("reset") === "1";
+  const returnToFromUrl = searchParams.get("returnTo");
 
   const [authMode, setAuthMode] = useState<AuthMode>(() => {
     if (modeFromUrl === "reset") return "reset";
@@ -121,11 +131,13 @@ const Auth = () => {
 
   useEffect(() => {
     if (!user || authMode === "reset" || needsGoogleRoleSelection) return;
-    if (userRole === "admin") navigate("/admin/dashboard", { replace: true });
+    const requestedPath = safeReturnPath(returnToFromUrl, userRole);
+    if (requestedPath) navigate(requestedPath, { replace: true });
+    else if (userRole === "admin") navigate("/admin/dashboard", { replace: true });
     else if (userRole === "recruiter") navigate("/dashboard/recruiter", { replace: true });
     else if (userRole === "expert_interviewer") navigate("/dashboard/expert", { replace: true });
     else if (userRole === "jobseeker") navigate("/dashboard/jobseeker", { replace: true });
-  }, [user, userRole, navigate, authMode, needsGoogleRoleSelection]);
+  }, [user, userRole, navigate, authMode, needsGoogleRoleSelection, returnToFromUrl]);
 
   useEffect(() => {
     if (emailFromUrl) {
@@ -143,6 +155,7 @@ const Auth = () => {
     params.set("mode", mode);
     if (roleFromUrl) params.set("role", roleFromUrl);
     if (referralCodeFromUrl) params.set("ref", referralCodeFromUrl);
+    if (returnToFromUrl) params.set("returnTo", returnToFromUrl);
     if (mode === "login" && email?.trim()) params.set("email", email.trim());
     if (mode === "signup" && signInEmail?.trim()) params.set("email", signInEmail.trim());
     navigate(`/auth?${params.toString()}`, { replace: true });

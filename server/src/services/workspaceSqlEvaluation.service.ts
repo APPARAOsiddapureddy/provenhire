@@ -145,7 +145,7 @@ extra_schema = sys.stdin.read()
 conn = sqlite3.connect(":memory:")
 try:
     cur = conn.cursor()
-    schema = (payload.get("schema") or "") + "\n" + (extra_schema or "")
+    schema = (payload.get("schema") or "") + "\\n" + (extra_schema or "")
     if schema.strip():
         conn.executescript(schema)
     cur.execute(payload["query"])
@@ -155,7 +155,7 @@ try:
     lines = []
     for row in rows:
         lines.append("|".join(str(value) for value in row))
-    output = "\n".join(lines)
+    output = "\\n".join(lines)
     if len(output) > int(payload["outputLimit"]):
         raise RuntimeError("Output limit exceeded")
     if output:

@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, AuthedRequest } from "../middleware/auth.js";
+import { requireAdmin, requireAuth, requireJobSeeker, AuthedRequest } from "../middleware/auth.js";
 import { prisma } from "../config/prisma.js";
 import { getFeatureMode } from "../services/featureFlag.service.js";
 import { incrementEventCount, toClientAction } from "../services/proctoringCount.service.js";
 
 export const proctoringRouter = Router();
 
-proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) => {
+proctoringRouter.post("/alerts", requireAuth, requireJobSeeker, async (_req: AuthedRequest, res) => {
   const schema = z.object({
     userId: z.string(),
     testId: z.string(),
@@ -22,6 +22,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
   });
   const parsed = schema.safeParse(_req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payload" });
+  const authenticatedUserId = _req.user!.id;
   const alertType = parsed.data.alertType;
   const flagChecks: [string, string[]][] = [
     ["tab_switch_detection", ["TAB_SWITCH", "WINDOW_FOCUS_LOST", "WINDOW_MINIMIZED"]],
@@ -54,7 +55,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
   await prisma.proctoringEvent.create({
     data: {
       sessionId: parsed.data.testId,
-      userId: parsed.data.userId,
+      userId: authenticatedUserId,
       testType: parsed.data.testType,
       type: parsed.data.alertType,
       severity: parsed.data.severity,
@@ -65,7 +66,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
   });
 
   const inc = await incrementEventCount({
-    userId: parsed.data.userId,
+    userId: authenticatedUserId,
     sessionId: parsed.data.testId,
     testType: parsed.data.testType,
     eventType: parsed.data.alertType,
@@ -78,7 +79,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
   ) {
     await prisma.interview
       .updateMany({
-        where: { id: parsed.data.testId, userId: parsed.data.userId },
+        where: { id: parsed.data.testId, userId: authenticatedUserId },
         data: { proctoringEventCount: { increment: 1 } },
       })
       .catch(() => {});
@@ -88,7 +89,7 @@ proctoringRouter.post("/alerts", requireAuth, async (_req: AuthedRequest, res) =
   res.json({ ok: true, eventCount: inc.newCount, action });
 });
 
-proctoringRouter.get("/alerts", requireAuth, async (_req: AuthedRequest, res) => {
+proctoringRouter.get("/alerts", requireAdmin, async (_req: AuthedRequest, res) => {
   const alerts = await prisma.proctoringEvent.findMany({
     orderBy: { createdAt: "desc" },
     take: 50,
@@ -96,6 +97,6 @@ proctoringRouter.get("/alerts", requireAuth, async (_req: AuthedRequest, res) =>
   res.json({ alerts });
 });
 
-proctoringRouter.post("/alerts/read", requireAuth, async (_req: AuthedRequest, res) => {
+proctoringRouter.post("/alerts/read", requireAdmin, async (_req: AuthedRequest, res) => {
   res.json({ ok: true });
 });

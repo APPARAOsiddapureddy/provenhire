@@ -35,6 +35,7 @@ export interface McqQuestionRaw {
   option_4: string;
   answer: string;
   difficultyLevel: "easy" | "medium" | "hard";
+  subtrack?: string;
 }
 
 export interface AptitudeQuestionForClient {
@@ -42,6 +43,8 @@ export interface AptitudeQuestionForClient {
   question: string;
   options: string[];
   marks: number;
+  domain?: string;
+  difficulty?: "easy" | "medium" | "hard";
 }
 
 export interface AptitudeSession {
@@ -108,6 +111,14 @@ function normalizeText(s: unknown): string {
 
 function normalizeOptionKey(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function questionDomain(q: McqQuestionRaw): string {
+  const explicit = normalizeText(q.questionType || q.subtrack)
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  if (explicit) return explicit;
+  return isVerbal(q) ? "Verbal" : "Quantitative & Logical";
 }
 
 function isValidMcqQuestionRaw(q: McqQuestionRaw): boolean {
@@ -257,6 +268,8 @@ function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSe
       question: q.question,
       options: shuffleArray(cleanOpts),
       marks,
+      domain: questionDomain(q),
+      difficulty: q.difficultyLevel,
     };
   });
 
@@ -293,17 +306,10 @@ function buildAptitudeSessionFromMcqs(selectedMcq: McqQuestionRaw[]): AptitudeSe
 }
 
 function allWorkspaceMcqQuestions(): McqQuestionRaw[] {
-  const byKey = new Map<string, McqQuestionRaw>();
-  for (const q of [
-    ...loadQuestions(),
-    ...loadCsQuestions(),
-    ...loadDataFundamentalsQuestions(),
-    ...loadNonTechDomainQuestions(),
-  ]) {
-    const id = q._id?.$oid ?? normalizeText(q.question).toLowerCase();
-    if (!byKey.has(id)) byKey.set(id, q);
-  }
-  return Array.from(byKey.values());
+  // A workspace MCQ round is the ProvenHire aptitude round. Track-specific
+  // CS, data, and non-technical domain banks have dedicated verification
+  // stages and must never leak into a random workspace aptitude set.
+  return loadQuestions();
 }
 
 function buildWorkspaceMcqSetFromMcqs(selectedMcq: McqQuestionRaw[]): Pick<WorkspaceMcqQuestionSet, "questions" | "answerKey" | "questionIds"> {
@@ -322,6 +328,8 @@ function buildWorkspaceMcqSetFromMcqs(selectedMcq: McqQuestionRaw[]): Pick<Works
       question: q.question,
       options: shuffleArray(Array.from(uniq.values())),
       marks: 1,
+      domain: questionDomain(q),
+      difficulty: q.difficultyLevel,
     };
   });
   return { questions, answerKey, questionIds: questions.map((question) => question.id) };
@@ -384,6 +392,8 @@ function buildNonTechDomainFundamentalsSessionFromMcqs(selectedMcq: McqQuestionR
       question: q.question,
       options: shuffleArray(cleanOpts),
       marks: 1,
+      domain: questionDomain(q),
+      difficulty: q.difficultyLevel,
     };
   });
   const totalMarks = questions.length;
@@ -537,7 +547,7 @@ export function createAptitudeSessionByQuestionSet(
     const med = df.filter((q) => (q.difficultyLevel || "").toLowerCase() === "medium");
     const hard = df.filter((q) => (q.difficultyLevel || "").toLowerCase() === "hard");
     let pMed = shuffleArray(med).slice(0, 15);
-    let pHard = shuffleArray(hard).slice(0, 5);
+    const pHard = shuffleArray(hard).slice(0, 5);
     if (pMed.length + pHard.length < 20) {
       const fill = shuffleArray(df.filter((q) => !pMed.includes(q) && !pHard.includes(q)));
       pMed = [...pMed, ...fill.slice(0, 20 - pMed.length - pHard.length)];
@@ -585,6 +595,8 @@ export function getPracticeAptitudeQuestions(): AptitudeQuestionForClient[] {
       question: q.question,
       options: shuffleArray(opts),
       marks: m,
+      domain: questionDomain(q),
+      difficulty: q.difficultyLevel,
     };
   });
 }

@@ -1,0 +1,157 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { ArrowLeft, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import type { WorkspaceAnalyticsSnapshot } from "./workspaceAnalyticsTypes";
+import { buildDemoAnalyticsSnapshot } from "./workspaceAnalyticsDemoData";
+import {
+  WorkspaceBatchOverview,
+  WorkspaceCandidateSegments,
+  WorkspaceCoreInsights,
+  WorkspaceModuleBreakdown,
+  WorkspaceModuleRadar,
+  WorkspaceReadinessSummary,
+  WorkspaceRetakeTable,
+  WorkspaceStrengthsWeaknesses,
+  WorkspaceTopicPriorityMatrix,
+} from "@/components/admin/WorkspaceAnalyticsCharts";
+
+const POLL_INTERVAL_MS = 45_000;
+
+export default function WorkspaceAnalyticsPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [analytics, setAnalytics] = useState<WorkspaceAnalyticsSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchAnalytics = useCallback(
+    async (showToast = false) => {
+      if (!id) return;
+      if (showToast) setRefreshing(true);
+      else setLoading(true);
+      try {
+        const res = await api.get<{ analytics: WorkspaceAnalyticsSnapshot }>(
+          `/api/workspaces/${id}/analytics`,
+        );
+        setAnalytics(res.analytics);
+        if (showToast) toast.success("Analytics refreshed");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to load analytics");
+        if (!showToast) navigate(`/admin/workspaces/${id}`);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [id, navigate],
+  );
+
+  useEffect(() => {
+    void fetchAnalytics();
+  }, [fetchAnalytics]);
+
+  useEffect(() => {
+    pollRef.current = setInterval(() => void fetchAnalytics(), POLL_INTERVAL_MS);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [fetchAnalytics]);
+
+  const displayed = useMemo(() => {
+    if (!analytics) return null;
+    return demoMode ? buildDemoAnalyticsSnapshot(analytics.workspace) : analytics;
+  }, [analytics, demoMode]);
+
+  if (loading || !analytics || !displayed) {
+    return (
+      <div className="min-h-screen bg-muted/30 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const generatedAtLabel = new Date(displayed.generatedAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <div className="min-h-screen bg-muted/30">
+      <header className="bg-background border-b border-border sticky top-0 z-50">
+        {demoMode ? (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 text-center text-xs font-medium text-amber-700">
+            Demo data
+          </div>
+        ) : null}
+        <div className="container mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <Button asChild variant="outline" size="sm">
+                <Link to={`/admin/workspaces/${displayed.workspace.id}`}>
+                  <ArrowLeft className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Workspace</span>
+                </Link>
+              </Button>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg sm:text-xl font-bold truncate">{displayed.workspace.name}</h1>
+                  {demoMode ? (
+                    <Badge className="bg-amber-500 text-white hover:bg-amber-500">Demo data</Badge>
+                  ) : null}
+                </div>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  {displayed.workspace.totalCandidates} candidates &middot; generated at {generatedAtLabel}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={demoMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => setDemoMode((v) => !v)}
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                {demoMode ? "Showing demo data" : "View demo data"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => fetchAnalytics(true)} disabled={refreshing || demoMode}>
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+        <WorkspaceBatchOverview
+          workspace={displayed.workspace}
+          readiness={displayed.readiness}
+          modules={displayed.modules}
+        />
+        <WorkspaceReadinessSummary readiness={displayed.readiness} />
+        <WorkspaceTopicPriorityMatrix modules={displayed.modules} />
+        <div className="grid gap-6 lg:grid-cols-2 items-start">
+          <WorkspaceModuleRadar modules={displayed.modules} />
+          <WorkspaceStrengthsWeaknesses modules={displayed.modules} />
+        </div>
+        <WorkspaceCandidateSegments
+          retakeList={displayed.retakeList}
+          totalCandidates={displayed.workspace.totalCandidates}
+        />
+        <WorkspaceCoreInsights snapshot={displayed} />
+        <WorkspaceModuleBreakdown modules={displayed.modules} />
+        <WorkspaceRetakeTable retakeList={displayed.retakeList} />
+      </main>
+    </div>
+  );
+}
