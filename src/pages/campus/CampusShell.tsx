@@ -38,7 +38,7 @@ export default function CampusShell({
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div data-campus-surface className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
         {institution && !canPublishDrives && institution.status === "pending" && (
           <div className="border-b border-primary/25 bg-primary/10">
@@ -63,10 +63,10 @@ export default function CampusShell({
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `rounded-md px-3 py-1.5 text-sm transition-colors ${
+                    `relative rounded-md px-3 py-1.5 text-sm transition-colors duration-200 after:absolute after:inset-x-3 after:-bottom-px after:h-0.5 after:rounded-full after:transition-colors after:duration-200 ${
                       isActive
-                        ? "bg-white/[0.06] text-foreground"
-                        : "text-muted-foreground hover:text-foreground"
+                        ? "bg-white/[0.06] text-foreground after:bg-primary"
+                        : "text-muted-foreground hover:bg-white/[0.03] hover:text-foreground after:bg-transparent"
                     }`
                   }
                 >

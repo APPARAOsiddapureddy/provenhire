@@ -181,7 +181,7 @@ export default function CampusStaffPage() {
               {active.map((member) => (
                 <div
                   key={member.id}
-                  className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-5"
+                  className="group flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-5 transition-all duration-300 hover:border-primary/20 hover:bg-primary/[0.03]"
                 >
                   <div className="min-w-0">
                     <p className="font-medium truncate">{member.user.name || member.user.email}</p>
@@ -198,6 +198,7 @@ export default function CampusStaffPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                       onClick={() => setPendingRemoval(member)}
                       aria-label={`Remove ${member.user.email}`}
                     >
