@@ -59,6 +59,24 @@ export type CollegeLeaderboardResponse = {
   nextCursor: string | null;
 };
 
+export type CollegeRegistrationStatus = "registered" | "removed";
+
+export type CollegeRegistration = {
+  userId: string;
+  name: string | null;
+  email: string;
+  college: string | null;
+  graduationYear: number | null;
+  status: CollegeRegistrationStatus;
+  registeredAt: string;
+  removedAt: string | null;
+  restoredAt: string | null;
+};
+
+export type CollegeRegistrationsResponse = {
+  registrations: CollegeRegistration[];
+};
+
 /** Admin-facing view of the login handed to a college. */
 export type CollegeCredentials = {
   userId: string;

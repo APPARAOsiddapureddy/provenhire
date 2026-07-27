@@ -2267,12 +2267,27 @@ export async function recordWorkspaceCandidateDecision(
   });
 }
 
-export async function removeWorkspaceRegistration(
-  actor: WorkspaceActor,
+/**
+ * Actor performing a registration change. A college portal login is not a User row, so
+ * it carries `userId: null` for the FK columns and identifies itself in the audit detail.
+ */
+export type RegistrationActor = {
+  /** Must be a real User.id, or null for non-User actors such as a college login. */
+  userId: string | null;
+  /** Recorded in the audit trail when the actor has no User row. */
+  audit?: Record<string, unknown>;
+};
+
+/**
+ * Core removal, past authorization. Callers must have already checked that the actor may
+ * manage this workspace. `notify` is false for college-portal removals.
+ */
+export async function applyWorkspaceRegistrationRemoval(
   workspaceId: string,
   userId: string,
+  actor: RegistrationActor,
+  options: { notify: boolean },
 ) {
-  await assertCanManageWorkspace(actor, workspaceId);
   const registration = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`workspace_registration:${workspaceId}:${userId}`}))`;
     const existing = await tx.workspaceRegistration.findUnique({
@@ -2286,7 +2301,7 @@ export async function removeWorkspaceRegistration(
       data: {
         status: "removed",
         removedAt: new Date(),
-        removedByUserId: actor.id,
+        removedByUserId: actor.userId,
       },
     });
   });
@@ -2295,12 +2310,16 @@ export async function removeWorkspaceRegistration(
   await discardActiveWorkspaceRegistrationSqlAttempts(workspaceId, userId);
   await recordWorkspaceAuditEvent({
     workspaceId,
-    actorUserId: actor.id,
+    actorUserId: actor.userId ?? undefined,
     eventType: "registration.removed",
     targetUserId: userId,
-    detail: { registrationId: registration.id, removedAt: registration.removedAt },
+    detail: {
+      registrationId: registration.id,
+      removedAt: registration.removedAt,
+      ...(actor.audit ? { actor: actor.audit } : {}),
+    },
   });
-  if (registration.removedAt) {
+  if (options.notify && registration.removedAt) {
     const details = await prisma.workspaceRegistration.findUnique({
       where: { id: registration.id },
       include: {
@@ -2332,12 +2351,26 @@ export async function removeWorkspaceRegistration(
   return registration;
 }
 
-export async function restoreWorkspaceRegistration(
+export async function removeWorkspaceRegistration(
   actor: WorkspaceActor,
   workspaceId: string,
   userId: string,
 ) {
   await assertCanManageWorkspace(actor, workspaceId);
+  return applyWorkspaceRegistrationRemoval(
+    workspaceId,
+    userId,
+    { userId: actor.id },
+    { notify: true },
+  );
+}
+
+/** Core restore, past authorization. Never sends email, for any actor. */
+export async function applyWorkspaceRegistrationRestore(
+  workspaceId: string,
+  userId: string,
+  actor: RegistrationActor,
+) {
   const registration = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`workspace_registration:${workspaceId}:${userId}`}))`;
     const existing = await tx.workspaceRegistration.findUnique({
@@ -2353,18 +2386,33 @@ export async function restoreWorkspaceRegistration(
         removedAt: null,
         removedByUserId: null,
         restoredAt: new Date(),
-        restoredByUserId: actor.id,
+        restoredByUserId: actor.userId,
       },
     });
   });
   await recordWorkspaceAuditEvent({
     workspaceId,
-    actorUserId: actor.id,
+    actorUserId: actor.userId ?? undefined,
     eventType: "registration.restored",
     targetUserId: userId,
-    detail: { registrationId: registration.id, restoredAt: registration.restoredAt },
+    detail: {
+      registrationId: registration.id,
+      restoredAt: registration.restoredAt,
+      ...(actor.audit ? { actor: actor.audit } : {}),
+    },
   });
   return registration;
+}
+
+export async function restoreWorkspaceRegistration(
+  actor: WorkspaceActor,
+  workspaceId: string,
+  userId: string,
+) {
+  await assertCanManageWorkspace(actor, workspaceId);
+  return applyWorkspaceRegistrationRestore(workspaceId, userId, {
+    userId: actor.id,
+  });
 }
 
 export async function listWorkspaceMembers(

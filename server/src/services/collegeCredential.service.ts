@@ -1,6 +1,10 @@
 import bcrypt from "bcrypt";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
+import {
+  applyWorkspaceRegistrationRemoval,
+  applyWorkspaceRegistrationRestore,
+} from "./workspaceRegistration.service.js";
 
 const COLLEGE_EMAIL_DOMAIN = "provenhire.in";
 const COLLEGE_PASSWORD_SUFFIX = "123456";
@@ -138,6 +142,118 @@ export async function getCollegeWorkspaceDetails(workspaceId: string) {
     throw new CollegeCredentialServiceError("Workspace not found.", 404);
   }
   return workspace;
+}
+
+/**
+ * Candidates who joined the college's own workspace. `q` filters on name or email.
+ * The workspaceId always comes from the authenticated credential, never from input.
+ */
+export async function listCollegeWorkspaceRegistrations(
+  workspaceId: string,
+  q?: string,
+) {
+  const search = q?.trim();
+  const where: Prisma.WorkspaceRegistrationWhereInput = { workspaceId };
+  if (search) {
+    where.user = {
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        {
+          jobSeekerProfile: {
+            fullName: { contains: search, mode: "insensitive" },
+          },
+        },
+      ],
+    };
+  }
+
+  const registrations = await prisma.workspaceRegistration.findMany({
+    where,
+    orderBy: [{ status: "asc" }, { registeredAt: "desc" }],
+    select: {
+      id: true,
+      userId: true,
+      status: true,
+      registeredAt: true,
+      removedAt: true,
+      restoredAt: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          jobSeekerProfile: {
+            select: { fullName: true, college: true, graduationYear: true },
+          },
+        },
+      },
+    },
+  });
+
+  return registrations.map((registration) => ({
+    userId: registration.userId,
+    name:
+      registration.user.jobSeekerProfile?.fullName ||
+      registration.user.name ||
+      null,
+    email: registration.user.email,
+    college: registration.user.jobSeekerProfile?.college ?? null,
+    graduationYear: registration.user.jobSeekerProfile?.graduationYear ?? null,
+    status: registration.status,
+    registeredAt: registration.registeredAt,
+    removedAt: registration.removedAt,
+    restoredAt: registration.restoredAt,
+  }));
+}
+
+/**
+ * Confirms the target registration belongs to this college's workspace. This is what
+ * stops a college from acting on a candidate in someone else's workspace.
+ */
+async function assertRegistrationBelongsToWorkspace(
+  workspaceId: string,
+  targetUserId: string,
+) {
+  const registration = await prisma.workspaceRegistration.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    select: { id: true },
+  });
+  if (!registration) {
+    throw new CollegeCredentialServiceError(
+      "This candidate is not registered in your workspace.",
+      404,
+    );
+  }
+  return registration;
+}
+
+export async function removeCollegeWorkspaceRegistration(
+  workspaceId: string,
+  collegeUserId: string,
+  targetUserId: string,
+) {
+  await assertRegistrationBelongsToWorkspace(workspaceId, targetUserId);
+  // A college login has no User row, so the FK columns stay null and the actor is
+  // identified in the audit detail instead. Colleges never trigger the removal email.
+  return applyWorkspaceRegistrationRemoval(
+    workspaceId,
+    targetUserId,
+    { userId: null, audit: { type: "college", userId: collegeUserId } },
+    { notify: false },
+  );
+}
+
+export async function restoreCollegeWorkspaceRegistration(
+  workspaceId: string,
+  collegeUserId: string,
+  targetUserId: string,
+) {
+  await assertRegistrationBelongsToWorkspace(workspaceId, targetUserId);
+  return applyWorkspaceRegistrationRestore(workspaceId, targetUserId, {
+    userId: null,
+    audit: { type: "college", userId: collegeUserId },
+  });
 }
 
 /**

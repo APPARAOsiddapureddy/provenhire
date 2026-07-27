@@ -101,4 +101,6 @@ export const collegeApi = {
       method: "POST",
       body: JSON.stringify(payload ?? {}),
     }),
+  delete: <T>(path: string, options?: RequestInit) =>
+    request<T>(path, { ...options, method: "DELETE" }),
 };

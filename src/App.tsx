@@ -318,6 +318,15 @@ const App = () => (
               {/* College portal: standalone, reached only via the URL an admin shares. */}
               <Route path="/c/login" element={<CollegeLoginPage />} />
               <Route path="/c/workspace" element={<CollegeWorkspacePage />} />
+              {/* Friendlier aliases so a typed /college/... URL still lands. */}
+              <Route
+                path="/college/login"
+                element={<Navigate to="/c/login" replace />}
+              />
+              <Route
+                path="/college/workspace"
+                element={<Navigate to="/c/workspace" replace />}
+              />
               <Route
                 path="/local-preview/workspace"
                 element={

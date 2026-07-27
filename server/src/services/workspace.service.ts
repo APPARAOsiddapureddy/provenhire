@@ -769,6 +769,23 @@ export async function startWorkspace(
     where: { id: workspaceId, ...(await ownerWhere(creator)) },
   });
   if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  return applyWorkspaceStart(workspace, { userId: creator.id });
+}
+
+/**
+ * Actor for a lifecycle transition. A college portal login has no User row, so it passes
+ * `userId: null` and identifies itself through `audit`.
+ */
+export type WorkspaceLifecycleActor = {
+  userId: string | null;
+  audit?: Record<string, unknown>;
+};
+
+/** Core start, past authorization. Callers must have already resolved the workspace. */
+export async function applyWorkspaceStart(
+  workspace: Workspace,
+  actor: WorkspaceLifecycleActor,
+) {
   if (workspace.status === "started") return workspace;
   if (workspace.status !== "published") {
     throw new WorkspaceServiceError(
@@ -793,20 +810,18 @@ export async function startWorkspace(
   });
   await recordWorkspaceAuditEvent({
     workspaceId: workspace.id,
-    actorUserId: creator.id,
+    actorUserId: actor.userId ?? undefined,
     eventType: "workspace.started",
+    ...(actor.audit ? { detail: { actor: actor.audit } } : {}),
   });
   return started;
 }
 
-export async function endWorkspace(
-  creator: WorkspaceCreator,
-  workspaceId: string,
+/** Core end, past authorization. Finalizes every in-flight attempt. */
+export async function applyWorkspaceEnd(
+  workspace: Workspace,
+  actor: WorkspaceLifecycleActor,
 ) {
-  const workspace = await prisma.workspace.findFirst({
-    where: { id: workspaceId, ...(await ownerWhere(creator)) },
-  });
-  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
   if (workspace.status === "ended") return workspace;
   if (workspace.status !== "started") {
     throw new WorkspaceServiceError("Only a started workspace can be ended.", 409);
@@ -820,11 +835,25 @@ export async function endWorkspace(
   await finalizeActiveWorkspaceSqlAttempts(workspace.id);
   await recordWorkspaceAuditEvent({
     workspaceId: workspace.id,
-    actorUserId: creator.id,
+    actorUserId: actor.userId ?? undefined,
     eventType: "workspace.ended",
-    detail: { endedAt: ended.endAt },
+    detail: {
+      endedAt: ended.endAt,
+      ...(actor.audit ? { actor: actor.audit } : {}),
+    },
   });
   return ended;
+}
+
+export async function endWorkspace(
+  creator: WorkspaceCreator,
+  workspaceId: string,
+) {
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, ...(await ownerWhere(creator)) },
+  });
+  if (!workspace) throw new WorkspaceServiceError("Workspace not found.", 404);
+  return applyWorkspaceEnd(workspace, { userId: creator.id });
 }
 
 export async function archiveWorkspace(

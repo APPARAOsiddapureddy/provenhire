@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GraduationCap, LogOut } from "lucide-react";
+import { GraduationCap, LogOut, Play, Square } from "lucide-react";
 import { toast } from "sonner";
 import {
   clearCollegeSession,
@@ -13,7 +13,9 @@ import {
   hasCollegeToken,
   type CollegeApiError,
 } from "@/lib/collegeApi";
+import CollegeConfirmModal from "./CollegeConfirmModal";
 import CollegeLeaderboardTab from "./CollegeLeaderboardTab";
+import CollegeRegistrationsTab from "./CollegeRegistrationsTab";
 import CollegeWorkspaceDetailsTab from "./CollegeWorkspaceDetailsTab";
 import type {
   CollegeWorkspace,
@@ -42,6 +44,10 @@ export default function CollegeWorkspacePage() {
   const [workspace, setWorkspace] = useState<CollegeWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("details");
+  const [lifecycleAction, setLifecycleAction] = useState<"start" | "end" | null>(
+    null,
+  );
+  const [lifecycleSubmitting, setLifecycleSubmitting] = useState(false);
   const session = getCollegeSession();
 
   const signOut = useCallback(
@@ -53,32 +59,53 @@ export default function CollegeWorkspacePage() {
     [navigate],
   );
 
+  const loadWorkspace = useCallback(async () => {
+    try {
+      const res = await collegeApi.get<CollegeWorkspaceResponse>("/api/college/me");
+      setWorkspace(res.workspace);
+    } catch (error) {
+      const err = error as CollegeApiError;
+      if (err.status === 401 || err.code === "ACCOUNT_INACTIVE") {
+        signOut("Your session has ended. Please sign in again.");
+        return;
+      }
+      toast.error(err.message || "Failed to load workspace");
+    } finally {
+      setLoading(false);
+    }
+  }, [signOut]);
+
   useEffect(() => {
     if (!hasCollegeToken()) {
       navigate("/c/login", { replace: true });
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await collegeApi.get<CollegeWorkspaceResponse>("/api/college/me");
-        if (!cancelled) setWorkspace(res.workspace);
-      } catch (error) {
-        if (cancelled) return;
-        const err = error as CollegeApiError;
-        if (err.status === 401 || err.code === "ACCOUNT_INACTIVE") {
-          signOut("Your session has ended. Please sign in again.");
-          return;
-        }
-        toast.error(err.message || "Failed to load workspace");
-      } finally {
-        if (!cancelled) setLoading(false);
+    void loadWorkspace();
+  }, [navigate, loadWorkspace]);
+
+  const runLifecycleAction = async () => {
+    if (!lifecycleAction) return;
+    setLifecycleSubmitting(true);
+    try {
+      await collegeApi.post(`/api/college/workspace/${lifecycleAction}`);
+      toast.success(
+        lifecycleAction === "start"
+          ? "Workspace is now open for attempts."
+          : "Workspace ended.",
+      );
+      setLifecycleAction(null);
+      await loadWorkspace();
+    } catch (error) {
+      const err = error as CollegeApiError;
+      if (err.status === 401 || err.code === "ACCOUNT_INACTIVE") {
+        signOut("Your session has ended. Please sign in again.");
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [navigate, signOut]);
+      toast.error(err.message || "Action failed");
+    } finally {
+      setLifecycleSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -124,10 +151,26 @@ export default function CollegeWorkspacePage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Badge className={STATUS_CLASS[workspace.status]}>
               {STATUS_LABEL[workspace.status]}
             </Badge>
+            {workspace.status === "published" && (
+              <Button size="sm" onClick={() => setLifecycleAction("start")}>
+                <Play className="mr-2 h-4 w-4" aria-hidden />
+                Start
+              </Button>
+            )}
+            {workspace.status === "started" && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setLifecycleAction("end")}
+              >
+                <Square className="mr-2 h-4 w-4" aria-hidden />
+                End
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => signOut()}>
               <LogOut className="mr-2 h-4 w-4" aria-hidden />
               Sign out
@@ -141,6 +184,7 @@ export default function CollegeWorkspacePage() {
           <TabsList>
             <TabsTrigger value="details">Workspace Details</TabsTrigger>
             <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
+            <TabsTrigger value="users">Joined Users</TabsTrigger>
           </TabsList>
           <TabsContent value="details" className="mt-6">
             <CollegeWorkspaceDetailsTab workspace={workspace} />
@@ -153,8 +197,38 @@ export default function CollegeWorkspacePage() {
               }
             />
           </TabsContent>
+          <TabsContent value="users" className="mt-6">
+            <CollegeRegistrationsTab
+              active={tab === "users"}
+              onUnauthorized={() =>
+                signOut("Your session has ended. Please sign in again.")
+              }
+            />
+          </TabsContent>
         </Tabs>
       </main>
+
+      <CollegeConfirmModal
+        open={lifecycleAction !== null}
+        title={
+          lifecycleAction === "start"
+            ? "Start this workspace?"
+            : "End this workspace?"
+        }
+        description={
+          lifecycleAction === "start"
+            ? "Registered candidates will be able to begin their assigned rounds."
+            : "Every assessment still in progress will be submitted and scored as-is. This cannot be undone."
+        }
+        confirmLabel="Yes"
+        cancelLabel="No"
+        variant={lifecycleAction === "end" ? "destructive" : "default"}
+        loading={lifecycleSubmitting}
+        onOpenChange={(open) => {
+          if (!open) setLifecycleAction(null);
+        }}
+        onConfirm={runLifecycleAction}
+      />
     </div>
   );
 }

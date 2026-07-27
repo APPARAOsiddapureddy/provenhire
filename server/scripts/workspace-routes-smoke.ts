@@ -108,6 +108,7 @@ async function main() {
   await new Promise((resolve) => server.once("listening", resolve));
 
   const cleanup: string[] = [];
+  const userCleanup: string[] = [];
 
   try {
     console.log("\n[A] Collection routes");
@@ -198,6 +199,153 @@ async function main() {
     const board = await call("GET", "/api/college/leaderboard", undefined, collegeToken);
     check("college leaderboard responds", board.status === 200, board);
 
+    console.log("\n[D2] Joined-users tab: list, search, remove, restore");
+    // Two candidates in this workspace, plus one in a second workspace to prove isolation.
+    const otherWs = await call(
+      "POST",
+      "/api/workspaces",
+      workspaceInput("Other Drive", "Other College"),
+    );
+    cleanup.push(otherWs.body?.workspace?.id);
+
+    const candidates = await Promise.all(
+      ["alice.smoke", "bob.smoke", "carol.smoke"].map((handle, index) =>
+        prisma.user.create({
+          data: {
+            email: `${handle}.${Date.now()}@example.com`,
+            name: index === 0 ? "Alice Smoke" : index === 1 ? "Bob Smoke" : "Carol Other",
+            passwordHash: "x",
+            role: "jobseeker",
+          },
+        }),
+      ),
+    );
+    userCleanup.push(...candidates.map((candidate) => candidate.id));
+    await prisma.workspaceRegistration.createMany({
+      data: [
+        { workspaceId: ws.id, userId: candidates[0].id },
+        { workspaceId: ws.id, userId: candidates[1].id },
+        { workspaceId: otherWs.body.workspace.id, userId: candidates[2].id },
+      ],
+    });
+
+    const listed = await call("GET", "/api/college/registrations", undefined, collegeToken);
+    check("GET /api/college/registrations returns 200", listed.status === 200, listed);
+    check(
+      "lists only this workspace's candidates",
+      listed.body?.registrations?.length === 2 &&
+        !listed.body.registrations.some((r: any) => r.userId === candidates[2].id),
+      listed.body?.registrations,
+    );
+
+    const searched = await call(
+      "GET",
+      "/api/college/registrations?q=alice",
+      undefined,
+      collegeToken,
+    );
+    check(
+      "search filters by name",
+      searched.body?.registrations?.length === 1 &&
+        searched.body.registrations[0].userId === candidates[0].id,
+      searched.body?.registrations,
+    );
+
+    const searchedEmail = await call(
+      "GET",
+      `/api/college/registrations?q=${encodeURIComponent(candidates[1].email)}`,
+      undefined,
+      collegeToken,
+    );
+    check(
+      "search filters by email",
+      searchedEmail.body?.registrations?.length === 1,
+      searchedEmail.body?.registrations,
+    );
+
+    const crossDelete = await call(
+      "DELETE",
+      `/api/college/registrations/${candidates[2].id}`,
+      undefined,
+      collegeToken,
+    );
+    check(
+      "cannot remove a candidate from another workspace",
+      crossDelete.status === 404,
+      crossDelete,
+    );
+    check(
+      "the other workspace's registration is untouched",
+      (
+        await prisma.workspaceRegistration.findUnique({
+          where: {
+            workspaceId_userId: {
+              workspaceId: otherWs.body.workspace.id,
+              userId: candidates[2].id,
+            },
+          },
+        })
+      )?.status === "registered",
+    );
+
+    const removed = await call(
+      "DELETE",
+      `/api/college/registrations/${candidates[0].id}`,
+      undefined,
+      collegeToken,
+    );
+    check("DELETE own candidate returns 200", removed.status === 200, removed);
+    const removedRow = await prisma.workspaceRegistration.findUnique({
+      where: { workspaceId_userId: { workspaceId: ws.id, userId: candidates[0].id } },
+    });
+    check("removal is soft (row kept, status removed)", removedRow?.status === "removed");
+    check(
+      "removedByUserId stays null for a college actor",
+      removedRow?.removedByUserId === null,
+      removedRow?.removedByUserId,
+    );
+    const removalAudit = await prisma.workspaceAuditEvent.findFirst({
+      where: { workspaceId: ws.id, eventType: "registration.removed" },
+    });
+    check(
+      "audit records the college as the actor",
+      (removalAudit?.detail as any)?.actor?.type === "college",
+      removalAudit?.detail,
+    );
+
+    const restored = await call(
+      "POST",
+      `/api/college/registrations/${candidates[0].id}/restore`,
+      {},
+      collegeToken,
+    );
+    check("POST restore returns 200", restored.status === 200, restored);
+    const restoredRow = await prisma.workspaceRegistration.findUnique({
+      where: { workspaceId_userId: { workspaceId: ws.id, userId: candidates[0].id } },
+    });
+    check("restore flips status back", restoredRow?.status === "registered");
+    check(
+      "restoredByUserId stays null for a college actor",
+      restoredRow?.restoredByUserId === null,
+    );
+
+    const crossRestore = await call(
+      "POST",
+      `/api/college/registrations/${candidates[2].id}/restore`,
+      {},
+      collegeToken,
+    );
+    check(
+      "cannot restore a candidate from another workspace",
+      crossRestore.status === 404,
+      crossRestore,
+    );
+
+    const noToken = await call("GET", "/api/college/registrations", undefined, "");
+    check("registrations require a college token", noToken.status === 401, noToken.status);
+    const asAdmin = await call("GET", "/api/college/registrations", undefined, adminToken);
+    check("an admin token cannot use it", asAdmin.status === 403, asAdmin.status);
+
     console.log("\n[E] Publish -> start -> end -> archive");
     const publish = await call("POST", `/api/workspaces/${ws.id}/publish`, {});
     check("POST /:id/publish returns 200", publish.status === 200, publish);
@@ -216,20 +364,135 @@ async function main() {
       deletePublished,
     );
 
-    const start = await call("POST", `/api/workspaces/${ws.id}/start`, {});
-    check("POST /:id/start returns 200", start.status === 200, start);
-
-    const archiveWhileStarted = await call("PATCH", `/api/workspaces/${ws.id}/status`, {
-      status: "archived",
+    console.log("\n[E2] The college can start and end its own workspace");
+    const collegeStart = await call(
+      "POST",
+      "/api/college/workspace/start",
+      {},
+      collegeToken,
+    );
+    check("college start returns 200", collegeStart.status === 200, collegeStart);
+    check(
+      "workspace is now started",
+      collegeStart.body?.workspace?.status === "started",
+      collegeStart.body?.workspace?.status,
+    );
+    const startAudit = await prisma.workspaceAuditEvent.findFirst({
+      where: { workspaceId: ws.id, eventType: "workspace.started" },
     });
+    check(
+      "start audit records the college with a null actorUserId",
+      startAudit?.actorUserId === null &&
+        (startAudit?.detail as any)?.actor?.type === "college",
+      { actorUserId: startAudit?.actorUserId, detail: startAudit?.detail },
+    );
+
+    const doubleStart = await call(
+      "POST",
+      "/api/college/workspace/start",
+      {},
+      collegeToken,
+    );
+    check("starting twice is a no-op, not an error", doubleStart.status === 200, doubleStart);
+
+    const collegeEnd = await call(
+      "POST",
+      "/api/college/workspace/end",
+      {},
+      collegeToken,
+    );
+    check("college end returns 200", collegeEnd.status === 200, collegeEnd);
+    check(
+      "workspace is now ended",
+      collegeEnd.body?.workspace?.status === "ended",
+      collegeEnd.body?.workspace?.status,
+    );
+    const endAudit = await prisma.workspaceAuditEvent.findFirst({
+      where: { workspaceId: ws.id, eventType: "workspace.ended" },
+    });
+    check(
+      "end audit records the college with a null actorUserId",
+      endAudit?.actorUserId === null &&
+        (endAudit?.detail as any)?.actor?.type === "college",
+      { actorUserId: endAudit?.actorUserId, detail: endAudit?.detail },
+    );
+
+    const endAgain = await call("POST", "/api/college/workspace/end", {}, collegeToken);
+    check("ending twice is a no-op", endAgain.status === 200, endAgain);
+
+    const startAfterEnd = await call(
+      "POST",
+      "/api/college/workspace/start",
+      {},
+      collegeToken,
+    );
+    check(
+      "an ended workspace cannot be restarted",
+      startAfterEnd.status === 409,
+      startAfterEnd,
+    );
+
+    const lifecycleNoToken = await call("POST", "/api/college/workspace/start", {}, "");
+    check(
+      "lifecycle routes require a college token",
+      lifecycleNoToken.status === 401,
+      lifecycleNoToken.status,
+    );
+    const lifecycleAsAdmin = await call(
+      "POST",
+      "/api/college/workspace/start",
+      {},
+      adminToken,
+    );
+    check(
+      "an admin token cannot use the college lifecycle routes",
+      lifecycleAsAdmin.status === 403,
+      lifecycleAsAdmin.status,
+    );
+
+    // Admin start/end must still behave exactly as before the refactor.
+    console.log("\n[E3] Admin start/end still works after the refactor");
+    const adminWs = await call(
+      "POST",
+      "/api/workspaces",
+      workspaceInput("Admin Lifecycle Drive", "Admin Lifecycle College"),
+    );
+    const adminWsId = adminWs.body?.workspace?.id;
+    cleanup.push(adminWsId);
+    await call("PUT", `/api/workspaces/${adminWsId}/rounds`, ROUNDS);
+    await call("POST", `/api/workspaces/${adminWsId}/publish`, {});
+    const start = await call("POST", `/api/workspaces/${adminWsId}/start`, {});
+    check("POST /:id/start returns 200", start.status === 200, start);
+    check(
+      "admin start records the admin as actor",
+      (
+        await prisma.workspaceAuditEvent.findFirst({
+          where: { workspaceId: adminWsId, eventType: "workspace.started" },
+        })
+      )?.actorUserId === admin.id,
+    );
+    // Checked here because adminWs is the workspace that is currently started.
+    const archiveWhileStarted = await call(
+      "PATCH",
+      `/api/workspaces/${adminWsId}/status`,
+      { status: "archived" },
+    );
     check(
       "archiving a started workspace is refused",
       archiveWhileStarted.status === 409,
       archiveWhileStarted,
     );
 
-    const end = await call("POST", `/api/workspaces/${ws.id}/end`, {});
-    check("POST /:id/end returns 200", end.status === 200, end);
+    const adminEnd = await call("POST", `/api/workspaces/${adminWsId}/end`, {});
+    check("admin end returns 200", adminEnd.status === 200, adminEnd);
+    check(
+      "admin end records the admin as actor",
+      (
+        await prisma.workspaceAuditEvent.findFirst({
+          where: { workspaceId: adminWsId, eventType: "workspace.ended" },
+        })
+      )?.actorUserId === admin.id,
+    );
 
     const stillWorks = await call("GET", "/api/college/me", undefined, collegeToken);
     check("college login still works after end", stillWorks.status === 200, stillWorks.status);
@@ -321,6 +584,7 @@ async function main() {
     );
   } finally {
     await prisma.workspace.deleteMany({ where: { id: { in: cleanup.filter(Boolean) } } });
+    await prisma.user.deleteMany({ where: { id: { in: userCleanup } } });
     server.close();
     await prisma.$disconnect();
   }
