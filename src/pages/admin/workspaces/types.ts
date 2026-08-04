@@ -18,6 +18,8 @@ export type WorkspaceRound = {
   questionCount: number;
   timeLimitMins: number;
   scoreWeightage: number;
+  /** Coding rounds only — the MCQ and SQL banks have no "Very Easy" tier. */
+  veryEasyCount: number;
   easyCount: number;
   mediumCount: number;
   hardCount: number;
@@ -444,6 +446,7 @@ export type WorkspaceRoundDraft = Omit<
   | "questionCount"
   | "timeLimitMins"
   | "scoreWeightage"
+  | "veryEasyCount"
   | "easyCount"
   | "mediumCount"
   | "hardCount"
@@ -451,6 +454,7 @@ export type WorkspaceRoundDraft = Omit<
   questionCount: string;
   timeLimitMins: string;
   scoreWeightage: string;
+  veryEasyCount: string;
   easyCount: string;
   mediumCount: string;
   hardCount: string;

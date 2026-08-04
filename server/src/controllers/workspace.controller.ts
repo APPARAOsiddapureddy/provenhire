@@ -72,6 +72,7 @@ const replaceRoundsSchema = z.object({
         questionCount: z.number().int().min(1).max(200),
         timeLimitMins: z.number().int().min(1).max(480),
         scoreWeightage: z.number().int().min(1).max(100),
+        veryEasyCount: z.number().int().min(0).max(200).default(0),
         easyCount: z.number().int().min(0).max(200).default(0),
         mediumCount: z.number().int().min(0).max(200).default(0),
         hardCount: z.number().int().min(0).max(200).default(0),

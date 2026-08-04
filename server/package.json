@@ -24,6 +24,7 @@
     "seed:feature-flags": "tsx prisma/seed-feature-flags.ts",
     "seed:skill-verifications": "tsx prisma/seed-skill-verifications.ts",
     "seed:dsa": "tsx prisma/seeds/dsaQuestions.seed.ts",
+    "seed:dsa-very-easy": "tsx prisma/seeds/dsaVeryEasyQuestions.seed.ts",
     "seed:data-round": "tsx prisma/seeds/dataRoundTasks.seed.ts",
     "seed:all": "npm run seed:dsa && npm run seed:data-round && npm run seed:skill-verifications",
     "dsa:judge0-smoke": "tsx scripts/dsa-starter-judge0-smoke.ts",

@@ -116,7 +116,7 @@ export default function CollegeWorkspaceDetailsTab({
                         {round.scoreWeightage}%
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {`E ${round.easyCount ?? 0} · M ${round.mediumCount ?? 0} · H ${round.hardCount ?? 0}`}
+                        {`${round.veryEasyCount ? `VE ${round.veryEasyCount} · ` : ""}E ${round.easyCount ?? 0} · M ${round.mediumCount ?? 0} · H ${round.hardCount ?? 0}`}
                       </TableCell>
                     </TableRow>
                   ))}

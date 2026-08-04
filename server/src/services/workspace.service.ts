@@ -42,6 +42,8 @@ export type WorkspaceRoundInput = {
   questionCount: number;
   timeLimitMins: number;
   scoreWeightage: number;
+  /** Coding rounds only; the MCQ and SQL banks have no "Very Easy" tier. */
+  veryEasyCount?: number;
   easyCount: number;
   mediumCount: number;
   hardCount: number;
@@ -286,8 +288,16 @@ function validateRounds(
   }
 
   for (const round of rounds) {
+    const veryEasyCount = round.veryEasyCount ?? 0;
+    // Only the DSA bank is tagged "Very Easy"; asking for it on an MCQ or SQL round
+    // would silently select nothing.
+    if (veryEasyCount > 0 && round.type !== "coding") {
+      throw new WorkspaceServiceError(
+        `Very Easy questions are only available for coding rounds (round ${round.order}).`,
+      );
+    }
     const distributionTotal =
-      round.easyCount + round.mediumCount + round.hardCount;
+      veryEasyCount + round.easyCount + round.mediumCount + round.hardCount;
     if (distributionTotal !== round.questionCount) {
       throw new WorkspaceServiceError(
         `Difficulty counts must add up to question count for round ${round.order}.`,
@@ -587,6 +597,7 @@ export async function replaceWorkspaceRounds(
         questionCount: round.questionCount,
         timeLimitMins: round.timeLimitMins,
         scoreWeightage: round.scoreWeightage,
+        veryEasyCount: round.veryEasyCount ?? 0,
         easyCount: round.easyCount,
         mediumCount: round.mediumCount,
         hardCount: round.hardCount,

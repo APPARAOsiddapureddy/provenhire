@@ -45,9 +45,26 @@ function prioritizeAuditableQuestions<T extends { _count: { testCases: number } 
   return [...preferred, ...fallback];
 }
 
+/**
+ * Must match `DsaQuestion.difficulty` exactly — selection is a literal string match, so a
+ * casing drift here silently yields zero questions and falls through to filler.
+ */
+export const DSA_DIFFICULTY = {
+  VERY_EASY: "Very Easy",
+  EASY: "Easy",
+  MEDIUM: "Medium",
+  HARD: "Hard",
+} as const;
+
 async function selectDsaQuestions(
   tx: Prisma.TransactionClient,
-  round: { easyCount: number; mediumCount: number; hardCount: number; questionCount: number },
+  round: {
+    veryEasyCount?: number;
+    easyCount: number;
+    mediumCount: number;
+    hardCount: number;
+    questionCount: number;
+  },
 ) {
   const strict = process.env.STRICT_WORKSPACE_QUESTION_AVAILABILITY === "true";
   const selected: Array<{ id: string }> = [];
@@ -68,9 +85,10 @@ async function selectDsaQuestions(
     }
   };
 
-  await pick("Easy", round.easyCount);
-  await pick("Medium", round.mediumCount);
-  await pick("Hard", round.hardCount);
+  await pick(DSA_DIFFICULTY.VERY_EASY, round.veryEasyCount ?? 0);
+  await pick(DSA_DIFFICULTY.EASY, round.easyCount);
+  await pick(DSA_DIFFICULTY.MEDIUM, round.mediumCount);
+  await pick(DSA_DIFFICULTY.HARD, round.hardCount);
   if (selected.length < round.questionCount) {
     const fillers = await tx.dsaQuestion.findMany({
       where: { id: { notIn: Array.from(used) } },

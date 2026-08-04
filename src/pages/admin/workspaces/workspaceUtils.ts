@@ -109,6 +109,7 @@ export function defaultRound(order: number): WorkspaceRoundDraft {
     questionCount: "20",
     timeLimitMins: "30",
     scoreWeightage: "100",
+    veryEasyCount: "0",
     easyCount: "8",
     mediumCount: "8",
     hardCount: "4",
@@ -123,6 +124,7 @@ function roundToDraft(
     questionCount: String(round.questionCount),
     timeLimitMins: String(round.timeLimitMins),
     scoreWeightage: String(round.scoreWeightage),
+    veryEasyCount: String(round.veryEasyCount ?? 0),
     easyCount: String(round.easyCount),
     mediumCount: String(round.mediumCount),
     hardCount: String(round.hardCount),
@@ -175,6 +177,7 @@ export function roundsToPayload(
     const questionCount = parseIntegerDraft(round.questionCount, 1, 200);
     const timeLimitMins = parseIntegerDraft(round.timeLimitMins, 1, 480);
     const scoreWeightage = parseIntegerDraft(round.scoreWeightage, 1, 100);
+    const veryEasyCount = parseIntegerDraft(round.veryEasyCount, 0, 200);
     const easyCount = parseIntegerDraft(round.easyCount, 0, 200);
     const mediumCount = parseIntegerDraft(round.mediumCount, 0, 200);
     const hardCount = parseIntegerDraft(round.hardCount, 0, 200);
@@ -182,6 +185,7 @@ export function roundsToPayload(
       questionCount == null ||
       timeLimitMins == null ||
       scoreWeightage == null ||
+      veryEasyCount == null ||
       easyCount == null ||
       mediumCount == null ||
       hardCount == null
@@ -193,6 +197,8 @@ export function roundsToPayload(
       questionCount,
       timeLimitMins,
       scoreWeightage,
+      // Non-coding rounds must never carry a Very Easy count; the server rejects it.
+      veryEasyCount: round.type === "coding" ? veryEasyCount : 0,
       easyCount,
       mediumCount,
       hardCount,
@@ -247,7 +253,10 @@ export function validateRounds(
     if (round.timeLimitMins < 1)
       return `Round ${round.order} needs a positive time limit.`;
     const difficultyTotal =
-      round.easyCount + round.mediumCount + round.hardCount;
+      (round.veryEasyCount ?? 0) +
+      round.easyCount +
+      round.mediumCount +
+      round.hardCount;
     if (difficultyTotal !== round.questionCount) {
       return `Difficulty counts must add up to question count for round ${round.order}.`;
     }

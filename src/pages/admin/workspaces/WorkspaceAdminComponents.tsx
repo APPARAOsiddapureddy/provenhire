@@ -385,6 +385,10 @@ export function RoundConfigStep({
         <div className="grid grid-cols-1 lg:grid-cols-[220px,1fr] gap-5">
           <div className="space-y-2">
             {rounds.map((round) => {
+              const veryEasyCount =
+                round.type === "coding"
+                  ? (parseIntegerDraft(round.veryEasyCount, 0, 200) ?? 0)
+                  : 0;
               const easyCount = parseIntegerDraft(round.easyCount, 0, 200) ?? 0;
               const mediumCount =
                 parseIntegerDraft(round.mediumCount, 0, 200) ?? 0;
@@ -393,7 +397,8 @@ export function RoundConfigStep({
                 parseIntegerDraft(round.questionCount, 1, 200) ?? -1;
               const scoreWeightage =
                 parseIntegerDraft(round.scoreWeightage, 1, 100) ?? 0;
-              const difficultyTotal = easyCount + mediumCount + hardCount;
+              const difficultyTotal =
+                veryEasyCount + easyCount + mediumCount + hardCount;
               const valid =
                 round.name.trim() &&
                 difficultyTotal === questionCount &&
@@ -506,7 +511,22 @@ export function RoundConfigStep({
 
               <div>
                 <Label>Difficulty split</Label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                <div
+                  className={`grid grid-cols-1 gap-4 mt-2 ${
+                    active.type === "coding" ? "md:grid-cols-4" : "md:grid-cols-3"
+                  }`}
+                >
+                  {/* Only the DSA bank carries a "Very Easy" tier. */}
+                  {active.type === "coding" && (
+                    <NumberField
+                      label="Very Easy"
+                      value={active.veryEasyCount}
+                      disabled={locked}
+                      min={0}
+                      max={200}
+                      onChange={(veryEasyCount) => updateRound({ veryEasyCount })}
+                    />
+                  )}
                   <NumberField
                     label="Easy"
                     value={active.easyCount}
@@ -534,7 +554,10 @@ export function RoundConfigStep({
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
                   Current total:{" "}
-                  {(parseIntegerDraft(active.easyCount, 0, 200) ?? 0) +
+                  {(active.type === "coding"
+                    ? (parseIntegerDraft(active.veryEasyCount, 0, 200) ?? 0)
+                    : 0) +
+                    (parseIntegerDraft(active.easyCount, 0, 200) ?? 0) +
                     (parseIntegerDraft(active.mediumCount, 0, 200) ?? 0) +
                     (parseIntegerDraft(active.hardCount, 0, 200) ?? 0)}
                   /{active.questionCount || 0}
@@ -681,7 +704,10 @@ export function WorkspaceReviewStep({
         !!payloadRounds &&
         payloadRounds.every(
           (round) =>
-            round.easyCount + round.mediumCount + round.hardCount ===
+            (round.veryEasyCount ?? 0) +
+              round.easyCount +
+              round.mediumCount +
+              round.hardCount ===
             round.questionCount,
         ),
     },
@@ -757,6 +783,7 @@ export function WorkspaceReviewStep({
                     <TableCell>{round.timeLimitMins} min</TableCell>
                     <TableCell>{round.scoreWeightage}%</TableCell>
                     <TableCell>
+                      {round.veryEasyCount ? `VE${round.veryEasyCount} / ` : ""}
                       E{round.easyCount} / M{round.mediumCount} / H
                       {round.hardCount}
                     </TableCell>
@@ -1941,6 +1968,7 @@ export function WorkspaceRoundsTable({ rounds }: { rounds: WorkspaceRound[] }) {
                   <TableCell>{round.timeLimitMins} min</TableCell>
                   <TableCell>{round.scoreWeightage}%</TableCell>
                   <TableCell>
+                    {round.veryEasyCount ? `VE${round.veryEasyCount} / ` : ""}
                     E{round.easyCount} / M{round.mediumCount} / H
                     {round.hardCount}
                   </TableCell>

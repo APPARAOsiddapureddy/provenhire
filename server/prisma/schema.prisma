@@ -512,6 +512,8 @@ model WorkspaceRound {
   questionCount  Int
   timeLimitMins  Int
   scoreWeightage Int
+  /// Coding (DSA) rounds only — the MCQ and SQL banks have no "Very Easy" tier.
+  veryEasyCount  Int                   @default(0)
   easyCount      Int                   @default(0)
   mediumCount    Int                   @default(0)
   hardCount      Int                   @default(0)

@@ -11,6 +11,7 @@ export type UserWorkspaceRound = {
   timeLimitMins: number;
   scoreWeightage: number;
   questionType?: "random" | "fixed";
+  veryEasyCount?: number;
   easyCount?: number;
   mediumCount?: number;
   hardCount?: number;

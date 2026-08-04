@@ -346,6 +346,93 @@ async function main() {
     const asAdmin = await call("GET", "/api/college/registrations", undefined, adminToken);
     check("an admin token cannot use it", asAdmin.status === 403, asAdmin.status);
 
+    console.log("\n[D3] Very Easy difficulty tier (coding rounds only)");
+    const veWs = await call(
+      "POST",
+      "/api/workspaces",
+      workspaceInput("Very Easy Drive", "Very Easy College"),
+    );
+    const veWsId = veWs.body?.workspace?.id;
+    cleanup.push(veWsId);
+
+    const codingRound = {
+      rounds: [
+        {
+          order: 1,
+          name: "Coding",
+          type: "coding",
+          questionType: "random",
+          questionCount: 10,
+          timeLimitMins: 45,
+          scoreWeightage: 100,
+          veryEasyCount: 4,
+          easyCount: 3,
+          mediumCount: 2,
+          hardCount: 1,
+        },
+      ],
+    };
+    const savedCoding = await call(
+      "PUT",
+      `/api/workspaces/${veWsId}/rounds`,
+      codingRound,
+    );
+    check(
+      "a coding round accepts veryEasyCount",
+      savedCoding.status === 200,
+      savedCoding,
+    );
+    check(
+      "veryEasyCount is persisted and read back",
+      savedCoding.body?.rounds?.[0]?.veryEasyCount === 4,
+      savedCoding.body?.rounds?.[0],
+    );
+
+    const badTotal = await call("PUT", `/api/workspaces/${veWsId}/rounds`, {
+      rounds: [{ ...codingRound.rounds[0], veryEasyCount: 5 }],
+    });
+    check(
+      "the difficulty total now counts Very Easy",
+      badTotal.status === 400,
+      badTotal,
+    );
+
+    const veOnMcq = await call("PUT", `/api/workspaces/${veWsId}/rounds`, {
+      rounds: [
+        {
+          ...ROUNDS.rounds[0],
+          questionCount: 12,
+          veryEasyCount: 2,
+        },
+      ],
+    });
+    check(
+      "Very Easy is rejected on a non-coding round",
+      veOnMcq.status === 400,
+      veOnMcq,
+    );
+
+    const legacyRound = await call(
+      "PUT",
+      `/api/workspaces/${veWsId}/rounds`,
+      ROUNDS,
+    );
+    check(
+      "a round without veryEasyCount still saves (defaults to 0)",
+      legacyRound.status === 200 &&
+        legacyRound.body?.rounds?.[0]?.veryEasyCount === 0,
+      legacyRound.body?.rounds?.[0],
+    );
+
+    const vePool = await prisma.dsaQuestion.count({
+      where: { difficulty: "Very Easy" },
+    });
+    check(
+      "the Very Easy DSA pool is seeded and matches the selector's literal",
+      vePool > 0,
+      vePool,
+    );
+
     console.log("\n[E] Publish -> start -> end -> archive");
     const publish = await call("POST", `/api/workspaces/${ws.id}/publish`, {});
     check("POST /:id/publish returns 200", publish.status === 200, publish);
