@@ -21,7 +21,7 @@ import {
   sanitizeAntigravityReportForCandidate,
   sanitizeAssessmentGenerationForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
-  sanitizePlacementReportForCandidate,
+  sanitizePlacementReportEnvelopeForCandidate,
 } from "./candidateDossierSanitizer.js";
 import { assessmentEvidenceHash } from "./assessmentReportEvidence.service.js";
 import { createAntigravityReportAccessToken } from "./antigravityReportAccess.service.js";
@@ -2034,12 +2034,7 @@ export async function getWorkspaceCandidateDossier(
       }
     : null;
   const candidatePlacementReport = managerPlacementReport
-    ? {
-        ...managerPlacementReport,
-        report: sanitizePlacementReportForCandidate(
-          managerPlacementReport.report,
-        ),
-      }
+    ? sanitizePlacementReportEnvelopeForCandidate(managerPlacementReport)
     : null;
 
   return {

@@ -133,6 +133,28 @@ export function sanitizePlacementReportForCandidate(value: unknown) {
   };
 }
 
+/**
+ * Candidate dossiers must never inherit manager report links. The current
+ * placement report token is scoped to candidate/attempt identity but not to a
+ * report audience, so either external URL could be rewritten to reach the
+ * recruiter report. Keep the allowlisted coaching report inline and suppress
+ * both links until the report service enforces audience-specific access.
+ */
+export function sanitizePlacementReportEnvelopeForCandidate<T extends JsonRecord>(
+  value: T,
+): Omit<T, "reportUrl" | "candidateReportUrl" | "report"> & {
+  reportUrl: null;
+  candidateReportUrl: null;
+  report: ReturnType<typeof sanitizePlacementReportForCandidate>;
+} {
+  return {
+    ...value,
+    reportUrl: null,
+    candidateReportUrl: null,
+    report: sanitizePlacementReportForCandidate(value.report),
+  };
+}
+
 export function sanitizeAssessmentGenerationForCandidate(
   value: unknown,
   kind: "dsa" | "unified",
