@@ -5,6 +5,7 @@ import {
   sanitizeAntigravityReportForCandidate,
   sanitizeDsaWorkspaceEvidenceForCandidate,
   sanitizeAssessmentGenerationForCandidate,
+  sanitizePlacementReportEnvelopeForCandidate,
   sanitizePlacementReportForCandidate,
 } from "../src/services/candidateDossierSanitizer.js";
 import {
@@ -127,6 +128,23 @@ assert.equal(placementJson.includes("telemetrySummary"), false);
 assert.equal(placementJson.includes("Explained a concrete trade-off."), true);
 assert.equal(placementJson.includes("Useful but not comprehensive coverage."), true);
 assert.equal(placementJson.includes("recruiterOnlyCoverageNote"), false);
+
+const candidatePlacementEnvelope = sanitizePlacementReportEnvelopeForCandidate({
+  source: "placement_readiness",
+  reportUrl: "https://reports.example/report/attempt-1?access_token=shared-token",
+  candidateReportUrl:
+    "https://reports.example/report/attempt-1/candidate?access_token=shared-token",
+  report: {
+    scorecard: { overallScore: 82 },
+    hireRecommendation: "ADVANCE",
+  },
+});
+assert.equal(candidatePlacementEnvelope.reportUrl, null);
+assert.equal(candidatePlacementEnvelope.candidateReportUrl, null);
+assert.equal(
+  JSON.stringify(candidatePlacementEnvelope.report).includes("ADVANCE"),
+  false,
+);
 
 const candidateUnified = sanitizeAssessmentGenerationForCandidate(
   {
