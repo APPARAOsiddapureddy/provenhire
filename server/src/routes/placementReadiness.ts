@@ -150,6 +150,7 @@ placementReadinessRouter.post(
       github_links: profile?.githubUrl ? [profile.githubUrl] : [],
       target_role: attempt.workspace.targetRole,
       years_experience: String(profile?.experienceYears ?? 0),
+      interview_level: "level_1",
       return_url: returnUrl,
     };
 
